@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -41,6 +42,23 @@ def test_build_mooncake_pd_config_is_role_and_topology_explicit():
     }
 
 
+def test_build_mooncake_pd_config_adds_a5_local_comm_resource_path():
+    config = build_mooncake_pd_config(
+        role="kv_consumer",
+        engine_id="decode-0",
+        kv_port=30100,
+        prefill_dp_size=2,
+        prefill_tp_size=4,
+        decode_dp_size=4,
+        decode_tp_size=1,
+        ascend_local_comm_res_path="/etc/hixlep",
+    )
+
+    assert config["kv_connector_extra_config"][
+        "ascend_local_comm_res_path"
+    ] == "/etc/hixlep"
+
+
 @pytest.mark.parametrize(
     ("overrides", "message"),
     [
@@ -48,6 +66,7 @@ def test_build_mooncake_pd_config_is_role_and_topology_explicit():
         ({"engine_id": ""}, "engine_id"),
         ({"kv_port": 0}, "kv_port"),
         ({"decode_tp_size": 0}, "decode_tp_size"),
+        ({"ascend_local_comm_res_path": "relative"}, "must be absolute"),
     ],
 )
 def test_build_mooncake_pd_config_rejects_invalid_values(overrides, message):
@@ -91,6 +110,35 @@ def test_mooncake_pd_config_cli_outputs_compact_json():
 
     assert " " not in output.strip()
     assert json.loads(output)["kv_role"] == "kv_consumer"
+
+
+def test_mooncake_pd_config_cli_reads_a5_local_comm_resource_path_from_env():
+    output = subprocess.check_output(
+        [
+            sys.executable,
+            str(CONFIG_TOOL),
+            "--role",
+            "kv_producer",
+            "--engine-id",
+            "prefill-0",
+            "--kv-port",
+            "30000",
+            "--prefill-dp-size",
+            "2",
+            "--prefill-tp-size",
+            "4",
+            "--decode-dp-size",
+            "4",
+            "--decode-tp-size",
+            "1",
+        ],
+        env={**os.environ, "ASCEND_LOCAL_COMM_RES_PATH": "/etc/hixlep"},
+        text=True,
+    )
+
+    assert json.loads(output)["kv_connector_extra_config"][
+        "ascend_local_comm_res_path"
+    ] == "/etc/hixlep"
 
 
 def test_mooncake_pd_recipe_keeps_kv_transfer_off_ffn():
@@ -403,6 +451,7 @@ def test_mooncake_pd_manual_print_config_preserves_variant_and_role(
 def test_a5_pd_generator_creates_two_graph_u2_integration_points(tmp_path):
     site_template = (MANUAL_PD_DIR / "a5_site.env.example").read_text()
     assert 'MOONCAKE_JEMALLOC=""' in site_template
+    assert 'ASCEND_LOCAL_COMM_RES_PATH="/etc/hixlep"' in site_template
 
     site = tmp_path / "site.env"
     config_dir = tmp_path / "configs"
