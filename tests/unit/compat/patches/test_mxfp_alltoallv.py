@@ -48,6 +48,16 @@ def _install_fake_modules(monkeypatch: pytest.MonkeyPatch):
     )
     token_dispatcher.TokenDispatcherWithAll2AllV = TokenDispatcherWithAll2AllV
 
+    def vulnerable_byte_helper(payload, expert_indices, *, output_dtype):
+        payload_bytes = payload.reshape(payload.shape[0], -1).view(torch.int8)
+        permuted, reverse_mapping = torch_npu.npu_moe_token_permute(
+            payload_bytes,
+            expert_indices,
+        )
+        return permuted.view(output_dtype), reverse_mapping
+
+    token_dispatcher._permute_mxfp_byte_payload = vulnerable_byte_helper
+
     monkeypatch.setitem(sys.modules, "torch_npu", torch_npu)
     monkeypatch.setitem(sys.modules, "vllm_ascend", root)
     monkeypatch.setitem(sys.modules, "vllm_ascend.ops", ops)
@@ -117,10 +127,35 @@ def test_mxfp_alltoallv_patch_is_idempotent(mxfp_patch):
     assert dispatcher_cls._dispatch_postprocess is patched_postprocess
 
 
-def test_mxfp_alltoallv_patch_leaves_other_signatures_unchanged(mxfp_patch):
-    module, dispatcher_cls, _ = mxfp_patch
+def test_mxfp_byte_helper_accepts_empty_payload(mxfp_patch):
+    module, _, torch_npu = mxfp_patch
+    seen_shapes = []
 
-    def old_postprocess(
+    def permute(payload, expert_indices):
+        seen_shapes.append(tuple(payload.shape))
+        assert payload.dtype == torch.int8
+        assert expert_indices.numel() == 0
+        return payload, torch.empty((0,), dtype=torch.int32)
+
+    torch_npu.npu_moe_token_permute = permute
+    expert_indices = torch.empty((0,), dtype=torch.int32)
+    routed, reverse_mapping = module._permute_mxfp_byte_payload(
+        torch.empty((0, 3, 2), dtype=torch.uint8),
+        expert_indices,
+        output_dtype=torch.uint8,
+    )
+
+    assert seen_shapes == [(0, 6)]
+    assert routed.shape == (0, 3, 2)
+    assert reverse_mapping.shape == (0,)
+
+
+def test_mxfp_patch_replaces_f87_empty_payload_helper(mxfp_patch):
+    module, dispatcher_cls, torch_npu = mxfp_patch
+    token_dispatcher = sys.modules["vllm_ascend.ops.fused_moe.token_dispatcher"]
+    original_helper = token_dispatcher._permute_mxfp_byte_payload
+
+    def fixed_layout_postprocess(
         self,
         global_input_tokens,
         dynamic_scale_after_all2all,
@@ -137,10 +172,79 @@ def test_mxfp_alltoallv_patch_leaves_other_signatures_unchanged(mxfp_patch):
             scale_type,
         )
 
+    dispatcher_cls._dispatch_postprocess = fixed_layout_postprocess
+    assert module.apply_afd_mxfp_alltoallv_patch()
+    assert (
+        token_dispatcher._permute_mxfp_byte_payload is module._permute_mxfp_byte_payload
+    )
+    assert token_dispatcher._permute_mxfp_byte_payload is not original_helper
+
+    torch_npu.npu_moe_token_permute = lambda payload, indices: (
+        payload,
+        indices,
+    )
+    routed, _ = token_dispatcher._permute_mxfp_byte_payload(
+        torch.empty((0, 4), dtype=torch.uint8),
+        torch.empty((0,), dtype=torch.int32),
+        output_dtype=torch.uint8,
+    )
+    assert routed.shape == (0, 4)
+
+
+def test_mxfp_alltoallv_patch_leaves_other_signatures_unchanged(mxfp_patch):
+    module, dispatcher_cls, _ = mxfp_patch
+
+    def old_postprocess(
+        self,
+        global_input_tokens,
+        dynamic_scale_after_all2all,
+        global_input_tokens_local_experts_indices,
+        scale_type,
+    ):
+        del (
+            self,
+            global_input_tokens,
+            dynamic_scale_after_all2all,
+            global_input_tokens_local_experts_indices,
+            scale_type,
+        )
+
     dispatcher_cls._dispatch_postprocess = old_postprocess
 
     assert not module.apply_afd_mxfp_alltoallv_patch()
     assert dispatcher_cls._dispatch_postprocess is old_postprocess
+
+
+def test_mxfp_alltoallv_patch_leaves_fixed_helper_unchanged(mxfp_patch):
+    module, dispatcher_cls, _ = mxfp_patch
+    token_dispatcher = sys.modules["vllm_ascend.ops.fused_moe.token_dispatcher"]
+
+    def fixed_layout_postprocess(
+        self,
+        global_input_tokens,
+        dynamic_scale_after_all2all,
+        global_input_tokens_local_experts_indices,
+        with_quant,
+        scale_type,
+    ):
+        del (
+            self,
+            global_input_tokens,
+            dynamic_scale_after_all2all,
+            global_input_tokens_local_experts_indices,
+            with_quant,
+            scale_type,
+        )
+
+    def fixed_helper(payload, expert_indices, *, output_dtype):
+        del expert_indices, output_dtype
+        return payload
+
+    dispatcher_cls._dispatch_postprocess = fixed_layout_postprocess
+    token_dispatcher._permute_mxfp_byte_payload = fixed_helper
+
+    assert not module.apply_afd_mxfp_alltoallv_patch()
+    assert token_dispatcher._permute_mxfp_byte_payload is fixed_helper
 
 
 def test_mxfp_alltoallv_patch_preserves_non_quantized_path(mxfp_patch):

@@ -30,8 +30,8 @@ def apply_afd_mxfp_worker_resolution_patch() -> bool:
 
     The resolver wrapper preserves the exact upstream one-argument contract.
     Non-Ascend workers delegate without importing vLLM-Ascend. The dispatcher
-    patch itself checks the pinned 11ee4565 method signature, so other Ascend
-    revisions are left unchanged.
+    patch itself checks the pinned 11ee4565 method or f87f909 helper signature
+    and vulnerable source shape, so other Ascend revisions are left unchanged.
     """
 
     if hasattr(worker_base_module, _WORKER_RESOLVER_PATCH_ATTR):

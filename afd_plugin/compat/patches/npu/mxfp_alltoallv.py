@@ -1,24 +1,27 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: Copyright contributors to the AFD plugin project
-"""Preserve A5 MXFP scale layout during Ascend AllToAllV routing.
+"""Preserve A5 MXFP payloads during Ascend AllToAllV routing.
 
 Upstream source: ``vllm_ascend/ops/fused_moe/token_dispatcher.py`` at
-commit ``11ee45653b199a097805b87011824a81ffa51b95``.
+commits ``11ee45653b199a097805b87011824a81ffa51b95`` and
+``f87f909541974e09d8b09e3064e8e48ac203bad3``.
 
 Remove this compatibility patch after vLLM-Ascend routes MXFP token and scale
-payloads without collapsing the scale tensor consumed by grouped matmul.
+payloads without collapsing the scale tensor or ambiguously reshaping an empty
+payload.
 """
 
 from __future__ import annotations
 
 import inspect
 import logging
+import math
 
 import torch
 import torch_npu
-from vllm_ascend.ops.fused_moe.token_dispatcher import (
-    TokenDispatcherWithAll2AllV,
-)
+import vllm_ascend.ops.fused_moe.token_dispatcher as token_dispatcher_module
+
+TokenDispatcherWithAll2AllV = token_dispatcher_module.TokenDispatcherWithAll2AllV
 
 logger = logging.getLogger(__name__)
 
@@ -31,6 +34,19 @@ _TARGET_POSTPROCESS_PARAMETERS = (
     "with_quant",
     "dst_type",
     "scale_type",
+)
+_TARGET_FIXED_LAYOUT_POSTPROCESS_PARAMETERS = (
+    "self",
+    "global_input_tokens",
+    "dynamic_scale_after_all2all",
+    "global_input_tokens_local_experts_indices",
+    "with_quant",
+    "scale_type",
+)
+_TARGET_BYTE_HELPER_PARAMETERS = (
+    "payload",
+    "expert_indices",
+    "output_dtype",
 )
 
 
@@ -58,7 +74,10 @@ def _permute_mxfp_byte_payload(
         )
 
     trailing_shape = tuple(payload.shape[1:])
-    payload_bytes = payload.reshape(payload.shape[0], -1).view(torch.int8)
+    payload_bytes = payload.reshape(
+        payload.shape[0],
+        math.prod(trailing_shape),
+    ).view(torch.int8)
     permuted_bytes, reverse_mapping = torch_npu.npu_moe_token_permute(
         payload_bytes,
         expert_indices,
@@ -139,12 +158,21 @@ def _dispatch_postprocess(
     )
 
 
-def apply_afd_mxfp_alltoallv_patch() -> bool:
-    """Patch the affected vLLM-Ascend 11ee4565 dispatcher contract.
+def _has_ambiguous_empty_payload_reshape(helper) -> bool:
+    try:
+        source = inspect.getsource(helper)
+    except (OSError, TypeError):
+        return False
+    compact_source = "".join(source.split())
+    return "payload.reshape(payload.shape[0],-1)" in compact_source
 
-    Other dispatcher signatures are left unchanged. In particular, this keeps
-    the compatibility module from overriding older 3da28f9 or newer fixed
-    vLLM-Ascend implementations.
+
+def apply_afd_mxfp_alltoallv_patch() -> bool:
+    """Patch affected vLLM-Ascend 11ee4565 and f87f909 contracts.
+
+    The older contract needs the complete scale-layout compatibility method.
+    The f87f909 contract already has that fix, so only its empty-payload helper
+    is replaced. Other or already-fixed implementations are left unchanged.
     """
 
     if hasattr(TokenDispatcherWithAll2AllV, _MXFP_ALLTOALLV_PATCH_ATTR):
@@ -152,20 +180,46 @@ def apply_afd_mxfp_alltoallv_patch() -> bool:
 
     original_postprocess = TokenDispatcherWithAll2AllV._dispatch_postprocess
     parameter_names = tuple(inspect.signature(original_postprocess).parameters)
-    if parameter_names != _TARGET_POSTPROCESS_PARAMETERS:
+    if parameter_names == _TARGET_POSTPROCESS_PARAMETERS:
+        TokenDispatcherWithAll2AllV._dispatch_postprocess = _dispatch_postprocess
+        patch_state = ("postprocess", original_postprocess)
+        log_message = "AFD A5 MXFP AllToAllV scale-layout patch applied"
+    elif parameter_names == _TARGET_FIXED_LAYOUT_POSTPROCESS_PARAMETERS:
+        original_helper = getattr(
+            token_dispatcher_module,
+            "_permute_mxfp_byte_payload",
+            None,
+        )
+        helper_parameters = (
+            tuple(inspect.signature(original_helper).parameters)
+            if callable(original_helper)
+            else ()
+        )
+        if (
+            helper_parameters != _TARGET_BYTE_HELPER_PARAMETERS
+            or not _has_ambiguous_empty_payload_reshape(original_helper)
+        ):
+            logger.debug(
+                "AFD A5 MXFP empty-payload patch skipped for helper %s",
+                helper_parameters,
+            )
+            return False
+        token_dispatcher_module._permute_mxfp_byte_payload = _permute_mxfp_byte_payload
+        patch_state = ("byte_helper", original_helper)
+        log_message = "AFD A5 MXFP empty-payload compatibility patch applied"
+    else:
         logger.debug(
             "AFD A5 MXFP AllToAllV patch skipped for dispatcher signature %s",
             parameter_names,
         )
         return False
 
-    TokenDispatcherWithAll2AllV._dispatch_postprocess = _dispatch_postprocess
     setattr(
         TokenDispatcherWithAll2AllV,
         _MXFP_ALLTOALLV_PATCH_ATTR,
-        original_postprocess,
+        patch_state,
     )
-    logger.info("AFD A5 MXFP AllToAllV compatibility patch applied")
+    logger.info(log_message)
     return True
 
 
