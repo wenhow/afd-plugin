@@ -32,12 +32,15 @@ def _vllm_config(
     dsv4: bool = True,
     max_num_batched_tokens: int = 16,
     mtp: bool = False,
+    dspark: bool = False,
     mtp_draft_enforce_eager: bool = True,
     num_speculative_tokens: int = 1,
     enforce_eager: bool = True,
     tensor_parallel_size: int = 1,
     data_parallel_size: int = 1,
 ):
+    assert not (mtp and dspark)
+    draft_hf_config = SimpleNamespace(dspark_block_size=4) if dspark else None
     return SimpleNamespace(
         additional_config={"afd": {"connector_extra_config": {}}},
         parallel_config=SimpleNamespace(
@@ -66,8 +69,9 @@ def _vllm_config(
                 method="mtp",
                 enforce_eager=mtp_draft_enforce_eager,
                 num_speculative_tokens=num_speculative_tokens,
+                draft_model_config=SimpleNamespace(hf_config=draft_hf_config),
             )
-            if mtp
+            if mtp or dspark
             else None
         ),
     )
@@ -165,6 +169,20 @@ def test_p2p_hccl_factory_registration():
     assert connector.requires_input_ids is True
     assert connector.topology.role_rank == 0
     assert connector.is_initialized is False
+
+
+def test_p2p_hccl_keeps_dspark_draft_on_attention():
+    connector = P2pHcclAFDConnector(
+        0,
+        0,
+        _vllm_config(dspark=True, num_speculative_tokens=4),
+        _afd_config(role="attention"),
+        0,
+    )
+
+    assert connector.requires_mtp is False
+    assert connector.num_speculative_tokens == 0
+    assert connector.mtp_draft_graph_enabled is False
 
 
 @pytest.mark.parametrize(

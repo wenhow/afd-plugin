@@ -1752,6 +1752,40 @@ def test_npu_attention_full_draft_graph_capture_keeps_mtp_drafter():
     ]
 
 
+def test_npu_attention_load_model_keeps_dspark_drafter_local(monkeypatch):
+    _require_npu_runtime()
+    from afd_plugin.v1.worker.npu import attention_model_runner
+
+    calls = []
+
+    class FakeDSparkProposer:
+        pass
+
+    monkeypatch.setattr(
+        attention_model_runner,
+        "AscendDSparkProposer",
+        FakeDSparkProposer,
+    )
+    monkeypatch.setattr(
+        attention_model_runner.NPUModelRunner,
+        "load_model",
+        lambda self: calls.append("parent"),
+    )
+    runner = object.__new__(attention_model_runner.AFDNPUAttentionModelRunner)
+    runner.speculative_config = _dspark_speculative_config()
+    runner.drafter = FakeDSparkProposer()
+    runner.connector = object()
+    runner.vllm_config = SimpleNamespace(
+        parallel_config=SimpleNamespace(use_ubatching=False),
+    )
+    runner._configure_mtp_draft_graph = lambda: calls.append("configure_mtp")
+    runner._install_ascend_ubatch_wrapper = lambda: calls.append("install_ubatch")
+
+    runner.load_model()
+
+    assert calls == ["parent"]
+
+
 def test_npu_attention_full_draft_graph_enables_replay_synchronization():
     _require_npu_runtime()
     from vllm_ascend.compilation.acl_graph import ACLGraphWrapper
@@ -4932,6 +4966,19 @@ def _mtp_speculative_config(**overrides):
     return SimpleNamespace(**values)
 
 
+def _dspark_speculative_config(*, block_size=4, **overrides):
+    values = {
+        "method": "mtp",
+        "num_speculative_tokens": block_size,
+        "enforce_eager": True,
+        "draft_model_config": SimpleNamespace(
+            hf_config=SimpleNamespace(dspark_block_size=block_size),
+        ),
+    }
+    values.update(overrides)
+    return SimpleNamespace(**values)
+
+
 def _mooncake_pd_config(**overrides):
     values = {
         "kv_connector": "MooncakeHybridConnector",
@@ -5320,6 +5367,48 @@ def test_dsv4_feature_validation_accepts_mtp_m3_eager_u2_hccl_p2p():
     config.additional_config["afd"]["connector"] = "P2pHcclAFDConnector"
 
     fail_if_unsupported_npu_afd_features(config)
+
+
+def test_dsv4_feature_validation_accepts_matching_dspark_block_size():
+    config = _dsv4_config(
+        speculative_config=_dspark_speculative_config(block_size=4),
+    )
+    config.model_config.hf_config.num_nextn_predict_layers = 2
+    config.additional_config["afd"]["connector"] = "P2pHcclAFDConnector"
+
+    fail_if_unsupported_npu_afd_features(config)
+
+
+@pytest.mark.parametrize(
+    ("mutation", "message"),
+    [
+        (
+            lambda config: setattr(
+                config.speculative_config,
+                "num_speculative_tokens",
+                3,
+            ),
+            "num_speculative_tokens to match dspark_block_size",
+        ),
+        (
+            lambda config: setattr(
+                config.speculative_config,
+                "enforce_eager",
+                False,
+            ),
+            "DSpark eager execution requires draft enforce_eager=true",
+        ),
+    ],
+)
+def test_dsv4_feature_validation_rejects_invalid_dspark_modes(mutation, message):
+    config = _dsv4_config(
+        speculative_config=_dspark_speculative_config(block_size=4),
+    )
+    config.additional_config["afd"]["connector"] = "P2pHcclAFDConnector"
+    mutation(config)
+
+    with pytest.raises(RuntimeError, match=message):
+        fail_if_unsupported_npu_afd_features(config)
 
 
 def test_dsv4_feature_validation_accepts_graph_target_with_eager_mtp_draft():

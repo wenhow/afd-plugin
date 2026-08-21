@@ -116,7 +116,14 @@ def mtp_construction_env(monkeypatch, construction_env):
     return calls
 
 
-def _vllm_config(*, role: str, layer_count: int = 43, mtp: bool = False):
+def _vllm_config(
+    *,
+    role: str,
+    layer_count: int = 43,
+    mtp: bool = False,
+    dspark: bool = False,
+):
+    assert not (mtp and dspark)
     config = SimpleNamespace(
         hc_eps=1e-6,
         hc_mult=4,
@@ -132,6 +139,9 @@ def _vllm_config(*, role: str, layer_count: int = 43, mtp: bool = False):
         routed_scaling_factor=1.5,
         vocab_size=32,
     )
+    if dspark:
+        config.dspark_block_size = 2
+        config.dspark_target_layer_ids = [0, 2]
     return SimpleNamespace(
         additional_config={"afd": {"role": role}},
         cache_config=None,
@@ -147,7 +157,7 @@ def _vllm_config(*, role: str, layer_count: int = 43, mtp: bool = False):
                 num_speculative_tokens=1,
                 draft_model_config=SimpleNamespace(hf_config=config),
             )
-            if mtp
+            if mtp or dspark
             else None
         ),
     )
@@ -293,10 +303,31 @@ def test_attention_target_allocates_mtp_hidden_buffer_only_when_enabled(
     assert model._mtp_hidden_buffer.dtype == torch.bfloat16
 
 
-@pytest.mark.parametrize("mtp_enabled", [False, True])
+def test_attention_target_allocates_dspark_hidden_buffer_without_mtp(
+    monkeypatch,
+    construction_env,
+):
+    _patch_make_layers(monkeypatch)
+    model = adapter.AFDDeepseekV4Model(
+        vllm_config=_vllm_config(
+            role="attention",
+            layer_count=3,
+            dspark=True,
+        ),
+        prefix="model",
+    )
+
+    assert model.dspark_enabled is True
+    assert model.mtp_enabled is False
+    assert not hasattr(model, "_mtp_hidden_buffer")
+    assert model._dspark_hidden_buffer.shape == (8, 16)
+    assert model._dspark_hidden_buffer.dtype == torch.bfloat16
+
+
+@pytest.mark.parametrize("speculative_mode", [None, "mtp", "dspark"])
 def test_attention_layer_major_u2_runs_layer_then_stage(
     monkeypatch,
-    mtp_enabled,
+    speculative_mode,
 ):
     events = []
     active_context = [None]
@@ -349,9 +380,14 @@ def test_attention_layer_major_u2_runs_layer_then_stage(
     model = object.__new__(adapter.AFDDeepseekV4Model)
     nn.Module.__init__(model)
     model.afd_role = "attention"
-    model.mtp_enabled = mtp_enabled
-    if mtp_enabled:
+    model.mtp_enabled = speculative_mode == "mtp"
+    if model.mtp_enabled:
         model._mtp_hidden_buffer = torch.empty((3, 1), dtype=torch.float32)
+    model.dspark_enabled = speculative_mode == "dspark"
+    model._dspark_target_layer_ids = [0, 1] if model.dspark_enabled else []
+    model._dspark_target_layer_id_set = frozenset(model._dspark_target_layer_ids)
+    if model.dspark_enabled:
+        model._dspark_hidden_buffer = torch.empty((3, 2), dtype=torch.float32)
     model.hc_mult = 1
     model.start_layer = 0
     model.end_layer = 2
@@ -417,8 +453,14 @@ def test_attention_layer_major_u2_runs_layer_then_stage(
         metadata[stage_idx].context.forward_context.afd_layer_major_u2
         for stage_idx in range(2)
     )
-    if mtp_enabled:
+    if model.mtp_enabled:
         assert model._mtp_hidden_buffer.tolist() == [[4.0], [5.0], [13.0]]
+    if model.dspark_enabled:
+        assert model._dspark_hidden_buffer.tolist() == [
+            [2.0, 4.0],
+            [3.0, 5.0],
+            [11.0, 13.0],
+        ]
 
 
 @pytest.mark.parametrize("hybrid_dag", [True, False])
@@ -544,6 +586,10 @@ def test_attention_graph_u2_builds_stage_local_receive_dependencies(
     model.afd_role = "attention"
     model.config = SimpleNamespace(num_hidden_layers=2)
     model.mtp_enabled = False
+    model.dspark_enabled = True
+    model._dspark_target_layer_ids = [0, 1]
+    model._dspark_target_layer_id_set = frozenset(model._dspark_target_layer_ids)
+    model._dspark_hidden_buffer = torch.empty((3, 2), dtype=torch.float32)
     model.hc_mult = 1
     model.start_layer = 0
     model.end_layer = 2
@@ -585,6 +631,11 @@ def test_attention_graph_u2_builds_stage_local_receive_dependencies(
     assert [output.tolist() for output in outputs] == [
         [[24.0], [25.0]],
         [[33.0]],
+    ]
+    assert model._dspark_hidden_buffer.tolist() == [
+        [12.0, 24.0],
+        [13.0, 25.0],
+        [21.0, 33.0],
     ]
     schedule = [event for event in events if event[0] in {"compute", "send", "recv"}]
     assert schedule == [

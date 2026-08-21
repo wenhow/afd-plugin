@@ -15,6 +15,7 @@ from vllm.forward_context import get_forward_context, override_forward_context
 from vllm.logger import init_logger
 from vllm_ascend.models import deepseek_v4 as native
 from vllm_ascend.models import deepseek_v4_mtp as native_mtp
+from vllm_ascend.utils import is_dspark_config
 
 from afd_plugin.config import parse_afd_config
 from afd_plugin.model_executor.models.deepseek_v2 import (
@@ -66,7 +67,12 @@ def _uses_mtp(vllm_config: VllmConfig) -> bool:
     return (
         speculative_config is not None
         and getattr(speculative_config, "method", None) == "mtp"
+        and not is_dspark_config(vllm_config)
     )
+
+
+def _uses_dspark(vllm_config: VllmConfig) -> bool:
+    return is_dspark_config(vllm_config)
 
 
 def _iter_role_weights(
@@ -455,6 +461,24 @@ class AFDDeepseekV4Model(native.DeepseekV4Model):
                 dtype=vllm_config.model_config.dtype,
                 device=self.device,
             )
+        self.dspark_enabled = self.afd_role == "attention" and _uses_dspark(vllm_config)
+        self._dspark_target_layer_ids = (
+            list(getattr(config, "dspark_target_layer_ids", []) or [])
+            if self.dspark_enabled
+            else []
+        )
+        self._dspark_target_layer_id_set = frozenset(self._dspark_target_layer_ids)
+        if self.dspark_enabled:
+            if not self._dspark_target_layer_ids:
+                raise RuntimeError(
+                    "DeepSeek-V4 AFD DSpark requires dspark_target_layer_ids"
+                )
+            self._dspark_hidden_buffer = torch.empty(
+                vllm_config.scheduler_config.max_num_batched_tokens,
+                len(self._dspark_target_layer_ids) * config.hidden_size,
+                dtype=vllm_config.model_config.dtype,
+                device=self.device,
+            )
         # ### PATCH END
 
     def embed_input_ids(self, input_ids: torch.Tensor) -> torch.Tensor:
@@ -506,6 +530,7 @@ class AFDDeepseekV4Model(native.DeepseekV4Model):
 
         llama_4_scaling = None
         aux_hidden_states: list[torch.Tensor] = []
+        dspark_hiddens: list[torch.Tensor] = []
         if native.get_pp_group().is_first_rank:
             hidden_states = hidden_states.unsqueeze(1).repeat(1, self.hc_mult, 1)
 
@@ -518,10 +543,21 @@ class AFDDeepseekV4Model(native.DeepseekV4Model):
             )
             if layer.layer_idx + 1 in self.aux_hidden_state_layers:
                 aux_hidden_states.append(hidden_states.mean(dim=1))
+            if layer.layer_idx in self._dspark_target_layer_id_set:
+                dspark_hiddens.append(hidden_states.mean(dim=1))
 
         if self.mtp_enabled:
             mtp_hidden = hidden_states.flatten(1)
             self._mtp_hidden_buffer[: mtp_hidden.shape[0]].copy_(mtp_hidden)
+        if self.dspark_enabled:
+            if len(dspark_hiddens) != len(self._dspark_target_layer_ids):
+                raise RuntimeError(
+                    "DeepSeek-V4 AFD did not collect every DSpark target layer: "
+                    f"expected {self._dspark_target_layer_ids}, "
+                    f"collected {len(dspark_hiddens)} hidden states"
+                )
+            dspark_states = torch.cat(dspark_hiddens, dim=-1)
+            self._dspark_hidden_buffer[: dspark_states.shape[0]].copy_(dspark_states)
 
         if not native.get_pp_group().is_last_rank:
             return native.IntermediateTensors({"hidden_states": hidden_states})
@@ -590,6 +626,7 @@ class AFDDeepseekV4Model(native.DeepseekV4Model):
             tuple[torch.Tensor, torch.Tensor, torch.Tensor] | None
         ] = [None, None]
         aux_hidden_ubatches: list[list[torch.Tensor]] = [[], []]
+        dspark_hidden_ubatches: list[list[torch.Tensor]] = [[], []]
         require_idle()
         try:
             for item, forward_context in zip(
@@ -635,6 +672,7 @@ class AFDDeepseekV4Model(native.DeepseekV4Model):
                     pending_layers=pending_layers,
                     pending_continuations=pending_continuations,
                     aux_hidden_ubatches=aux_hidden_ubatches,
+                    dspark_hidden_ubatches=dspark_hidden_ubatches,
                 )
             else:
                 self._forward_ubatches_eager_pipeline(
@@ -646,6 +684,7 @@ class AFDDeepseekV4Model(native.DeepseekV4Model):
                     pending_layers=pending_layers,
                     pending_continuations=pending_continuations,
                     aux_hidden_ubatches=aux_hidden_ubatches,
+                    dspark_hidden_ubatches=dspark_hidden_ubatches,
                 )
         except BaseException:
             if callable(reset_pipeline):
@@ -665,6 +704,22 @@ class AFDDeepseekV4Model(native.DeepseekV4Model):
                 next_offset = buffer_offset + mtp_hidden.shape[0]
                 self._mtp_hidden_buffer[buffer_offset:next_offset].copy_(
                     mtp_hidden,
+                )
+                buffer_offset = next_offset
+        if self.dspark_enabled:
+            buffer_offset = 0
+            for stage_idx, dspark_hiddens in enumerate(dspark_hidden_ubatches):
+                if len(dspark_hiddens) != len(self._dspark_target_layer_ids):
+                    raise RuntimeError(
+                        "DeepSeek-V4 AFD did not collect every DSpark target "
+                        f"layer for stage {stage_idx}: expected "
+                        f"{self._dspark_target_layer_ids}, collected "
+                        f"{len(dspark_hiddens)} hidden states"
+                    )
+                dspark_states = torch.cat(dspark_hiddens, dim=-1)
+                next_offset = buffer_offset + dspark_states.shape[0]
+                self._dspark_hidden_buffer[buffer_offset:next_offset].copy_(
+                    dspark_states
                 )
                 buffer_offset = next_offset
 
@@ -699,6 +754,7 @@ class AFDDeepseekV4Model(native.DeepseekV4Model):
             tuple[torch.Tensor, torch.Tensor, torch.Tensor] | None
         ],
         aux_hidden_ubatches: list[list[torch.Tensor]],
+        dspark_hidden_ubatches: list[list[torch.Tensor]],
     ) -> None:
         llama_4_scaling = None
         layers = list(islice(self.layers, self.start_layer, self.end_layer))
@@ -729,6 +785,7 @@ class AFDDeepseekV4Model(native.DeepseekV4Model):
                             pending_layers,
                             pending_continuations,
                             aux_hidden_ubatches,
+                            dspark_hidden_ubatches,
                         )
                     if stage_diagnostics and layer.layer_idx in diagnostic_layers:
                         logger.warning(
@@ -775,6 +832,7 @@ class AFDDeepseekV4Model(native.DeepseekV4Model):
                     pending_layers,
                     pending_continuations,
                     aux_hidden_ubatches,
+                    dspark_hidden_ubatches,
                     final=True,
                 )
                 if stage_diagnostics:
@@ -797,6 +855,7 @@ class AFDDeepseekV4Model(native.DeepseekV4Model):
             tuple[torch.Tensor, torch.Tensor, torch.Tensor] | None
         ],
         aux_hidden_ubatches: list[list[torch.Tensor]],
+        dspark_hidden_ubatches: list[list[torch.Tensor]],
     ) -> None:
         compute_scope = getattr(connector, "attention_graph_compute", None)
         wait_for_compute = getattr(
@@ -879,6 +938,7 @@ class AFDDeepseekV4Model(native.DeepseekV4Model):
                         pending_layers,
                         pending_continuations,
                         aux_hidden_ubatches,
+                        dspark_hidden_ubatches,
                     )
                 hidden_states, continuation = (
                     layer.forward_attention_to_remote_ffn_input(
@@ -948,6 +1008,7 @@ class AFDDeepseekV4Model(native.DeepseekV4Model):
                             pending_layers,
                             pending_continuations,
                             aux_hidden_ubatches,
+                            dspark_hidden_ubatches,
                             final=True,
                         )
 
@@ -968,6 +1029,7 @@ class AFDDeepseekV4Model(native.DeepseekV4Model):
             tuple[torch.Tensor, torch.Tensor, torch.Tensor] | None
         ],
         aux_hidden_ubatches: list[list[torch.Tensor]],
+        dspark_hidden_ubatches: list[list[torch.Tensor]],
         *,
         final: bool = False,
     ) -> None:
@@ -985,6 +1047,10 @@ class AFDDeepseekV4Model(native.DeepseekV4Model):
         )
         if pending_layer.layer_idx + 1 in self.aux_hidden_state_layers:
             aux_hidden_ubatches[stage_idx].append(
+                hidden_ubatches[stage_idx].mean(dim=1)
+            )
+        if pending_layer.layer_idx in self._dspark_target_layer_id_set:
+            dspark_hidden_ubatches[stage_idx].append(
                 hidden_ubatches[stage_idx].mean(dim=1)
             )
 
@@ -1070,6 +1136,8 @@ class AFDDeepseekV4ForCausalLM(native.AscendDeepseekV4ForCausalLM):
     def get_mtp_target_hidden_states(self) -> torch.Tensor | None:
         if self.afd_role != "attention":
             return None
+        if getattr(self.model, "dspark_enabled", False):
+            return getattr(self.model, "_dspark_hidden_buffer", None)
         return getattr(self.model, "_mtp_hidden_buffer", None)
 
     def load_weights(self, weights: Iterable[tuple[str, torch.Tensor]]) -> set[str]:

@@ -1773,12 +1773,18 @@ class AFDNPUAttentionModelRunner(NPUModelRunner):
         if self.speculative_config is not None:
             if self.speculative_config.method != "mtp" or self.drafter is None:
                 raise RuntimeError("DSV4 AFD supports only an initialized MTP drafter")
-            draft_model = self.drafter.get_model()
-            attach_connector = getattr(draft_model, "attach_afd_connector", None)
-            if not callable(attach_connector):
-                raise RuntimeError("DSV4 AFD MTP draft model is not role-aware")
-            attach_connector(self.connector)
-            self._configure_mtp_draft_graph()
+            if isinstance(self.drafter, AscendDSparkProposer):
+                logger.info(
+                    "DeepSeek-V4 AFD keeps the complete DSpark draft model "
+                    "on the Attention worker"
+                )
+            else:
+                draft_model = self.drafter.get_model()
+                attach_connector = getattr(draft_model, "attach_afd_connector", None)
+                if not callable(attach_connector):
+                    raise RuntimeError("DSV4 AFD MTP draft model is not role-aware")
+                attach_connector(self.connector)
+                self._configure_mtp_draft_graph()
         if bool(self.vllm_config.parallel_config.use_ubatching):
             self._install_ascend_ubatch_wrapper()
 
