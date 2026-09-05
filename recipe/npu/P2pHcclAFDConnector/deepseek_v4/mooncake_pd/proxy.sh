@@ -14,6 +14,10 @@ read -r -a PREFILL_PORT_ARGS <<<"$PREFILL_PORTS"
 read -r -a DECODE_HOST_ARGS <<<"$DECODE_HOSTS"
 read -r -a DECODE_PORT_ARGS <<<"$DECODE_PORTS"
 
+# httpx trusts proxy environment variables by default.  AFD backends are
+# private-network services and must never be routed through an HTTP gateway.
+unset HTTP_PROXY HTTPS_PROXY ALL_PROXY http_proxy https_proxy all_proxy
+
 exec "$PYTHON_BIN" "$PROXY_SCRIPT" \
   --host "${PROXY_HOST:-0.0.0.0}" \
   --port "${PROXY_PORT:-9000}" \

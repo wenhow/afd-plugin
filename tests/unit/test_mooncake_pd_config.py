@@ -103,9 +103,30 @@ def test_mooncake_pd_recipe_keeps_kv_transfer_off_ffn():
     assert 'source "${ROOT_DIR}/tools/dsv4/check_mooncake_runtime.sh"' in attention
     assert 'export VLLM_HOST_IP="${VLLM_HOST_IP:-${HCCL_IF_IP}}"' in attention
     assert "--kv-transfer-config" not in ffn
+    for script in (attention, ffn):
+        assert '--shutdown-timeout "$VLLM_SHUTDOWN_TIMEOUT_SECONDS"' in script
+        assert (
+            "VLLM_SHUTDOWN_TIMEOUT_SECONDS="
+            '"${VLLM_SHUTDOWN_TIMEOUT_SECONDS:-0}"' in script
+        )
+    assert "--middleware" in attention
+    assert (
+        "afd_plugin.compat.npu.profile_api.afd_profile_control_middleware" in attention
+    )
     assert "--role kv_producer" in prefill
     assert 'source "${ROOT_DIR}/tools/dsv4/check_mooncake_runtime.sh"' in prefill
     assert 'export VLLM_HOST_IP="${VLLM_HOST_IP:-${HCCL_IF_IP}}"' in prefill
+
+
+def test_mooncake_pd_proxy_bypasses_environment_http_proxies():
+    proxy = (
+        ROOT_DIR / "recipe/npu/P2pHcclAFDConnector/deepseek_v4/mooncake_pd/proxy.sh"
+    ).read_text()
+
+    assert (
+        "unset HTTP_PROXY HTTPS_PROXY ALL_PROXY "
+        "http_proxy https_proxy all_proxy" in proxy
+    )
 
 
 def test_mooncake_pd_manual_entry_is_safe_and_size_capped():
@@ -152,6 +173,7 @@ def test_mooncake_pd_manual_entry_is_safe_and_size_capped():
     assert "batches.json recovery.json" in script
     assert 'tail -n 50 >"${temp_dir}/kv-transfer-evidence.txt"' in script
     assert 'tail -n 200 >"${temp_dir}/fatal-markers.txt"' in script
+    assert 'grep -EHn "${FATAL_PATTERN}"' in script
     assert "recipe/npu/deepseek_v4/common/validate_golden.py" in script
     assert "MOONCAKE_INSTALL_MODE:=wheel" in script
     assert 'MOONCAKE_INSTALL_MODE="existing"' in config
@@ -160,10 +182,11 @@ def test_mooncake_pd_manual_entry_is_safe_and_size_capped():
     )
     assert 'CODE_ROOT="/data/z00569729/code"' in config
     assert "CODE_ROOT:=/data/z00569729/code" in script
+    assert 'AFD_PD_COMMIT="CHANGE_ME"' in config
     assert "validate_afd_worktree" in script
-    assert "tools/dsv4/activate_runtime.sh" in script
+    assert "afd-plugin worktree must be clean" in script
     assert "tools/dsv4/check_mooncake_runtime.sh" in script
-    assert 'die "afd-plugin contains changes outside the delivered' in script
+    assert "contains changes outside the delivered overlay" not in script
     assert "run_as_root()" in script
     assert "run_as_root dnf install -y iproute" in script
     assert "run_as_root yum install -y iproute" in script
@@ -194,6 +217,31 @@ def test_mooncake_pd_manual_entry_is_safe_and_size_capped():
     assert 'MOONCAKE_LIBRARY_DIR=""' in config
     assert 'ATB_ROOT=""' in config
     assert "validate_cann_version" in script
+    assert 'kill -TERM "${pid}"' in script
+    assert "wait_for_profile_raw_completion" in script
+    assert "wait_for_profile_raw_started" in script
+    assert "profile_start_action" in script
+    assert "profile_check_action" in script
+    assert "profile_stop_action" in script
+    assert "The running service was not started with AFD_PROFILE_ENABLE=1" in script
+    assert '"${STATE_ROOT}/profile-session.env"' in script
+    assert '"${STATE_ROOT}/profile-started.env"' in script
+    assert '"${STATE_ROOT}/collect-final-gates.txt"' in script
+    profile_start = script.split("profile_start_action()", 1)[1].split(
+        "profile_check_action()", 1
+    )[0]
+    assert '--max-time "${AFD_PROFILE_START_TIMEOUT_SECONDS}"' in profile_start
+    assert "AFD_PROFILE_FINALIZE_TIMEOUT_SECONDS" not in profile_start
+    assert "profile-started.env.tmp.$$" in profile_start
+    assert profile_start.index("wait_for_profile_raw_started attention") < (
+        profile_start.index('mv "${started_tmp}"')
+    )
+    assert "Profile is not finalized; run profile-stop before stop" in script
+    assert '"http://127.0.0.1:${DECODE_API_PORT}/afd/profile/start"' in script
+    assert '"http://127.0.0.1:${DECODE_API_PORT}/afd/profile/stop"' in script
+    assert "end_info*.done" in script
+    assert "*/PROF_*/device_*/data/*" in script
+    assert "*/PROF_*/host/end_info.done" in script
     assert "resolve_atb_root" in script
     assert "CANN_ROOT is not 9.0.1" not in script
     assert "unset DSV4_CANN_ROOT" not in activation
@@ -212,6 +260,12 @@ def test_mooncake_pd_manual_entry_is_safe_and_size_capped():
     assert "NNAL/ATB runtime check failed" in runtime
     assert "libatb.so =>" in runtime
     assert 'ARTIFACT_LOG_TAIL_BYTES="262144"' in config
+    assert 'AFD_PROFILE_FINALIZE_TIMEOUT_SECONDS="300"' in config
+    assert 'AFD_PROFILE_VLLM_SHUTDOWN_TIMEOUT_SECONDS="240"' in config
+    assert (
+        "export VLLM_SHUTDOWN_TIMEOUT_SECONDS="
+        '"${AFD_PROFILE_VLLM_SHUTDOWN_TIMEOUT_SECONDS}"' in script
+    )
     assert 'ARTIFACT_MAX_BYTES="2097152"' in config
     assert 'PORT_SNAPSHOT_TIMEOUT_SECONDS="10"' in config
     assert "http://127.0.0.1:${FFN_PROCESS_PORT}" not in script
@@ -222,7 +276,7 @@ def test_mooncake_pd_manual_entry_is_safe_and_size_capped():
     assert "functional_smoke_action" in script
     assert "run_pd_functional_smoke.py" in script
     assert "golden_checked=0" in script
-    assert 'status=f0_functional_smoke_passed_no_golden' in script
+    assert "status=f0_functional_smoke_passed_no_golden" in script
     assert 'ALLOW_COLOCATED_PD_CONTROL="0"' in config
     assert "device_lists_are_disjoint" in script
     assert "validate_colocated_control_processes" in script
@@ -234,11 +288,13 @@ def test_mooncake_pd_manual_entry_is_safe_and_size_capped():
     assert 'parser.add_argument("--host", default="127.0.0.1")' in roundtrip
     assert 'parser.add_argument("--interface", default="lo")' in roundtrip
     assert "session_id = f\"{host}:{remote['rpc_port']}\"" in roundtrip
-    assert "UPDATE12_RUNBOOK_ZH.md" in script
-    assert "UPDATE11_RUNBOOK_ZH.md" in script
-    assert "UPDATE13_RUNBOOK_ZH.md" in script
     assert "VLLM_ASCEND_WORKTREE_MODE" in script
     assert "batch_invariant_patch" in script
+    vllm_ascend_worktree = script.split("validate_vllm_ascend_worktree()", 1)[1].split(
+        "validate_afd_worktree()", 1
+    )[0]
+    assert "--untracked-files=all" in vllm_ascend_worktree
+    assert "--untracked-files=no" not in vllm_ascend_worktree
     assert "cf97a0b6e509fbb128e847babbf8f01cc953f06cb3126936cc4111bbab60b897" in script
     assert "batch-invariant backend: OK" in script
 
@@ -279,10 +335,10 @@ def test_mooncake_pd_recipes_accept_dp4_tp2_without_relaxing_other_modes():
     control = control_path.read_text()
     manual = manual_path.read_text()
 
-    assert 'Mooncake PD M9 baseline requires eager/U1' not in attention
-    assert 'Mooncake PD M9 baseline requires MTP off' not in attention
-    assert '8:1|4:2)' in control
-    assert '8:1|4:2)' in manual
+    assert "Mooncake PD M9 baseline requires eager/U1" not in attention
+    assert "Mooncake PD M9 baseline requires MTP off" not in attention
+    assert "8:1|4:2)" in control
+    assert "8:1|4:2)" in manual
     assert 'export TENSOR_PARALLEL_SIZE="${DECODE_TP_SIZE}"' in manual
     assert 'export EXECUTION_MODE="${DECODE_EXECUTION_MODE}"' in manual
     assert 'export U_BATCHES="${DECODE_U_BATCHES}"' in manual

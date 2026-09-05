@@ -14,11 +14,15 @@ Actions:
   print-config  Print the non-secret effective role/topology configuration.
   install       Install M9 afd-plugin and optionally the delivered Mooncake wheel.
   check         Validate versions, runtime, network, NPUs, and local round-trip.
-  start         Start the configured prefill, decode, or proxy role.
+  start         Start the configured prefill, decode, split A/F, or proxy role.
   status        Check owned processes, readiness, and fatal log markers.
   smoke         Run F0 batch/cancellation/recovery checks without golden.
   record-control  Record a stable PD no-AFD control golden from the proxy.
   validate      Compare PD + AFD against the path-matched control golden.
+  profile-start  Explicitly start Attention/FFN profilers while serving.
+  profile-check  Verify that this node has entered raw CANN recording.
+  profile-stop   Stop profilers and verify raw CANN capture while serving.
+  profile-finalize  Backward-compatible alias for profile-stop.
   stop          Stop only process groups owned by this config.
   collect       Produce a redacted, size-capped support artifact.
 EOF
@@ -109,6 +113,7 @@ DEPLOYMENT_SLUG="${DEPLOYMENT_VARIANT//_/-}"
 : "${FFN_RANKS:=8}"
 : "${DECODE_DP_SIZE:=8}"
 : "${DECODE_TP_SIZE:=1}"
+: "${AFD_PLACEMENT:=colocated}"
 : "${DECODE_EXECUTION_MODE:=eager}"
 : "${DECODE_U_BATCHES:=1}"
 : "${DECODE_ENABLE_MTP:=0}"
@@ -120,6 +125,8 @@ DEPLOYMENT_SLUG="${DEPLOYMENT_VARIANT//_/-}"
 : "${DECODE_CUDAGRAPH_CAPTURE_SIZES:=1 2 4 8}"
 : "${MAX_MODEL_LEN:=4096}"
 : "${MAX_NUM_BATCHED_TOKENS:=4096}"
+: "${ATTENTION_MAX_NUM_BATCHED_TOKENS:=${MAX_NUM_BATCHED_TOKENS}}"
+: "${FFN_MAX_NUM_BATCHED_TOKENS:=${MAX_NUM_BATCHED_TOKENS}}"
 : "${MAX_NUM_SEQS:=16}"
 : "${GPU_MEMORY_UTILIZATION:=0.90}"
 : "${HCCL_BUFFSIZE:=2048}"
@@ -132,6 +139,9 @@ DEPLOYMENT_SLUG="${DEPLOYMENT_VARIANT//_/-}"
 : "${WAIT_READY:=1}"
 : "${STARTUP_TIMEOUT_SECONDS:=3600}"
 : "${STOP_TIMEOUT_SECONDS:=300}"
+: "${AFD_PROFILE_START_TIMEOUT_SECONDS:=60}"
+: "${AFD_PROFILE_FINALIZE_TIMEOUT_SECONDS:=300}"
+: "${AFD_PROFILE_VLLM_SHUTDOWN_TIMEOUT_SECONDS:=240}"
 : "${FORCE_KILL:=0}"
 : "${ALLOW_NPU_PROCESSES:=0}"
 : "${ALLOW_COLOCATED_PD_CONTROL:=0}"
@@ -139,6 +149,14 @@ DEPLOYMENT_SLUG="${DEPLOYMENT_VARIANT//_/-}"
 : "${VALIDATION_ROUNDS:=3}"
 : "${VALIDATION_BATCH_SIZES:=1 8 32}"
 : "${RUN_CANCELLATION_TEST:=1}"
+: "${AFD_PROFILE_ENABLE:=0}"
+: "${AFD_PROFILE_ATTENTION_DIR:=${RUN_ROOT}/profile/attention}"
+: "${AFD_PROFILE_FFN_DIR:=${RUN_ROOT}/profile/ffn}"
+: "${AFD_HCCL_GRAPH_U2_COMPUTE_OVERLAP:=1}"
+: "${AFD_HCCL_GRAPH_U2_HYBRID_DAG:=1}"
+: "${AFD_HCCL_GRAPH_U2_ATTENTION_THREE_STREAM:=1}"
+: "${AFD_HCCL_GRAPH_U2_FFN_RECV_STREAM:=1}"
+: "${AFD_HCCL_GRAPH_U2_FFN_CROSS_LAYER:=1}"
 : "${ARTIFACT_LOG_TAIL_BYTES:=262144}"
 : "${ARTIFACT_MAX_BYTES:=2097152}"
 : "${PORT_SNAPSHOT_TIMEOUT_SECONDS:=10}"
@@ -282,7 +300,7 @@ git_head() {
 validate_vllm_ascend_worktree() {
   local status diff_sha
   status="$(git -c safe.directory="${VLLM_ASCEND_ROOT}" \
-    -C "${VLLM_ASCEND_ROOT}" status --short --untracked-files=no)"
+    -C "${VLLM_ASCEND_ROOT}" status --short --untracked-files=all)"
   case "${VLLM_ASCEND_WORKTREE_MODE}" in
     clean)
       [[ -z "${status}" ]] || die "vLLM-Ascend worktree is dirty"
@@ -304,54 +322,20 @@ validate_vllm_ascend_worktree() {
 }
 
 validate_afd_worktree() {
-  local status line path
-  local unexpected=()
+  local status
   status="$(git -c safe.directory="${AFD_PLUGIN_ROOT}" \
     -C "${AFD_PLUGIN_ROOT}" status --short --untracked-files=all)"
-  [[ -n "${status}" ]] || return 0
-  while IFS= read -r line; do
-    path="${line:3}"
-    case "${path}" in
-      docs/npu/DEEPSEEK_V4_AFD_HCCL_P2P_INSTALL_DEPLOYMENT_GUIDE_ZH.md | \
-      docs/npu/DEEPSEEK_V4_AFD_A3_PERFORMANCE_A5_PORTING_ROADMAP_ZH.md | \
-      docs/npu/DEEPSEEK_V4_BATCH_INVARIANT_DUAL_A3_VALIDATION_GUIDE_ZH.md | \
-      afd_plugin/compat/npu/feature_validation.py | \
-      recipe/npu/P2pHcclAFDConnector/deepseek_v4/README.md | \
-      recipe/npu/P2pHcclAFDConnector/deepseek_v4/afd_attention.sh | \
-      recipe/npu/P2pHcclAFDConnector/deepseek_v4/mooncake_pd/decode_control.sh | \
-      recipe/npu/P2pHcclAFDConnector/deepseek_v4/mooncake_pd/prefill.sh | \
-      tests/unit/test_mooncake_pd_config.py | \
-      tests/unit/test_pd_functional_smoke.py | \
-      tests/unit/test_batch_invariant_manual_tool.py | \
-      tests/unit/v1/worker/test_npu_runtime.py | \
-      tools/dsv4/activate_runtime.sh | \
-      tools/dsv4/check_mooncake_runtime.sh | \
-      tools/dsv4/check_mooncake_npu_roundtrip.py | \
-      tools/dsv4/hccl_manual_install/bin/04_install_python_deps.sh | \
-      tools/dsv4/generate_golden.py | \
-      tools/dsv4/run_pd_functional_smoke.py | \
-      tools/dsv4/mooncake_pd_manual/README_ZH.md | \
-      tools/dsv4/mooncake_pd_manual/UPDATE11_RUNBOOK_ZH.md | \
-      tools/dsv4/mooncake_pd_manual/UPDATE12_RUNBOOK_ZH.md | \
-      tools/dsv4/mooncake_pd_manual/UPDATE13_RUNBOOK_ZH.md | \
-      tools/dsv4/mooncake_pd_manual/config.env.example | \
-      tools/dsv4/mooncake_pd_manual/pd.sh | \
-      tools/dsv4/vllm_ascend_batch_invariant/*)
-        ;;
-      *) unexpected+=("${line}") ;;
-    esac
-  done <<<"${status}"
-  if (( ${#unexpected[@]} > 0 )); then
-    printf '%s\n' "${unexpected[@]}" >&2
-    die "afd-plugin contains changes outside the delivered documentation/tooling overlay"
+  if [[ -n "${status}" ]]; then
+    printf '%s\n' "${status}" >&2
+    die "afd-plugin worktree must be clean; commit the exact validation code first"
   fi
-  warn "Using the delivered documentation/tooling overlay on afd-plugin ${AFD_PD_COMMIT}"
+  return 0
 }
 
 validate_role() {
   case "${NODE_ROLE:-}" in
-    prefill|decode|proxy) ;;
-    *) die "NODE_ROLE must be prefill, decode, or proxy: ${NODE_ROLE:-unset}" ;;
+    prefill|decode|prefill_ffn|attention|proxy) ;;
+    *) die "NODE_ROLE must be prefill, decode, prefill_ffn, attention, or proxy: ${NODE_ROLE:-unset}" ;;
   esac
 }
 
@@ -378,6 +362,12 @@ validate_common_config() {
     || die "AFD_PD_COMMIT must be the delivered 40-character M9 commit"
   assert_integer STARTUP_TIMEOUT_SECONDS "${STARTUP_TIMEOUT_SECONDS}"
   assert_integer STOP_TIMEOUT_SECONDS "${STOP_TIMEOUT_SECONDS}"
+  assert_integer AFD_PROFILE_START_TIMEOUT_SECONDS \
+    "${AFD_PROFILE_START_TIMEOUT_SECONDS}"
+  assert_integer AFD_PROFILE_FINALIZE_TIMEOUT_SECONDS \
+    "${AFD_PROFILE_FINALIZE_TIMEOUT_SECONDS}"
+  assert_integer AFD_PROFILE_VLLM_SHUTDOWN_TIMEOUT_SECONDS \
+    "${AFD_PROFILE_VLLM_SHUTDOWN_TIMEOUT_SECONDS}"
   assert_integer ARTIFACT_LOG_TAIL_BYTES "${ARTIFACT_LOG_TAIL_BYTES}"
   assert_integer ARTIFACT_MAX_BYTES "${ARTIFACT_MAX_BYTES}"
   assert_integer DECODE_DBO_DECODE_TOKEN_THRESHOLD "${DECODE_DBO_DECODE_TOKEN_THRESHOLD}"
@@ -394,9 +384,39 @@ validate_common_config() {
     || die "Native and PD control golden paths must be different"
   [[ "${PREFILL_DP_SIZE}" == "2" && "${PREFILL_TP_SIZE}" == "4" ]] \
     || die "M9 baseline requires Prefill DP2/TP4"
-  case "${DECODE_DP_SIZE}:${DECODE_TP_SIZE}" in
-    8:1|4:2) ;;
-    *) die "M9 baseline supports Decode DP8/TP1 or DP4/TP2" ;;
+  if [[ "${DEPLOYMENT_VARIANT}" == "pd_control" ]]; then
+    case "${DECODE_DP_SIZE}:${DECODE_TP_SIZE}" in
+      8:1|4:2) ;;
+      *) die "M9 control supports Decode DP8/TP1 or DP4/TP2" ;;
+    esac
+  else
+    [[ "${DECODE_TP_SIZE}" == "1" ]] \
+      || die "Unequal A/F PD validation requires TP1"
+    (( ATTENTION_RANKS >= FFN_RANKS )) \
+      || die "ATTENTION_RANKS must be greater than or equal to FFN_RANKS"
+    (( ATTENTION_RANKS % FFN_RANKS == 0 )) \
+      || die "ATTENTION_RANKS must be an integer multiple of FFN_RANKS"
+    (( DECODE_DP_SIZE == ATTENTION_RANKS )) \
+      || die "DECODE_DP_SIZE must equal ATTENTION_RANKS under TP1"
+    local required_ffn_tokens
+    required_ffn_tokens=$((ATTENTION_MAX_NUM_BATCHED_TOKENS * ATTENTION_RANKS / FFN_RANKS))
+    (( FFN_MAX_NUM_BATCHED_TOKENS >= required_ffn_tokens )) \
+      || die "FFN_MAX_NUM_BATCHED_TOKENS must be at least ${required_ffn_tokens}"
+  fi
+  case "${AFD_PLACEMENT}" in
+    colocated)
+      [[ "${NODE_ROLE}" != "prefill_ffn" && "${NODE_ROLE}" != "attention" ]] \
+        || die "Split roles require AFD_PLACEMENT=split"
+      ;;
+    split)
+      [[ "${DEPLOYMENT_VARIANT}" == "pd_afd" ]] \
+        || die "AFD_PLACEMENT=split requires DEPLOYMENT_VARIANT=pd_afd"
+      [[ "${NODE_ROLE}" != "prefill" && "${NODE_ROLE}" != "decode" ]] \
+        || die "Split placement uses prefill_ffn, attention, and proxy roles"
+      device_lists_are_disjoint "${PREFILL_DEVICES}" "${FFN_DEVICES}" \
+        || die "Split placement requires disjoint Prefill and FFN devices"
+      ;;
+    *) die "AFD_PLACEMENT must be colocated or split" ;;
   esac
   case "${DECODE_EXECUTION_MODE}" in
     eager|full-decode-only) ;;
@@ -410,6 +430,40 @@ validate_common_config() {
     0|1) ;;
     *) die "DECODE_ENABLE_MTP must be 0 or 1" ;;
   esac
+  case "${AFD_PROFILE_ENABLE}" in
+    0) ;;
+    1)
+      [[ "${DEPLOYMENT_VARIANT}" == "pd_afd" ]] \
+        || die "AFD_PROFILE_ENABLE=1 is only valid for pd_afd"
+      (( AFD_PROFILE_START_TIMEOUT_SECONDS > 0 )) \
+        || die "AFD_PROFILE_START_TIMEOUT_SECONDS must be positive"
+      (( AFD_PROFILE_FINALIZE_TIMEOUT_SECONDS > 0 )) \
+        || die "AFD_PROFILE_FINALIZE_TIMEOUT_SECONDS must be positive"
+      (( AFD_PROFILE_VLLM_SHUTDOWN_TIMEOUT_SECONDS > 0 )) \
+        || die "AFD_PROFILE_VLLM_SHUTDOWN_TIMEOUT_SECONDS must be positive"
+      (( STOP_TIMEOUT_SECONDS > AFD_PROFILE_VLLM_SHUTDOWN_TIMEOUT_SECONDS )) \
+        || die "STOP_TIMEOUT_SECONDS must exceed AFD_PROFILE_VLLM_SHUTDOWN_TIMEOUT_SECONDS"
+      ;;
+    *) die "AFD_PROFILE_ENABLE must be 0 or 1" ;;
+  esac
+  local graph_u2_flag
+  for graph_u2_flag in \
+    AFD_HCCL_GRAPH_U2_COMPUTE_OVERLAP \
+    AFD_HCCL_GRAPH_U2_HYBRID_DAG \
+    AFD_HCCL_GRAPH_U2_ATTENTION_THREE_STREAM \
+    AFD_HCCL_GRAPH_U2_FFN_RECV_STREAM \
+    AFD_HCCL_GRAPH_U2_FFN_CROSS_LAYER; do
+    [[ "${!graph_u2_flag}" == "0" || "${!graph_u2_flag}" == "1" ]] \
+      || die "${graph_u2_flag} must be 0 or 1"
+  done
+  if [[ "${DECODE_EXECUTION_MODE}:${DECODE_U_BATCHES}" == "full-decode-only:2" ]]; then
+    [[ "${AFD_HCCL_GRAPH_U2_COMPUTE_OVERLAP}" == "1" \
+      && "${AFD_HCCL_GRAPH_U2_HYBRID_DAG}" == "1" \
+      && "${AFD_HCCL_GRAPH_U2_ATTENTION_THREE_STREAM}" == "1" \
+      && "${AFD_HCCL_GRAPH_U2_FFN_RECV_STREAM}" == "1" \
+      && "${AFD_HCCL_GRAPH_U2_FFN_CROSS_LAYER}" == "1" ]] \
+      || die "Graph U2 comparison requires hybrid DAG and all physical streams enabled"
+  fi
   case "${ENABLE_BATCH_INVARIANT}" in
     0) ;;
     1)
@@ -482,8 +536,8 @@ export_batch_invariant_env() {
 
 local_role_ip() {
   case "${NODE_ROLE}" in
-    prefill) printf '%s\n' "${PREFILL_IP}" ;;
-    decode) printf '%s\n' "${DECODE_IP}" ;;
+    prefill|prefill_ffn) printf '%s\n' "${PREFILL_IP}" ;;
+    decode|attention) printf '%s\n' "${DECODE_IP}" ;;
     proxy) printf '%s\n' "" ;;
   esac
 }
@@ -715,7 +769,9 @@ validate_colocated_control_processes() {
 check_npus() {
   require_command npu-smi
   local expected=8
-  if [[ "${NODE_ROLE}" == "decode" && "${DEPLOYMENT_VARIANT}" == "pd_afd" ]]; then
+  if [[ "${NODE_ROLE}" == "decode" && "${DEPLOYMENT_VARIANT}" == "pd_afd" ]] \
+    || [[ "${NODE_ROLE}" == "prefill_ffn" ]] \
+    || [[ "${NODE_ROLE}" == "attention" && "${ATTENTION_RANKS}" == "16" ]]; then
     expected=16
   fi
   local detected
@@ -737,6 +793,8 @@ check_npus() {
 owned_pid_names() {
   case "${NODE_ROLE}" in
     prefill) printf '%s\n' prefill ;;
+    prefill_ffn) printf '%s\n' prefill ffn ;;
+    attention) printf '%s\n' attention ;;
     decode)
       if [[ "${DEPLOYMENT_VARIANT}" == "pd_control" ]]; then
         printf '%s\n' decode-control
@@ -768,6 +826,10 @@ check_start_ports() {
   local ports=()
   case "${NODE_ROLE}" in
     prefill) ports=("${PREFILL_API_PORT}" "${PREFILL_KV_PORT}" "${PREFILL_HCCL_IF_BASE_PORT}") ;;
+    prefill_ffn) ports=("${PREFILL_API_PORT}" "${FFN_PROCESS_PORT}" "${AFD_PORT}" \
+      "${PREFILL_KV_PORT}" "${PREFILL_HCCL_IF_BASE_PORT}" "${FFN_HCCL_IF_BASE_PORT}") ;;
+    attention) ports=("${DECODE_API_PORT}" "${DECODE_KV_PORT}" \
+      "${ATTENTION_HCCL_IF_BASE_PORT}") ;;
     decode)
       if [[ "${DEPLOYMENT_VARIANT}" == "pd_control" ]]; then
         ports=("${DECODE_API_PORT}" "${DECODE_KV_PORT}" \
@@ -797,18 +859,25 @@ export_runtime_env() {
   export DSV4_CANN_VERSION="${CANN_VERSION}"
   export DSV4_ATB_ROOT="${ATB_ROOT}"
   export DSV4_RUNTIME_VENV="${VENV_ROOT}"
+  export DSV4_VLLM_VENV="${VENV_ROOT}"
   export DSV4_VLLM_ROOT="${VLLM_ROOT}"
   export DSV4_VLLM_ASCEND_ROOT="${VLLM_ASCEND_ROOT}"
   export_batch_invariant_env
   export MODEL_PATH VLLM_HOST_IP="${local_ip}" HCCL_IF_IP="${local_ip}"
   export GLOO_SOCKET_IFNAME="${NIC_NAME}" HCCL_SOCKET_IFNAME="${NIC_NAME}"
   export MC_MIN_PRC_PORT MC_MAX_PRC_PORT MAX_MODEL_LEN MAX_NUM_BATCHED_TOKENS
+  export ATTENTION_MAX_NUM_BATCHED_TOKENS FFN_MAX_NUM_BATCHED_TOKENS
   export MAX_NUM_SEQS GPU_MEMORY_UTILIZATION HCCL_BUFFSIZE OMP_NUM_THREADS
   export PREFILL_DEVICES PREFILL_DP_SIZE PREFILL_TP_SIZE DECODE_DP_SIZE DECODE_TP_SIZE
   export ATTENTION_DEVICES FFN_DEVICES ATTENTION_RANKS FFN_RANKS
   export PREFILL_HCCL_IF_BASE_PORT ATTENTION_HCCL_IF_BASE_PORT FFN_HCCL_IF_BASE_PORT
   export CONTROL_DATA_PARALLEL_RPC_PORT CONTROL_MASTER_PORT MODEL_NAME
-  export AFD_HOST=127.0.0.1 AFD_PORT
+  if [[ "${AFD_PLACEMENT}" == "split" ]]; then
+    export AFD_HOST="${PREFILL_IP}"
+  else
+    export AFD_HOST=127.0.0.1
+  fi
+  export AFD_PORT
   export TENSOR_PARALLEL_SIZE="${DECODE_TP_SIZE}"
   export EXECUTION_MODE="${DECODE_EXECUTION_MODE}"
   export U_BATCHES="${DECODE_U_BATCHES}"
@@ -820,6 +889,23 @@ export_runtime_env() {
   export MAX_CUDAGRAPH_CAPTURE_SIZE="${DECODE_MAX_CUDAGRAPH_CAPTURE_SIZE}"
   export CUDAGRAPH_CAPTURE_SIZES="${DECODE_CUDAGRAPH_CAPTURE_SIZES}"
   export MOONCAKE_ENGINE_ID MOONCAKE_KV_PORT MOONCAKE_LIBRARY_DIR
+  if is_true "${AFD_PROFILE_ENABLE}"; then
+    export VLLM_SHUTDOWN_TIMEOUT_SECONDS="${AFD_PROFILE_VLLM_SHUTDOWN_TIMEOUT_SECONDS}"
+  else
+    export VLLM_SHUTDOWN_TIMEOUT_SECONDS=0
+  fi
+  export TORCH_PROFILER_WITH_STACK=0
+  export AFD_NPU_ATTENTION_PROFILER_ENABLE="${AFD_PROFILE_ENABLE}"
+  export AFD_NPU_ATTENTION_PROFILER_WITH_STACK=0
+  export AFD_NPU_ATTENTION_PROFILER_DIR="${AFD_PROFILE_ATTENTION_DIR}"
+  export AFD_NPU_FFN_PROFILER_ENABLE="${AFD_PROFILE_ENABLE}"
+  export AFD_NPU_FFN_PROFILER_WITH_STACK=0
+  export AFD_NPU_FFN_PROFILER_DIR="${AFD_PROFILE_FFN_DIR}"
+  export AFD_HCCL_GRAPH_U2_COMPUTE_OVERLAP
+  export AFD_HCCL_GRAPH_U2_HYBRID_DAG
+  export AFD_HCCL_GRAPH_U2_ATTENTION_THREE_STREAM
+  export AFD_HCCL_GRAPH_U2_FFN_RECV_STREAM
+  export AFD_HCCL_GRAPH_U2_FFN_CROSS_LAYER
 }
 
 wait_http() {
@@ -831,7 +917,7 @@ wait_http() {
     for pid in "$@"; do
       pid_is_alive "${pid}" || return 1
     done
-    curl -fsS --max-time 5 "${url}" >/dev/null 2>&1 && return 0
+    curl --noproxy '*' -fsS --max-time 5 "${url}" >/dev/null 2>&1 && return 0
     sleep 5
   done
   return 1
@@ -849,11 +935,9 @@ start_prefill() {
   export API_HOST=0.0.0.0 API_PORT="${PREFILL_API_PORT}"
   export MOONCAKE_ENGINE_ID="dsv4-${DEPLOYMENT_SLUG}-prefill"
   export MOONCAKE_KV_PORT="${PREFILL_KV_PORT}"
-  if [[ "${DEPLOYMENT_VARIANT}" == "pd_control" ]]; then
-    export ENABLE_AFD_PLUGIN=0
-  else
-    export ENABLE_AFD_PLUGIN=1
-  fi
+  # Prefill is identical across all matrix points. AFD is a Decode-only
+  # variable, so loading the plugin here would invalidate the control.
+  export ENABLE_AFD_PLUGIN=0
   local log_path pid
   log_path="$(new_log prefill)"
   nohup setsid bash "${PREFILL_SCRIPT}" >"${log_path}" 2>&1 &
@@ -930,14 +1014,54 @@ start_afd_decode() {
   log "Decode started: attention=${attention_pid}, ffn=${ffn_pid}"
 }
 
+start_split_ffn() {
+  export_runtime_env
+  local ffn_log ffn_pid
+  ffn_log="$(new_log ffn)"
+  API_HOST=0.0.0.0 API_PORT="${FFN_PROCESS_PORT}" \
+    nohup setsid bash "${FFN_SCRIPT}" >"${ffn_log}" 2>&1 &
+  ffn_pid=$!
+  printf '%s\n' "${ffn_pid}" >"${STATE_ROOT}/ffn.pid"
+  sleep 3
+  pid_is_alive "${ffn_pid}" \
+    || die "Split FFN exited immediately; inspect ${ffn_log}"
+  log "Split FFN started and is waiting for Attention: pid=${ffn_pid}, log=${ffn_log}"
+}
+
+start_split_attention() {
+  export_runtime_env
+  export MOONCAKE_ENGINE_ID=dsv4-afd-decode MOONCAKE_KV_PORT="${DECODE_KV_PORT}"
+  local attention_log attention_pid
+  attention_log="$(new_log attention)"
+  ENABLE_PD=1 API_HOST=0.0.0.0 API_PORT="${DECODE_API_PORT}" \
+    nohup setsid bash "${ATTENTION_SCRIPT}" >"${attention_log}" 2>&1 &
+  attention_pid=$!
+  printf '%s\n' "${attention_pid}" >"${STATE_ROOT}/attention.pid"
+  sleep 3
+  pid_is_alive "${attention_pid}" \
+    || die "Split Attention exited immediately; inspect ${attention_log}"
+  if is_true "${WAIT_READY}"; then
+    wait_http "http://127.0.0.1:${DECODE_API_PORT}/health" "${attention_pid}" \
+      || die "Split Attention readiness failed; inspect ${attention_log}"
+  fi
+  log "Split Attention ready: pid=${attention_pid}, ranks=${ATTENTION_RANKS}, log=${attention_log}"
+}
+
+start_prefill_ffn() {
+  start_prefill
+  start_split_ffn
+}
+
 start_proxy() {
   export PREFILL_HOSTS="${PREFILL_IP}" PREFILL_PORTS="${PREFILL_API_PORT}"
   export DECODE_HOSTS="${DECODE_IP}" DECODE_PORTS="${DECODE_API_PORT}"
   export PROXY_HOST=0.0.0.0 PROXY_PORT DSV4_RUNTIME_VENV="${VENV_ROOT}"
   export DSV4_VLLM_ASCEND_ROOT="${VLLM_ASCEND_ROOT}"
-  curl -fsS --max-time 10 "http://${PREFILL_IP}:${PREFILL_API_PORT}/health" >/dev/null \
+  curl --noproxy '*' -fsS --max-time 10 \
+    "http://${PREFILL_IP}:${PREFILL_API_PORT}/health" >/dev/null \
     || die "Prefill backend is not healthy"
-  curl -fsS --max-time 10 "http://${DECODE_IP}:${DECODE_API_PORT}/health" >/dev/null \
+  curl --noproxy '*' -fsS --max-time 10 \
+    "http://${DECODE_IP}:${DECODE_API_PORT}/health" >/dev/null \
     || die "Decode backend is not healthy"
   local log_path pid
   log_path="$(new_log proxy)"
@@ -968,11 +1092,32 @@ status_action() {
   done < <(owned_pid_names)
   case "${NODE_ROLE}" in
     prefill)
-      curl -fsS --max-time 5 "http://127.0.0.1:${PREFILL_API_PORT}/health" >/dev/null 2>&1 \
+      curl --noproxy '*' -fsS --max-time 5 \
+        "http://127.0.0.1:${PREFILL_API_PORT}/health" >/dev/null 2>&1 \
         && log "Prefill health: OK" || { warn "Prefill health: NOT READY"; overall=1; }
       ;;
+    prefill_ffn)
+      curl --noproxy '*' -fsS --max-time 5 \
+        "http://127.0.0.1:${PREFILL_API_PORT}/health" >/dev/null 2>&1 \
+        && log "Prefill health: OK" || { warn "Prefill health: NOT READY"; overall=1; }
+      log_path="${LOG_ROOT}/ffn.log"
+      ready_count="$( { grep -o 'AFD FFN EngineCore started; workers run connector loop' "${log_path}" 2>/dev/null || true; } | wc -l)"
+      log "FFN connector loops: ${ready_count}/${FFN_RANKS}"
+      (( ready_count >= FFN_RANKS )) || overall=1
+      ;;
+    attention)
+      curl --noproxy '*' -fsS --max-time 5 \
+        "http://127.0.0.1:${DECODE_API_PORT}/health" >/dev/null 2>&1 \
+        && log "Decode Attention health: OK" || { warn "Decode Attention health: NOT READY"; overall=1; }
+      log_path="${LOG_ROOT}/attention.log"
+      grep -Eq 'AFDDeepseekV4ForCausalLM|P2pHcclAFDConnector' "${log_path}" 2>/dev/null \
+        || { warn "PD + AFD Attention log has no AFD runtime marker"; overall=1; }
+      transfer_count="$( { grep -c 'KV cache transfer for request .* took .* remote_session_id' "${log_path}" 2>/dev/null || true; } )"
+      log "Successful Mooncake KV transfer records: ${transfer_count}"
+      ;;
     decode)
-      curl -fsS --max-time 5 "http://127.0.0.1:${DECODE_API_PORT}/health" >/dev/null 2>&1 \
+      curl --noproxy '*' -fsS --max-time 5 \
+        "http://127.0.0.1:${DECODE_API_PORT}/health" >/dev/null 2>&1 \
         && log "Decode health: OK" || { warn "Decode health: NOT READY"; overall=1; }
       if [[ "${DEPLOYMENT_VARIANT}" == "pd_control" ]]; then
         log_path="${LOG_ROOT}/decode-control.log"
@@ -994,17 +1139,19 @@ status_action() {
       log "Successful Mooncake KV transfer records: ${transfer_count}"
       ;;
     proxy)
-      curl -fsS --max-time 5 "http://127.0.0.1:${PROXY_PORT}/healthcheck" >/dev/null 2>&1 \
+      curl --noproxy '*' -fsS --max-time 5 \
+        "http://127.0.0.1:${PROXY_PORT}/healthcheck" >/dev/null 2>&1 \
         && log "Proxy health: OK" || { warn "Proxy health: NOT READY"; overall=1; }
       ;;
   esac
   local fatal=0
-  for log_path in "${LOG_ROOT}"/*.log; do
+  while read -r name; do
+    log_path="${LOG_ROOT}/${name}.log"
     [[ -f "${log_path}" ]] || continue
     if grep -En "${FATAL_PATTERN}" "${log_path}"; then
       fatal=1
     fi
-  done
+  done < <(owned_pid_names)
   (( fatal == 0 )) || { warn "Fatal markers found"; overall=1; }
   return "${overall}"
 }
@@ -1018,26 +1165,288 @@ wait_for_group_exit() {
   ! kill -0 -- "-${pgid}" 2>/dev/null
 }
 
+wait_for_profile_raw_started() {
+  local name="$1"
+  local profile_dir profile_root raw_root
+  case "${name}" in
+    attention) profile_dir="${AFD_PROFILE_ATTENTION_DIR}" ;;
+    ffn) profile_dir="${AFD_PROFILE_FFN_DIR}" ;;
+    *) return 0 ;;
+  esac
+
+  local deadline=$((SECONDS + AFD_PROFILE_START_TIMEOUT_SECONDS))
+  local -a profile_roots=()
+  local -a raw_roots=()
+  while (( SECONDS < deadline )); do
+    profile_roots=()
+    while IFS= read -r profile_root; do
+      profile_roots+=("${profile_root}")
+    done < <(find "${profile_dir}" -mindepth 1 -maxdepth 1 -type d \
+      -name '*_ascend_pt' -print 2>/dev/null | sort)
+    if (( ${#profile_roots[@]} == 1 )); then
+      raw_roots=()
+      while IFS= read -r raw_root; do
+        raw_roots+=("${raw_root}")
+      done < <(find "${profile_roots[0]}" -mindepth 1 -maxdepth 1 -type d \
+        -name 'PROF_*' -print 2>/dev/null | sort)
+      if (( ${#raw_roots[@]} == 1 )); then
+        log "${name} CANN profiler is recording: root=${profile_roots[0]}, raw=${raw_roots[0]}"
+        return 0
+      fi
+    fi
+    sleep 1
+  done
+  die "${name} profile-start did not create exactly one *_ascend_pt/PROF_* raw capture under ${profile_dir}; benchmark was not started"
+}
+
+log_profile_raw_diagnostics() {
+  local name="$1"
+  local profile_dir="$2"
+  local -a info_files=()
+  local -a raw_roots=()
+  local info_file profile_root raw_root
+  local data_files data_bytes device_markers host_markers newest_file
+
+  while IFS= read -r info_file; do
+    info_files+=("${info_file}")
+  done < <(find "${profile_dir}" -type f -name 'profiler_info_*.json' \
+    -print 2>/dev/null | sort)
+  if (( ${#info_files[@]} == 1 )); then
+    profile_root="$(dirname "${info_files[0]}")"
+    while IFS= read -r raw_root; do
+      raw_roots+=("${raw_root}")
+    done < <(find "${profile_root}" -mindepth 1 -maxdepth 1 -type d \
+      -name 'PROF_*' -print 2>/dev/null | sort)
+  fi
+
+  data_files="$(find "${profile_dir}" -type f \
+    -path '*/PROF_*/device_*/data/*' -size +0c \
+    -printf '1\n' 2>/dev/null | wc -l)"
+  data_bytes="$(find "${profile_dir}" -type f \
+    -path '*/PROF_*/device_*/data/*' -size +0c \
+    -printf '%s\n' 2>/dev/null | awk '{total += $1} END {print total + 0}')"
+  device_markers="$(find "${profile_dir}" -type f \
+    -path '*/PROF_*/device_*/*' -name 'end_info*.done' \
+    -printf '1\n' 2>/dev/null | wc -l)"
+  host_markers="$(find "${profile_dir}" -type f \
+    -path '*/PROF_*/host/end_info.done' \
+    -printf '1\n' 2>/dev/null | wc -l)"
+  newest_file="$(find "${profile_dir}" -type f \
+    -printf '%T@ %s %p\n' 2>/dev/null | sort -nr | head -n 1 || true)"
+  log "${name} raw CANN state: info_files=${#info_files[@]}, "\
+"raw_roots=${#raw_roots[@]}, device_data_files=${data_files}, "\
+"device_data_bytes=${data_bytes}, device_end_markers=${device_markers}, "\
+"host_end_markers=${host_markers}, newest=${newest_file:-none}"
+}
+
+wait_for_profile_raw_completion() {
+  local name="$1"
+  local required="${2:-0}"
+  is_true "${AFD_PROFILE_ENABLE}" || return 0
+  local profile_dir info_file profile_root device_marker host_marker device_data_file
+  case "${name}" in
+    attention) profile_dir="${AFD_PROFILE_ATTENTION_DIR}" ;;
+    ffn) profile_dir="${AFD_PROFILE_FFN_DIR}" ;;
+    *) return 0 ;;
+  esac
+  if [[ ! -d "${profile_dir}" ]]; then
+    [[ "${required}" == "0" ]] && return 0
+    die "${name} profiler directory does not exist: ${profile_dir}"
+  fi
+  info_file="$(find "${profile_dir}" -type f -name 'profiler_info_*.json' \
+    -print -quit 2>/dev/null || true)"
+  if [[ -z "${info_file}" ]]; then
+    [[ "${required}" == "0" ]] && return 0
+    die "${name} profiler did not produce profiler_info_*.json under ${profile_dir}"
+  fi
+
+  local deadline=$((SECONDS + AFD_PROFILE_FINALIZE_TIMEOUT_SECONDS))
+  local next_diagnostic_at=${SECONDS}
+  local -a info_files=()
+  while (( SECONDS < deadline )); do
+    info_files=()
+    while IFS= read -r info_file; do
+      info_files+=("${info_file}")
+    done < <(find "${profile_dir}" -type f -name 'profiler_info_*.json' \
+      -print 2>/dev/null | sort)
+    if (( ${#info_files[@]} == 1 )); then
+      profile_root="$(dirname "${info_files[0]}")"
+      device_marker="$(find "${profile_root}" -type f \
+        -path '*/device_*/*' -name 'end_info*.done' \
+        -print -quit 2>/dev/null || true)"
+      host_marker="$(find "${profile_root}" -type f \
+        -path '*/PROF_*/host/end_info.done' \
+        -print -quit 2>/dev/null || true)"
+      device_data_file="$(find "${profile_root}" -type f \
+        -path '*/PROF_*/device_*/data/*' -size +0c \
+        -print -quit 2>/dev/null || true)"
+      if [[ -n "${device_marker}" && -n "${host_marker}" \
+        && -n "${device_data_file}" ]]; then
+        log "${name} raw CANN profile finalized: device=${device_marker}, host=${host_marker}"
+        return 0
+      fi
+    fi
+    if (( SECONDS >= next_diagnostic_at )); then
+      log_profile_raw_diagnostics "${name}" "${profile_dir}"
+      next_diagnostic_at=$((SECONDS + 30))
+    fi
+    sleep 2
+  done
+  log_profile_raw_diagnostics "${name}" "${profile_dir}"
+  die "${name} raw CANN profile did not finalize under ${profile_dir}; expected exactly one profiler root with non-empty device_*/data, device_*/end_info*.done, and host/end_info.done"
+}
+
+profile_start_action() {
+  validate_common_config
+  [[ "${DEPLOYMENT_VARIANT}" == "pd_afd" && "${AFD_PROFILE_ENABLE}" == "1" ]] \
+    || die "profile-start requires pd_afd with AFD_PROFILE_ENABLE=1"
+  case "${NODE_ROLE}" in
+    decode|attention|prefill_ffn) ;;
+    *) die "profile-start is valid only for decode, attention, or prefill_ffn" ;;
+  esac
+  [[ -s "${STATE_ROOT}/profile-session.env" ]] \
+    || die "The running service was not started with AFD_PROFILE_ENABLE=1; stop it, enable Profile, and cold-start it before profile-start"
+  [[ ! -f "${STATE_ROOT}/profile-started.env" ]] \
+    || die "Profile is already started for this service instance"
+  [[ ! -f "${STATE_ROOT}/profile-finalized.env" ]] \
+    || die "Profile is already finalized for this service instance"
+
+  if [[ "${NODE_ROLE}" == "decode" || "${NODE_ROLE}" == "attention" ]]; then
+    require_command curl
+    local attention_pid
+    attention_pid="$(read_pid "${STATE_ROOT}/attention.pid")" \
+      || die "Attention PID file is missing; start the service first"
+    pid_is_alive "${attention_pid}" \
+      || die "Attention is not running; Profile cannot be started"
+    log "Explicitly starting Attention/FFN profilers through plugin API"
+    curl --noproxy '*' -fsS --connect-timeout 10 \
+      --max-time "${AFD_PROFILE_START_TIMEOUT_SECONDS}" \
+      -X POST \
+      "http://127.0.0.1:${DECODE_API_PORT}/afd/profile/start" >/dev/null \
+      || die "Explicit plugin profile start failed; inspect ${LOG_ROOT}/attention.log"
+    wait_for_profile_raw_started attention
+    if [[ "${NODE_ROLE}" == "decode" ]]; then
+      wait_for_profile_raw_started ffn
+    fi
+  else
+    local ffn_pid
+    ffn_pid="$(read_pid "${STATE_ROOT}/ffn.pid")" \
+      || die "FFN PID file is missing; start the service first"
+    pid_is_alive "${ffn_pid}" \
+      || die "FFN is not running; Profile cannot be armed"
+    log "Arming split FFN profile state; Attention profile-start sends the start payload"
+  fi
+  local started_tmp="${STATE_ROOT}/profile-started.env.tmp.$$"
+  {
+    printf 'started_epoch=%s\n' "$(date +%s)"
+    printf 'started_at=%s\n' "$(date --iso-8601=seconds)"
+    printf 'control=%s\n' \
+      "$([[ "${NODE_ROLE}" == "prefill_ffn" ]] && printf relayed || printf local-api)"
+  } >"${started_tmp}"
+  mv "${started_tmp}" "${STATE_ROOT}/profile-started.env"
+  log "Plugin Profile window is open; run the benchmark before profile-stop"
+}
+
+profile_check_action() {
+  validate_common_config
+  [[ "${DEPLOYMENT_VARIANT}" == "pd_afd" && "${AFD_PROFILE_ENABLE}" == "1" ]] \
+    || die "profile-check requires pd_afd with AFD_PROFILE_ENABLE=1"
+  [[ -f "${STATE_ROOT}/profile-started.env" ]] \
+    || die "Profile was not armed; run profile-start first"
+  local -a profile_roles=()
+  case "${NODE_ROLE}" in
+    decode) profile_roles=(attention ffn) ;;
+    attention) profile_roles=(attention) ;;
+    prefill_ffn) profile_roles=(ffn) ;;
+    *) die "profile-check is valid only for decode, attention, or prefill_ffn" ;;
+  esac
+  local name
+  for name in "${profile_roles[@]}"; do
+    wait_for_profile_raw_started "${name}"
+  done
+  log "Role-local CANN profiler recording state is ready"
+}
+
+profile_stop_action() {
+  validate_common_config
+  [[ "${DEPLOYMENT_VARIANT}" == "pd_afd" && "${AFD_PROFILE_ENABLE}" == "1" ]] \
+    || die "profile-stop requires pd_afd with AFD_PROFILE_ENABLE=1"
+  [[ -f "${STATE_ROOT}/profile-started.env" ]] \
+    || die "Profile was not started; run profile-start before profile-stop"
+  local -a profile_roles=()
+  case "${NODE_ROLE}" in
+    decode)
+      profile_roles=(attention ffn)
+      ;;
+    attention)
+      profile_roles=(attention)
+      ;;
+    prefill_ffn)
+      profile_roles=(ffn)
+      ;;
+    *) die "profile-stop is valid only for decode, attention, or prefill_ffn" ;;
+  esac
+
+  if [[ "${NODE_ROLE}" == "decode" || "${NODE_ROLE}" == "attention" ]]; then
+    require_command curl
+    local attention_pid
+    attention_pid="$(read_pid "${STATE_ROOT}/attention.pid")" \
+      || die "Attention PID file is missing; stop Profile before stopping services"
+    pid_is_alive "${attention_pid}" \
+      || die "Attention is not running; Profile cannot be finalized explicitly"
+    log "Explicitly stopping Attention/FFN profilers through plugin API"
+    curl --noproxy '*' -fsS --connect-timeout 10 \
+      --max-time "${AFD_PROFILE_FINALIZE_TIMEOUT_SECONDS}" \
+      -X POST \
+      "http://127.0.0.1:${DECODE_API_PORT}/afd/profile/stop" >/dev/null \
+      || die "Explicit plugin profile stop failed; inspect ${LOG_ROOT}/attention.log"
+  else
+    log "Waiting for the Attention-relayed FFN profiler stop"
+  fi
+
+  local name
+  for name in "${profile_roles[@]}"; do
+    wait_for_profile_raw_completion "${name}" 1
+  done
+  printf 'finalized_at=%s\n' "$(date --iso-8601=seconds)" \
+    >"${STATE_ROOT}/profile-finalized.env"
+  log "Plugin Profile raw capture finalized; services remain running"
+}
+
 stop_name() {
   local name="$1"
   local pid_path="${STATE_ROOT}/${name}.pid"
   local pid pgid
   if ! pid="$(read_pid "${pid_path}" 2>/dev/null)"; then
     log "${name}: no PID file"
+    wait_for_profile_raw_completion "${name}"
     return 0
   fi
   if ! pid_is_alive "${pid}"; then
     log "${name}: already stopped"
     rm -f "${pid_path}"
+    wait_for_profile_raw_completion "${name}"
     return 0
+  fi
+  if is_true "${AFD_PROFILE_ENABLE}" \
+    && [[ "${name}" == "attention" || "${name}" == "ffn" ]] \
+    && [[ ! -f "${STATE_ROOT}/profile-finalized.env" ]]; then
+    die "${name} Profile is not finalized; run profile-stop before stop"
   fi
   owned_process "${pid}" || die "Refusing to signal unrecognized PID ${pid}"
   pgid="$(ps -o pgid= -p "${pid}" | tr -d '[:space:]')"
   [[ "${pgid}" == "${pid}" ]] || die "PID ${pid} is not its process-group leader"
-  log "Stopping ${name} process group ${pgid}"
-  kill -TERM -- "-${pgid}"
+  if is_true "${AFD_PROFILE_ENABLE}" \
+    && [[ "${name}" == "attention" || "${name}" == "ffn" ]]; then
+    log "Gracefully stopping profiled ${name} supervisor ${pid}; process group ${pgid} remains available for supervised worker shutdown"
+    kill -TERM "${pid}"
+  else
+    log "Stopping ${name} process group ${pgid}"
+    kill -TERM -- "-${pgid}"
+  fi
   if wait_for_group_exit "${pgid}"; then
     rm -f "${pid_path}"
+    wait_for_profile_raw_completion "${name}"
     return 0
   fi
   if is_true "${FORCE_KILL}"; then
@@ -1056,6 +1465,11 @@ stop_action() {
   mkdir -p "${STATE_ROOT}"
   case "${NODE_ROLE}" in
     proxy) stop_name proxy ;;
+    attention) stop_name attention ;;
+    prefill_ffn)
+      stop_name ffn
+      stop_name prefill
+      ;;
     decode)
       if [[ "${DEPLOYMENT_VARIANT}" == "pd_control" ]]; then
         stop_name decode-control
@@ -1151,8 +1565,72 @@ start_action() {
   RUN_LOCAL_ROUNDTRIP="${configured_roundtrip}"
   mkdir -p "${STATE_ROOT}" "${LOG_ROOT}"
   ensure_not_running
+  if [[ -f "${STATE_ROOT}/npu-monitor.pid" ]]; then
+    local monitor_pid
+    read -r monitor_pid <"${STATE_ROOT}/npu-monitor.pid"
+    if [[ "${monitor_pid}" =~ ^[0-9]+$ ]] && kill -0 "${monitor_pid}" 2>/dev/null; then
+      die "NPU monitor PID ${monitor_pid} is still live; stop it before restarting the service"
+    fi
+    rm -f "${STATE_ROOT}/npu-monitor.pid"
+  fi
+  # Pointers are scoped to this cold-started service instance.  This prevents
+  # a skipped P2 monitor or benchmark from silently reusing P1 evidence.
+  rm -f "${STATE_ROOT}/last-monitor-dir" \
+    "${STATE_ROOT}/last-validation-dir" \
+    "${STATE_ROOT}/collect-final-gates.txt"
+  if [[ "${NODE_ROLE}" == "proxy" ]]; then
+    rm -f "${STATE_ROOT}/last-performance-attempt-dir" \
+      "${STATE_ROOT}/last-performance-dir"
+  fi
+  if [[ ("${NODE_ROLE}" == "decode" || "${NODE_ROLE}" == "attention" \
+      || "${NODE_ROLE}" == "prefill_ffn") \
+    && "${DEPLOYMENT_VARIANT}" == "pd_afd" ]]; then
+    rm -f "${STATE_ROOT}/stage-evidence.env" \
+      "${STATE_ROOT}/profile-summary.json" \
+      "${STATE_ROOT}/profile-session.env" \
+      "${STATE_ROOT}/profile-started.env" \
+      "${STATE_ROOT}/profile-finalized.env"
+    if is_true "${AFD_PROFILE_ENABLE}"; then
+      local profile_file
+      local profile_dirs=()
+      case "${NODE_ROLE}" in
+        decode) profile_dirs=("${AFD_PROFILE_ATTENTION_DIR}" "${AFD_PROFILE_FFN_DIR}") ;;
+        attention) profile_dirs=("${AFD_PROFILE_ATTENTION_DIR}") ;;
+        prefill_ffn) profile_dirs=("${AFD_PROFILE_FFN_DIR}") ;;
+      esac
+      for profile_file in "${profile_dirs[@]}"; do
+        if [[ -d "${profile_file}" ]] \
+          && find "${profile_file}" -type f -print -quit | grep -q .; then
+          die "Profiler output directory is not empty; use a fresh RUN_ROOT: ${profile_file}"
+        fi
+      done
+      {
+        printf 'matrix_point=%s\n' "${MATRIX_POINT:-not-matrix}"
+        printf 'started_epoch=%s\n' "$(date +%s)"
+        printf 'started_at=%s\n' "$(date --iso-8601=seconds)"
+        printf 'cann_version=%s\n' "${CANN_VERSION}"
+        printf 'profile_mode=manual-window\n'
+        printf 'online_analysis=0\n'
+        printf 'finalize_timeout_seconds=%s\n' \
+          "${AFD_PROFILE_FINALIZE_TIMEOUT_SECONDS}"
+        printf 'vllm_shutdown_timeout_seconds=%s\n' \
+          "${AFD_PROFILE_VLLM_SHUTDOWN_TIMEOUT_SECONDS}"
+        printf 'attention_dir=%s\n' "${AFD_PROFILE_ATTENTION_DIR}"
+        printf 'ffn_dir=%s\n' "${AFD_PROFILE_FFN_DIR}"
+      } >"${STATE_ROOT}/profile-session.env"
+    fi
+  fi
   case "${NODE_ROLE}" in
     prefill) require_file "${PREFILL_SCRIPT}"; start_prefill ;;
+    prefill_ffn)
+      require_file "${PREFILL_SCRIPT}"
+      require_file "${FFN_SCRIPT}"
+      start_prefill_ffn
+      ;;
+    attention)
+      require_file "${ATTENTION_SCRIPT}"
+      start_split_attention
+      ;;
     decode)
       if [[ "${DEPLOYMENT_VARIANT}" == "pd_control" ]]; then
         require_file "${CONTROL_DECODE_SCRIPT}"
@@ -1266,6 +1744,11 @@ functional_smoke_action() {
     printf 'execution_mode=%s\n' "${DECODE_EXECUTION_MODE}"
     printf 'u_batches=%s\n' "${DECODE_U_BATCHES}"
     printf 'mtp=%s\n' "${DECODE_ENABLE_MTP}"
+    printf 'afd_profile=%s\n' "${AFD_PROFILE_ENABLE}"
+    printf 'afd_profile_start_timeout_seconds=%s\n' \
+      "${AFD_PROFILE_START_TIMEOUT_SECONDS}"
+    printf 'afd_profile_attention_dir=%s\n' "${AFD_PROFILE_ATTENTION_DIR}"
+    printf 'afd_profile_ffn_dir=%s\n' "${AFD_PROFILE_FFN_DIR}"
     printf 'mtp_draft_execution=%s\n' "${DECODE_MTP_DRAFT_EXECUTION}"
     printf 'batch_invariant=%s\n' "${ENABLE_BATCH_INVARIANT}"
     printf 'golden_checked=0\n'
@@ -1393,14 +1876,18 @@ collect_action() {
   require_command tar
   require_command sha256sum
   mkdir -p "${STATE_ROOT}" "${OUTPUT_ROOT}"
-  local temp_dir archive timestamp size_bytes status_rc name log_path validation_dir
+  local temp_dir archive artifact_slug timestamp size_bytes status_rc name log_path validation_dir
   temp_dir="$(mktemp -d "${STATE_ROOT}/collect.XXXXXX")"
   COLLECT_TEMP_DIR="${temp_dir}"
   trap '[[ -z "${COLLECT_TEMP_DIR:-}" ]] || rm -rf -- "${COLLECT_TEMP_DIR}"' EXIT
   timestamp="$(date +%Y%m%d_%H%M%S)"
-  archive="${OUTPUT_ROOT}/dsv4-m9-${DEPLOYMENT_SLUG}-${NODE_ROLE}-${timestamp}.tar.gz"
+  artifact_slug="${MATRIX_POINT:-${DEPLOYMENT_SLUG}}"
+  [[ "${artifact_slug}" =~ ^[a-z0-9_-]+$ ]] \
+    || die "Invalid artifact slug: ${artifact_slug}"
+  archive="${OUTPUT_ROOT}/dsv4-m9-${artifact_slug}-${NODE_ROLE}-${timestamp}.tar.gz"
   {
     printf 'deployment_variant=%s\n' "${DEPLOYMENT_VARIANT}"
+    printf 'matrix_point=%s\n' "${MATRIX_POINT:-not-matrix}"
     printf 'node_role=%s\n' "${NODE_ROLE}"
     printf 'collected_at=%s\n' "$(date --iso-8601=seconds)"
     printf 'hostname=%s\n' "$(resolve_hostname)"
@@ -1414,6 +1901,27 @@ collect_action() {
     printf 'mooncake_install_mode=%s\n' "${MOONCAKE_INSTALL_MODE}"
     printf 'mooncake_version=%s\n' "${MOONCAKE_VERSION}"
     printf 'batch_invariant=%s\n' "${ENABLE_BATCH_INVARIANT}"
+    printf 'decode_topology=DP%s/TP%s\n' "${DECODE_DP_SIZE}" "${DECODE_TP_SIZE}"
+    printf 'afd_placement=%s\n' "${AFD_PLACEMENT}"
+    printf 'afd_ranks=A%s/F%s\n' "${ATTENTION_RANKS}" "${FFN_RANKS}"
+    printf 'attention_max_num_batched_tokens=%s\n' \
+      "${ATTENTION_MAX_NUM_BATCHED_TOKENS}"
+    printf 'ffn_max_num_batched_tokens=%s\n' "${FFN_MAX_NUM_BATCHED_TOKENS}"
+    printf 'execution_mode=%s\n' "${DECODE_EXECUTION_MODE}"
+    printf 'u_batches=%s\n' "${DECODE_U_BATCHES}"
+    printf 'mtp=%s\n' "${DECODE_ENABLE_MTP}"
+    printf 'afd_profile=%s\n' "${AFD_PROFILE_ENABLE}"
+    printf 'afd_profile_attention_dir=%s\n' "${AFD_PROFILE_ATTENTION_DIR}"
+    printf 'afd_profile_ffn_dir=%s\n' "${AFD_PROFILE_FFN_DIR}"
+    printf 'graph_u2_compute_overlap=%s\n' \
+      "${AFD_HCCL_GRAPH_U2_COMPUTE_OVERLAP}"
+    printf 'graph_u2_hybrid_dag=%s\n' "${AFD_HCCL_GRAPH_U2_HYBRID_DAG}"
+    printf 'graph_u2_attention_three_stream=%s\n' \
+      "${AFD_HCCL_GRAPH_U2_ATTENTION_THREE_STREAM}"
+    printf 'graph_u2_ffn_recv_stream=%s\n' \
+      "${AFD_HCCL_GRAPH_U2_FFN_RECV_STREAM}"
+    printf 'graph_u2_ffn_cross_layer=%s\n' \
+      "${AFD_HCCL_GRAPH_U2_FFN_CROSS_LAYER}"
     printf 'vllm_ascend_worktree_mode=%s\n' "${VLLM_ASCEND_WORKTREE_MODE}"
     if [[ "${MOONCAKE_INSTALL_MODE}" == "wheel" ]]; then
       printf 'mooncake_wheel_sha256=%s\n' "${MOONCAKE_WHEEL_SHA256}"
@@ -1450,15 +1958,49 @@ collect_action() {
   cp "${STATE_ROOT}/mooncake-libraries.sha256" "${temp_dir}/" 2>/dev/null || true
   cp "${STATE_ROOT}/roundtrip.json" "${temp_dir}/" 2>/dev/null || true
   cp "${STATE_ROOT}/roundtrip.stderr" "${temp_dir}/" 2>/dev/null || true
+  cp "${STATE_ROOT}/stage-evidence.env" "${temp_dir}/" 2>/dev/null || true
+  if [[ -f "${STATE_ROOT}/last-monitor-dir" ]]; then
+    local monitor_dir
+    read -r monitor_dir <"${STATE_ROOT}/last-monitor-dir"
+    case "${monitor_dir}" in
+      "${RUN_ROOT}"/*)
+        cp "${monitor_dir}/summary.json" "${temp_dir}/npu-monitor-summary.json" \
+          2>/dev/null || true
+        cp "${monitor_dir}/preflight.json" "${temp_dir}/npu-monitor-preflight.json" \
+          2>/dev/null || true
+        ;;
+      *) warn "Ignoring monitor path outside RUN_ROOT: ${monitor_dir}" ;;
+    esac
+  fi
+  cp "${STATE_ROOT}/profile-summary.json" "${temp_dir}/" 2>/dev/null || true
+  cp "${STATE_ROOT}/profile-session.env" "${temp_dir}/" 2>/dev/null || true
+  cp "${STATE_ROOT}/profile-started.env" "${temp_dir}/" 2>/dev/null || true
+  cp "${STATE_ROOT}/profile-finalized.env" "${temp_dir}/" 2>/dev/null || true
+  cp "${STATE_ROOT}/collect-final-gates.txt" "${temp_dir}/" 2>/dev/null || true
   if [[ -f "${STATE_ROOT}/last-validation-dir" ]]; then
     read -r validation_dir <"${STATE_ROOT}/last-validation-dir"
     case "${validation_dir}" in
       "${VALIDATION_ROOT}"/*)
-        for name in batches.json recovery.json smoke.json golden.json golden_results.json cancellation.exitcode cancellation.stderr health-after-cancellation.json summary.env; do
+        for name in batches.json recovery.json smoke.json golden.json golden_results.json performance_summary.json cancellation.exitcode cancellation.stderr health-after-cancellation.json summary.env; do
           [[ -f "${validation_dir}/${name}" ]] && cp "${validation_dir}/${name}" "${temp_dir}/validation-${name}"
+        done
+        for result_path in "${validation_dir}"/c*.json; do
+          [[ -f "${result_path}" ]] \
+            && cp "${result_path}" "${temp_dir}/validation-$(basename "${result_path}")"
         done
         ;;
       *) warn "Ignoring validation path outside VALIDATION_ROOT: ${validation_dir}" ;;
+    esac
+  fi
+  if [[ -f "${STATE_ROOT}/last-profile-dir" ]]; then
+    local profile_run_dir
+    read -r profile_run_dir <"${STATE_ROOT}/last-profile-dir"
+    case "${profile_run_dir}" in
+      "${VALIDATION_ROOT}"/*)
+        cp "${profile_run_dir}/performance_summary.json" \
+          "${temp_dir}/profile-workload-summary.json" 2>/dev/null || true
+        ;;
+      *) warn "Ignoring profile workload path outside VALIDATION_ROOT: ${profile_run_dir}" ;;
     esac
   fi
   local transfer_log="${LOG_ROOT}/attention.log"
@@ -1470,8 +2012,13 @@ collect_action() {
   { grep -Eh 'KV cache transfer for request .* took .* remote_session_id' \
       "${transfer_log}" 2>/dev/null || true; } \
     | tail -n 50 >"${temp_dir}/kv-transfer-evidence.txt"
-  { grep -Enh "${FATAL_PATTERN}" "${LOG_ROOT}"/*.log 2>/dev/null || true; } \
-    | tail -n 200 >"${temp_dir}/fatal-markers.txt"
+  {
+    while read -r name; do
+      log_path="${LOG_ROOT}/${name}.log"
+      [[ -f "${log_path}" ]] || continue
+      grep -EHn "${FATAL_PATTERN}" "${log_path}" 2>/dev/null || true
+    done < <(owned_pid_names)
+  } | tail -n 200 >"${temp_dir}/fatal-markers.txt"
   find "${temp_dir}" -maxdepth 1 -type f -printf '%f %s bytes\n' | sort >"${temp_dir}/manifest.txt"
   tar -czf "${archive}" -C "${temp_dir}" .
   size_bytes="$(stat -c '%s' "${archive}")"
@@ -1479,7 +2026,10 @@ collect_action() {
     rm -f "${archive}"
     die "Artifact exceeded ${ARTIFACT_MAX_BYTES} bytes; lower ARTIFACT_LOG_TAIL_BYTES"
   fi
-  sha256sum "${archive}" >"${archive}.sha256"
+  (
+    cd "$(dirname "${archive}")"
+    sha256sum "$(basename "${archive}")"
+  ) >"${archive}.sha256"
   rm -rf -- "${temp_dir}"
   COLLECT_TEMP_DIR=""
   trap - EXIT
@@ -1492,6 +2042,7 @@ print_config_action() {
   validate_role
   validate_variant
   printf 'DEPLOYMENT_VARIANT=%s\n' "${DEPLOYMENT_VARIANT}"
+  printf 'MATRIX_POINT=%s\n' "${MATRIX_POINT:-not-matrix}"
   printf 'NODE_ROLE=%s\n' "${NODE_ROLE}"
   printf 'PREFILL_IP=%s\n' "${PREFILL_IP:-}"
   printf 'DECODE_IP=%s\n' "${DECODE_IP:-}"
@@ -1508,11 +2059,30 @@ print_config_action() {
   printf 'NATIVE_GOLDEN_PATH=%s\n' "${NATIVE_GOLDEN_PATH}"
   printf 'PD_CONTROL_GOLDEN_PATH=%s\n' "${PD_CONTROL_GOLDEN_PATH}"
   printf 'DECODE_TOPOLOGY=DP%s/TP%s\n' "${DECODE_DP_SIZE}" "${DECODE_TP_SIZE}"
+  printf 'AFD_PLACEMENT=%s\n' "${AFD_PLACEMENT}"
+  printf 'AFD_RANKS=A%s/F%s\n' "${ATTENTION_RANKS}" "${FFN_RANKS}"
+  printf 'ATTENTION_MAX_NUM_BATCHED_TOKENS=%s\n' "${ATTENTION_MAX_NUM_BATCHED_TOKENS}"
+  printf 'FFN_MAX_NUM_BATCHED_TOKENS=%s\n' "${FFN_MAX_NUM_BATCHED_TOKENS}"
   printf 'DECODE_EXECUTION_MODE=%s\n' "${DECODE_EXECUTION_MODE}"
   printf 'DECODE_U_BATCHES=%s\n' "${DECODE_U_BATCHES}"
   printf 'DECODE_ENABLE_MTP=%s\n' "${DECODE_ENABLE_MTP}"
   printf 'DECODE_MTP_DRAFT_EXECUTION=%s\n' "${DECODE_MTP_DRAFT_EXECUTION}"
   printf 'ENABLE_BATCH_INVARIANT=%s\n' "${ENABLE_BATCH_INVARIANT}"
+  printf 'AFD_PROFILE_ENABLE=%s\n' "${AFD_PROFILE_ENABLE}"
+  printf 'AFD_PROFILE_START_TIMEOUT_SECONDS=%s\n' \
+    "${AFD_PROFILE_START_TIMEOUT_SECONDS}"
+  printf 'AFD_PROFILE_FINALIZE_TIMEOUT_SECONDS=%s\n' \
+    "${AFD_PROFILE_FINALIZE_TIMEOUT_SECONDS}"
+  printf 'AFD_PROFILE_VLLM_SHUTDOWN_TIMEOUT_SECONDS=%s\n' \
+    "${AFD_PROFILE_VLLM_SHUTDOWN_TIMEOUT_SECONDS}"
+  printf 'MATRIX_PROFILE_BASE=%s\n' "${MATRIX_PROFILE_BASE:-not-set}"
+  printf 'AFD_PROFILE_ATTENTION_DIR=%s\n' "${AFD_PROFILE_ATTENTION_DIR}"
+  printf 'AFD_PROFILE_FFN_DIR=%s\n' "${AFD_PROFILE_FFN_DIR}"
+  printf 'AFD_HCCL_GRAPH_U2_COMPUTE_OVERLAP=%s\n' "${AFD_HCCL_GRAPH_U2_COMPUTE_OVERLAP}"
+  printf 'AFD_HCCL_GRAPH_U2_HYBRID_DAG=%s\n' "${AFD_HCCL_GRAPH_U2_HYBRID_DAG}"
+  printf 'AFD_HCCL_GRAPH_U2_ATTENTION_THREE_STREAM=%s\n' "${AFD_HCCL_GRAPH_U2_ATTENTION_THREE_STREAM}"
+  printf 'AFD_HCCL_GRAPH_U2_FFN_RECV_STREAM=%s\n' "${AFD_HCCL_GRAPH_U2_FFN_RECV_STREAM}"
+  printf 'AFD_HCCL_GRAPH_U2_FFN_CROSS_LAYER=%s\n' "${AFD_HCCL_GRAPH_U2_FFN_CROSS_LAYER}"
   printf 'ALLOW_COLOCATED_PD_CONTROL=%s\n' "${ALLOW_COLOCATED_PD_CONTROL}"
   printf 'VLLM_ASCEND_WORKTREE_MODE=%s\n' "${VLLM_ASCEND_WORKTREE_MODE}"
   printf 'STATE_ROOT=%s\n' "${STATE_ROOT}"
@@ -1529,6 +2099,9 @@ case "${ACTION}" in
   smoke) functional_smoke_action ;;
   record-control) record_control_action ;;
   validate) validate_action ;;
+  profile-start) profile_start_action ;;
+  profile-check) profile_check_action ;;
+  profile-stop|profile-finalize) profile_stop_action ;;
   stop) stop_action ;;
   collect) collect_action ;;
   *) usage; die "Unknown action: ${ACTION}" ;;

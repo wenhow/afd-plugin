@@ -3,13 +3,17 @@
 该目录把安装指南中的双机命令收敛为一个入口：
 
 ```bash
-bash pd.sh <install|check|start|status|smoke|record-control|validate|stop|collect> config.env
+bash pd.sh <install|check|start|status|smoke|record-control|validate|profile-start|profile-check|profile-stop|stop|collect> config.env
 ```
 
 update13 的双 A3 最短操作流程见
 [`UPDATE13_RUNBOOK_ZH.md`](UPDATE13_RUNBOOK_ZH.md)。该手册当前作为全部本机功能
 开发完成后的外部拓扑/F1 验收入口；本机开发不等待双 A3，也不继续使用 update10
 的 native `GOLDEN_PATH` 作为 PD + AFD exact-token 门禁。
+
+PD 分离 `P8+A16F8` 的 Graph+U2 比例验证使用
+[`pd_graph_matrix.sh`](pd_graph_matrix.sh)，完整三组对照、双侧 Profile 和验收门禁见
+[`DEEPSEEK_V4_AFD_P8_A16F8_DUAL_A3_GRAPH_U2_VALIDATION_GUIDE_ZH.md`](../../../docs/npu/DEEPSEEK_V4_AFD_P8_A16F8_DUAL_A3_GRAPH_U2_VALIDATION_GUIDE_ZH.md)。
 
 ## 1. 准备六个配置
 
@@ -35,9 +39,12 @@ control golden 只在 A3-P 生成并保存：
 检查该文件。
 
 六个配置中的 `PREFILL_IP`、`DECODE_IP`、源码路径、Mooncake 安装模式和
-`AFD_PD_COMMIT` 必须完全一致。`AFD_PD_COMMIT` 必须是已经提交并推送的 M9
-commit，不能填写分支名。镜像已经在目标 `VENV_ROOT` 内安装 Mooncake 0.3.9
+`AFD_PD_COMMIT` 必须完全一致。矩阵 `init` 会把当前 afd-plugin checkout 的精确
+40 位 HEAD 自动写入 `common.env`；直接复制 `config.env.example` 时必须手工替换
+`CHANGE_ME`，不能填写分支名。镜像已经在目标 `VENV_ROOT` 内安装 Mooncake 0.3.9
 时使用 `MOONCAKE_INSTALL_MODE=existing`，不需要传 wheel；否则使用 `wheel`。
+所有 `check/start` 操作还要求 afd-plugin 工作树完全干净；验证内容必须先提交到该
+40 位 HEAD，不能用未校验的 overlay 或本地 diff 改变实际运行代码。
 
 Decode 拓扑支持两组固定值：首轮外部拓扑冒烟使用 `DECODE_DP_SIZE=8`、
 `DECODE_TP_SIZE=1`；TP1 通过后使用 `DECODE_DP_SIZE=4`、
@@ -200,6 +207,9 @@ bash pd.sh collect /data/z00569729/config/pd-afd-prefill.env
 bash pd.sh collect /data/z00569729/config/pd-afd-decode.env
 bash pd.sh collect /data/z00569729/config/pd-afd-proxy.env
 ```
+
+收集动作不以日志内容作为成功条件。日志中即使存在 fatal marker，也会继续生成
+归档；归档成功仅表示证据已保存，是否通过验收需要在收集后分析日志和结果文件。
 
 每次输出两个文件：
 
