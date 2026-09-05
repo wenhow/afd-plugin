@@ -4,7 +4,7 @@
 
 本文用于固化 DeepSeek-V4 AFD 在完成 CAMP2P eager/U1、Graph/U1，以及标准 HCCL P2P eager/U1、U2、Graph/U1 和 Graph/U2 正确性基线后的目标、开发顺序和验收门禁，供后续开发、验证、性能分析和 A5 迁移时直接使用。
 
-文档状态：`2026-08-28`。CAMP2P eager/U2 已冻结为 `dsv4-afd-a3-eager-u2-v1`；标准 HCCL send/recv connector 已在提交 `9578dd2cb70f9f8db54673a70e8f45fde6479245` 完成 A3 A8F8 eager/U1、U2 正确性闭环。A3-P4 的 A8F8 未调优性能参照与 U1/U2 双侧 profile 已完成：三轮重复性通过，但 U2 在 C32 比 U1 回退 37.570%，因此当前只冻结参照协议，不冻结 U2 性能基线。
+文档状态：`2026-09-05`。CAMP2P eager/U2 已冻结为 `dsv4-afd-a3-eager-u2-v1`；标准 HCCL send/recv connector 已在提交 `9578dd2cb70f9f8db54673a70e8f45fde6479245` 完成 A3 A8F8 eager/U1、U2 正确性闭环。A3-P4 的 A8F8 未调优性能参照与 U1/U2 双侧 profile 已完成：三轮重复性通过，但 U2 在 C32 比 U1 回退 37.570%，因此当前只冻结参照协议，不冻结 U2 性能基线。
 
 A3-P5 的 `A = k x F` 非等量协议和 A2F1/A4F2 NPU 组件验证已经完成。A3-P6 的 A8F4 实模加载在 64 GiB A3 上因 FFN EP4 专家权重峰值 HBM 不足而停止；A10F5 容量代理又被固定 vLLM-Ascend 的 256 experts/EP5 非均匀放置检查拒绝。该结论是当前硬件与固定栈组合的 E2E 门禁，不否定 connector 的非等量语义。A8F4 E2E 移到高 HBM 的 A5 实机验证；A3 保留现有 A8F8 同步 HCCL 性能参照，完成 MTP 功能门禁后再恢复新的调优和公平对照。
 
@@ -19,6 +19,19 @@ A3-P5 的 `A = k x F` 非等量协议和 A2F1/A4F2 NPU 组件验证已经完成�
 MTP/speculative decoding 已纳入必交付范围。A3-P7M0 原生 MTP 基线和角色/权重契约、A3-P7M1 HCCL P2P eager/U1 + MTP、A3-P7M2 target Graph/U1 + draft eager MTP、A3-P7M3 eager/U2 + MTP，以及 A3-P7M4 target Graph/U2 + draft eager MTP 功能均已完成。M4 的 F0 达到 30/30 golden、batch 1/8/32、真实双 stage、capture/replay、正常停止和清理门禁；P1 128/128 成功，单轮 31.473 token/s、MTP acceptance rate 84.51%。该数字只作功能 guard，不创建性能 tag。M3 的 42.583% 回退仍登记在 `P8D-PERF-001`，但按“先补齐功能、后统一优化”的决策不再阻塞后续功能阶段。
 
 A3-P7M5 已完成 eager `A = k x F` + MTP 的 connector 协议、CPU/Mock 和真实 NPU 组件闭环。随后 A3-P7M6 已完成非等量 target Graph/U1/U2 + eager draft MTP 的组件闭环：A2F1、A4F2 Graph capture/replay 通过，A4F2 Graph + MTP 组合也通过。A3 因 EP4 HBM 不足不能完成 A8F4 实模 E2E，因此两阶段都只冻结 component functional snapshot，不宣称 A8F4 产品级支持、不执行 P1。完整报告见 `DEEPSEEK_V4_AFD_HCCL_P2P_MTP_UNEQUAL_COMPONENT_REPORT_ZH.md` 和 `DEEPSEEK_V4_AFD_HCCL_P2P_GRAPH_UNEQUAL_COMPONENT_REPORT_ZH.md`。A3-P7M7 随后完成 full draft Graph U1/U2；首版仍固定为 1 个 MTP layer 和 `num_speculative_tokens=1`，更多 speculative token 数继续 fail-fast。
+
+M9 在 2026-09-04 完成双 A3 的 TP1、MTP off、Graph/U2 数据面与性能/Profile 测量：
+共置 A8F8、split A8F8、split A16F8 三点均完成三轮 C32 请求，所有 Attention rank
+观测到真实 U2。A16F8 的物理 A:F 是 `2:1`；U2 使每个 FFN 对应四个 peer-stage 逻辑
+输入切片，不能称为物理 4:1。A16F8 对 split A8F8 出现 `+146.568%` output throughput 和
+`+84.926%` token/s/NPU 的强方向信号，但 split A8F8 CV 为 `14.080%`，比较还同时改变
+active NPU 与 FFN token capacity；当前只记录 measurement，不创建性能 tag。停止期 fatal
+和强杀门禁不干净，也意味着 Graph/U2 F0-topology 生命周期尚未冻结。采集时 R14 overlay
+还使用了现已撤回的 AllToAllV warmup split cache；动态 expert routing 无法由 shape key
+固定，因此本轮不能作为 Graph 输出正确性证明，只保留请求、流水和性能观测。按 FFN
+Profile wall 归一化后，Free 从 `71.977%` 降至 `38.395%`，但 Bubble 从 `18.164%` 升至
+`36.954%`，相对 bubble burden 约增加 `103.45%`；更多 Attention 填充了空闲，但没有
+消除剩余通信等待。
 
 本文不替代以下文档：
 
@@ -66,7 +79,7 @@ A3 当前阶段
   -> MTP eager 非等量协议/组件闭环（M5 已完成，A8F4 实模转 A5）
   -> Graph 非等量组件闭环（M6 已完成，A8F4 实模转 A5）
   -> full draft ACL Graph U1/U2（M7 已完成，30/30 golden）
-  -> TP，再依次推进 SP/CP/DCP 和 PP
+  -> TP2（M8 已完成），再依次推进 Mooncake PD（M9）、SP/CP/DCP 和 PP
   -> 多 speculative token 独立里程碑
   -> 锁定 A8F8 U1/U2 性能参照和请求矩阵
   -> HCCL P2P A=kF 非等量 fan-in/fan-out 组件闭环（已完成）
@@ -229,6 +242,10 @@ ratio = A / F
 
 即一个 FFN rank 对应连续的 `ratio` 个 Attention rank。A=F 继续作为 ratio=1 的兼容路径。A2F1/A4F2 已完成真实 NPU 组件闭环；A8F4 仍是高 HBM A5 的首个非等量 E2E 目标。
 
+Mooncake PD 的 split A16F8 也是物理 `A:F=2:1`，但它采用 P8F8 + A16、TP1，不能替代
+standalone A8F4/EP4 的 A5 E2E 门禁。该双机点还含 R14 历史 overlay，只能作为运行和
+Profile 观测，不能反向把非等量 FFN Graph 动态路由标记为已支持。
+
 确定性映射为：
 
 ```text
@@ -254,7 +271,9 @@ AFD world        -> [F0 ... F(F-1), A0 ... A(A-1)]
 - Graph/U3；
 - Attention 侧 gate；
 - 非等量拓扑 + full draft Graph 实模 E2E 和多 speculative token；
-- Mooncake PD 实模 E2E（M9 的 TP1 eager/U1 配置和门禁已开始实现）；
+- Mooncake PD 已有 TP1、MTP off、Graph/U2 双机实模数据面证据，但优雅退出、F1、
+  eager/U1、Graph/U1、TP2 和 MTP 组合尚未冻结；R14 AllToAllV 静态 split-cache 已撤回，
+  FFN Graph 动态路由正确性仍是 P0；
 - sequence parallel；
 - A/F 非等量实模 E2E（connector 和 A2F1/A4F2 组件已通过，A3 A8F4 受 HBM 阻塞）；
 - 超出 M8 已冻结 DP4/TP2 边界的 TP，以及 PP、SP、CP 或 DCP 大于 1；
@@ -287,6 +306,33 @@ P2 才回答最终问题“开启 AFD 和 microbatch 后是否有性能收益”
 - eager 与 Graph 分开归因；Graph/U2 已完成功能门禁，但正式结论仍要求 Graph/U1、Graph/U2 和 native Graph 分别完成 P2；
 - MTP off 先完成主结论，MTP on/off 作为独立维度报告 acceptance rate，不能把 speculative decoding 收益归因于 microbatch。
 
+Mooncake PD Graph/U2 的正式 P2 主矩阵固定为以下资源点。`reserved NPU` 是两台 16 卡
+A3 为整轮实验保留的总卡数，`active NPU` 是该测试点实际运行模型的卡数；两种口径都要
+报告 token/s/NPU，不能用 16、24、32 张 active NPU 的原始吞吐直接互相证明收益：
+
+| ID | 数据路径与物理拓扑 | placement | active/reserved NPU | 调度容量 | 对照目的 |
+|---|---|---|---:|---|---|
+| C0 | PD no-AFD，`P8+D8` | split PD | 16/32 | Decode `max_num_batched_tokens=4096`，`max_num_seqs=16` | 路径匹配 control；固定相同 Mooncake、Graph、MTP off、请求与启动顺序 |
+| T1 | PD + AFD，`P8+[A8F8]` | A/F 共置 | 24/32 | Attention/FFN 均为 4096，`max_num_seqs=16` | 共置 A8F8 基线 |
+| T2 | PD + AFD，`[P8F8]+A8` | A/F split | 24/32 | Attention/FFN 均为 4096，`max_num_seqs=16` | 与 T1 隔离 placement |
+| T3 | PD + AFD，`[P8F8]+A16` | A/F split | 32/32 | Attention 4096、FFN 8192，`max_num_seqs=32` | 物理 A:F=2:1 扩展点 |
+
+T1、T2、T3 各自在同一源码 commit 上执行下列三种显式开关预设，共 9 个 AFD 单元；C0
+不使用 AFD 流水开关，只执行一次，因此主矩阵共 10 个单元。不得用切换不同历史分支代替
+显式开关，也不得只保留结果最好的预设：
+
+| 预设 | compute overlap | hybrid DAG | Attention 三流 | FFN recv stream | FFN cross-layer | 含义 |
+|---|---:|---:|---:|---:|---:|---|
+| all-on | 1 | 1 | 1 | 1 | 1 | 当前五项全开实验配置 |
+| V1 | 1 | 1 | 0 | 0 | 0 | 混合 DAG、side compute；通信保持 V1 parent 映射和逐层 join |
+| off | 0 | 0 | 0 | 0 | 0 | 同为 Graph/U2，但关闭本轮全部流水优化 |
+
+T3 不只是增加 Attention rank：它还把每个 FFN rank 的接收容量从 4096 提到 8192，并把
+`max_num_seqs` 从 16 提到 32。T2/T3 的比例比较必须记录实际 batch tokens、Graph bucket、
+HBM 和 FFN capacity headroom；若要归因容量参数本身，需在 A8F8 上补相同 8192/32 的容量
+敏感性对照。否则 T3 只能回答“资源和容量共同扩展后的系统效果”，不能回答纯 A:F 或纯
+多流收益。
+
 P2 使用第 6 章的 concurrency、长度、三轮波动、延迟、HBM 和 `tokens/s/NPU` 门禁。128K 继续作为容量、TTFT 和 HBM 专项，不混入短输入 decode/microbatch 收益结论。
 
 | 阶段 | 主要交付 | 进入下一阶段的门禁 |
@@ -312,6 +358,8 @@ P2 使用第 6 章的 concurrency、长度、三轮波动、延迟、HBM 和 `to
 | A3-P7M5 | eager 非等量拓扑 + MTP | 已通过 A1F1/A2F1/A4F2 真实 NPU 组件；A8F4 实模因 A3 HBM 留到 A5 |
 | A3-P7M6 | Graph 非等量拓扑 | 已通过 graph key 隔离、A2F1/A4F2 两 stage capture/replay 和 A4F2 target Graph + eager MTP 组合组件；A8F4 实模 F0 留到 A5 |
 | A3-P7M7 | full draft ACL Graph | 已通过：A8F8 U1/U2 各 30/30 golden、batch 1/8/32、A4F2 full-draft Graph 组件、动态 batch、128/128 P1、shutdown/fatal/cleanup；27.510 token/s 仅作单轮 guard |
+| A3-P7M8 | HCCL P2P TP2 功能基线 | 已冻结等量 A8F8、DP4/TP2、eager/U1；TP2 full-draft Graph U2 最大组合保持 fail-fast |
+| A3-P7M9 | Mooncake PD + AFD | TP1/MTP off/Graph U2 双 A3 数据面、三拓扑三轮测量及双侧 Profile 已完成；动态路由 P0、生命周期、F1、10 单元公平 P2 和后续物理 A:F 扫描待完成 |
 
 ### 5.1 A3-P0：固定性能实验协议
 
@@ -1336,7 +1384,88 @@ Prefill 8 + Attention 8 + FFN 8，因此不能据此声明完整 PD + AFD F0-top
 通过，也不创建 M9 功能 tag。完整三段路径和各组合仍留到双 A3；一 token MTP
 之后的多 speculative token 仍是独立的后续功能开发项。
 
-### 9.1 上游确定性遗留与 AFD 验收边界
+### 9.1 2026-09-04 双 A3 Graph/U2 验证结果
+
+本轮使用 CANN 9.0.0、vLLM `0fc695fc6d1d82e9a5ac6835ac8e4e1c83703665`、
+vLLM-Ascend `3da28f9414583d2d0b672a8f06d1fae142404bda`、afd-plugin
+`2164240b31efc8605bf84cc45afc628996669554 + R14 overlay` 和 Mooncake 0.3.9。
+三点均为 TP1、MTP off、`FULL_DECODE_ONLY`、Graph/U2；双机物理资源均预留 32 张
+NPU，但 active NPU 分别是 24、24 和 32：
+
+| 测试点 | 拓扑 | output token/s 三轮均值 | CV | token/s/active NPU | TPOT P50/P90/P99 |
+|---|---|---:|---:|---:|---:|
+| 共置 A8F8 | `P8 + [A8F8]` | 225.761 | 4.026% | 9.407 | 117.430/174.374/192.041 ms |
+| split A8F8 | `[P8F8] + A8` | 219.182 | 14.080% | 9.133 | 131.892/148.103/156.636 ms |
+| split A16F8 | `[P8F8] + A16` | 540.433 | 1.806% | 16.889 | 45.023/46.515/46.769 ms |
+
+每轮 128/128 请求完成，三个测试点的 U2 stage 证据分别覆盖 8/8、8/8、16/16
+Attention rank。A16F8 的物理比例是 `A:F=2:1`；每个 FFN 在 U2 下接收两个
+Attention peer 乘两个 stage，共四个逻辑输入切片，不能把逻辑切片数写成物理 4:1。
+
+这里的“完成”只指请求、stage 和采集流程完成，不是输出正确性验收。R14 为绕过部分
+FFN Graph capture 的 `LocalScalarDenseNpu` 错误，曾把 warmup 的 AllToAllV split 按 shape
+缓存；审计确认 split 实际依赖每个 layer/请求的动态 `topk_ids`，而 replay 不会再次执行
+Python 预处理。该 overlay 已撤回且不进入提交。A16F8 Profile 窗口主要观察到 MC2
+`MoeDistributeDispatchV2/CombineV2`，仍可用于解释流水，但可达的大 gear AllToAllV 路径
+没有 golden 覆盖，不能据此冻结 FFN Graph 正确性。
+
+A16F8 相对 split A8F8 的 output throughput 为 `+146.568%`，token/s/active NPU 为
+`+84.926%`，TPOT P50/P90/P99 分别下降 `65.864%/68.593%/70.141%`。变化远大于
+两组 CV 之和，是强方向信号；但该对比同时增加 8 张 active Attention NPU，并把 FFN
+`max_num_batched_tokens` 从 4096 调到 8192，且 split A8F8 的 CV 超过 10%。因此该轮只记
+`measurement_only_no_fixed_gain_threshold`，不能把全部改善归因于 2:1、混合 DAG 或
+新增物理 stream。共置与 split A8F8 的均值差 `-2.914%` 小于波动口径，也不能据此断言
+跨机 placement 没有代价。
+
+六个 CANN 9.0.0 Profile root 都通过产物与 parser 交叉检查，`with_stack=false`。DP0
+step-trace 的核心分解如下；`wall = Computing + Communication(Not Overlapped) + Free`：
+
+| 测试点/角色 | wall | Computing | Comm non-overlap | Comm overlap | Free | Bubble |
+|---|---:|---:|---:|---:|---:|---:|
+| 共置 A8 Attention | 109.544 s | 22.147 s | 67.747 s | 9.716 s | 19.650 s | 74.134 s |
+| 共置 A8 FFN | 109.517 s | 39.650 s | 14.971 s | 8.053 s | 54.896 s | 22.155 s |
+| split A8 Attention | 113.976 s | 21.506 s | 72.313 s | 8.145 s | 20.158 s | 74.588 s |
+| split A8 FFN | 113.942 s | 14.772 s | 17.157 s | 5.033 s | 82.012 s | 20.696 s |
+| split A16 Attention | 55.498 s | 18.756 s | 15.843 s | 3.585 s | 20.899 s | 18.752 s |
+| split A16 FFN | 55.474 s | 16.124 s | 18.050 s | 3.520 s | 21.299 s | 20.500 s |
+
+绝对秒数必须同时按各自 Profile wall 归一化。split A8F8 到 split A16F8 的 FFN wall
+从 113.942 s 缩短到 55.474 s，因此 Bubble 秒数近似不变并不表示其相对负担不变：
+
+| FFN 指标 | split A8F8 | split A16F8 | 归一化变化 |
+|---|---:|---:|---:|
+| `Free / wall` | 71.977% | 38.395% | -33.582 个百分点 |
+| `Bubble / wall` | 18.164% | 36.954% | +18.790 个百分点；相对 bubble burden 约 +103.45% |
+
+相对 split A8F8，A16F8 的 FFN Free 下降 `74.029%`，而 Bubble 绝对值只下降
+`0.944%`，non-overlap communication 反而增加 `0.893 s`（`+5.205%`）。因此吞吐改善的主要解释是
+FFN 更持续地得到输入；但在缩短后的 wall 中，剩余 Bubble 占比反而约翻倍，不能表述成
+“receive/sync bubble 已被消除”，也不能仅以绝对 Bubble 秒数判断比例扩展已经解决等待。
+最长 receive 裁剪窗口
+进一步确认同一窗口存在 recv/compute、compute/send 和前一 send/下一 recv 重叠；从第一个
+Attention send 开始的活跃窗口内 FFN Computing 占 `85.154%`，约 `60.756%` 通信时间被
+计算覆盖。四个高层输入接收也与 `2 peers x 2 stages` 一致。
+
+当前证据不支持“单逻辑 recv stream 导致队头阻塞”的确定结论：裁剪中多个底层
+`Notify_Wait` 已并行，高层 receive 完成虽呈串行，但只采集 Attention DP0 和 FFN DP0，
+缺少第二个 Attention peer、多个 FFN rank、host enqueue/event 和跨机时钟同步。下一轮应
+直接补这些证据，而不是仅依据一条最长 receive 外推全局。
+
+本轮请求、流水和测量观测有效，但 Graph 正确性与 F0-topology 生命周期都没有冻结。
+14 个角色归档中 7 个包含停机期
+fatal marker，11 份日志尾部出现强杀；最终 `npu-smi` 已无残留进程。归档中的
+`status.exitcode=1` 只是停止后 health/status 的 NOT RUNNING，不是服务进程退出码，现有产物
+也没有独立记录真实进程 rc。发布前必须修复优雅停止并完成二次启动，同时补路径匹配的 PD
+no-AFD control、30/30 token exact F1、稳定的 split A8F8，以及 all-on/V1/off 公平消融。
+原始证据归档为：
+
+```text
+/mnt/workspace/log/201f96bcabb5446ea950ad241cd42202.zip
+/mnt/workspace/log/91c03c33caa144539ef9438e7098e8be.zip
+/mnt/workspace/log/29df8d29d6874b6899027810ac85072b.zip
+```
+
+### 9.2 上游确定性遗留与 AFD 验收边界
 
 双 A3 验证中暴露的数值问题不归属 `afd-plugin`，登记为两个独立上游遗留：
 
@@ -1365,6 +1494,35 @@ standalone AF 的 `P8D-PERF-001` 在 M9 期间继续保持 Open，但不阻塞�
 PD 拓扑是新的独立变量，不能用 standalone AF 数字直接替代生产拓扑结论。
 U3 仍不纳入当前路线。
 
+### 9.3 F1 后的物理 A:F 受控扫描
+
+物理比例扫描不得与当前 P0 修复并行得出性能结论。只有以下三个门禁全部通过后才开始：
+
+1. FFN Graph 动态路由 P0 已关闭；同一 Graph key 下不同 `topk_ids`、zero-to-nonzero
+   路由、所有可达 capture gear 均通过 eager/Graph 对照和 30/30 token exact；
+2. 路径匹配的 PD no-AFD control 与 PD + AFD 已通过跨冷启动稳定性和 F1；
+3. 正常停止、异常停止、二次启动和空闲恢复均无 fatal、强杀、残留进程、端口或 NPU
+   占用，真实进程返回码已进入归档。
+
+门禁通过后，以固定 `F=16` 执行物理 `A:F=1:1 -> 2:1 -> 4:1` 扫描：
+
+| 物理比例 | 目标 AF 拓扑 | AF active NPU | 说明 |
+|---|---:|---:|---|
+| 1:1 | A16F16 | 32 | 固定 FFN EP16 的比例基线 |
+| 2:1 | A32F16 | 48 | 每个 FFN 对接 2 个 Attention peer |
+| 4:1 | A64F16 | 80 | 每个 FFN 对接 4 个 Attention peer；不是当前 A16F8 的外推结果 |
+
+三点固定同一代码、模型、CANN/Mooncake、TP、Graph/U2、流水预设、请求长度和到达模型，
+通过同一 concurrency sweep 找到各自稳定饱和区；每点至少三轮，并同时报告 active/reserved
+NPU、吞吐、token/s/NPU、TPOT、CV、HBM、FFN `Free/wall`、`Bubble/wall`、receive wait 和
+通信重叠。FFN 接收容量必须按 fan-in 的正确性上限配置并完整记录；容量随比例变化时，另在
+较低比例补同容量敏感性对照，不能把 buffer/capture gear 变化归因于 A:F。
+
+`A64F16` 的 AF 数据面本身需要 80 张 active NPU，尚未计入 Prefill，明显超出当前两台
+16 卡 A3 的 32 卡总资源。当前双 A3 只实测到 A16F8（物理 2:1），既没有固定 F16，也没有
+物理 4:1；因此不能从 A16F8 的吞吐、Free 或 Bubble 趋势推导 A64F16。4:1 必须在具备足够
+节点、网络和 Prefill 资源的 scale-out 环境重新完成 F0-topology、F1、Profile 和 P2。
+
 ## 10. 分支、Tag 和产物规范
 
 ### 10.1 建议分支和 Tag
@@ -1380,6 +1538,7 @@ U3 仍不纳入当前路线。
 | v0.23 HCCL P2P full draft Graph 功能基线 | `dsv4-afd-v023-hccl-mtp-full-draft-graph-v1` |
 | v0.23 HCCL P2P TP2 功能基线 | `dsv4-afd-v023-hccl-tp2-v1` |
 | v0.23 Mooncake PD + AFD 开发 | `feat/dsv4-afd-mooncake-pd` |
+| v0.23 Mooncake PD Graph/U2 多流验证 | `feat/dsv4-afd-graph-u2-multistream-all-on-v1` |
 | A3 HCCL P2P 性能验收 | `dsv4-afd-a3-hccl-p2p-perf-v1` |
 | vLLM 0.23 + `rfc/vllm_cann` 功能兼容基线 | `dsv4-afd-v023-vllm-cann-eager-u2-functional-v1` |
 | A5 基线 | 在实际硬件和版本确认后使用 `dsv4-afd-a5-*` 命名 |
@@ -1447,7 +1606,7 @@ U3 仍不纳入当前路线。
 12. A3-P8/P8C/P8D 的 eager 性能缺口 `P8D-PERF-001` 仍为 Open；Graph/U2 P1 的 107.189 token/s 和 M4 P1 的 31.473 token/s 都不能直接关闭该问题。功能组合闭环后再做 Graph/U1、Graph/U2、MTP on/off 和同预算 native Graph 三轮 P2；
 13. A3-P7M7 full draft ACL Graph 已完成；恢复时核对专项报告、U1/U2 各 30/30、A4F2 组件、capture bucket、128/128 P1 和 cleanup，不再沿用旧的 6/30 结论；
 14. A3-P7M8 TP2 功能基线已完成；恢复时核对专项报告、三个 TP2 组件产物、原生 DP4/TP2 golden 和 A8F8 eager/U1 30/30 F0；不要把失败的 TP2 full-draft Graph U2 最大组合写成支持；
-15. 当前功能里程碑为 M9 Mooncake PD；固定栈 connector/API 审计、目标 venv Mooncake 环境、TP1 eager/U1 配置、metadata contract 和真实两进程 NPU round-trip 已通过；DP4/TP2 及 eager/U2、Graph/U1、Graph/U2、一 token MTP 的 control/AFD 配置已补齐，当前在本机继续完成代码、CPU/Mock、真实 NPU 组件和可执行实模 F0-local，双 A3 F0-topology 后置且不阻塞独立开发；
+15. 当前功能里程碑为 M9 Mooncake PD；TP1/MTP off/Graph U2 已完成双 A3 三拓扑请求、三轮性能和双侧 DP0 Profile 观测。A16F8 是物理 2:1；按 wall 归一化后 FFN Free 从 71.977% 降至 38.395%，Bubble 却从 18.164% 升至 36.954%，不能宣称 bubble 已消除。R14 AllToAllV 静态 split-cache 已撤回，FFN Graph 动态路由是当前 P0。顺序固定为：先实现 graph-safe 动态路由并重跑 golden，再关闭优雅停止/二次启动门禁，再完成路径匹配 PD control 和 30/30 F1；随后执行 C0 加 T1/T2/T3 x all-on/V1/off 的 10 单元正式 P2，并补其他执行组合；上述门禁全部完成后才做固定 F16 的物理 1:1/2:1/4:1 扫描。A64F16 超出当前双 16 卡 A3，不能从 A16F8 外推；
 16. `UPSTREAM-DSV4-BI-001` 和 `UPSTREAM-DSV4-SHORT-EXTEND-001` 归属 vLLM-Ascend/执行路径，不作为 afd-plugin 代码缺陷；batch-invariant 和 golden/token exact 统一后移到全部计划功能开发完成后的 F1，只有路径匹配 control 稳定而 AFD 相对它发生新增分叉才阻塞插件正确性冻结；
 17. SP/CP/DCP 和 PP 全部后移到 M9 之后；更多 speculative token 保持独立里程碑；
 18. A5 到位后从硬件审计和独立工具链开始，不复用 A3 二进制，并重新生成原生 MTP golden；
@@ -1455,4 +1614,4 @@ U3 仍不纳入当前路线。
 
 ## 13. 一句话路线
 
-在 vLLM 0.23 + `rfc/vllm_cann` 目标栈已经完成 HCCL P2P eager U1/U2、等量 Graph/U1/U2、原生 MTP/M0、eager/U1 + MTP/M1、target Graph/U1 + draft eager MTP/M2、eager/U2 + MTP/M3、target Graph/U2 + draft eager MTP/M4、eager 非等量 MTP/M5、非等量 Graph 组件/M6、full draft ACL Graph/M7，以及等量 A8F8 DP4/TP2 eager/U1 功能基线/M8。M8 的原生 TP2 golden 稳定且 AFD 实模 F0 达到 30/30；TP2 full-draft Graph U2 最大组合因 FFN AICore 异常保持 fail-fast。M9 Mooncake PD 已具备 Decode DP8/TP1、DP4/TP2 及 eager/U2、Graph/U1、Graph/U2、一 token MTP 的配置入口；下一步在本机完成全部可执行开发和 F0-local，F0 不包含 golden。完整 24-NPU PD + AFD 路径随后在双 A3 完成 F0-topology；全部计划功能开发结束后再统一处理 batch-invariant、路径匹配 control 和 30/30 token exact 的 F1。SP/CP/DCP 和 PP 全部后移到 M9 之后，多 speculative token 保持独立里程碑。F1 后统一执行三轮 P2、MTP on/off 和同预算 native 公平对照。Attention-side gate 不纳入支持范围，`P8D-PERF-001` 仍保留，A3 数字不得直接外推到 A5。
+在 vLLM 0.23 + `rfc/vllm_cann` 目标栈已经完成 HCCL P2P eager U1/U2、等量 Graph/U1/U2、MTP M0-M7、非等量组件与 TP2/M8 基线。M9 的 TP1/MTP off/Graph U2 已完成双 A3 共置 A8F8、split A8F8、split A16F8 的请求、三轮测量和双侧 DP0 Profile 观测；A16F8 是物理 A:F=2:1，FFN Free 占 wall 下降但 Bubble 占比约翻倍，当前既不是 Graph 输出正确性结论，也不是固定阈值性能结论。下一步依次关闭 FFN Graph 动态路由 P0、优雅停止/二次启动、路径匹配 PD control 和 30/30 token exact F1，再执行 PD no-AFD control、共置/split A8F8、split A16F8 乘 all-on/V1/off 的正式 P2；之后补 TP2、eager/U1/U2、Graph/U1、MTP on/off 等 M9 组合。只有上述门禁完成后才扫描固定 F16 的物理 A:F=1:1/2:1/4:1；A64F16 超出当前双 A3，禁止从 A16F8 外推。SP/CP/DCP、PP 和更多 speculative token 后移；A5 必须独立重建栈、golden、Profile 和性能基线，A3 数字不得外推。
