@@ -375,6 +375,8 @@ def _new_attention_runner():
 
     runner = object.__new__(AFDNPUAttentionModelRunner)
     runner._afd_transaction_counter = 0
+    runner.prof = None
+    runner._afd_profiler_window_active = False
     return runner
 
 
@@ -686,6 +688,7 @@ def _new_ffn_runner():
     # the profiler and device; provide inert defaults the runtime paths expect.
     runner = object.__new__(AFDNPUFFNModelRunner)
     runner.prof = None
+    runner._afd_profiler_window_active = False
     runner.device = SimpleNamespace(type="npu")
     runner._is_shutdown = False
     runner.afd_config = AFDConfig(role="ffn")
@@ -3676,11 +3679,286 @@ def test_npu_ffn_runner_shutdown_is_idempotent(monkeypatch):
     assert parent_calls == [runner]
 
 
+def test_npu_attention_runner_explicitly_stops_and_relays_profiler(monkeypatch):
+    _require_npu_runtime()
+    from afd_plugin.v1.worker.npu import attention_model_runner
+
+    runner = _new_attention_runner()
+    profiler = object()
+    runner.prof = profiler
+    runner._afd_profiler_window_active = True
+    payloads = []
+    runner.connector = SimpleNamespace(
+        control_plane=SimpleNamespace(send_dp_metadata_list=payloads.append),
+    )
+    stopped = []
+    monkeypatch.setattr(
+        attention_model_runner,
+        "stop_afd_npu_profiler",
+        stopped.append,
+    )
+
+    runner.stop_afd_profiler(notify_ffn=True)
+    runner.stop_afd_profiler(notify_ffn=True)
+
+    assert stopped == [profiler, None]
+    assert runner.prof is None
+    assert len(payloads) == 2
+    assert all(payload.profile_stop for payload in payloads)
+
+
+def test_npu_attention_runner_explicitly_starts_and_relays_profiler(monkeypatch):
+    _require_npu_runtime()
+    from afd_plugin.v1.worker.npu import attention_model_runner
+
+    runner = _new_attention_runner()
+    runner.prof = None
+    runner._afd_profiler_role_rank = 0
+    payloads = []
+    runner.connector = SimpleNamespace(
+        control_plane=SimpleNamespace(send_dp_metadata_list=payloads.append),
+    )
+    profiler = object()
+    created = []
+
+    def create(role, *, role_rank):
+        created.append((role, role_rank))
+        return profiler
+
+    monkeypatch.setattr(attention_model_runner, "create_afd_npu_profiler", create)
+
+    runner.start_afd_profiler(notify_ffn=True)
+
+    assert created == [("attention", 0)]
+    assert runner.prof is profiler
+    assert len(payloads) == 1
+    assert payloads[0].profile_start is True
+    assert payloads[0].profile_stop is False
+    runner.start_afd_profiler(notify_ffn=True)
+
+    assert created == [("attention", 0)]
+    assert len(payloads) == 1
+
+
+def test_npu_attention_runner_does_not_notify_ffn_when_local_start_fails(
+    monkeypatch,
+):
+    _require_npu_runtime()
+    from afd_plugin.v1.worker.npu import attention_model_runner
+
+    runner = _new_attention_runner()
+    runner._afd_profiler_role_rank = 0
+    payloads = []
+    runner.connector = SimpleNamespace(
+        control_plane=SimpleNamespace(send_dp_metadata_list=payloads.append),
+    )
+
+    def fail_create(_role, *, role_rank):
+        del role_rank
+        raise RuntimeError("CANN start failed")
+
+    monkeypatch.setattr(
+        attention_model_runner,
+        "create_afd_npu_profiler",
+        fail_create,
+    )
+
+    with pytest.raises(RuntimeError, match="CANN start failed"):
+        runner.start_afd_profiler(notify_ffn=True)
+
+    assert payloads == []
+    assert runner.prof is None
+    assert runner._afd_profiler_window_active is False
+
+
+def test_npu_attention_runner_rolls_back_when_ffn_notification_fails(
+    monkeypatch,
+):
+    _require_npu_runtime()
+    from afd_plugin.v1.worker.npu import attention_model_runner
+
+    runner = _new_attention_runner()
+    runner._afd_profiler_role_rank = 0
+    profiler = object()
+    stopped = []
+
+    def fail_send(_payload):
+        raise RuntimeError("control plane closed")
+
+    runner.connector = SimpleNamespace(
+        control_plane=SimpleNamespace(send_dp_metadata_list=fail_send),
+    )
+    monkeypatch.setattr(
+        attention_model_runner,
+        "create_afd_npu_profiler",
+        lambda _role, *, role_rank: profiler,
+    )
+    monkeypatch.setattr(
+        attention_model_runner,
+        "stop_afd_npu_profiler",
+        stopped.append,
+    )
+
+    with pytest.raises(RuntimeError, match="control plane closed"):
+        runner.start_afd_profiler(notify_ffn=True)
+
+    assert stopped == [profiler]
+    assert runner.prof is None
+    assert runner._afd_profiler_window_active is False
+
+
+def test_npu_attention_runner_stops_locally_when_ffn_notification_fails(
+    monkeypatch,
+):
+    _require_npu_runtime()
+    from afd_plugin.v1.worker.npu import attention_model_runner
+
+    runner = _new_attention_runner()
+    profiler = object()
+    runner.prof = profiler
+    runner._afd_profiler_window_active = True
+    stopped = []
+
+    def fail_send(_payload):
+        raise RuntimeError("control plane closed")
+
+    runner.connector = SimpleNamespace(
+        control_plane=SimpleNamespace(send_dp_metadata_list=fail_send),
+    )
+    monkeypatch.setattr(
+        attention_model_runner,
+        "stop_afd_npu_profiler",
+        stopped.append,
+    )
+
+    with pytest.raises(RuntimeError, match="control plane closed"):
+        runner.stop_afd_profiler(notify_ffn=True)
+
+    assert stopped == [profiler]
+    assert runner.prof is None
+    assert runner._afd_profiler_window_active is False
+
+
+def test_npu_attention_runner_retains_profiler_when_stop_fails(monkeypatch):
+    _require_npu_runtime()
+    from afd_plugin.v1.worker.npu import attention_model_runner
+
+    runner = _new_attention_runner()
+    profiler = object()
+    runner.prof = profiler
+    runner._afd_profiler_window_active = True
+    runner.connector = SimpleNamespace(control_plane=None)
+
+    def fail_stop(_profiler):
+        raise RuntimeError("CANN stop failed")
+
+    monkeypatch.setattr(
+        attention_model_runner,
+        "stop_afd_npu_profiler",
+        fail_stop,
+    )
+
+    with pytest.raises(RuntimeError, match="CANN stop failed"):
+        runner.stop_afd_profiler()
+    assert runner.prof is profiler
+
+
+def test_npu_ffn_runner_explicit_profiler_stop_is_idempotent(monkeypatch):
+    _require_npu_runtime()
+    from afd_plugin.v1.worker.npu import ffn_model_runner
+
+    runner = _new_ffn_runner()
+    profiler = object()
+    runner.prof = profiler
+    runner._afd_profiler_window_active = True
+    stopped = []
+    monkeypatch.setattr(ffn_model_runner, "stop_afd_npu_profiler", stopped.append)
+
+    runner.stop_afd_profiler()
+    runner.stop_afd_profiler()
+
+    assert stopped == [profiler, None]
+    assert runner.prof is None
+
+
+def test_npu_ffn_runner_retains_profiler_when_stop_fails(monkeypatch):
+    _require_npu_runtime()
+    from afd_plugin.v1.worker.npu import ffn_model_runner
+
+    runner = _new_ffn_runner()
+    profiler = object()
+    runner.prof = profiler
+    runner._afd_profiler_window_active = True
+
+    def fail_stop(_profiler):
+        raise RuntimeError("CANN stop failed")
+
+    monkeypatch.setattr(ffn_model_runner, "stop_afd_npu_profiler", fail_stop)
+
+    with pytest.raises(RuntimeError, match="CANN stop failed"):
+        runner.stop_afd_profiler()
+    assert runner.prof is profiler
+
+
+def test_npu_ffn_runner_explicit_profiler_start(monkeypatch):
+    _require_npu_runtime()
+    from afd_plugin.v1.worker.npu import ffn_model_runner
+
+    runner = _new_ffn_runner()
+    runner.prof = None
+    runner._afd_profiler_role_rank = 0
+    profiler = object()
+    created = []
+
+    def create(role, *, role_rank):
+        created.append((role, role_rank))
+        return profiler
+
+    monkeypatch.setattr(ffn_model_runner, "create_afd_npu_profiler", create)
+
+    runner.start_afd_profiler()
+
+    assert created == [("ffn", 0)]
+    assert runner.prof is profiler
+    runner.start_afd_profiler()
+
+    assert created == [("ffn", 0)]
+
+
 def test_npu_ffn_worker_scheduler_execute_model_fails_fast():
     worker = _new_ffn_worker()
 
     with pytest.raises(RuntimeError, match="connector-driven"):
         worker.execute_model(scheduler_output=object())
+
+
+def test_npu_afd_workers_route_profile_control_to_plugin_runner():
+    _require_npu_runtime()
+    from afd_plugin.v1.worker.npu.attention_worker import AFDNPUAttentionWorker
+
+    calls = []
+    attention = object.__new__(AFDNPUAttentionWorker)
+    attention.model_runner = SimpleNamespace(
+        start_afd_profiler=lambda **kwargs: calls.append(("attention-start", kwargs)),
+        stop_afd_profiler=lambda **kwargs: calls.append(("attention", kwargs)),
+    )
+    ffn = _new_ffn_worker()
+    ffn.model_runner = SimpleNamespace(
+        start_afd_profiler=lambda **kwargs: calls.append(("ffn-start", kwargs)),
+        stop_afd_profiler=lambda **kwargs: calls.append(("ffn", kwargs)),
+    )
+
+    attention.profile(is_start=True)
+    ffn.profile(is_start=True)
+    attention.profile(is_start=False)
+    ffn.profile(is_start=False)
+
+    assert calls == [
+        ("attention-start", {"notify_ffn": True}),
+        ("ffn-start", {}),
+        ("attention", {"notify_ffn": True}),
+        ("ffn", {}),
+    ]
 
 
 def test_npu_ffn_worker_reports_zero_compilation_times():
@@ -3716,6 +3994,100 @@ def test_npu_ffn_worker_stops_on_attention_shutdown_payload(monkeypatch):
     worker._run_ffn_server_loop()
 
     assert event.is_set()
+
+
+def test_npu_ffn_worker_controls_profile_without_stopping_service(monkeypatch):
+    _require_npu_runtime()
+    from afd_plugin.v1.worker.npu import ffn_worker as ffn_worker_module
+
+    event = threading.Event()
+    payloads = deque(
+        [
+            AFDControlPayload(
+                dp_metadata_list={},
+                is_graph_capturing=False,
+                is_warmup=False,
+                profile_start=True,
+            ),
+            AFDControlPayload(
+                dp_metadata_list={},
+                is_graph_capturing=False,
+                is_warmup=False,
+                profile_stop=True,
+            ),
+            AFDControlPayload(
+                dp_metadata_list={},
+                is_graph_capturing=False,
+                is_warmup=False,
+                shutdown=True,
+            ),
+        ]
+    )
+    profiler_stops = []
+    profiler_starts = []
+    worker = _new_ffn_worker()
+    worker._ffn_shutdown_event = event
+    worker.device = SimpleNamespace(type="npu")
+    worker.model_runner = SimpleNamespace(
+        connector=SimpleNamespace(
+            control_plane=SimpleNamespace(
+                recv_dp_metadata_list=payloads.popleft,
+            ),
+        ),
+        start_afd_profiler=lambda: profiler_starts.append(True),
+        stop_afd_profiler=lambda: profiler_stops.append(True),
+    )
+    monkeypatch.setattr(ffn_worker_module.torch.npu, "set_device", lambda _device: None)
+
+    worker._run_ffn_server_loop()
+
+    assert profiler_starts == [True]
+    assert profiler_stops == [True]
+    assert event.is_set()
+
+
+def test_npu_ffn_worker_keeps_data_loop_alive_after_profiler_failure(monkeypatch):
+    _require_npu_runtime()
+    from afd_plugin.v1.worker.npu import ffn_worker as ffn_worker_module
+
+    event = threading.Event()
+    payloads = deque(
+        [
+            AFDControlPayload(
+                dp_metadata_list={},
+                is_graph_capturing=False,
+                is_warmup=False,
+                profile_start=True,
+            ),
+            AFDControlPayload(
+                dp_metadata_list={},
+                is_graph_capturing=False,
+                is_warmup=False,
+                shutdown=True,
+            ),
+        ]
+    )
+    worker = _new_ffn_worker()
+    worker._ffn_shutdown_event = event
+    worker.device = SimpleNamespace(type="npu")
+
+    def fail_start():
+        raise RuntimeError("CANN start failed")
+
+    worker.model_runner = SimpleNamespace(
+        connector=SimpleNamespace(
+            control_plane=SimpleNamespace(
+                recv_dp_metadata_list=payloads.popleft,
+            ),
+        ),
+        start_afd_profiler=fail_start,
+    )
+    monkeypatch.setattr(ffn_worker_module.torch.npu, "set_device", lambda _device: None)
+
+    worker._run_ffn_server_loop()
+
+    assert event.is_set()
+    assert payloads == deque()
 
 
 def test_npu_ffn_worker_preserves_complete_control_payload(monkeypatch):

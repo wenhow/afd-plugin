@@ -65,5 +65,12 @@ class AFDNPUAttentionWorker(NPUWorker):
             self.device,
         )
 
+    def profile(self, is_start: bool = True, profile_prefix: str | None = None):
+        del profile_prefix
+        if is_start:
+            self.model_runner.start_afd_profiler(notify_ffn=True)
+        else:
+            self.model_runner.stop_afd_profiler(notify_ffn=True)
+
 
 __all__ = ["AFDNPUAttentionWorker"]

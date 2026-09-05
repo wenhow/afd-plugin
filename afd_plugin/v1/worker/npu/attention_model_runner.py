@@ -274,7 +274,9 @@ class AFDNPUAttentionModelRunner(NPUModelRunner):
             | None
         ) = None
         self._afd_logged_metadata_stage_counts: set[tuple[int, bool, bool]] = set()
-        self.prof = create_afd_npu_profiler("attention", role_rank=rank)
+        self._afd_profiler_role_rank = rank
+        self.prof = None
+        self._afd_profiler_window_active = False
 
     @staticmethod
     def parse_config(vllm_config: VllmConfig) -> AFDConfig:
@@ -2337,8 +2339,76 @@ class AFDNPUAttentionModelRunner(NPUModelRunner):
         # ### PATCH END: AFD intermediate output slice
         return result
 
+    def start_afd_profiler(self, *, notify_ffn: bool = False) -> None:
+        if self._afd_profiler_window_active:
+            logger.warning("AFD NPU Attention profiler start is already complete")
+            return
+        profiler = create_afd_npu_profiler(
+            "attention",
+            role_rank=self._afd_profiler_role_rank,
+        )
+        self.prof = profiler
+        control_plane = self.connector.control_plane
+        try:
+            if notify_ffn and control_plane is not None:
+                logger.warning("AFD NPU Attention sending FFN profiler start payload")
+                control_plane.send_dp_metadata_list(
+                    AFDControlPayload(
+                        dp_metadata_list={},
+                        is_graph_capturing=False,
+                        is_warmup=False,
+                        profile_start=True,
+                    )
+                )
+                logger.warning("AFD NPU Attention sent FFN profiler start payload")
+        except Exception:
+            try:
+                stop_afd_npu_profiler(profiler)
+            except Exception:
+                self._afd_profiler_window_active = True
+                logger.exception(
+                    "AFD NPU Attention profiler rollback failed after FFN "
+                    "start notification failure",
+                )
+            else:
+                self.prof = None
+            raise
+        self._afd_profiler_window_active = True
+        logger.warning("AFD NPU Attention local profiler start completed")
+
+    def stop_afd_profiler(self, *, notify_ffn: bool = False) -> None:
+        control_plane = self.connector.control_plane
+        notification_error: Exception | None = None
+        if notify_ffn and control_plane is not None:
+            logger.warning("AFD NPU Attention sending FFN profiler stop payload")
+            try:
+                control_plane.send_dp_metadata_list(
+                    AFDControlPayload(
+                        dp_metadata_list={},
+                        is_graph_capturing=False,
+                        is_warmup=False,
+                        profile_stop=True,
+                    )
+                )
+            except Exception as exc:
+                notification_error = exc
+                logger.exception(
+                    "AFD NPU Attention could not send FFN profiler stop payload; "
+                    "local finalization will still run",
+                )
+            else:
+                logger.warning("AFD NPU Attention sent FFN profiler stop payload")
+        profiler = self.prof
+        logger.warning("AFD NPU Attention local profiler stop started")
+        stop_afd_npu_profiler(profiler)
+        self.prof = None
+        self._afd_profiler_window_active = False
+        logger.warning("AFD NPU Attention local profiler stop completed")
+        if notification_error is not None:
+            raise notification_error
+
     def shutdown(self) -> None:
-        stop_afd_npu_profiler(self.prof)
+        self.stop_afd_profiler()
         control_plane = self.connector.control_plane
         if control_plane is not None:
             try:

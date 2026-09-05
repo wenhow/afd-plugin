@@ -28,6 +28,8 @@ ENABLE_MTP="${ENABLE_MTP:-0}"
 MTP_NUM_SPECULATIVE_TOKENS="${MTP_NUM_SPECULATIVE_TOKENS:-1}"
 MTP_DRAFT_EXECUTION="${MTP_DRAFT_EXECUTION:-eager}"
 AFD_ASYNC_SCHEDULING="${AFD_ASYNC_SCHEDULING:-auto}"
+VLLM_SHUTDOWN_TIMEOUT_SECONDS="${VLLM_SHUTDOWN_TIMEOUT_SECONDS:-0}"
+AFD_NPU_ATTENTION_PROFILER_ENABLE="${AFD_NPU_ATTENTION_PROFILER_ENABLE:-0}"
 ENABLE_PD="${ENABLE_PD:-0}"
 MOONCAKE_ENGINE_ID="${MOONCAKE_ENGINE_ID:-dsv4-afd-decode}"
 MOONCAKE_KV_PORT="${MOONCAKE_KV_PORT:-30100}"
@@ -38,6 +40,27 @@ export ASCEND_RT_VISIBLE_DEVICES="${ATTENTION_DEVICES:-${ASCEND_RT_VISIBLE_DEVIC
 export HCCL_IF_IP="${HCCL_IF_IP:-192.169.91.106}"
 export HCCL_IF_BASE_PORT="${ATTENTION_HCCL_IF_BASE_PORT:-51000}"
 export HCCL_BUFFSIZE="${HCCL_BUFFSIZE:-1024}"
+
+if [[ ! "$VLLM_SHUTDOWN_TIMEOUT_SECONDS" =~ ^[0-9]+$ ]]; then
+  echo "VLLM_SHUTDOWN_TIMEOUT_SECONDS must be a non-negative integer" >&2
+  exit 2
+fi
+
+case "$AFD_NPU_ATTENTION_PROFILER_ENABLE" in
+  0)
+    PROFILE_API_ARGS=()
+    ;;
+  1)
+    PROFILE_API_ARGS=(
+      --middleware
+      afd_plugin.compat.npu.profile_api.afd_profile_control_middleware
+    )
+    ;;
+  *)
+    echo "AFD_NPU_ATTENTION_PROFILER_ENABLE must be 0 or 1" >&2
+    exit 2
+    ;;
+esac
 
 if [[ ! "$TENSOR_PARALLEL_SIZE" =~ ^[12]$ ]]; then
   echo "DeepSeek-V4 AFD supports TENSOR_PARALLEL_SIZE=1 or 2" >&2
@@ -189,6 +212,7 @@ exec vllm serve "$MODEL_PATH" \
   --enable-expert-parallel \
   --seed 1024 \
   --gpu-memory-utilization "$GPU_MEMORY_UTILIZATION" \
+  --shutdown-timeout "$VLLM_SHUTDOWN_TIMEOUT_SECONDS" \
   --tokenizer-mode deepseek_v4 \
   --no-enable-prefix-caching \
   --safetensors-load-strategy lazy \
@@ -199,4 +223,5 @@ exec vllm serve "$MODEL_PATH" \
   "${SCHEDULING_ARGS[@]}" \
   "${MTP_ARGS[@]}" \
   "${UBATCH_ARGS[@]}" \
+  "${PROFILE_API_ARGS[@]}" \
   "${EXECUTION_ARGS[@]}"

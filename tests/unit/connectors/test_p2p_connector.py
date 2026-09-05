@@ -327,6 +327,43 @@ def test_p2p_shutdown_control_payload_round_trip():
     assert decoded.shutdown is True
 
 
+def test_p2p_profile_stop_control_payload_round_trip():
+    module = importlib.import_module("afd_plugin.connectors.metadata")
+
+    encoded = module.encode_control_payload(
+        AFDControlPayload(
+            dp_metadata_list={},
+            is_graph_capturing=False,
+            is_warmup=False,
+            profile_stop=True,
+        )
+    )
+    decoded = module.decode_control_payload(encoded)
+
+    assert decoded.dp_metadata_list == {}
+    assert decoded.profile_stop is True
+    assert decoded.shutdown is False
+
+
+def test_p2p_profile_start_control_payload_round_trip():
+    module = importlib.import_module("afd_plugin.connectors.metadata")
+
+    encoded = module.encode_control_payload(
+        AFDControlPayload(
+            dp_metadata_list={},
+            is_graph_capturing=False,
+            is_warmup=False,
+            profile_start=True,
+        )
+    )
+    decoded = module.decode_control_payload(encoded)
+
+    assert decoded.dp_metadata_list == {}
+    assert decoded.profile_start is True
+    assert decoded.profile_stop is False
+    assert decoded.shutdown is False
+
+
 def test_control_payload_zero_size_is_peer_shutdown(monkeypatch):
     module = importlib.import_module("afd_plugin.connectors.metadata")
     recv_calls = []

@@ -106,7 +106,9 @@ class AFDNPUFFNModelRunner(NPUModelRunner):
         self.graph_pool = (
             current_platform.get_global_graph_pool() if self.use_aclgraph else None
         )
-        self.prof = create_afd_npu_profiler("ffn", role_rank=rank)
+        self._afd_profiler_role_rank = rank
+        self.prof = None
+        self._afd_profiler_window_active = False
         self._is_shutdown = False
         self._ffn_input_ids_cache: dict[int, torch.Tensor] = {}
         self.mtp_ffn_model: torch.nn.Module | None = None
@@ -967,10 +969,26 @@ class AFDNPUFFNModelRunner(NPUModelRunner):
     ) -> ModelRunnerOutput | AsyncModelRunnerOutput | IntermediateTensors:
         raise RuntimeError("AFD NPU FFN runners do not sample tokens")
 
+    def start_afd_profiler(self) -> None:
+        if self._afd_profiler_window_active:
+            logger.warning("AFD NPU FFN profiler start is already complete")
+            return
+        self.prof = create_afd_npu_profiler(
+            "ffn",
+            role_rank=self._afd_profiler_role_rank,
+        )
+        self._afd_profiler_window_active = True
+
+    def stop_afd_profiler(self) -> None:
+        profiler = self.prof
+        stop_afd_npu_profiler(profiler)
+        self.prof = None
+        self._afd_profiler_window_active = False
+
     def shutdown(self) -> None:
         if self._is_shutdown:
             return
-        stop_afd_npu_profiler(self.prof)
+        self.stop_afd_profiler()
         if self.connector.is_initialized:
             self.connector.close()
         super().shutdown()

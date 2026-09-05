@@ -28,11 +28,17 @@ ENABLE_MTP="${ENABLE_MTP:-0}"
 MTP_NUM_SPECULATIVE_TOKENS="${MTP_NUM_SPECULATIVE_TOKENS:-1}"
 MTP_DRAFT_EXECUTION="${MTP_DRAFT_EXECUTION:-eager}"
 AFD_ASYNC_SCHEDULING="${AFD_ASYNC_SCHEDULING:-auto}"
+VLLM_SHUTDOWN_TIMEOUT_SECONDS="${VLLM_SHUTDOWN_TIMEOUT_SECONDS:-0}"
 
 export ASCEND_RT_VISIBLE_DEVICES="${FFN_DEVICES:-${ASCEND_RT_VISIBLE_DEVICES:-8,9,10,11,12,13,14,15}}"
 export HCCL_IF_IP="${HCCL_IF_IP:-192.169.91.106}"
 export HCCL_IF_BASE_PORT="${FFN_HCCL_IF_BASE_PORT:-52000}"
 export HCCL_BUFFSIZE="${HCCL_BUFFSIZE:-2048}"
+
+if [[ ! "$VLLM_SHUTDOWN_TIMEOUT_SECONDS" =~ ^[0-9]+$ ]]; then
+  echo "VLLM_SHUTDOWN_TIMEOUT_SECONDS must be a non-negative integer" >&2
+  exit 2
+fi
 
 if [[ ! "$TENSOR_PARALLEL_SIZE" =~ ^[12]$ ]]; then
   echo "DeepSeek-V4 AFD supports TENSOR_PARALLEL_SIZE=1 or 2" >&2
@@ -173,6 +179,7 @@ vllm serve "$MODEL_PATH" \
   --enable-expert-parallel \
   --seed 1024 \
   --gpu-memory-utilization "$GPU_MEMORY_UTILIZATION" \
+  --shutdown-timeout "$VLLM_SHUTDOWN_TIMEOUT_SECONDS" \
   --tokenizer-mode deepseek_v4 \
   --no-enable-prefix-caching \
   --safetensors-load-strategy lazy \

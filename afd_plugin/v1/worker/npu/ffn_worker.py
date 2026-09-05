@@ -152,6 +152,28 @@ class AFDNPUFFNWorker(NPUWorker):
                 logger.info("AFD NPU FFN received Attention shutdown payload")
                 event.set()
                 return
+            if payload.profile_start:
+                logger.warning("AFD NPU FFN received profiler start payload")
+                try:
+                    self.model_runner.start_afd_profiler()
+                except Exception:
+                    logger.exception(
+                        "AFD NPU FFN profiler start failed; data loop remains active",
+                    )
+                else:
+                    logger.warning("AFD NPU FFN profiler start payload completed")
+                continue
+            if payload.profile_stop:
+                logger.warning("AFD NPU FFN received profiler stop payload")
+                try:
+                    self.model_runner.stop_afd_profiler()
+                except Exception:
+                    logger.exception(
+                        "AFD NPU FFN profiler stop failed; data loop remains active",
+                    )
+                else:
+                    logger.warning("AFD NPU FFN profiler stop payload completed")
+                continue
             # Preserve the complete Attention-side control contract. Rebuilding
             # a payload from only DP metadata drops TP and phase fields.
             self.model_runner.connector.control_plane.update_state_from_dp_metadata(
@@ -168,6 +190,13 @@ class AFDNPUFFNWorker(NPUWorker):
                 connector_state_prepared=True,
             )
             torch.npu.synchronize()
+
+    def profile(self, is_start: bool = True, profile_prefix: str | None = None):
+        del profile_prefix
+        if is_start:
+            self.model_runner.start_afd_profiler()
+        else:
+            self.model_runner.stop_afd_profiler()
 
     def raise_ffn_loop_error_if_any(self) -> None:
         error = getattr(self, "_ffn_loop_error", None)

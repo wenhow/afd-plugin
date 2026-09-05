@@ -126,6 +126,12 @@ class AFDControlPayload:
         shutdown: Whether Attention is intentionally closing the control plane.
             Shutdown payloads contain no DP metadata and let FFN leave its
             blocking receive loop before the Gloo process group is destroyed.
+        profile_start: Whether Attention requests explicit FFN profiler start
+            while keeping both services alive. Profile-start payloads contain
+            no DP metadata.
+        profile_stop: Whether Attention requests explicit FFN profiler
+            finalization while keeping both services alive. Profile-stop
+            payloads contain no DP metadata.
         mtp_phase_ready: Whether Attention actually entered the MTP proposer for
             the preceding target step.  A target step that finishes every
             request may legitimately omit its draft phase.
@@ -145,6 +151,8 @@ class AFDControlPayload:
     is_graph_capturing: bool
     is_warmup: bool
     shutdown: bool = False
+    profile_start: bool = False
+    profile_stop: bool = False
     mtp_phase_ready: bool = False
     mtp_phase_graph_replay: bool = False
     mtp_phase_control_enabled: bool = False
@@ -370,6 +378,8 @@ def encode_control_payload(payload: AFDControlPayload) -> bytes:
         "is_graph_capturing": bool(payload.is_graph_capturing),
         "is_warmup": bool(payload.is_warmup),
         "shutdown": bool(payload.shutdown),
+        "profile_start": bool(payload.profile_start),
+        "profile_stop": bool(payload.profile_stop),
         "mtp_phase_ready": bool(payload.mtp_phase_ready),
         "mtp_phase_graph_replay": bool(payload.mtp_phase_graph_replay),
         "mtp_phase_control_enabled": bool(payload.mtp_phase_control_enabled),
@@ -403,6 +413,8 @@ def decode_control_payload(payload_bytes: bytes) -> AFDControlPayload:
         is_graph_capturing=bool(payload.get("is_graph_capturing", False)),
         is_warmup=bool(payload.get("is_warmup", False)),
         shutdown=bool(payload.get("shutdown", False)),
+        profile_start=bool(payload.get("profile_start", False)),
+        profile_stop=bool(payload.get("profile_stop", False)),
         mtp_phase_ready=bool(payload.get("mtp_phase_ready", False)),
         mtp_phase_graph_replay=bool(
             payload.get("mtp_phase_graph_replay", False),
