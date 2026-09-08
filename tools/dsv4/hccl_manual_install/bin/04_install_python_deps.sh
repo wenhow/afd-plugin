@@ -15,22 +15,27 @@ pip_args=()
 assert_zero_or_one INSTALL_PYTHON_DEPS "${INSTALL_PYTHON_DEPS}"
 if ! is_true "${INSTALL_PYTHON_DEPS}"; then
   log "Auditing the validated Python environment without reinstalling dependencies"
+  export EXPECTED_ASCEND_COMMIT="${VLLM_ASCEND_COMMIT}"
   "${python_bin}" - <<'PY'
 from importlib.metadata import version
+import os
 
-expected = {
+expected_exact = {
     "torch": "2.10.0",
     "torch-npu": "2.10.0.post2",
     "vllm": "0.23.0+empty",
-    "vllm-ascend": "0.1.dev1+g3da28f941",
     "transformers": "5.5.4",
     "numpy": "2.2.6",
     "triton-ascend": "3.2.1",
 }
-actual = {name: version(name) for name in expected}
-assert actual == expected, (actual, expected)
+actual = {name: version(name) for name in expected_exact}
+assert actual == expected_exact, (actual, expected_exact)
+ascend_version = version("vllm-ascend")
+ascend_suffix = f"g{os.environ['EXPECTED_ASCEND_COMMIT'][:9]}"
+assert ascend_version.endswith(ascend_suffix), (ascend_version, ascend_suffix)
 for name, value in actual.items():
     print(name, value)
+print("vllm-ascend", ascend_version)
 PY
   ensure_dir "${STATE_ROOT}"
   "${python_bin}" -m pip list --format=freeze \

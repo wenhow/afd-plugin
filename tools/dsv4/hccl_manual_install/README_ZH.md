@@ -136,6 +136,12 @@ afd-plugin 补丁并比对最终 Git tree。任一版本不匹配都会停止。
 `INSTALL_PYTHON_DEPS=0` 和 `INSTALL_UPSTREAM_STACK=0`。已按上述双机配置执行过的
 节点无需重新安装 env；只安装新版 afd-plugin editable 路径。
 
+复用审计对 torch、torch-npu、vLLM、transformers、numpy 和 triton-ascend 核验固定
+版本。vLLM-Ascend 的 PEP 440 前缀可能随构建方式显示为 `0.1.dev1` 或
+`0.19.1rc2.dev629`，因此以固定源码提交后缀 `g3da28f941` 为准；第 02/06 步还会分别
+核验 Git HEAD 和 Python 实际导入根。此前安装中断后，可直接用新版包重跑；已创建的
+一期 AFD 目标仅在工作树干净且提交是新版目标祖先时自动升级。
+
 双机 PD common 模板也已预置，但 `NATIVE_GOLDEN_PATH` 指向的 A5 native control
 结果不随包分发；完成 A5 control 后需把该文件放到两台机器的预置路径，或只修改该
 路径项。

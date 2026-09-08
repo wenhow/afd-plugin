@@ -33,7 +33,8 @@ from afd_plugin.connectors.npu.p2p_hccl import P2pHcclAFDConnector
 assert torch.__version__.startswith("2.10.0"), torch.__version__
 assert version("torch-npu") == "2.10.0.post2"
 assert vllm.__version__.startswith("0.23.0"), vllm.__version__
-assert version("vllm-ascend").endswith("g3da28f941")
+expected_ascend_suffix = f"g{os.environ['EXPECTED_ASCEND_COMMIT'][:9]}"
+assert version("vllm-ascend").endswith(expected_ascend_suffix)
 assert version("transformers") == "5.5.4"
 assert version("numpy") == "2.2.6"
 assert P2pHcclAFDConnector.__name__ == "P2pHcclAFDConnector"

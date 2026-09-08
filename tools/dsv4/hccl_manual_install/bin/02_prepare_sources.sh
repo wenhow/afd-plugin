@@ -54,7 +54,7 @@ verify_git_head() {
 
 prepare_afd_from_seed_bundle() {
   local seed_bundle="${BUNDLE_ROOT}/manifest/afd-plugin-from-seed.bundle"
-  local actual_bundle_sha current_tree seed_changes
+  local actual_bundle_sha current_commit current_tree seed_changes
   [[ "${BUNDLE_INCLUDES_AFD_SEED}" == "1" ]] \
     || die "This package does not include an afd-plugin seed bundle"
   require_file "${seed_bundle}"
@@ -80,9 +80,21 @@ prepare_afd_from_seed_bundle() {
   if ! dir_is_empty "${AFD_PLUGIN_ROOT}"; then
     is_true "${REUSE_SOURCES}" \
       || die "afd-plugin target directory is not empty: ${AFD_PLUGIN_ROOT}"
+    require_clean_git_tree "${AFD_PLUGIN_ROOT}" "afd-plugin target"
+    current_commit="$(git -C "${AFD_PLUGIN_ROOT}" rev-parse HEAD)"
+    if [[ "${current_commit}" != "${AFD_TARGET_COMMIT}" ]]; then
+      git -C "${AFD_PLUGIN_ROOT}" fetch "${seed_bundle}" HEAD
+      git -C "${AFD_PLUGIN_ROOT}" merge-base --is-ancestor \
+        "${AFD_SEED_COMMIT}" "${current_commit}" \
+        || die "existing afd-plugin target is outside the packaged seed lineage"
+      git -C "${AFD_PLUGIN_ROOT}" merge-base --is-ancestor \
+        "${current_commit}" "${AFD_TARGET_COMMIT}" \
+        || die "existing afd-plugin target cannot be upgraded by fast-forward lineage"
+      log "Upgrading clean afd-plugin target: ${current_commit} -> ${AFD_TARGET_COMMIT}"
+      git -C "${AFD_PLUGIN_ROOT}" checkout --detach "${AFD_TARGET_COMMIT}"
+    fi
     verify_git_head "${AFD_PLUGIN_ROOT}" "${AFD_TARGET_COMMIT}" \
       "afd-plugin target"
-    require_clean_git_tree "${AFD_PLUGIN_ROOT}" "afd-plugin target"
     current_tree="$(git -C "${AFD_PLUGIN_ROOT}" show -s --format=%T HEAD)"
     [[ "${current_tree}" == "${AFD_TARGET_TREE}" ]] \
       || die "afd-plugin target tree mismatch"

@@ -55,6 +55,9 @@ bash bin/install_all.sh
 目录，并将 `status` 和 tracked diff 备份到
 `/data/z00569729/run/dsv4-afd-phase1-install/state/afd-seed-*`。新目标目录保持独立且
 必须干净。若 seed HEAD 不是固定提交，仍会停止，需要另行确认版本，不能强制切换。
+双机已验证的 `dsv4-afd-p8-a16f8-dual-a3-graph-u2-cann900-20260904-r14.tar.gz`
+本来就以 overlay 方式修改 `profiler.py`，因此该文件显示 `M` 是已知现场状态。新版
+目标已包含 R14 profiler 能力及后续修复，不要把旧 overlay 再应用一次。
 
 A5 或其他新节点不使用该双机专用 profile，使用通用 `slim` 包，并填写
 `CANN_ROOT`、`MODEL_PATH`、`PYTHON_BIN`、`SOC_VERSION`、`NIC_NAME`、必要时的
@@ -63,6 +66,11 @@ CANN 9.0.0 的唯一真实根目录；不得先 source 其他版本再继续。
 
 精简容器没有 `ss` 不阻塞安装或验证，也不需要重装 env。端口门禁会按
 `ss -> netstat -> /proc/net/tcp*` 自动回退；三种来源都不可用才视为环境缺失。
+
+复用环境中的 vLLM-Ascend 版本前缀允许保留现场构建产生的
+`0.19.1rc2.dev629`；审计固定其 `g3da28f941` 提交后缀，并在后续同时核验源码 HEAD
+和实际 Python 导入根。因旧审计前缀不匹配而中断时不需要重装 env，换用新版包直接
+重跑 `install_all.sh`；干净的既有一期目标目录会沿包内提交链升级。
 
 安装完成后保存包目录和源码目录：
 
