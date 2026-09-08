@@ -132,7 +132,7 @@ bash tools/dsv4/run_phase1_a5_matrix.sh preflight
 bash tools/dsv4/run_phase1_a5_matrix.sh f0
 ```
 
-F0 全部通过后执行 F1。F1 每点两次冷启动、10 条 prompt x 3 轮、batch 1/8/32，并在第一轮加入 1800 秒 idle-resume：
+F0 全部通过后执行 F1。F1 每点两次冷启动、10 条 prompt x 3 轮 serial exact、batch 1/8/32，并在第一轮加入 1800 秒 idle-resume：
 
 ```bash
 bash tools/dsv4/run_phase1_a5_matrix.sh f1
@@ -145,7 +145,7 @@ export PHASE1_OUTPUT_BASE="/data/validation/dsv4-phase1-a5-retry-$(date +%Y%m%d_
 bash tools/dsv4/run_phase1_a5_matrix.sh f0 a8f4_graph_u2_n3
 ```
 
-每个 `validation_summary.json` 必须满足：`passed=true`；`golden` 指向该点对应的路径匹配 control；topology/rank/capacity 与点名一致；U2 点观察到真实双 stage；两个 role return code 为 0；fatal marker 为空；每轮停止后 NPU cleanup 通过。不得使用 `ALLOW_NPU_PROCESSES` 绕过清理门禁。
+每个 `validation_summary.json` 必须满足：`passed=true`；`golden` 指向该点对应的路径匹配 control；serial mismatch 为空；batch 1/8/32 的 `valid=true` 并保留各自 `token_exact_count`；topology/rank/capacity 与点名一致；U2 点观察到真实双 stage；两个 role return code 为 0；fatal marker 为空；每轮停止后 NPU cleanup 通过。batch exact 若仍复现 `UPSTREAM-DSV4-BI-001`，保留原始记录并单独分析；只有路径匹配 control 稳定而 AFD serial 新增分叉才阻塞插件门禁。不得使用 `ALLOW_NPU_PROCESSES` 绕过清理门禁。
 
 ## 6. 双机 PD 配置
 

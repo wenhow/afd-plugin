@@ -114,8 +114,8 @@ DeepSeek-V4 的拆分边界放在远端 MoE，而不是把整个 FFN 子层搬�
 | NPU 组件 | `/mnt/workspace/validation/phase1_cann900_exact_3e88ad2`；精确 vLLM-Ascend `3da28f941` 下 A1F2/A2F4 x eager/Graph x U1/U2 x N2/N3，16/16 通过且全部 role 正常 close |
 | A8F8 实模 | `a8f8_eager_u1_n2_real_fix1/validation_summary.json`；N2、1/1 prompt、16-token exact、HTTP 200、双 role rc=0、无 fatal、清理通过 |
 | A4F8 实模 | `a4f8_eager_u1_n2_real/validation_summary.json`；fanout ratio=2、N2、1/1 prompt、16-token exact、HTTP 200、双 role rc=0、无 fatal、清理通过 |
-| 精确 native control | MTP-off 10 prompt x 3 轮稳定；MTP N2 隔离诊断也为 30/30，且 `prompt=08` 稳定不同于 MTP-off；后者采集时另一个任务占用 8-15 卡，只证明 token 路径差异，不计正式无并发验收 |
-| A8F8 完整本机诊断 | MTP-off F0 与 N1 F0 均通过；N2 在 U1/U2 下相对旧 MTP-off 金标均为 9/10，但两者相对 native N2 control 均为 10/10，双 role rc、fatal、U2 stage 和 cleanup 门禁通过；由此修复共享金标缺陷 |
+| 精确 native control | `/mnt/workspace/validation/phase1_path_controls_exact_4f052b9/eager_mtp_n2`；无并发 8 卡冷启动，10 prompt x 3 轮 30/30 稳定、正常退出和 NPU 清理通过；`prompt=08` 稳定不同于 MTP-off |
+| A8F8 路径匹配 F0 | `/mnt/workspace/validation/phase1_formal_exact_3b869ae_a8f8_u2_n2`；eager/U2/N2 serial 10/10，batch 1/8/32 均有效且 exact 为 1/1、8/8、8/32，真实双 stage、双 role rc=0、fatal 和 NPU cleanup 通过；batch 32 差异保留为 `UPSTREAM-DSV4-BI-001`，不误判为路径金标错误 |
 | 外部验证包 | 5 个 native 路径 control、A5 9 点；双机 3 个路径匹配 control + 4 个 AFD 点；两次冷启动、30/30、取消恢复、动态路由、优雅退出与清理；硬件证据待回传 |
 
 ### 2.3 特性关系
@@ -1328,7 +1328,10 @@ forward 传递实际 `speculative_step`；固定上游版本未传该字段时�
 MTP-off 与 native N2 在 `prompt=08` 的第 9 个输出 token 开始稳定分叉；AFD N2 在 U1/U2
 下均与 native N2 达到 10/10 exact。`4f052b92407eef50d5aa363282d6a961821a6b25` 因此将
 standalone 修正为 5 份路径匹配 native control，禁止跨 target/draft/MTP 路径复用 token
-文件。该证据关闭 M10 本机开发门禁，但完整 A5 无并发 F0/F1 与性能仍需独立执行。
+文件。随后无并发正式复跑生成 native N2 30/30 control，并完成 A8F8 eager/U2/N2 F0：
+serial 10/10、batch 1/8/32 均有效、真实双 stage、双 role rc=0、无 fatal 且 NPU cleanup
+通过；batch 32 exact 为 8/32，继续按 `UPSTREAM-DSV4-BI-001` 记录。该证据关闭 M10
+本机开发门禁，但完整 A5 5 control/9 点 F0/F1 与性能仍需独立执行。
 
 `2026-09-08` 交付复核显式固定 CANN 9.0.0、vLLM `0fc695fc6d1d82e9a5ac6835ac8e4e1c83703665`
 和 vLLM-Ascend `3da28f9414583d2d0b672a8f06d1fae142404bda` 的实际导入路径；精确组合下

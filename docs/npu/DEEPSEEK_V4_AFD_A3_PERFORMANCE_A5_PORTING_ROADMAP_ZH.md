@@ -30,7 +30,9 @@ U1/U2` 共 16 个 NPU 组件项全部通过；A8F8 eager/U1/N2 与 A4F8 eager/U1
 各完成 1 条 prompt、16 个输出 token 的同栈 golden exact、正常退出和 NPU 清理。随后
 10 prompt 诊断确认 MTP-off 与 native N2 在近边界 token 上稳定不同，AFD N2 的 U1/U2
 输出均与 native N2 达到 10/10 exact；提交 `4f052b92407eef50d5aa363282d6a961821a6b25`
-已将 A5 standalone 改为 5 类路径匹配 native control，禁止跨执行路径复用金标。该结果
+已将 A5 standalone 改为 5 类路径匹配 native control，禁止跨执行路径复用金标。无并发
+正式复跑中，native N2 达到 30/30 稳定，A8F8 eager/U2/N2 F0 的 serial 10/10、真实双
+stage、双 role rc、fatal 和 NPU cleanup 通过；batch 32 exact 仍为已登记的上游问题。该结果
 关闭两个新增门禁的本机范围，不替代 A8F4 高 HBM/A5、双机 PD 组合、完整 F1 或性能验收。
 
 M9 在 2026-09-04 完成双 A3 的 TP1、MTP off、Graph/U2 数据面与性能/Profile 测量：
@@ -141,7 +143,7 @@ A3 验收通过只说明实现语义和 A3 性能成立，不等于 A5 已支持
 
 2026-09-08 已补齐外部验证交付物，但尚未把“脚本可执行”升级为“硬件门禁通过”：
 
-- A5 先生成 eager MTP-off/N1/N2、target Graph + draft eager N2、target/draft Graph N3 共 5 个路径匹配 native control；standalone 固定 9 个代表点，覆盖 A8F8 基础/N1、eager U2 N2、Graph U1 N2、Graph U2 N3，以及 A4F8/A8F4 的 eager U1 N2 和 Graph U2 N3；F1 固定两次冷启动、batch 1/8/32、30/30 token exact、1800 秒 idle-resume、shutdown/fatal/NPU cleanup。
+- A5 先生成 eager MTP-off/N1/N2、target Graph + draft eager N2、target/draft Graph N3 共 5 个路径匹配 native control；standalone 固定 9 个代表点，覆盖 A8F8 基础/N1、eager U2 N2、Graph U1 N2、Graph U2 N3，以及 A4F8/A8F4 的 eager U1 N2 和 Graph U2 N3；F1 固定两次冷启动、batch 1/8/32、serial 30/30 token exact、1800 秒 idle-resume、shutdown/fatal/NPU cleanup。
 - 双机 PD 固定 3 个路径匹配 no-AFD control 和 4 个 AFD 点：A8F8 N2/N3、A4F8 N3、A8F4 N3；control golden 按 Attention DP、target/draft execution、U 数和 MTP N 隔离，不能跨路径复用。
 - `pd.sh` 的部署约束已同步为双向整数 A/F 和 N1-N3，矩阵按拓扑动态生成 device list 与 FFN capacity；外部执行和证据回传步骤见 `DEEPSEEK_V4_AFD_PHASE1_A5_MULTI_NODE_VALIDATION_GUIDE_ZH.md`。
 - 只有上述外部原始证据通过分析后，才能关闭 A5、PD Graph 动态路由、生命周期和 F1；当前不创建第一阶段功能 tag。
