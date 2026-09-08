@@ -38,3 +38,14 @@ def test_preflight_does_not_require_ss():
     preflight = (INSTALLER / "bin/01_preflight.sh").read_text()
     assert "require_command ss" not in preflight
     assert "find ss curl" not in preflight
+
+
+def test_dirty_afd_seed_is_preserved_and_audited():
+    prepare_sources = (INSTALLER / "bin/02_prepare_sources.sh").read_text()
+    seed_section = prepare_sources.split("prepare_afd_from_seed_bundle()", 1)[1].split(
+        "apply_afd_patch()", 1
+    )[0]
+    assert 'require_clean_git_tree "${AFD_SEED_ROOT}"' not in seed_section
+    assert 'git -C "${AFD_SEED_ROOT}" diff --binary HEAD' in seed_section
+    assert 'afd-seed-local-changes.patch' in seed_section
+    assert 'clone --no-checkout --no-hardlinks "${AFD_SEED_ROOT}"' in seed_section

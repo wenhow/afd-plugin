@@ -50,6 +50,12 @@ bash bin/install_all.sh
 自动取址失败才在 `config.env` 填写本机 `HCCL_IF_IP`。若任一路径、SoC 或 NIC 已变化，
 先修改对应项；不要修改固定 commit，也不要用旧 AFD 目录作为新目标目录。
 
+旧 `/data/z00569729/code/afd-plugin` 中已有的本地修改不需要删除、reset 或 stash。
+新版安装器验证其 HEAD 仍为 `2164240...` 后，只读取已提交对象；本地修改继续留在旧
+目录，并将 `status` 和 tracked diff 备份到
+`/data/z00569729/run/dsv4-afd-phase1-install/state/afd-seed-*`。新目标目录保持独立且
+必须干净。若 seed HEAD 不是固定提交，仍会停止，需要另行确认版本，不能强制切换。
+
 A5 或其他新节点不使用该双机专用 profile，使用通用 `slim` 包，并填写
 `CANN_ROOT`、`MODEL_PATH`、`PYTHON_BIN`、`SOC_VERSION`、`NIC_NAME`、必要时的
 `HCCL_IF_IP`、安装/源码目录和实际可访问的 Git/pip 镜像。`CANN_ROOT` 必须指向

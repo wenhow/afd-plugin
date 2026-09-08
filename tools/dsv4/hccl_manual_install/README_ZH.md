@@ -66,8 +66,10 @@ CONFIG_PROFILE=dual-a3-reuse \
 
 包内增量 Git bundle 会从旧种子创建独立的
 `/data/z00569729/code/afd-plugin-phase1-a5`，不会修改或切换旧仓库。安装仍会严格
-核验依赖版本、三个源码提交/工作树、custom ops、导入路径和 NPU 可见性；不匹配时
-停止，不会静默覆盖。
+核验依赖版本、三个源码提交、目标工作树、custom ops、导入路径和 NPU 可见性；
+不匹配时停止，不会静默覆盖。旧 seed 工作树允许保留历史本地改动：安装器只克隆
+其固定 HEAD objects，并把 seed 的 `status` 和 tracked diff 备份到 `STATE_ROOT`，不会
+把改动带入新目标。
 
 ## 2. 目标机前提
 

@@ -54,7 +54,7 @@ verify_git_head() {
 
 prepare_afd_from_seed_bundle() {
   local seed_bundle="${BUNDLE_ROOT}/manifest/afd-plugin-from-seed.bundle"
-  local actual_bundle_sha current_tree
+  local actual_bundle_sha current_tree seed_changes
   [[ "${BUNDLE_INCLUDES_AFD_SEED}" == "1" ]] \
     || die "This package does not include an afd-plugin seed bundle"
   require_file "${seed_bundle}"
@@ -63,7 +63,16 @@ prepare_afd_from_seed_bundle() {
   git -C "${AFD_SEED_ROOT}" rev-parse --is-inside-work-tree >/dev/null 2>&1 \
     || die "afd-plugin seed is not a Git worktree: ${AFD_SEED_ROOT}"
   verify_git_head "${AFD_SEED_ROOT}" "${AFD_SEED_COMMIT}" "afd-plugin seed"
-  require_clean_git_tree "${AFD_SEED_ROOT}" "afd-plugin seed"
+  seed_changes="$(git_unexpected_changes "${AFD_SEED_ROOT}")"
+  if [[ -n "${seed_changes}" ]]; then
+    ensure_dir "${STATE_ROOT}"
+    git -C "${AFD_SEED_ROOT}" status --short \
+      >"${STATE_ROOT}/afd-seed-worktree-status.txt"
+    git -C "${AFD_SEED_ROOT}" diff --binary HEAD \
+      >"${STATE_ROOT}/afd-seed-local-changes.patch"
+    warn "afd-plugin seed has local changes; preserving the seed and cloning only committed ${AFD_SEED_COMMIT} objects"
+    warn "seed status and tracked diff saved under ${STATE_ROOT}"
+  fi
   actual_bundle_sha="$(sha256sum "${seed_bundle}" | awk '{print $1}')"
   [[ "${actual_bundle_sha}" == "${AFD_SEED_BUNDLE_SHA256}" ]] \
     || die "afd-plugin seed bundle checksum mismatch"
