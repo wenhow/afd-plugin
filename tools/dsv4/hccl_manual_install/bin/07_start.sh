@@ -5,7 +5,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=../lib/common.sh
 source "${SCRIPT_DIR}/../lib/common.sh"
 
-bash "${SCRIPT_DIR}/01_preflight.sh"
+bash "${SCRIPT_DIR}/01_preflight.sh" runtime
 require_file "${VENV_ROOT}/bin/python"
 require_file "${MODEL_PATH}/config.json"
 require_file "${AFD_PLUGIN_ROOT}/afd_plugin/connectors/npu/p2p_hccl.py"

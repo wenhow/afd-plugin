@@ -40,6 +40,74 @@ def test_preflight_does_not_require_ss():
     assert "find ss curl" not in preflight
 
 
+def test_start_uses_runtime_preflight_scope():
+    start = (INSTALLER / "bin/07_start.sh").read_text()
+    assert 'bash "${SCRIPT_DIR}/01_preflight.sh" runtime' in start
+
+
+def test_runtime_preflight_does_not_require_install_tools(tmp_path):
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    for command in (
+        "awk",
+        "bash",
+        "curl",
+        "dirname",
+        "grep",
+        "nohup",
+        "ps",
+        "readlink",
+        "setsid",
+        "uname",
+    ):
+        (bin_dir / command).symlink_to(Path("/usr/bin") / command)
+    npu_smi = bin_dir / "npu-smi"
+    npu_smi.write_text("#!/bin/sh\nprintf 'Chip Count : 2\\n'\n")
+    npu_smi.chmod(0o755)
+
+    cann_root = tmp_path / "cann-9.0.0"
+    cann_root.mkdir()
+    (cann_root / "set_env.sh").touch()
+    config = tmp_path / "config.env"
+    config.write_text(
+        f'''SYSTEM_PATH="{bin_dir}"
+CANN_ROOT="{cann_root}"
+NIC_NAME="lo"
+HCCL_IF_IP="127.0.0.1"
+PYTHON_BIN="missing-install-python"
+ATTENTION_RANKS="1"
+FFN_RANKS="1"
+ATTENTION_DEVICES="0"
+FFN_DEVICES="1"
+ATTENTION_MAX_NUM_BATCHED_TOKENS="16"
+FFN_MAX_NUM_BATCHED_TOKENS="16"
+EXECUTION_MODE="eager"
+U_BATCHES="1"
+ENABLE_MTP="0"
+MTP_NUM_SPECULATIVE_TOKENS="1"
+MTP_DRAFT_EXECUTION="eager"
+OFFLINE="1"
+WHEELHOUSE="{tmp_path / 'missing-wheelhouse'}"
+ALLOW_NON_AARCH64="0"
+ALLOW_CANN_VERSION_MISMATCH="0"
+'''
+    )
+
+    result = subprocess.run(
+        ["bash", str(INSTALLER / "bin/01_preflight.sh"), "runtime"],
+        env={
+            **os.environ,
+            "CONFIG_FILE": str(config),
+            "PATH": str(bin_dir),
+        },
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "Runtime preflight passed" in result.stdout
+
+
 def test_dirty_afd_seed_is_preserved_and_audited():
     prepare_sources = (INSTALLER / "bin/02_prepare_sources.sh").read_text()
     seed_section = prepare_sources.split("prepare_afd_from_seed_bundle()", 1)[1].split(

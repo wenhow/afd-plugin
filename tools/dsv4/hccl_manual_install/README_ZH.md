@@ -183,6 +183,10 @@ bash bin/10_smoke_request.sh
 bash bin/09_stop.sh
 ```
 
+`install_all.sh` 使用完整安装预检。`07_start.sh` 与 r14 一样只执行运行态门禁，
+不会重复检查安装工具链、基础 Python 或离线 wheelhouse；CANN、网络、模型、拓扑、
+NPU、PID、端口和服务 readiness 仍会检查。
+
 切换到最小定位组合 eager/U1 + MTP N=1 时修改：
 
 ```bash
