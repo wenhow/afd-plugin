@@ -181,6 +181,10 @@ Mooncake、CANN 和 `NATIVE_GOLDEN_PATH`；路径不变时无需手填。`init` 
 afd-plugin HEAD 写入 `common.env`；两台机器的 `AFD_PD_COMMIT` 必须相同。每一轮在
 两台机器设置同一个逻辑运行根：
 
+`NATIVE_GOLDEN_PATH` 的路径虽已预置，但文件不在补丁包内。完成第 4 节后，将 A5
+生成的 `eager_mtp_off/golden_results.json` 放到两台机器的预置路径；若实际落盘位置
+不同，只修改 `common.env` 中这一项。
+
 ```bash
 export MATRIX_RUN_BASE="/data/run/dsv4-phase1-pd-r1"
 ```

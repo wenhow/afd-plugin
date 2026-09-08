@@ -133,6 +133,10 @@ afd-plugin 补丁并比对最终 Git tree。任一版本不匹配都会停止。
 `INSTALL_PYTHON_DEPS=0` 和 `INSTALL_UPSTREAM_STACK=0`。已按上述双机配置执行过的
 节点无需重新安装 env；只安装新版 afd-plugin editable 路径。
 
+双机 PD common 模板也已预置，但 `NATIVE_GOLDEN_PATH` 指向的 A5 native control
+结果不随包分发；完成 A5 control 后需把该文件放到两台机器的预置路径，或只修改该
+路径项。
+
 ## 5. Python wheel 离线安装
 
 轻量包的源码阶段需要访问 Git；`OFFLINE=1` 只控制 Python wheel 安装。先在
