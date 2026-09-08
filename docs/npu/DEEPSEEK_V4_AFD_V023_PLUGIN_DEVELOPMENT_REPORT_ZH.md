@@ -6,14 +6,14 @@
 
 | 项目 | 固定口径 |
 |---|---|
-| 报告截止日期 | 主功能基线 2026-08-25；双 A3 PD + Graph/U2 验证更新 2026-09-05 |
+| 报告截止日期 | 主功能基线 2026-08-25；双 A3 PD + Graph/U2 验证更新 2026-09-05；第一阶段 M10/M11 本机验证更新 2026-09-08 |
 | vLLM | `releases/v0.23.0`，`0fc695fc6d1d82e9a5ac6835ac8e4e1c83703665` |
 | vLLM-Ascend | `rfc/vllm_cann`，`3da28f9414583d2d0b672a8f06d1fae142404bda` |
-| afd-plugin | `feat/dsv4-afd-graph-u2-multistream-all-on-v1`；双机采集使用基线 HEAD `2164240b31efc8605bf84cc45afc628996669554` 加 R14 验证 overlay；本轮提交工具和结果文档，但不合入存在动态路由正确性风险的 AllToAllV split-cache overlay |
-| 开发范围 | 从 `99ee0ef6` 的 v0.23 兼容迁移到当前 Mooncake PD M9 |
+| afd-plugin | `feat/dsv4-afd-graph-u2-multistream-all-on-v1`；M10/M11 代码提交 `71168312eab4754b9c8d0ab87021be7b8701b448`；双机采集仍按基线 HEAD `2164240b31efc8605bf84cc45afc628996669554` 加 R14 验证 overlay 解释 |
+| 开发范围 | 从 `99ee0ef6` 的 v0.23 兼容迁移到 Mooncake PD M9，以及第一阶段 M10/M11 本机开发门禁 |
 | 主要模型 | `DeepSeek-V4-Flash-w8a8-mtp` |
-| 功能验证工具链 | 历史功能基线使用 CANN 9.0.1；Graph/U2 多流、双机采集和 2026-09-03 FFN Graph 启动实验固定 CANN 9.0.0；Python 3.12、`torch_npu 2.10.0.post2`、`afd-v023-vllm-cann` venv |
-| 当前提交边界 | 本轮提交包含 M9 双机部署/Profile/解析工具和验证文档；双机结果仍按采集时的 `2164240 + R14 overlay` 记录。R14 的 AllToAllV split cache 只作为失败实验归档，不进入 clean HEAD |
+| 功能验证工具链 | M10/M11 固定 CANN 9.0.0（`/mnt/workspace/code/.ascend/cann-9.0.0/cann-9.0.0`）、Python 3.12、`torch_npu 2.10.0.post2`、`afd-v023-vllm-cann` venv；历史功能基线中的 CANN 9.0.1 数字只作历史记录 |
+| 当前提交边界 | 本轮提交包含 M10/M11 运行时、HCCL P2P、Graph、recipe/部署工具和测试；不合入 R14 的 AllToAllV split cache，不改变 M9 已知正确性结论 |
 
 早期在 `zingercode_vllm-ascend` 中直接修改上游源码的探索不属于本文范围；本文只讨论迁移到 v0.23 后以 `afd-plugin` 为唯一 AFD 扩展边界的实现。
 
@@ -74,12 +74,57 @@ DeepSeek-V4 的拆分边界放在远端 MoE，而不是把整个 FFN 子层搬�
 | AF 分离 | 已冻结功能基线 | DeepSeek-V4 角色化加载、A8F8、HCCL P2P eager U1/U2 | 不代表异步 HCCL |
 | Microbatch | 功能通过、性能未闭环 | U1/U2、两个 microbatch、真实双 stage | U3；正式性能收益 |
 | NPU Graph（ACL Graph） | standalone 功能通过；PD Graph/U2 完成双机运行与 Profile 观测，正确性/性能未闭环 | `FULL_DECODE_ONLY`、U1/U2、target/full-draft；混合 DAG 与三项物理流水；PD 下共置/split A8F8 和 split A16F8 已实测 | Graph U3；TP2 最大组合；PD FFN AllToAllV 动态路由、F1/优雅退出；C64 补位退化与正式净收益 |
-| MTP | 已冻结功能基线 | M0-M7、eager/Graph、U1/U2、1 个 MTP layer、1 speculative token | 更多 speculative token |
-| AF 非等量拓扑 | 组件闭环 | A1F1、A2F1、A4F2，eager/Graph/MTP 组件 | A8F4 实模 E2E 与性能 |
+| MTP | 单 token 基线已冻结；多 token 本机门禁通过 | 单 MTP layer，最大 `N=3`；N1/N2/N3 代码回归，N2/N3 eager/Graph U1/U2 NPU 组件，A8F8 eager/U1/N2 实模 smoke | 双机 PD/MTP 组合、完整 F1 与性能 |
+| AF 非等量拓扑 | 双向整数比例本机门禁通过 | `A=kF`、`A=F`、`F=kA`；A2F1/A4F2/A1F2/A2F4 组件，A4F8 eager/U1/N2 实模 smoke | 非整数比例；A8F4 高 HBM E2E；双机 PD/F1 与性能 |
 | TP2 | 已冻结功能基线 | 等量 A8F8、DP4/TP2、eager/U1 | CAMP2P TP2、非等量 TP2、TP3、最大 Graph+MTP 组合 |
 | PD 分离 | Graph/U2 运行观测完成，F0/F1 未冻结 | Mooncake contract/runtime/NPU round-trip；双 A3 TP1、MTP off、Graph/U2，共置/split A8F8 与 split A16F8 | FFN Graph 动态路由正确性；优雅退出完整门禁；路径匹配 token exact；TP2、MTP 和其他执行组合 |
 | v0.23/plugin 工程底座 | 已冻结功能基线 | 同栈 golden、兼容层、部署和验证工具 | 旧栈性能数字不能作为 v0.23 基线 |
 | 正式性能验收 | 未完成 | 已有 standalone 对照；PD Graph/U2 三拓扑三轮测量及 A8F8/A16F8 双侧 profile | split A8F8 CV 超限；缺路径匹配 PD control、MTP on/off、跨负载及固定收益阈值，尚无可发布性能 tag |
+
+### 2.2.1 两阶段交付口径与第一阶段完成度（2026-09-08）
+
+最终交付拆成两个阶段：第一阶段只验收功能，第二阶段交付 U3 和正式性能收益。第一阶段
+固定 TP1，并明确不包含 TP/SP/CP/DCP/PP、TP3、非等量 TP2 和 TP2 最大
+Graph+MTP 组合；仓库中已经冻结的等量 DP4/TP2 eager/U1 证据继续保留，但不作为
+第一阶段交付门禁。
+
+第一阶段的 MTP 目标不是增加 checkpoint 中的 MTP layer 数，而是在模型
+`num_nextn_predict_layers=1` 的前提下，支持通过 `num_speculative_tokens=N` 配置每轮多个
+draft token。本轮已将对外最大值冻结为 `N=3`，复用同一个 MTP layer 执行多个
+speculative step，并完成 `N=1/2/3` 代码回归、N2/N3 本机 NPU 组件与 A8F8 N2 实模
+smoke。
+
+第一阶段同时取消 `P2pHcclAFDConnector` 的 `A >= F` 方向限制。目标拓扑改为双向整数
+比例：支持 `A=kF`、`A=F` 和 `F=kA`，最小代表拓扑为 A8F4、A8F8 和 A4F8。`F=kA`
+已选择 Attention token 连续均衡 scatter、各 FFN 计算、原序 gather 的语义；token 少于
+fanout 时补零占位并在返回前丢弃。非整数 A/F 比例没有纳入本次范围，其他 connector
+继续拒绝 `A<F`。
+
+| 第一阶段能力 | 当前完成度 | 已有证据 | 关闭条件 |
+|---|---|---|---|
+| v0.23/plugin 工程底座 | 已完成 | 同栈 golden、兼容层、部署与验证工具、功能 tag | 保持回归通过 |
+| AF 分离基础、eager U1/U2 | 双向整数比例本机门禁完成 | A8F8 历史 30/30；A1F2/A2F4 组件；A4F8 单请求 16-token exact、生命周期和清理 | A8F4 高 HBM E2E、A4F8 完整 F1 |
+| Microbatch U1/U2 | 等量 standalone 已完成 | 真实双 stage、30/30 golden、batch 1/8/32 | 在一期代表 AF 拓扑和 PD 路径完成组合回归 |
+| NPU Graph U1/U2 | standalone 已完成；PD 未冻结 | U1/U2、target/full-draft、capture/replay 与多流证据 | 动态路由安全、路径匹配 golden、生命周期和 PD F1 |
+| MTP | 多 token 本机门禁完成 | 最大 `N=3`；N1/N2/N3 回归；N2/N3 eager/Graph U1/U2 组件；A8F8 N2 单请求 exact 与清理 | 双机 PD 组合和完整 F1 |
+| AF 双向整数比例 | 本机门禁完成 | `A=kF/A=F/F=kA` rank mapping、数据/控制面、Graph/MTP；A4F8 N2 smoke | A8F4 高 HBM E2E、双机 PD 组合和完整 F1 |
+| PD 分离 | 未完成 | Mooncake contract/runtime/round-trip；双 A3 Graph/U2 运行与 Profile | FFN Graph 动态路由、优雅退出、路径匹配 token exact；一期组合矩阵通过 |
+
+因此两个新增门禁的本机开发范围已完成，但第一阶段总体状态仍是**未完成**。剩余硬缺口
+包括 A8F4 高 HBM/A5 实模、双机 PD + 多 token/双向拓扑组合、PD Graph 动态路由正确性、
+优雅退出和路径匹配 F1。第二阶段只在第一阶段功能冻结后推进 U3、正式吞吐/延迟/资源
+效率、稳定性阈值和性能 tag。
+
+本轮固定栈和证据如下：
+
+| 项目 | 结果 |
+|---|---|
+| 固定源码 | vLLM `0fc695fc6d1d82e9a5ac6835ac8e4e1c83703665`；vLLM-Ascend `3da28f9414583d2d0b672a8f06d1fae142404bda`；afd-plugin 基线 `9db1fb981f5262986e7ea05938e9c6ed57b5a885` 加 M10/M11 提交 |
+| 软件栈 | CANN 9.0.0；`torch 2.10.0+cpu`；`torch_npu 2.10.0.post2`；vLLM 0.23.0 |
+| 代码回归 | 422 项通过；Ruff、`git diff --check`、修改 shell 的 `bash -n` 通过 |
+| NPU 组件 | `/mnt/workspace/validation/phase1_cann900`；A1F2/A2F4 x eager/Graph x U1/U2 x N2/N3，16/16 通过且全部 role 正常 close |
+| A8F8 实模 | `a8f8_eager_u1_n2_real_fix1/validation_summary.json`；N2、1/1 prompt、16-token exact、HTTP 200、双 role rc=0、无 fatal、清理通过 |
+| A4F8 实模 | `a4f8_eager_u1_n2_real/validation_summary.json`；fanout ratio=2、N2、1/1 prompt、16-token exact、HTTP 200、双 role rc=0、无 fatal、清理通过 |
 
 ### 2.3 特性关系
 
@@ -1280,7 +1325,15 @@ if metadata.layer_idx != 0 or metadata.speculative_step != 0:
 | M4 | 30/30，Graph/U2，P1 128/128，acceptance 84.51% | `31.473 token/s`，guard |
 | M7 | U1/U2 各 30/30，full-draft Graph | `27.510 token/s`，guard |
 
-支持范围固定为 1 个 MTP layer、`method=mtp`、`num_speculative_tokens=1`。更多 speculative token 继续 fail-fast。
+当前仍固定为 1 个 MTP layer、`method=mtp`，但 `num_speculative_tokens` 已从固定 1
+扩展为 `[1, 3]`，3 是第一阶段冻结的对外最大值。Attention 合并 proposer 每次 draft
+forward 传递实际 `speculative_step`；固定上游版本未传该字段时，模型代理按请求内
+`0..N-1` 循环恢复 step。FFN 按 header step 执行 N 次 draft MoE，eager 与 draft Graph
+都保持一步一个 phase marker，Graph replay 不重复消费控制面。
+
+本机验证覆盖 N1/N2/N3 代码回归，A1F2/A2F4 的 N2/N3 x eager/Graph x U1/U2 共 16
+项真实 NPU 组件，以及 A8F8 eager/U1/N2 单请求实模 smoke。该证据关闭 M10 本机门禁，
+但不把历史 M0-M7 的 30/30 或性能数据外推到 N2/N3；完整 F1 与性能仍需后续独立执行。
 
 详细证据见 M0、M1、M2、M3、M4 和 full-draft Graph 六份专项报告。
 
@@ -1288,46 +1341,54 @@ if metadata.layer_idx != 0 or metadata.speculative_step != 0:
 
 ### 8.1 特性原理
 
-等量 A8F8 是一个 Attention rank 对一个 FFN rank。非等量拓扑支持 `A = k x F`：多个 Attention rank 共享一个 FFN rank。FFN 按固定顺序聚合多个 peer 的 hidden，执行一次合并 MoE，再按原 slice 返回各自 output。
+等量 A8F8 是一个 Attention rank 对一个 FFN rank。当前 HCCL P2P 非等量拓扑支持两个
+整数方向：`A=kF` 时多个 Attention rank 共享一个 FFN rank；`F=kA` 时一个 Attention
+rank 将 token 均衡分发到多个 FFN rank。两种方向都用确定性连续 peer 和 token layout，
+使控制面、MTP 与 Graph cache 使用同一映射。
 
 ```text
 A0 ----\                         /---- A0 output
 A1 -----\-> F0: concat -> MoE --+----- A1 output
 A2 -----\                        +----- A2 output
 A3 ------\                       \---- A3 output
+
+A0 tokens ----> [F0 slice][F1 slice] ----> gather in original order
 ```
 
 ### 8.2 端到端流程
 
-1. 根据 A/F 数量计算整数 `ratio`，为每个 worker 构造确定性 subgroup 和 peer 列表。
-2. 每个 Attention peer 发送自己的 input IDs/hidden 和本地 token count。
-3. FFN 按 Attention role rank 顺序接收，生成 `peer_slices` 并拼接连续 input。
-4. FFN 对聚合 tensor 执行一次 MoE。
-5. FFN 按同一 `peer_slices` 拆分 output，逐 peer 返回。
-6. MTP 同时校验各 peer header 的 speculative step 和 FFN count；Graph key 保存每个 peer 的精确 shape。
+1. 根据 A/F 数量计算较大侧/较小侧的整数 `ratio`，为每个 worker 构造确定性 subgroup 和双侧 peer 列表。
+2. `A>=F` 时，每个 Attention peer 发送自己的 input IDs/hidden；FFN 按 role rank 聚合。
+3. `F>A` 时，Attention 按连续均衡 slice scatter；token 少于 fanout 时补零，使所有 FFN rank 参与。
+4. FFN 对本地连续 tensor 执行 MoE，并按同一 layout 返回 output。
+5. `A>=F` 由 FFN 拆分 output；`F>A` 由 Attention gather 并丢弃 dummy tail。
+6. MTP header 投影每个 FFN 的 token count；Graph key 保存精确 peer layout，控制面由一个 Attention source 广播到对应 FFN peers。
 
 ### 8.3 拓扑规则
 
 确定性映射为：
 
 ```text
-ratio = A / F
-Attention rank a -> FFN rank floor(a / ratio)
-FFN rank f -> Attention ranks [f * ratio, (f + 1) * ratio)
+A>=F: ratio = A / F
+       Attention rank a -> FFN rank floor(a / ratio)
+       FFN rank f -> Attention ranks [f * ratio, (f + 1) * ratio)
+F>A:  ratio = F / A
+       FFN rank f -> Attention rank floor(f / ratio)
+       Attention rank a -> FFN ranks [a * ratio, (a + 1) * ratio)
 ```
 
-- 构建每个 FFN subgroup 的多 peer process group 和 `peer_slices`。
-- FFN 按 Attention role rank 顺序接收并聚合，发送时按同一 slice 拆分。
-- MTP 要求同 subgroup 的 header 对 speculative step 和 FFN count 完全一致。
-- Graph key 保存展开后的每个 Attention peer token count。
-- 继续拒绝 `A < F` 和非整数比例。
+- 较大侧的连续 ranks 与较小侧的一个 rank 组成 subgroup；world 仍按 `[F..., A...]` 排列。
+- `A>=F` 的 FFN 聚合/拆分语义保持兼容，`F>A` 新增 Attention scatter/gather 语义。
+- MTP 要求 header 的 speculative step 在 `[0, N)`，并使用全局 Attention count 投影 FFN count。
+- Graph key 保存展开后的 peer token layout；draft Graph 每个 replay 对应一个 speculative step。
+- `P2pHcclAFDConnector` 接受双向整数比例；非整数比例及其他 connector 的 `A<F` 继续拒绝。
 
 ### 8.4 为支持该特性需要的适配
 
-- 拓扑适配：从一对一 rank mapping 泛化为 subgroup mapping，并区分 global rank、role rank、subgroup index。
-- 数据面适配：FFN 多 peer recv、聚合 buffer、slice 状态和多 peer send。
+- 拓扑适配：从单向 fan-in 泛化为双向 subgroup mapping，并显式保存 `ffn_peer_ranks` 与 `attention_peer_ranks`。
+- 数据面适配：保留 FFN 多 peer 聚合/拆分，并新增 Attention 均衡 scatter/gather、dummy padding。
 - metadata 适配：每个 peer token count 与 FFN 聚合 count 都必须进入协议。
-- MTP 适配：多个 header 必须对全局 layout 和 speculative step 达成一致。
+- MTP 适配：多个 header 必须对全局 layout 和 speculative step 达成一致；step 范围扩展为 `[0, N)`。
 - Graph 适配：Graph key 不能只保存聚合总数，必须保留精确 peer layout。
 - 资源门禁：A8F4 实模在加载前检查每 FFN rank 的专家权重和 HBM 峰值。
 
@@ -1336,48 +1397,48 @@ FFN rank f -> Attention ranks [f * ratio, (f + 1) * ratio)
 | 适配点 | 代码位置 | 具体修改 | 作用 |
 |---|---|---|---|
 | rank 解析 | `afd_plugin/distributed/topology.py::resolve_role_rank` | 从 vLLM rank 解析 AFD role rank | 建立统一 rank 坐标系 |
-| subgroup mapping | `topology.py::AFDRankMapping`、`build_rank_mapping` | 计算 ratio、peer ranks、subgroup index | 将 `A = k x F` 固化为确定性映射 |
+| subgroup mapping | `topology.py::AFDRankMapping`、`build_rank_mapping` | 按较大侧/较小侧计算 ratio，显式保存 A/F peer ranks | 固化 `A=kF`、`A=F`、`F=kA` 双向确定性映射 |
 | peer token layout | `p2p_hccl.py::_peer_token_counts_for_stage`、`_attention_peer_world_ranks` | 获取当前 FFN 对应的所有 Attention peer 和长度 | 为聚合 recv 准备 shape |
-| slice 构造 | `p2p_hccl.py::_make_peer_slices`、`HCCLP2PTransferState.peer_slices` | 保存 `(peer, start, end)` | 保证聚合后能按原 peer 返回 |
+| slice 构造 | `p2p_hccl.py::_make_peer_slices`、`_attention_peer_slices` | 保存 `(peer, start, end)`；fanout 使用连续均衡 token slice | 保证聚合或 scatter 后按原顺序返回 |
 | 多 peer A2F | `P2pHcclAFDConnector.recv_attn_output`、`recv_attn_output_streamed` | 按 role rank 顺序 recv 并写入聚合 buffer | FFN runner 仍看到连续 tensor |
 | 多 peer F2A | `P2pHcclAFDConnector.send_ffn_output`、`send_ffn_output_streamed` | 按 `peer_slices` 拆分并发送 | 将计算结果正确路由回各 Attention peer |
-| 非等量 MTP | `recv_mtp_header`、`_validate_mtp_header_values`、`_mtp_ffn_token_counts` | 聚合并交叉校验多个 peer header | 扩展 draft phase 到 `A = k x F` |
+| Attention fanout | `_send_attention_tensor`、`_recv_attention_tensor`、`_pad_attention_tensor_for_fanout` | 均衡 scatter/gather；token 少于 fanout 时补零并裁尾 | 让所有 FFN rank 参与且保持真实 token 顺序 |
+| 非等量 MTP | `recv_mtp_header`、`_validate_mtp_header_values`、`_project_attention_counts_to_ffn` | 双向投影 FFN count，校验 `[0, N)` step 和 per-peer header | 扩展 draft phase 到双向整数比例和 N1-N3 |
 | 非等量 Graph key | `cuda_graph.py::make_ffn_graph_key`、`make_mtp_ffn_graph_key` | 保存每个 Attention peer 的 token layout | 防止相同总数的不同布局复用错误图 |
-| 非法拓扑门禁 | `feature_validation.py::_fail_if_unsupported_deepseek_v4_features` 与 connector extra-info 校验 | 拒绝 `A < F`、非整数 ratio 和未验证 TP 组合 | 启动期暴露配置错误 |
+| 控制面 fanout | `P2pHcclAFDControlPlane.send_dp_metadata_list`、`recv_dp_metadata_list` | 一个 Attention source 向 subgroup 全部 FFN peers 发送 stage metadata | 避免只有一个 FFN 收到调度状态 |
+| 非法拓扑门禁 | `topology.py::validate_p2p_topology` 与 feature validation | HCCL 接受双向整数比例；其他 connector 拒绝 `A<F`；全部拒绝非整数 ratio | 启动期暴露配置错误 |
+
+本轮没有只删除 `A<F` 校验，而是完成 rank mapping、DP metadata、recv buffer、MTP
+header/count、Graph key、控制面和生命周期的同一语义扩展。最终选择 scatter/gather，
+因为它让每个 FFN rank 都接收确定 slice 并参与 MoE/EP collective；dummy padding 只解决
+token 数小于 fanout 的通信参与问题，不会出现在 Attention 返回的真实 token 中。
 
 #### 8.5.1 关键代码串讲
 
-修改点一：`build_rank_mapping` 把 `A = k x F` 固化为确定性 subgroup。每个 subgroup 的 rank 0 是 FFN，后面是它负责的连续 Attention ranks：
+修改点一：`build_rank_mapping` 根据较大侧构造确定性 subgroup，并为两种方向显式保存
+双侧 peer ranks：
 
 ```python
-ratio = attention_size // ffn_size
-ffn_ranks = list(range(ffn_size))
-attention_ranks = list(range(ffn_size, ffn_size + attention_size))
-subgroup_ranks = tuple(
-    [ffn_ranks[subgroup_index]]
-    + [
-        attention_ranks[subgroup_index * ratio + offset]
-        for offset in range(ratio)
-    ],
-)
-rank_in_subgroup = subgroup_ranks.index(world_rank)
+ratio = max(attention_size, ffn_size) // min(attention_size, ffn_size)
+attention_fans_out = ffn_size > attention_size
+if attention_fans_out:
+    ffn_peer_ranks = tuple(ffn_ranks[subgroup_index * ratio : (subgroup_index + 1) * ratio])
+    attention_peer_ranks = (attention_ranks[subgroup_index],)
+else:
+    ffn_peer_ranks = (ffn_ranks[subgroup_index],)
+    attention_peer_ranks = tuple(attention_ranks[subgroup_index * ratio : (subgroup_index + 1) * ratio])
+subgroup_ranks = (*ffn_peer_ranks, *attention_peer_ranks)
 ```
 
-修改点二：FFN 根据控制面的 per-peer token count 构造连续聚合 buffer 及可逆的 `peer_slices`：
+修改点二：`F>A` 时 Attention 先按 FFN peer 数量均衡切分；真实 token 不足时把传输长度
+补到 fanout，返回时只复制真实前缀：
 
 ```python
-first_attention_rank = self.mapping.subgroup_index * self.ratio
-seq_lens = tuple(
-    max(1, int(attention_counts[first_attention_rank + offset]))
-    for offset in range(self.ratio)
-)
-peer_ranks = self._attention_peer_world_ranks()
-layout = HCCLP2PStageLayout(
-    peer_ranks=peer_ranks,
-    seq_lens=seq_lens,
-    peer_slices=_make_peer_slices(peer_ranks, seq_lens),
-    num_tokens=sum(seq_lens),
-)
+transport_tokens = max(num_tokens, self.ratio)
+split_sizes = _balanced_split_sizes(transport_tokens, len(self.mapping.ffn_peer_ranks))
+peer_slices = _make_peer_slices(self.mapping.ffn_peer_ranks, split_sizes)
+transport = self._pad_attention_tensor_for_fanout(tensor)
+# send transport[start:end] to each FFN; gather and keep transport[:num_tokens]
 ```
 
 修改点三：A2F 按 slice 把多个 peer 写入一个连续 tensor；MoE 完成后，F2A 使用同一组 slice 原路拆回：
@@ -1924,13 +1985,22 @@ fatal/强杀门禁未通过且没有独立进程 rc。该结果扩展了问题�
 - [ ] 修复双机 Attention/FFN 停止期 fatal/强杀，独立记录真实进程 rc，并补正常 shutdown、
   二次启动和 cleanup 全门禁后冻结 Graph/U2 F0-topology。
 - [ ] M9 TP1 eager/U1、Graph/U1 双机 PD + A8F8 独立 F0。
-- [ ] M9 DP4/TP2 PD 扩展。
 - [ ] PD + MTP 的独立组合门禁。
 - [ ] 路径匹配 PD control 与 AFD 的 batch-invariant、跨冷启动和 30/30 token exact F1。
-- [ ] A5 上完成 A8F4 非等量实模 golden、生命周期与性能。
-- [ ] SP/CP/DCP 和 PP。
-- [ ] 多 MTP layer 或多个 speculative token。
-- [ ] TP2 full-draft Graph U2 最大组合重新定位并通过后解除 fail-fast。
+- [x] 第一阶段 M11 本机门禁：完成 `A=kF/A=F/F=kA` 双向整数 rank mapping、组件
+  P2P/控制面、eager/Graph、MTP 和清理；A1F2/A2F4 16 项组件及 A4F8 eager/U1/N2
+  单请求实模 smoke 通过。
+- [ ] 在高 HBM/A5 完成 A8F4，并为 A4F8/A8F4 补完整 batch、冷启动/空闲恢复与 F1。
+- [x] 第一阶段 M10 本机门禁：保持单 MTP layer，泛化 `speculative_step`、MTP header、
+  FFN draft 循环、Graph key/cache 与异常清理；N1/N2/N3 回归、N2/N3 eager/Graph U1/U2
+  组件和 A8F8 eager/U1/N2 实模 smoke 通过。
+- [x] 第一阶段 `num_speculative_tokens` 最大对外配置值冻结为 3，越界继续 fail-fast。
+- [ ] 双机完成 PD + 多 speculative token/双向拓扑组合，并完成路径匹配 F1。
+- [ ] 第二阶段完成 U3 和正式性能收益验收。
+
+以下能力不作为第一阶段门禁：TP/SP/CP/DCP/PP、TP3、非等量 TP2、TP2
+full-draft Graph U2 最大组合、多 MTP layer，以及非整数 A/F 比例。已有等量
+DP4/TP2 eager/U1 功能 tag 保留，但不改变本次范围。
 
 ### 12.2 性能待办
 
@@ -1966,13 +2036,13 @@ fatal/强杀门禁未通过且没有独立进程 rc。该结果扩展了问题�
 
 - U3。
 - Attention-side gate。
-- `A < F` 或 A/F 非整数比例。
+- A/F 非整数比例；`P2pHcclAFDConnector` 已支持 `F=kA` 整数比例，其他 connector 仍拒绝 `A<F`。
+- `num_speculative_tokens > 3` 或多个 MTP layer；当前只支持单 MTP layer、`N=1/2/3`。
 - CAMP2P TP2、非等量 TP2、TP3。
 - TP2 full-draft Graph U2 最大组合。
 - Mooncake PD 下的 MTP 和 TP2，直到各自 F0 完成。
 - Mooncake PD FFN Graph 的动态 AllToAllV routing，直到安全实现和 golden 完成。
-- Mooncake PD Graph/U2 已有双机运行/Profile 证据，但在动态路由、优雅退出和 F1 完成前
-  不作为冻结支持项。
+- Mooncake PD Graph/U2 已有双机运行/Profile 证据，但在动态路由、优雅退出和 F1 完成前不作为冻结支持项。
 
 ### 12.4 报告更新规则
 
@@ -2008,6 +2078,7 @@ fatal/强杀门禁未通过且没有独立进程 rc。该结果扩展了问题�
 | `49bb4a1d` | HCCL P2P recipe 隔离 |
 | `891e794` | Graph/U2 混合 DAG 与逻辑/物理 stream 解耦基线 |
 | `2164240` | Graph/U2 三项新增物理流水默认全开；双 A3 R14 采集的代码基线 |
+| `71168312` | 第一阶段 M10/M11：单 MTP layer N1-N3、双向整数 A/F、组件/recipe/部署验证 |
 
 ### 13.2 冻结 tag
 
@@ -2044,4 +2115,8 @@ M9 目前没有功能 tag；A3 目标栈也没有可发布的性能 tag。
 
 ## 14. 一句话结论
 
-v0.23/plugin 形态已经完成 DeepSeek-V4 AFD 的 HCCL P2P、eager/Graph U1/U2、MTP M0-M7、非等量组件和 TP2/M8 功能主线；Mooncake PD 的 TP1/MTP off/Graph U2 已完成双 A3 请求与 Profile 观测，但 FFN Graph 动态路由、优雅退出、F1、其他组合和公平性能基线仍未闭环。现阶段应表述为“Graph/U2 流水已在双 A3 三段拓扑 trace 中生效，生产级正确性、生命周期和净收益仍待冻结”。
+在 CANN 9.0.0、vLLM 0.23 + `rfc/vllm_cann` 下，v0.23/plugin 已完成第一阶段 M10/M11
+本机开发门禁：单 MTP layer 支持 N1-N3，HCCL P2P 支持 `A=kF/A=F/F=kA`，16 项 NPU
+组件及 A8F8/A4F8 eager/U1/N2 实模 smoke 通过。第一阶段整体仍未冻结：A8F4 高 HBM
+E2E、双机 PD 组合、PD FFN Graph 动态路由、优雅退出和路径匹配 F1 仍需关闭。第二阶段
+再交付 U3 和可发布性能收益；当前本机结果不替代完整正确性或性能验收。
