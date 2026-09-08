@@ -73,6 +73,11 @@ activate_and_audit() {
   [[ -f "${MODEL_PATH:-/nonexistent}/config.json" ]] || die "MODEL_PATH is invalid"
   [[ -f "${PHASE1_GOLDEN:-/nonexistent}" ]] || die "PHASE1_GOLDEN is invalid"
   [[ -f "${RUNNER}" ]] || die "Validation runner is missing"
+  local custom_ops_root="${DSV4_VLLM_ASCEND_ROOT}/vllm_ascend/_cann_ops_custom/vendors/custom_transformer"
+  [[ -f "${custom_ops_root}/bin/set_env.bash" ]] \
+    || die "vLLM-Ascend custom_transformer ops are not built in the fixed source tree"
+  [[ -f "${custom_ops_root}/op_api/lib/libcust_opapi.so" ]] \
+    || die "vLLM-Ascend custom_transformer op_api library is missing"
 
   local imported_roots=()
   mapfile -t imported_roots < <(

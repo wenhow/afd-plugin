@@ -1328,8 +1328,9 @@ forward 传递实际 `speculative_step`；固定上游版本未传该字段时�
 `2026-09-08` 交付复核显式固定 CANN 9.0.0、vLLM `0fc695fc6d1d82e9a5ac6835ac8e4e1c83703665`
 和 vLLM-Ascend `3da28f9414583d2d0b672a8f06d1fae142404bda` 的实际导入路径；精确组合下
 `pytest` 收集 1072 项并无失败。阶段一 A5 runner 同时检查源码 commit、clean worktree、
-实际 Python import root、CANN 根、golden、模型和空闲 NPU 进程表，避免只看 distribution
-版本但误用另一棵 editable 源码。该复核是本机开发门禁，不替代 A5 实模或双机 PD 结果。
+实际 Python import root、CANN 根、同 commit 构建的 custom ops、golden、模型和空闲 NPU
+进程表，避免只看 distribution 版本但误用另一棵 editable 源码。该复核是本机开发门禁，
+不替代 A5 实模或双机 PD 结果。
 
 详细证据见 M0、M1、M2、M3、M4 和 full-draft Graph 六份专项报告。
 

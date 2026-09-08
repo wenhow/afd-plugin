@@ -177,6 +177,7 @@ def test_a5_matrix_lists_the_blocking_phase1_cases():
 
     assert 'export PYTHONPATH="${REPO_ROOT}:${DSV4_VLLM_ROOT}' in script
     assert "imported_roots" in script
+    assert "libcust_opapi.so" in script
     assert output.splitlines() == [
         "a8f8_eager_u1_mtp_off",
         "a8f8_eager_u1_n1",
