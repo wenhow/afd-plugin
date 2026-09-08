@@ -178,6 +178,10 @@ def test_a5_matrix_lists_the_blocking_phase1_cases():
     assert 'export PYTHONPATH="${REPO_ROOT}:${DSV4_VLLM_ROOT}' in script
     assert "imported_roots" in script
     assert "libcust_opapi.so" in script
+    assert "PHASE1_GOLDEN_ROOT" in script
+    assert "PHASE1_GOLDEN=" not in script
+    assert "control_key_for_case" in script
+    assert "graph_target_draft_graph_mtp_n3" in script
     assert output.splitlines() == [
         "a8f8_eager_u1_mtp_off",
         "a8f8_eager_u1_n1",
@@ -189,6 +193,24 @@ def test_a5_matrix_lists_the_blocking_phase1_cases():
         "a8f4_eager_u1_n2",
         "a8f4_graph_u2_n3",
     ]
+
+
+def test_phase1_native_control_generator_lists_path_matched_controls():
+    runner = ROOT / "tools/dsv4/run_phase1_native_controls.sh"
+    script = runner.read_text(encoding="utf-8")
+    output = subprocess.check_output(["bash", str(runner), "list"], text=True)
+
+    assert output.splitlines() == [
+        "eager_mtp_off",
+        "eager_mtp_n1",
+        "eager_mtp_n2",
+        "graph_target_draft_eager_mtp_n2",
+        "graph_target_draft_graph_mtp_n3",
+    ]
+    assert "run_v023_native_baseline.sh" in script
+    assert "baseline_kind=native_path_control" in script
+    assert "--rounds 3" in script
+    assert "preflight-native" in script
 
 
 def test_phase1_collector_caps_logs_and_excludes_profiler_data(tmp_path):

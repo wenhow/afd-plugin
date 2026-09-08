@@ -25,12 +25,13 @@ usage() {
   cat <<'EOF'
 Usage:
   bash tools/dsv4/run_phase1_a5_matrix.sh list
+  bash tools/dsv4/run_phase1_a5_matrix.sh preflight-native
   bash tools/dsv4/run_phase1_a5_matrix.sh preflight
   bash tools/dsv4/run_phase1_a5_matrix.sh f0 [case ...]
   bash tools/dsv4/run_phase1_a5_matrix.sh f1 [case ...]
 
 Required environment:
-  PHASE1_GOLDEN       Same-stack native golden_results.json
+  PHASE1_GOLDEN_ROOT  Five same-stack, path-matched native controls
   PHASE1_OUTPUT_BASE  Fresh output root (default includes a timestamp)
 
 F0 runs one cold cycle, one validation round, and no idle-resume wait.
@@ -52,7 +53,7 @@ contains_case() {
   return 1
 }
 
-activate_and_audit() {
+audit_stack() {
   source "${SCRIPT_DIR}/activate_v023_vllm_cann_runtime.sh"
   export PYTHONPATH="${REPO_ROOT}:${DSV4_VLLM_ROOT}:${DSV4_VLLM_ASCEND_ROOT}${PYTHONPATH:+:${PYTHONPATH}}"
   local expected_vllm=0fc695fc6d1d82e9a5ac6835ac8e4e1c83703665
@@ -71,7 +72,6 @@ activate_and_audit() {
     || die "DSV4_CANN_ROOT is not the fixed CANN 9.0.0 tree"
   [[ -x "${DSV4_RUNTIME_VENV}/bin/python" ]] || die "Runtime venv is missing"
   [[ -f "${MODEL_PATH:-/nonexistent}/config.json" ]] || die "MODEL_PATH is invalid"
-  [[ -f "${PHASE1_GOLDEN:-/nonexistent}" ]] || die "PHASE1_GOLDEN is invalid"
   [[ -f "${RUNNER}" ]] || die "Validation runner is missing"
   local custom_ops_root="${DSV4_VLLM_ASCEND_ROOT}/vllm_ascend/_cann_ops_custom/vendors/custom_transformer"
   [[ -f "${custom_ops_root}/bin/set_env.bash" ]] \
@@ -109,6 +109,106 @@ PY
   ')"
   (( npu_process_count == 0 )) \
     || die "Detected ${npu_process_count} existing NPU processes"
+}
+
+control_key_for_case() {
+  case "$1" in
+    a8f8_eager_u1_mtp_off) printf 'eager_mtp_off\n' ;;
+    a8f8_eager_u1_n1) printf 'eager_mtp_n1\n' ;;
+    a8f8_eager_u2_n2|a4f8_eager_u1_n2|a8f4_eager_u1_n2)
+      printf 'eager_mtp_n2\n'
+      ;;
+    a8f8_graph_u1_n2) printf 'graph_target_draft_eager_mtp_n2\n' ;;
+    a8f8_graph_u2_n3|a4f8_graph_u2_n3|a8f4_graph_u2_n3)
+      printf 'graph_target_draft_graph_mtp_n3\n'
+      ;;
+    *) die "Unknown case: $1" ;;
+  esac
+}
+
+golden_for_case() {
+  local control_key
+  control_key="$(control_key_for_case "$1")"
+  printf '%s/%s/golden_results.json\n' "${PHASE1_GOLDEN_ROOT}" "${control_key}"
+}
+
+control_metadata_for_key() {
+  case "$1" in
+    eager_mtp_off)
+      EXPECTED_TARGET_EXECUTION=eager
+      EXPECTED_DRAFT_EXECUTION=off
+      EXPECTED_ENABLE_MTP=0
+      EXPECTED_MTP_TOKENS=0
+      ;;
+    eager_mtp_n1)
+      EXPECTED_TARGET_EXECUTION=eager
+      EXPECTED_DRAFT_EXECUTION=eager
+      EXPECTED_ENABLE_MTP=1
+      EXPECTED_MTP_TOKENS=1
+      ;;
+    eager_mtp_n2)
+      EXPECTED_TARGET_EXECUTION=eager
+      EXPECTED_DRAFT_EXECUTION=eager
+      EXPECTED_ENABLE_MTP=1
+      EXPECTED_MTP_TOKENS=2
+      ;;
+    graph_target_draft_eager_mtp_n2)
+      EXPECTED_TARGET_EXECUTION=full-decode-only
+      EXPECTED_DRAFT_EXECUTION=eager
+      EXPECTED_ENABLE_MTP=1
+      EXPECTED_MTP_TOKENS=2
+      ;;
+    graph_target_draft_graph_mtp_n3)
+      EXPECTED_TARGET_EXECUTION=full-decode-only
+      EXPECTED_DRAFT_EXECUTION=graph
+      EXPECTED_ENABLE_MTP=1
+      EXPECTED_MTP_TOKENS=3
+      ;;
+    *) die "Unknown control key: $1" ;;
+  esac
+}
+
+validate_golden_for_case() {
+  local case_name="$1" control_key golden_path
+  control_key="$(control_key_for_case "${case_name}")"
+  control_metadata_for_key "${control_key}"
+  golden_path="$(golden_for_case "${case_name}")"
+  [[ -f "${golden_path}" ]] || die "Missing native control: ${golden_path}"
+  jq -e \
+    --arg control_key "${control_key}" \
+    --arg target_execution "${EXPECTED_TARGET_EXECUTION}" \
+    --arg draft_execution "${EXPECTED_DRAFT_EXECUTION}" \
+    --arg enable_mtp "${EXPECTED_ENABLE_MTP}" \
+    --arg mtp_tokens "${EXPECTED_MTP_TOKENS}" '
+    .passed == true
+    and .rounds >= 3
+    and .prompt_count == 10
+    and (.mismatched_prompt_indices | length == 0)
+    and .metadata.baseline_kind == "native_path_control"
+    and .metadata.control_key == $control_key
+    and .metadata.cann_version == "9.0.0"
+    and .metadata.vllm_commit == "0fc695fc6d1d82e9a5ac6835ac8e4e1c83703665"
+    and .metadata.vllm_ascend_commit == "3da28f9414583d2d0b672a8f06d1fae142404bda"
+    and .metadata.target_execution_mode == $target_execution
+    and .metadata.mtp_draft_execution == $draft_execution
+    and .metadata.enable_mtp == $enable_mtp
+    and .metadata.mtp_num_speculative_tokens == $mtp_tokens
+  ' "${golden_path}" >/dev/null \
+    || die "Invalid or mismatched native control: ${golden_path}"
+}
+
+activate_and_audit() {
+  audit_stack
+  [[ -d "${PHASE1_GOLDEN_ROOT:-/nonexistent}" ]] \
+    || die "PHASE1_GOLDEN_ROOT is invalid"
+  local requested_cases=("$@") case_name
+  if (( ${#requested_cases[@]} == 0 )); then
+    requested_cases=("${CASES[@]}")
+  fi
+  for case_name in "${requested_cases[@]}"; do
+    contains_case "${case_name}" || die "Unknown case: ${case_name}"
+    validate_golden_for_case "${case_name}"
+  done
 }
 
 case_arguments() {
@@ -152,7 +252,7 @@ case_arguments() {
 run_matrix() {
   local phase="$1"
   shift
-  local cycles rounds idle_seconds output_root case_name
+  local cycles rounds idle_seconds output_root case_name golden_path
   if [[ "${phase}" == "f0" ]]; then
     cycles=1
     rounds=1
@@ -170,6 +270,7 @@ run_matrix() {
     printf 'started_at=%s\n' "$(date --iso-8601=seconds)"
     printf 'afd_commit=%s\n' "$(git -C "${REPO_ROOT}" rev-parse HEAD)"
     printf 'cann_root=%s\n' "$(readlink -f "${DSV4_CANN_ROOT}")"
+    printf 'golden_root=%s\n' "$(readlink -f "${PHASE1_GOLDEN_ROOT}")"
   } >"${output_root}/matrix.env"
   npu-smi info >"${output_root}/npu-before.txt"
 
@@ -179,9 +280,10 @@ run_matrix() {
   for case_name in "$@"; do
     contains_case "${case_name}" || die "Unknown case: ${case_name}"
     case_arguments "${case_name}"
+    golden_path="$(golden_for_case "${case_name}")"
     "${DSV4_RUNTIME_VENV}/bin/python" "${RUNNER}" \
       --output-dir "${output_root}/${case_name}" \
-      --golden "${PHASE1_GOLDEN}" \
+      --golden "${golden_path}" \
       --cycles "${cycles}" \
       --idle-seconds "${idle_seconds}" \
       --rounds "${rounds}" \
@@ -195,7 +297,8 @@ run_matrix() {
 case "${ACTION}" in
   help|-h|--help) usage ;;
   list) printf '%s\n' "${CASES[@]}" ;;
-  preflight) activate_and_audit; printf '[phase1-a5] preflight passed\n' ;;
-  f0|f1) activate_and_audit; run_matrix "${ACTION}" "$@" ;;
+  preflight-native) audit_stack; printf '[phase1-a5] native preflight passed\n' ;;
+  preflight) activate_and_audit "$@"; printf '[phase1-a5] preflight passed\n' ;;
+  f0|f1) activate_and_audit "$@"; run_matrix "${ACTION}" "$@" ;;
   *) usage; die "Unknown action: ${ACTION}" ;;
 esac

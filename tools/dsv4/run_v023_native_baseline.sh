@@ -18,6 +18,10 @@ DATA_PARALLEL_RPC_PORT="${DATA_PARALLEL_RPC_PORT:-29350}"
 MASTER_PORT="${MASTER_PORT:-29351}"
 ENABLE_MTP="${ENABLE_MTP:-0}"
 MTP_NUM_SPECULATIVE_TOKENS="${MTP_NUM_SPECULATIVE_TOKENS:-1}"
+MTP_DRAFT_EXECUTION="${MTP_DRAFT_EXECUTION:-eager}"
+EXECUTION_MODE="${EXECUTION_MODE:-eager}"
+MAX_CUDAGRAPH_CAPTURE_SIZE="${MAX_CUDAGRAPH_CAPTURE_SIZE:-8}"
+CUDAGRAPH_CAPTURE_SIZES="${CUDAGRAPH_CAPTURE_SIZES:-1 2 4 8}"
 TENSOR_PARALLEL_SIZE="${TENSOR_PARALLEL_SIZE:-1}"
 
 if [[ ! "${TENSOR_PARALLEL_SIZE}" =~ ^[12]$ ]]; then
@@ -31,17 +35,47 @@ case "${ENABLE_MTP}" in
   0)
     ;;
   1)
-    if [[ ! "${MTP_NUM_SPECULATIVE_TOKENS}" =~ ^[1-9][0-9]*$ ]]; then
-      echo "MTP_NUM_SPECULATIVE_TOKENS must be a positive integer" >&2
+    if [[ ! "${MTP_NUM_SPECULATIVE_TOKENS}" =~ ^[1-3]$ ]]; then
+      echo "MTP_NUM_SPECULATIVE_TOKENS must be in [1, 3]" >&2
       exit 2
     fi
+    case "${EXECUTION_MODE}:${MTP_DRAFT_EXECUTION}" in
+      eager:eager|full-decode-only:eager)
+        mtp_draft_enforce_eager=true
+        ;;
+      full-decode-only:graph)
+        mtp_draft_enforce_eager=false
+        ;;
+      *)
+        echo "Unsupported target/draft execution pair: ${EXECUTION_MODE}/${MTP_DRAFT_EXECUTION}" >&2
+        exit 2
+        ;;
+    esac
     MTP_ARGS=(
       --speculative-config
-      "{\"method\":\"mtp\",\"num_speculative_tokens\":${MTP_NUM_SPECULATIVE_TOKENS},\"enforce_eager\":true}"
+      "{\"method\":\"mtp\",\"num_speculative_tokens\":${MTP_NUM_SPECULATIVE_TOKENS},\"enforce_eager\":${mtp_draft_enforce_eager}}"
     )
     ;;
   *)
     echo "ENABLE_MTP must be 0 or 1" >&2
+    exit 2
+    ;;
+esac
+
+case "${EXECUTION_MODE}" in
+  eager)
+    EXECUTION_ARGS=(--enforce-eager)
+    ;;
+  full-decode-only)
+    read -r -a capture_size_args <<<"${CUDAGRAPH_CAPTURE_SIZES}"
+    EXECUTION_ARGS=(
+      --max-cudagraph-capture-size "${MAX_CUDAGRAPH_CAPTURE_SIZE}"
+      --cudagraph-capture-sizes "${capture_size_args[@]}"
+      --compilation-config '{"cudagraph_mode":"FULL_DECODE_ONLY"}'
+    )
+    ;;
+  *)
+    echo "EXECUTION_MODE must be eager or full-decode-only" >&2
     exit 2
     ;;
 esac
@@ -75,7 +109,6 @@ exec vllm serve "${MODEL_PATH}" \
   --master-port "${MASTER_PORT}" \
   --tensor-parallel-size "${TENSOR_PARALLEL_SIZE}" \
   --enable-expert-parallel \
-  --enforce-eager \
   --seed 1024 \
   --gpu-memory-utilization "${GPU_MEMORY_UTILIZATION}" \
   --tokenizer-mode deepseek_v4 \
@@ -83,4 +116,5 @@ exec vllm serve "${MODEL_PATH}" \
   --safetensors-load-strategy lazy \
   --quantization ascend \
   --block-size 128 \
-  "${MTP_ARGS[@]}"
+  "${MTP_ARGS[@]}" \
+  "${EXECUTION_ARGS[@]}"

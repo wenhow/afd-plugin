@@ -206,9 +206,14 @@ def test_dsv4_v023_native_baseline_has_explicit_mtp_switch():
 
     assert 'ENABLE_MTP="${ENABLE_MTP:-0}"' in script
     assert 'MTP_NUM_SPECULATIVE_TOKENS="${MTP_NUM_SPECULATIVE_TOKENS:-1}"' in script
+    assert 'MTP_DRAFT_EXECUTION="${MTP_DRAFT_EXECUTION:-eager}"' in script
+    assert 'EXECUTION_MODE="${EXECUTION_MODE:-eager}"' in script
     assert '\\"method\\":\\"mtp\\"' in script
     assert '\\"num_speculative_tokens\\":${MTP_NUM_SPECULATIVE_TOKENS}' in script
+    assert '\\"enforce_eager\\":${mtp_draft_enforce_eager}' in script
     assert "--speculative-config" in script
+    assert '"cudagraph_mode":"FULL_DECODE_ONLY"' in script
+    assert '"${EXECUTION_ARGS[@]}"' in script
     assert (
         "VLLM_PLUGINS=ascend,ascend_model,ascend_model_loader,ascend_kv_connector"
         in script
