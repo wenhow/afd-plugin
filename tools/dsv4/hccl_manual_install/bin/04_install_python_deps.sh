@@ -12,6 +12,33 @@ require_file "${VLLM_ASCEND_ROOT}/requirements.txt"
 python_bin="${VENV_ROOT}/bin/python"
 pip_args=()
 
+assert_zero_or_one INSTALL_PYTHON_DEPS "${INSTALL_PYTHON_DEPS}"
+if ! is_true "${INSTALL_PYTHON_DEPS}"; then
+  log "Auditing the validated Python environment without reinstalling dependencies"
+  "${python_bin}" - <<'PY'
+from importlib.metadata import version
+
+expected = {
+    "torch": "2.10.0",
+    "torch-npu": "2.10.0.post2",
+    "vllm": "0.23.0+empty",
+    "vllm-ascend": "0.1.dev1+g3da28f941",
+    "transformers": "5.5.4",
+    "numpy": "2.2.6",
+    "triton-ascend": "3.2.1",
+}
+actual = {name: version(name) for name in expected}
+assert actual == expected, (actual, expected)
+for name, value in actual.items():
+    print(name, value)
+PY
+  ensure_dir "${STATE_ROOT}"
+  "${python_bin}" -m pip list --format=freeze \
+    >"${STATE_ROOT}/python-packages-reused.txt"
+  log "Validated Python dependencies will be reused"
+  exit 0
+fi
+
 if is_true "${OFFLINE}"; then
   require_dir "${WHEELHOUSE}"
   pip_args+=(--no-index --find-links "${WHEELHOUSE}")

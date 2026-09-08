@@ -38,6 +38,14 @@ export PATH="${SYSTEM_PATH}:${PATH:-}"
 : "${AFD_TARGET_TREE:=unset}"
 : "${AFD_PATCH_SHA256:=unset}"
 : "${AFD_SNAPSHOT_ID:=dsv4-afd-v023-cann900-phase1-external-v1}"
+: "${BUNDLE_CONFIG_PROFILE:=generic}"
+: "${BUNDLE_INCLUDES_AFD_SEED:=0}"
+: "${AFD_SEED_BUNDLE_SHA256:=}"
+: "${USE_AFD_SEED_BUNDLE:=0}"
+: "${AFD_SEED_ROOT:=}"
+: "${AFD_SEED_COMMIT:=}"
+: "${INSTALL_PYTHON_DEPS:=1}"
+: "${INSTALL_UPSTREAM_STACK:=1}"
 
 log() {
   printf '[hccl-install] %s\n' "$*"
@@ -78,6 +86,20 @@ ensure_dir() {
 dir_is_empty() {
   [[ -d "$1" ]] || return 0
   [[ -z "$(find "$1" -mindepth 1 -maxdepth 1 -print -quit)" ]]
+}
+
+git_unexpected_changes() {
+  local target="$1"
+  git -C "${target}" status --short \
+    | grep -vE '^\?\? \.bundle-source-version$' \
+    || true
+}
+
+require_clean_git_tree() {
+  local target="$1" label="$2" changes
+  changes="$(git_unexpected_changes "${target}")"
+  [[ -z "${changes}" ]] \
+    || die "${label} worktree is not clean: ${changes}"
 }
 
 resolve_hccl_ip() {
@@ -143,4 +165,5 @@ print_version_contract() {
   log "vLLM-Ascend commit: ${VLLM_ASCEND_COMMIT}"
   log "afd-plugin download base: ${AFD_SOURCE_COMMIT}"
   log "afd-plugin target: ${AFD_TARGET_COMMIT} (${AFD_SNAPSHOT_ID})"
+  log "bundle config profile: ${BUNDLE_CONFIG_PROFILE}"
 }

@@ -146,6 +146,7 @@ A3 验收通过只说明实现语义和 A3 性能成立，不等于 A5 已支持
 - A5 先生成 eager MTP-off/N1/N2、target Graph + draft eager N2、target/draft Graph N3 共 5 个路径匹配 native control；standalone 固定 9 个代表点，覆盖 A8F8 基础/N1、eager U2 N2、Graph U1 N2、Graph U2 N3，以及 A4F8/A8F4 的 eager U1 N2 和 Graph U2 N3；F1 固定两次冷启动、batch 1/8/32、serial 30/30 token exact、1800 秒 idle-resume、shutdown/fatal/NPU cleanup。
 - 双机 PD 固定 3 个路径匹配 no-AFD control 和 4 个 AFD 点：A8F8 N2/N3、A4F8 N3、A8F4 N3；control golden 按 Attention DP、target/draft execution、U 数和 MTP N 隔离，不能跨路径复用。
 - `pd.sh` 的部署约束已同步为双向整数 A/F 和 N1-N3，矩阵按拓扑动态生成 device list 与 FFN capacity；外部执行和证据回传步骤见 `DEEPSEEK_V4_AFD_PHASE1_A5_MULTI_NODE_VALIDATION_GUIDE_ZH.md`。
+- 已按双 A3 历史实跑配置提供 `dual-a3-reuse` 安装 profile：复用 CANN 9.0.0、固定 venv 和两个上游源码，不重装依赖或重建上游；从旧 `2164240` 仓库通过包内增量 Git bundle 创建独立的一期 afd-plugin 路径，并附带双机 PD common 模板。旧仓库保持不动，版本、工作树、custom ops 和 Python 导入根不一致时 fail-fast。
 - 只有上述外部原始证据通过分析后，才能关闭 A5、PD Graph 动态路由、生命周期和 F1；当前不创建第一阶段功能 tag。
 
 ## 3. 已冻结基线

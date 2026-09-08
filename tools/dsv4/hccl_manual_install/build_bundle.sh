@@ -13,6 +13,9 @@ VLLM_ASCEND_COMMIT=3da28f9414583d2d0b672a8f06d1fae142404bda
 AFD_SOURCE_COMMIT="${AFD_SOURCE_COMMIT:-9db1fb981f5262986e7ea05938e9c6ed57b5a885}"
 AFD_RELEASE_REF="${AFD_RELEASE_REF:-HEAD}"
 AFD_SNAPSHOT_ID="${AFD_SNAPSHOT_ID:-dsv4-afd-v023-cann900-phase1-external-v1}"
+CONFIG_PROFILE="${CONFIG_PROFILE:-generic}"
+INCLUDE_AFD_SEED_BUNDLE="${INCLUDE_AFD_SEED_BUNDLE:-}"
+AFD_SEED_COMMIT="${AFD_SEED_COMMIT:-}"
 AFD_TARGET_COMMIT="$(git -C "${AFD_REPO_ROOT}" rev-parse "${AFD_RELEASE_REF}^{commit}" 2>/dev/null)" \
   || { echo "afd-plugin release ref does not exist: ${AFD_RELEASE_REF}" >&2; exit 2; }
 [[ -z "$(git -C "${AFD_REPO_ROOT}" status --short)" ]] \
@@ -39,8 +42,24 @@ case "${INCLUDE_SOURCES}" in
     ;;
 esac
 
+case "${CONFIG_PROFILE}" in
+  generic)
+    INCLUDE_AFD_SEED_BUNDLE="${INCLUDE_AFD_SEED_BUNDLE:-0}"
+    profile_suffix=""
+    ;;
+  dual-a3-reuse)
+    INCLUDE_AFD_SEED_BUNDLE="${INCLUDE_AFD_SEED_BUNDLE:-1}"
+    AFD_SEED_COMMIT="${AFD_SEED_COMMIT:-2164240b31efc8605bf84cc45afc628996669554}"
+    profile_suffix="-${CONFIG_PROFILE}"
+    ;;
+  *)
+    echo "Unsupported CONFIG_PROFILE: ${CONFIG_PROFILE}" >&2
+    exit 2
+    ;;
+esac
+
 timestamp="$(date +%Y%m%d_%H%M%S)"
-package_name="dsv4-afd-hccl-manual-install-${package_flavor}-${timestamp}"
+package_name="dsv4-afd-hccl-manual-install-${package_flavor}${profile_suffix}-${timestamp}"
 
 temp_root="$(mktemp -d)"
 cleanup() {
@@ -51,9 +70,70 @@ trap cleanup EXIT
 payload_root="${temp_root}/${package_name}"
 mkdir -p "${payload_root}/manifest"
 cp -a "${BUNDLE_SOURCE_DIR}/." "${payload_root}/"
-cp "${BUNDLE_SOURCE_DIR}/config.env.example" "${payload_root}/config.env"
+case "${CONFIG_PROFILE}" in
+  generic)
+    ;;
+  dual-a3-reuse)
+    sed -i \
+      -e 's|^INSTALL_ROOT=.*|INSTALL_ROOT="/data/z00569729/run/dsv4-afd-phase1-install"|' \
+      -e 's|^CODE_ROOT=.*|CODE_ROOT="/data/z00569729/code"|' \
+      -e 's|^VENV_ROOT=.*|VENV_ROOT="${CODE_ROOT}/.venvs/afd-v023-vllm-cann"|' \
+      -e 's|^STATE_ROOT=.*|STATE_ROOT="${INSTALL_ROOT}/state"|' \
+      -e 's|^LOG_ROOT=.*|LOG_ROOT="${INSTALL_ROOT}/logs"|' \
+      -e 's|^AFD_PLUGIN_ROOT=.*|AFD_PLUGIN_ROOT="${CODE_ROOT}/afd-plugin-phase1-a5"|' \
+      -e 's|^CANN_ROOT=.*|CANN_ROOT="/usr/local/Ascend/cann-9.0.0"|' \
+      -e 's|^MODEL_PATH=.*|MODEL_PATH="/data/models/DeepSeek-V4-Flash-w8a8-mtp"|' \
+      -e 's|^PYTHON_BIN=.*|PYTHON_BIN="${VENV_ROOT}/bin/python"|' \
+      -e 's|^NIC_NAME=.*|NIC_NAME="enp23s0f3"|' \
+      -e 's|^MAX_NUM_BATCHED_TOKENS=.*|MAX_NUM_BATCHED_TOKENS="4096"|' \
+      -e 's|^MAX_NUM_SEQS=.*|MAX_NUM_SEQS="16"|' \
+      -e 's|^REUSE_SOURCES=.*|REUSE_SOURCES="1"|' \
+      -e 's|^USE_AFD_SEED_BUNDLE=.*|USE_AFD_SEED_BUNDLE="1"|' \
+      -e 's|^AFD_SEED_ROOT=.*|AFD_SEED_ROOT="${CODE_ROOT}/afd-plugin"|' \
+      -e "s|^AFD_SEED_COMMIT=.*|AFD_SEED_COMMIT=\"${AFD_SEED_COMMIT}\"|" \
+      -e 's|^REUSE_VENV=.*|REUSE_VENV="1"|' \
+      -e 's|^INSTALL_PYTHON_DEPS=.*|INSTALL_PYTHON_DEPS="0"|' \
+      -e 's|^INSTALL_UPSTREAM_STACK=.*|INSTALL_UPSTREAM_STACK="0"|' \
+      "${payload_root}/config.env.example"
+    ;;
+esac
+cp "${payload_root}/config.env.example" "${payload_root}/config.env"
 cp "${AFD_REPO_ROOT}/docs/npu/DEEPSEEK_V4_AFD_PHASE1_A5_MULTI_NODE_VALIDATION_GUIDE_ZH.md" \
   "${payload_root}/PHASE1_A5_MULTI_NODE_VALIDATION_GUIDE_ZH.md"
+
+if [[ "${CONFIG_PROFILE}" == "dual-a3-reuse" ]]; then
+  cp "${AFD_REPO_ROOT}/tools/dsv4/mooncake_pd_manual/config.env.example" \
+    "${payload_root}/DUAL_A3_PD_COMMON.env.example"
+  sed -i \
+    -e 's|^AFD_PLUGIN_ROOT=.*|AFD_PLUGIN_ROOT="${CODE_ROOT}/afd-plugin-phase1-a5"|' \
+    -e 's|^NATIVE_GOLDEN_PATH=.*|NATIVE_GOLDEN_PATH="/data/z00569729/validation/dsv4-phase1-a5-native-controls/eager_mtp_off/golden_results.json"|' \
+    -e "s|^AFD_PD_COMMIT=.*|AFD_PD_COMMIT=\"${AFD_TARGET_COMMIT}\"|" \
+    "${payload_root}/DUAL_A3_PD_COMMON.env.example"
+fi
+
+case "${INCLUDE_AFD_SEED_BUNDLE}" in
+  1|true|TRUE|yes|YES|on|ON)
+    [[ -n "${AFD_SEED_COMMIT}" ]] \
+      || { echo "AFD_SEED_COMMIT is required for a seed bundle" >&2; exit 2; }
+    git -C "${AFD_REPO_ROOT}" merge-base --is-ancestor \
+      "${AFD_SEED_COMMIT}" "${AFD_TARGET_COMMIT}" \
+      || { echo "AFD seed commit is not an ancestor of the target" >&2; exit 2; }
+    git -C "${AFD_REPO_ROOT}" bundle create \
+      "${payload_root}/manifest/afd-plugin-from-seed.bundle" \
+      "${AFD_RELEASE_REF}" "^${AFD_SEED_COMMIT}"
+    BUNDLE_INCLUDES_AFD_SEED=1
+    AFD_SEED_BUNDLE_SHA256="$(sha256sum \
+      "${payload_root}/manifest/afd-plugin-from-seed.bundle" | awk '{print $1}')"
+    ;;
+  0|false|FALSE|no|NO|off|OFF)
+    BUNDLE_INCLUDES_AFD_SEED=0
+    AFD_SEED_BUNDLE_SHA256=
+    ;;
+  *)
+    echo "INCLUDE_AFD_SEED_BUNDLE must be 0 or 1" >&2
+    exit 2
+    ;;
+esac
 
 if (( include_sources == 1 )); then
   sed -i 's/^USE_BUNDLED_SOURCES=.*/USE_BUNDLED_SOURCES="1"/' \
@@ -86,6 +166,10 @@ AFD_TARGET_TREE="${AFD_TARGET_TREE}"
 AFD_PATCH_SHA256="${AFD_PATCH_SHA256}"
 AFD_SNAPSHOT_ID="${AFD_SNAPSHOT_ID}"
 BUNDLE_INCLUDES_SOURCES="${include_sources}"
+BUNDLE_CONFIG_PROFILE="${CONFIG_PROFILE}"
+BUNDLE_INCLUDES_AFD_SEED="${BUNDLE_INCLUDES_AFD_SEED}"
+AFD_SEED_COMMIT="${AFD_SEED_COMMIT}"
+AFD_SEED_BUNDLE_SHA256="${AFD_SEED_BUNDLE_SHA256}"
 EOF
 
 if (( include_sources == 1 )); then

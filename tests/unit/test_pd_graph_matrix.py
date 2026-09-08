@@ -74,6 +74,36 @@ def test_matrix_generates_split_a16f8_contract(tmp_path):
             assert config[flag] == "1"
 
 
+def test_matrix_init_accepts_site_common_template(tmp_path):
+    template = tmp_path / "site.env"
+    config_dir = tmp_path / "matrix"
+    template.write_text(
+        (MATRIX.parent / "config.env.example")
+        .read_text()
+        .replace(
+            'AFD_PLUGIN_ROOT="${CODE_ROOT}/afd-plugin"',
+            'AFD_PLUGIN_ROOT="${CODE_ROOT}/afd-plugin-phase1-a5"',
+        )
+        .replace(
+            'NATIVE_GOLDEN_PATH="/data/z00569729/validation/dsv4_v023_vllm_cann_native_baseline/golden_results.json"',
+            'NATIVE_GOLDEN_PATH="/data/z00569729/validation/dsv4-phase1-a5-native-controls/eager_mtp_off/golden_results.json"',
+        )
+    )
+    env = os.environ.copy()
+    env["PD_GRAPH_MATRIX_COMMON_TEMPLATE"] = str(template)
+
+    subprocess.run(
+        ["bash", str(MATRIX), "init", str(config_dir)], env=env, check=True
+    )
+
+    config = _source_config(config_dir / "common.env")
+    assert config["AFD_PLUGIN_ROOT"].endswith("/afd-plugin-phase1-a5")
+    assert config["NATIVE_GOLDEN_PATH"].endswith(
+        "/dsv4-phase1-a5-native-controls/eager_mtp_off/golden_results.json"
+    )
+    assert re.fullmatch(r"[0-9a-f]{40}", config["AFD_PD_COMMIT"])
+
+
 @pytest.mark.parametrize(
     (
         "point",

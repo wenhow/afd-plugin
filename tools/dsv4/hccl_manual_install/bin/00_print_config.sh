@@ -22,5 +22,9 @@ cat <<EOF
 [hccl-install] FFN devices: ${FFN_DEVICES}
 [hccl-install] mode: ${EXECUTION_MODE}/U${U_BATCHES}, MTP=${ENABLE_MTP}
 [hccl-install] bundled sources: ${USE_BUNDLED_SOURCES}
+[hccl-install] AFD seed bundle: ${USE_AFD_SEED_BUNDLE}
+[hccl-install] reuse venv: ${REUSE_VENV}
+[hccl-install] install Python deps: ${INSTALL_PYTHON_DEPS}
+[hccl-install] install upstream stack: ${INSTALL_UPSTREAM_STACK}
 [hccl-install] offline Python deps: ${OFFLINE}
 EOF

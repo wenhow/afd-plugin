@@ -48,6 +48,27 @@ dsv4-afd-hccl-manual-install-slim-YYYYmmdd_HHMMSS.tar.gz
 dsv4-afd-hccl-manual-install-slim-YYYYmmdd_HHMMSS.tar.gz.sha256
 ```
 
+已经按 `/mnt/workspace/delivery/config.env.example` 安装过的两台 A3，使用复用
+profile 生成专用包：
+
+```bash
+CONFIG_PROFILE=dual-a3-reuse \
+  bash tools/dsv4/hccl_manual_install/build_bundle.sh /mnt/workspace/delivery
+```
+
+文件名包含 `slim-dual-a3-reuse`。该 profile 固定复用以下已有资源，不重装 Python
+依赖，不重建 vLLM/vLLM-Ascend：
+
+- `/data/z00569729/code/.venvs/afd-v023-vllm-cann`；
+- 两个已固定提交的上游源码目录；
+- `/usr/local/Ascend/cann-9.0.0` 和既有模型；
+- 提交 `2164240b31efc8605bf84cc45afc628996669554` 的旧 `afd-plugin` 只读种子。
+
+包内增量 Git bundle 会从旧种子创建独立的
+`/data/z00569729/code/afd-plugin-phase1-a5`，不会修改或切换旧仓库。安装仍会严格
+核验依赖版本、三个源码提交/工作树、custom ops、导入路径和 NPU 可见性；不匹配时
+停止，不会静默覆盖。
+
 ## 2. 目标机前提
 
 - AArch64、满足所选 A/F 拓扑数量的可用 Ascend NPU；
@@ -107,6 +128,10 @@ afd-plugin 补丁并比对最终 Git tree。任一版本不匹配都会停止。
 
 这些脚本默认拒绝复用非空源码目录或已有 venv。确认目录内容正确后，分别设置
 `REUSE_SOURCES=1` 或 `REUSE_VENV=1`。
+
+`dual-a3-reuse` 包已设置 `REUSE_SOURCES=1`、`REUSE_VENV=1`、
+`INSTALL_PYTHON_DEPS=0` 和 `INSTALL_UPSTREAM_STACK=0`。已按上述双机配置执行过的
+节点无需重新安装 env；只安装新版 afd-plugin editable 路径。
 
 ## 5. Python wheel 离线安装
 

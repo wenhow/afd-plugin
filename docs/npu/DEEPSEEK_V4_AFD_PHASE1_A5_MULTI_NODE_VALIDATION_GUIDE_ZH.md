@@ -27,19 +27,33 @@
 
 ## 2. 补丁包安装
 
-在每台机器使用同一个 tar 包和 SHA256 文件：
+已经按 `/mnt/workspace/delivery/config.env.example` 安装过的两台 A3 使用文件名包含
+`slim-dual-a3-reuse` 的专用包。它已固定现有安装目录、模型、CANN 9.0.0、NIC 和旧
+AFD 种子提交；复用现有 venv 和两个上游 editable 安装，只把新版 afd-plugin 安装到
+独立的 `/data/z00569729/code/afd-plugin-phase1-a5`。原
+`/data/z00569729/code/afd-plugin` 不会被修改。
+
+在两台 A3 使用同一个 tar 包和 SHA256 文件：
 
 ```bash
-sha256sum -c dsv4-afd-hccl-manual-install-slim-*.tar.gz.sha256
-tar -xzf dsv4-afd-hccl-manual-install-slim-*.tar.gz
-cd dsv4-afd-hccl-manual-install-slim-*
+sha256sum -c dsv4-afd-hccl-manual-install-slim-dual-a3-reuse-*.tar.gz.sha256
+tar -xzf dsv4-afd-hccl-manual-install-slim-dual-a3-reuse-*.tar.gz
+cd dsv4-afd-hccl-manual-install-slim-dual-a3-reuse-*
 sha256sum -c manifest/SHA256SUMS
-vi config.env
 bash bin/00_print_config.sh
 bash bin/install_all.sh
 ```
 
-`config.env` 至少修改 `CANN_ROOT`、`MODEL_PATH`、`SOC_VERSION`、`NIC_NAME`、`HCCL_IF_IP`、安装目录和镜像地址。`CANN_ROOT` 必须指向 CANN 9.0.0 的真实根目录；不得先 source 其他版本再继续。
+上述已知双机没有必须手填的配置，也不需要重新安装 env。执行前仍需人工确认
+`00_print_config.sh` 显示的目录、模型、`SOC_VERSION=ascend910_9362` 和
+`NIC_NAME=enp23s0f3` 与本机一致；`HCCL_IF_IP` 留空时从 NIC 自动取本机 IPv4。只有
+自动取址失败才在 `config.env` 填写本机 `HCCL_IF_IP`。若任一路径、SoC 或 NIC 已变化，
+先修改对应项；不要修改固定 commit，也不要用旧 AFD 目录作为新目标目录。
+
+A5 或其他新节点不使用该双机专用 profile，使用通用 `slim` 包，并填写
+`CANN_ROOT`、`MODEL_PATH`、`PYTHON_BIN`、`SOC_VERSION`、`NIC_NAME`、必要时的
+`HCCL_IF_IP`、安装/源码目录和实际可访问的 Git/pip 镜像。`CANN_ROOT` 必须指向
+CANN 9.0.0 的唯一真实根目录；不得先 source 其他版本再继续。
 
 安装完成后保存包目录和源码目录：
 
@@ -151,17 +165,21 @@ bash tools/dsv4/run_phase1_a5_matrix.sh f0 a8f4_graph_u2_n3
 
 以下将 Prefill/FFN 机记为 P/F，将 Attention 机记为 A；Proxy 可放在 P/F。两台机器安装同一个补丁包，模型、CANN、上游 commit 和 afd-plugin 交付 commit 必须一致。
 
-在两台机器各自执行一次 `init`，然后将两个 `common.env` 修改为完全相同的固定 IP、NIC、模型、Mooncake 和 CANN 配置：
+双机专用包已附带按历史实跑配置生成的 `DUAL_A3_PD_COMMON.env.example`。在两台机器
+各自执行一次 `init`，直接以该文件为模板：
 
 ```bash
 export MATRIX="$AFD_PLUGIN_ROOT/tools/dsv4/mooncake_pd_manual/pd_graph_matrix.sh"
 export CFG="/data/config/dsv4-phase1-pd"
+export PD_GRAPH_MATRIX_COMMON_TEMPLATE="$BUNDLE_ROOT/DUAL_A3_PD_COMMON.env.example"
 bash "$MATRIX" init "$CFG"
-vi "$CFG/common.env"
 bash "$MATRIX" list "$CFG"
 ```
 
-不要修改生成的 `*-role.env`。`init` 会把本机 afd-plugin HEAD 写入 `common.env`；两台机器的 `AFD_PD_COMMIT` 必须相同。每一轮在两台机器设置同一个逻辑运行根：
+不要修改生成的 `*-role.env`。检查 `common.env` 中的 Prefill/Decode IP、NIC、模型、
+Mooncake、CANN 和 `NATIVE_GOLDEN_PATH`；路径不变时无需手填。`init` 会把本机
+afd-plugin HEAD 写入 `common.env`；两台机器的 `AFD_PD_COMMIT` 必须相同。每一轮在
+两台机器设置同一个逻辑运行根：
 
 ```bash
 export MATRIX_RUN_BASE="/data/run/dsv4-phase1-pd-r1"

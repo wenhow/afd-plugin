@@ -19,19 +19,25 @@ ensure_dir "${INSTALL_ROOT}/build-tmp"
 export TMPDIR="${INSTALL_ROOT}/build-tmp"
 export MAX_JOBS="${MAX_JOBS:-$(getconf _NPROCESSORS_ONLN)}"
 
-log "Installing vLLM ${VLLM_COMMIT}"
-cd "${VLLM_ROOT}"
-VLLM_TARGET_DEVICE=empty \
-SETUPTOOLS_SCM_PRETEND_VERSION=0.23.0 \
-  python -m pip install -v --no-build-isolation --no-deps --editable .
+assert_zero_or_one INSTALL_UPSTREAM_STACK "${INSTALL_UPSTREAM_STACK}"
+if is_true "${INSTALL_UPSTREAM_STACK}"; then
+  log "Installing vLLM ${VLLM_COMMIT}"
+  cd "${VLLM_ROOT}"
+  VLLM_TARGET_DEVICE=empty \
+  SETUPTOOLS_SCM_PRETEND_VERSION=0.23.0 \
+    python -m pip install -v --no-build-isolation --no-deps --editable .
 
-log "Building and installing vLLM-Ascend ${VLLM_ASCEND_COMMIT}"
-cd "${VLLM_ASCEND_ROOT}"
-SETUPTOOLS_SCM_PRETEND_VERSION=0.1.dev1+g3da28f941 \
-  python -m pip install -v --no-build-isolation --no-deps --editable .
+  log "Building and installing vLLM-Ascend ${VLLM_ASCEND_COMMIT}"
+  cd "${VLLM_ASCEND_ROOT}"
+  SETUPTOOLS_SCM_PRETEND_VERSION=0.1.dev1+g3da28f941 \
+    python -m pip install -v --no-build-isolation --no-deps --editable .
+else
+  log "Reusing the validated vLLM and vLLM-Ascend editable installations"
+fi
 
 ops_env="${VLLM_ASCEND_ROOT}/vllm_ascend/_cann_ops_custom/vendors/custom_transformer/bin/set_env.bash"
 require_file "${ops_env}"
+require_file "${VLLM_ASCEND_ROOT}/vllm_ascend/_cann_ops_custom/vendors/custom_transformer/op_api/lib/libcust_opapi.so"
 
 log "Installing afd-plugin snapshot ${AFD_SNAPSHOT_ID}"
 cd "${AFD_PLUGIN_ROOT}"

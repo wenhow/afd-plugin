@@ -389,10 +389,13 @@ EOF
 }
 
 init_action() {
+  local common_template="${PD_GRAPH_MATRIX_COMMON_TEMPLATE:-${SCRIPT_DIR}/config.env.example}"
   [[ ! -e "${CONFIG_DIR}/common.env" ]] \
     || die "Matrix config already exists: ${CONFIG_DIR}/common.env"
+  [[ -f "${common_template}" ]] \
+    || die "Matrix common template does not exist: ${common_template}"
   mkdir -p "${CONFIG_DIR}"
-  cp "${SCRIPT_DIR}/config.env.example" "${CONFIG_DIR}/common.env"
+  cp "${common_template}" "${CONFIG_DIR}/common.env"
   local repo_root afd_commit point role
   repo_root="$(cd "${SCRIPT_DIR}/../../.." && pwd)"
   afd_commit="$(git -c safe.directory="${repo_root}" \
@@ -412,6 +415,7 @@ init_action() {
     done < <(roles_for_point)
   done
   log "Created ${CONFIG_DIR}/common.env and ${generated} generated role configs"
+  log "Common template: ${common_template}"
   log "Pinned afd-plugin ${afd_commit} in ${CONFIG_DIR}/common.env"
   log "Review common.env: fixed IPs, NIC, model path, and commits must match the site"
 }
