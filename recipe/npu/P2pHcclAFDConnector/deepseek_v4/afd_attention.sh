@@ -30,6 +30,7 @@ MTP_DRAFT_EXECUTION="${MTP_DRAFT_EXECUTION:-eager}"
 AFD_ASYNC_SCHEDULING="${AFD_ASYNC_SCHEDULING:-auto}"
 VLLM_SHUTDOWN_TIMEOUT_SECONDS="${VLLM_SHUTDOWN_TIMEOUT_SECONDS:-0}"
 AFD_NPU_ATTENTION_PROFILER_ENABLE="${AFD_NPU_ATTENTION_PROFILER_ENABLE:-0}"
+# Mooncake PD M9 baseline remains opt-in for standalone AFD validation.
 ENABLE_PD="${ENABLE_PD:-0}"
 MOONCAKE_ENGINE_ID="${MOONCAKE_ENGINE_ID:-dsv4-afd-decode}"
 MOONCAKE_KV_PORT="${MOONCAKE_KV_PORT:-30100}"
@@ -83,8 +84,8 @@ case "$ENABLE_MTP" in
     MTP_ARGS=()
     ;;
   1)
-    if [[ "$MTP_NUM_SPECULATIVE_TOKENS" != "1" ]]; then
-      echo "DeepSeek-V4 MTP supports exactly one speculative token" >&2
+    if [[ ! "$MTP_NUM_SPECULATIVE_TOKENS" =~ ^[1-3]$ ]]; then
+      echo "DeepSeek-V4 MTP supports num_speculative_tokens in [1, 3]" >&2
       exit 2
     fi
     case "$EXECUTION_MODE" in
@@ -110,7 +111,7 @@ case "$ENABLE_MTP" in
         exit 2
         ;;
     esac
-    MTP_CONFIG="$(printf '{"method":"mtp","num_speculative_tokens":1,"enforce_eager":%s}' "$MTP_DRAFT_ENFORCE_EAGER")"
+    MTP_CONFIG="$(printf '{"method":"mtp","num_speculative_tokens":%s,"enforce_eager":%s}' "$MTP_NUM_SPECULATIVE_TOKENS" "$MTP_DRAFT_ENFORCE_EAGER")"
     MTP_ARGS=(
       --speculative-config
       "$MTP_CONFIG"

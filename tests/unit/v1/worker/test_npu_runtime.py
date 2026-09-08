@@ -1650,6 +1650,20 @@ def test_npu_attention_full_draft_graph_enables_replay_synchronization():
     assert runner.drafter._runnable._runnable is draft_graph
 
 
+def test_npu_attention_eager_draft_gets_phase_boundary_wrapper():
+    runner = _new_attention_runner()
+    runner.speculative_config = _mtp_speculative_config(enforce_eager=True)
+
+    def eager_runnable():
+        return None
+
+    runner.drafter = SimpleNamespace(_runnable=eager_runnable)
+
+    runner._configure_mtp_draft_graph()
+
+    assert runner.drafter._runnable._runnable is eager_runnable
+
+
 def test_npu_attention_announces_only_executed_live_mtp_phase(monkeypatch):
     _require_npu_runtime()
     from vllm.config import CUDAGraphMode
@@ -2118,12 +2132,64 @@ def test_npu_ffn_runner_dummy_mtp_graph_miss_runs_eager(monkeypatch):
     monkeypatch.setattr(
         runner,
         "_mtp_ffn_forward",
-        lambda stage_ids: calls.append(tuple(stage_ids)),
+        lambda stage_ids, **_kwargs: calls.append(tuple(stage_ids)),
     )
 
     runner._execute_mtp_after_target({0: _FakeDPMetadata([8])})
 
     assert calls == [(0,)]
+
+
+def test_npu_ffn_runner_executes_all_configured_mtp_steps(monkeypatch):
+    runner = _new_ffn_runner()
+    runner.vllm_config = _vllm_config(
+        role="ffn",
+        connector="P2pHcclAFDConnector",
+        speculative_config=_mtp_speculative_config(
+            enforce_eager=True,
+            num_speculative_tokens=3,
+        ),
+    )
+    runner.connector = _FakeFFNConnector()
+    runner.use_aclgraph = False
+    calls = []
+    monkeypatch.setattr(
+        runner,
+        "_mtp_ffn_forward",
+        lambda stage_ids, *, expected_speculative_step=None, **_kwargs: calls.append(
+            (tuple(stage_ids), expected_speculative_step)
+        ),
+    )
+
+    runner._execute_mtp_after_target({0: _FakeDPMetadata([8])})
+
+    assert calls == [((0,), 0), ((0,), 1), ((0,), 2)]
+
+
+def test_npu_ffn_runner_uses_one_control_marker_per_merged_mtp_phase(monkeypatch):
+    runner = _new_ffn_runner()
+    runner.vllm_config = _vllm_config(
+        role="ffn",
+        connector="P2pHcclAFDConnector",
+        speculative_config=_mtp_speculative_config(num_speculative_tokens=3),
+    )
+    runner.connector = _FakeFFNConnector()
+    runner.use_aclgraph = False
+    calls = []
+    monkeypatch.setattr(
+        runner,
+        "_recv_mtp_phase_ready",
+        lambda: pytest.fail("merged draft must consume only its leading marker"),
+    )
+    monkeypatch.setattr(
+        runner,
+        "_mtp_ffn_forward",
+        lambda *_args, **kwargs: calls.append(kwargs["expected_speculative_step"]),
+    )
+
+    runner._execute_mtp_after_target({0: _FakeDPMetadata([8])})
+
+    assert calls == [0, 1, 2]
 
 
 def test_npu_ffn_runner_executes_u2_decoder_then_one_merged_mtp_phase(
@@ -2296,6 +2362,21 @@ def test_npu_ffn_runner_preserves_aggregated_forward_context_metadata(monkeypatc
     assert contexts[0][0]["num_tokens"] == 9
     assert contexts[0][0]["num_tokens_across_dp"].tolist() == [5, 9]
     assert contexts[0][1].dp_metadata is aggregated_dp_metadata
+
+
+def test_npu_ffn_runner_projects_attention_counts_to_ffn_fanout():
+    _require_npu_runtime()
+    from afd_plugin.v1.worker.npu import ffn_model_runner
+
+    connector = SimpleNamespace(attn_size=2, ffn_size=4)
+    counts = ffn_model_runner._ffn_token_counts_across_ranks(
+        connector,
+        {0: _FakeDPMetadata([5, 1])},
+        0,
+        fallback=16,
+    )
+
+    assert counts.tolist() == [3, 2, 1, 1]
 
 
 def test_npu_ffn_runner_computes_stage_token_layout_once_per_step(monkeypatch):
@@ -4755,8 +4836,15 @@ def test_dsv4_feature_validation_accepts_hccl_p2p_full_decode_only_u2():
     fail_if_unsupported_npu_afd_features(config)
 
 
-def test_dsv4_feature_validation_accepts_mtp_m1_eager_u1_hccl_p2p():
-    config = _dsv4_config(speculative_config=_mtp_speculative_config())
+@pytest.mark.parametrize("num_speculative_tokens", [1, 2, 3])
+def test_dsv4_feature_validation_accepts_mtp_m1_eager_u1_hccl_p2p(
+    num_speculative_tokens,
+):
+    config = _dsv4_config(
+        speculative_config=_mtp_speculative_config(
+            num_speculative_tokens=num_speculative_tokens,
+        )
+    )
     config.additional_config["afd"]["connector"] = "P2pHcclAFDConnector"
 
     fail_if_unsupported_npu_afd_features(config)
@@ -4905,9 +4993,9 @@ def test_dsv4_feature_validation_rejects_unvalidated_modes(mutation, message):
             lambda config: setattr(
                 config.speculative_config,
                 "num_speculative_tokens",
-                2,
+                4,
             ),
-            "MTP supports num_speculative_tokens=1",
+            "requires num_speculative_tokens in",
         ),
         (
             lambda config: setattr(

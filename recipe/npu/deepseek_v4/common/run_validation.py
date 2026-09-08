@@ -485,7 +485,7 @@ def _runtime_manifest(
     )
     cann_root = os.environ.get(
         "DSV4_CANN_ROOT",
-        "/mnt/workspace/code/.ascend/cann-9.0.1/cann-9.0.1",
+        "/mnt/workspace/code/.ascend/cann-9.0.0/cann-9.0.0",
     )
     cann_version = os.environ.get("DSV4_CANN_VERSION")
     if not cann_version:
@@ -586,10 +586,12 @@ def _resolve_topology(
         raise ValueError("Attention and FFN device lists must not overlap")
     if connector == "CAMP2pAFDConnector" and attention_ranks != ffn_ranks:
         raise ValueError("CAMP2pAFDConnector requires equal Attention and FFN ranks")
-    if attention_ranks < ffn_ranks or attention_ranks % ffn_ranks != 0:
+    larger_ranks = max(attention_ranks, ffn_ranks)
+    smaller_ranks = min(attention_ranks, ffn_ranks)
+    if larger_ranks % smaller_ranks != 0:
         raise ValueError(
-            "P2pHcclAFDConnector requires Attention ranks to be an integer "
-            "multiple of FFN ranks",
+            "P2pHcclAFDConnector requires one role count to be an integer "
+            "multiple of the other",
         )
     if attention_max_num_batched_tokens <= 0:
         raise ValueError("Attention max_num_batched_tokens must be positive")
@@ -608,8 +610,13 @@ def _resolve_topology(
                 "DeepSeek-V4 AFD TP2 requires equal Attention and FFN ranks"
             )
 
-    ratio = attention_ranks // ffn_ranks
-    required_ffn_tokens = attention_max_num_batched_tokens * ratio
+    ratio = larger_ranks // smaller_ranks
+    attention_fans_out = ffn_ranks > attention_ranks
+    required_ffn_tokens = (
+        (attention_max_num_batched_tokens + ratio - 1) // ratio
+        if attention_fans_out
+        else attention_max_num_batched_tokens * ratio
+    )
     resolved_ffn_tokens = (
         required_ffn_tokens
         if ffn_max_num_batched_tokens is None
@@ -628,6 +635,7 @@ def _resolve_topology(
         "attention_data_parallel_size": (attention_ranks // tensor_parallel_size),
         "ffn_data_parallel_size": ffn_ranks // tensor_parallel_size,
         "ratio": ratio,
+        "direction": "fan_out" if attention_fans_out else "fan_in",
         "attention_devices": attention_devices,
         "ffn_devices": ffn_devices,
         "unused_devices": sorted(set(range(16)) - set(all_devices)),
@@ -702,8 +710,8 @@ def _validate_execution_topology(
         raise ValueError("DeepSeek-V4 MTP requires P2pHcclAFDConnector")
     if execution_mode not in {"eager", "full-decode-only"}:
         raise ValueError("DeepSeek-V4 MTP requires eager or full-decode-only execution")
-    if mtp_num_speculative_tokens != 1:
-        raise ValueError("DeepSeek-V4 MTP supports exactly one speculative token")
+    if not 1 <= mtp_num_speculative_tokens <= 3:
+        raise ValueError("DeepSeek-V4 MTP supports num_speculative_tokens in [1, 3]")
     if mtp_draft_execution not in {"eager", "graph"}:
         raise ValueError("DeepSeek-V4 MTP draft execution must be eager or graph")
     if mtp_draft_execution == "graph" and execution_mode != "full-decode-only":
@@ -770,6 +778,7 @@ def main() -> None:
     parser.add_argument(
         "--mtp-num-speculative-tokens",
         type=int,
+        choices=(1, 2, 3),
         default=int(os.environ.get("MTP_NUM_SPECULATIVE_TOKENS", "1")),
     )
     parser.add_argument(
@@ -966,6 +975,11 @@ def main() -> None:
             "dbo_decode_token_threshold": args.dbo_decode_token_threshold,
             "dbo_prefill_token_threshold": args.dbo_prefill_token_threshold,
             "profile": args.profile,
+            "enable_mtp": args.enable_mtp,
+            "mtp_num_speculative_tokens": args.mtp_num_speculative_tokens,
+            "mtp_draft_execution": (
+                args.mtp_draft_execution if args.enable_mtp else None
+            ),
             "topology": topology,
         }
         (args.output_dir / "validation_summary.json").write_text(

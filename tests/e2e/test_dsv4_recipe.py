@@ -160,6 +160,7 @@ def test_dsv4_hccl_recipe_owns_connector_specific_launchers():
         )
         assert 'MTP_DRAFT_EXECUTION="${MTP_DRAFT_EXECUTION:-eager}"' in script
         assert '"method":"mtp"' in script
+        assert '"num_speculative_tokens":%s' in script
         assert '"${MTP_ARGS[@]}"' in script
         assert '--tensor-parallel-size "$TENSOR_PARALLEL_SIZE"' in script
 
@@ -274,12 +275,32 @@ def test_dsv4_hccl_a8f4_topology_derives_ffn_capacity_and_unused_devices():
         "attention_data_parallel_size": 8,
         "ffn_data_parallel_size": 4,
         "ratio": 2,
+        "direction": "fan_in",
         "attention_devices": list(range(8)),
         "ffn_devices": list(range(8, 12)),
         "unused_devices": [12, 13, 14, 15],
         "attention_max_num_batched_tokens": 1024,
         "ffn_max_num_batched_tokens": 2048,
     }
+
+
+def test_dsv4_hccl_a4f8_topology_derives_fanout_capacity():
+    runner = _load_runner()
+
+    topology = runner._resolve_topology(
+        connector="P2pHcclAFDConnector",
+        attention_devices=list(range(4)),
+        ffn_devices=list(range(4, 12)),
+        attention_max_num_batched_tokens=1024,
+        ffn_max_num_batched_tokens=None,
+    )
+
+    assert topology["attention_ranks"] == 4
+    assert topology["ffn_ranks"] == 8
+    assert topology["ratio"] == 2
+    assert topology["direction"] == "fan_out"
+    assert topology["ffn_max_num_batched_tokens"] == 512
+    assert topology["unused_devices"] == [12, 13, 14, 15]
 
 
 @pytest.mark.parametrize(
@@ -427,7 +448,7 @@ def test_dsv4_hccl_mtp_m4_topology_gate_and_environment(monkeypatch):
 
     invalid_cases = [
         ({"connector": "CAMP2pAFDConnector"}, "P2pHcclAFDConnector"),
-        ({"mtp_num_speculative_tokens": 2}, "exactly one speculative token"),
+        ({"mtp_num_speculative_tokens": 4}, "num_speculative_tokens in"),
     ]
     defaults = {
         "connector": "P2pHcclAFDConnector",
@@ -441,6 +462,11 @@ def test_dsv4_hccl_mtp_m4_topology_gate_and_environment(monkeypatch):
         kwargs = {**defaults, **overrides}
         with pytest.raises(ValueError, match=message):
             runner._validate_execution_topology(**kwargs)
+
+    for speculative_tokens in (2, 3):
+        runner._validate_execution_topology(
+            **{**defaults, "mtp_num_speculative_tokens": speculative_tokens}
+        )
 
 
 def test_dsv4_performance_command_locks_workload_and_fixed_python(tmp_path):
@@ -744,8 +770,12 @@ def test_dsv4_performance_mtp_uses_functional_gate_and_environment(monkeypatch):
 
     args.execution_mode = "eager"
     args.u_batches = 1
-    args.mtp_num_speculative_tokens = 2
-    with pytest.raises(ValueError, match="exactly one speculative token"):
+    for speculative_tokens in (2, 3):
+        args.mtp_num_speculative_tokens = speculative_tokens
+        runner._validate_execution_args(args)
+
+    args.mtp_num_speculative_tokens = 4
+    with pytest.raises(ValueError, match="num_speculative_tokens in"):
         runner._validate_execution_args(args)
 
     args.mtp_num_speculative_tokens = 1

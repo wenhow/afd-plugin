@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Source this file before building or running the pinned DSV4 AFD stack.
 
-DSV4_CANN_ROOT="${DSV4_CANN_ROOT:-/mnt/workspace/code/.ascend/cann-9.0.1/cann-9.0.1}"
+DSV4_CANN_ROOT="${DSV4_CANN_ROOT:-/mnt/workspace/code/.ascend/cann-9.0.0/cann-9.0.0}"
 DSV4_VLLM_VENV="${DSV4_VLLM_VENV:-/mnt/workspace/code/.venvs/afd-v026}"
 DSV4_ATB_ROOT="${DSV4_ATB_ROOT:-}"
 DSV4_EXTRA_OPP_ENV="${DSV4_EXTRA_OPP_ENV:-}"
@@ -59,6 +59,9 @@ export LD_LIBRARY_PATH="${DSV4_TORCH_LIB}${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}
 
 if [[ -z "${DSV4_ATB_ROOT}" && -f "${DSV4_CANN_ROOT}/nnal/atb/set_env.sh" ]]; then
   DSV4_ATB_ROOT="${DSV4_CANN_ROOT}/nnal/atb"
+fi
+if [[ -z "${DSV4_ATB_ROOT}" && -f "$(dirname "${DSV4_CANN_ROOT}")/nnal/atb/set_env.sh" ]]; then
+  DSV4_ATB_ROOT="$(dirname "${DSV4_CANN_ROOT}")/nnal/atb"
 fi
 if [[ -z "${DSV4_ATB_ROOT}" && -f /usr/local/Ascend/nnal/atb/set_env.sh ]]; then
   DSV4_ATB_ROOT=/usr/local/Ascend/nnal/atb

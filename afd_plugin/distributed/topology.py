@@ -18,8 +18,8 @@ class AFDRankMapping:
     """Rank mapping for the P2P connector.
 
     The P2P world always places FFN ranks first, followed by Attention ranks:
-    ``[F0, F1, ..., A0, A1, ...]``. Each FFN rank owns one subgroup containing
-    itself at subgroup rank 0 and one or more consecutive Attention ranks.
+    ``[F0, F1, ..., A0, A1, ...]``. Each subgroup contains the consecutive
+    ranks on the larger side and one rank on the smaller side.
     """
 
     role: str
@@ -33,7 +33,13 @@ class AFDRankMapping:
     subgroup_index: int
     rank_in_subgroup: int
     subgroup_ranks: tuple[int, ...]
+    ffn_peer_ranks: tuple[int, ...]
+    attention_peer_ranks: tuple[int, ...]
     dp_metadata_destinations: tuple[int, ...] = field(default_factory=tuple)
+
+    @property
+    def attention_fans_out(self) -> bool:
+        return self.ffn_size > self.attention_size
 
     @property
     def is_attention_top_min_size_rank(self) -> bool:
@@ -61,16 +67,23 @@ def validate_p2p_topology(config: AFDConfig) -> None:
         raise ValueError(
             f"P2P AFD connectors require num_ffn_ranks to be positive, got {ffn_size}",
         )
-    if attention_size < ffn_size:
+    if attention_size < ffn_size and config.connector != "P2pHcclAFDConnector":
         raise ValueError(
-            "P2P AFD connectors require num_attention_ranks >= "
-            f"num_ffn_ranks, got {attention_size} < {ffn_size}",
+            "P2P AFD connectors other than P2pHcclAFDConnector require "
+            "num_attention_ranks >= num_ffn_ranks, got "
+            f"{attention_size} < {ffn_size}",
         )
-    if attention_size % ffn_size != 0:
+    if attention_size >= ffn_size and attention_size % ffn_size != 0:
         raise ValueError(
             "P2P AFD connectors require num_attention_ranks to be a "
             "multiple of num_ffn_ranks, got "
             f"{attention_size} and {ffn_size}",
+        )
+    if ffn_size > attention_size and ffn_size % attention_size != 0:
+        raise ValueError(
+            "P2pHcclAFDConnector requires num_ffn_ranks to be a multiple "
+            "of num_attention_ranks, got "
+            f"{ffn_size} and {attention_size}",
         )
 
 
@@ -129,6 +142,8 @@ def build_rank_mapping(
 
     validate_p2p_topology(config)
     attention_size, ffn_size = topology_from_config(config)
+    ratio = max(attention_size, ffn_size) // min(attention_size, ffn_size)
+    attention_fans_out = ffn_size > attention_size
     if role_rank < 0:
         raise ValueError(f"AFD role rank must be non-negative, got {role_rank}")
 
@@ -139,7 +154,7 @@ def build_rank_mapping(
                 f"(rank={role_rank}, size={attention_size})",
             )
         world_rank = ffn_size + role_rank
-        subgroup_index = role_rank // (attention_size // ffn_size)
+        subgroup_index = role_rank if attention_fans_out else role_rank // ratio
     elif config.role == "ffn":
         if role_rank >= ffn_size:
             raise ValueError(
@@ -147,25 +162,32 @@ def build_rank_mapping(
                 f"(rank={role_rank}, size={ffn_size})",
             )
         world_rank = role_rank
-        subgroup_index = role_rank
+        subgroup_index = role_rank // ratio if attention_fans_out else role_rank
     else:
         raise ValueError(f"unknown AFD role {config.role!r}")
 
-    ratio = attention_size // ffn_size
     min_size = min(ffn_size, attention_size)
     ffn_ranks = list(range(ffn_size))
     attention_ranks = list(range(ffn_size, ffn_size + attention_size))
-    subgroup_ranks = tuple(
-        [ffn_ranks[subgroup_index]]
-        + [attention_ranks[subgroup_index * ratio + offset] for offset in range(ratio)],
-    )
+    if attention_fans_out:
+        ffn_peer_ranks = tuple(
+            ffn_ranks[subgroup_index * ratio + offset] for offset in range(ratio)
+        )
+        attention_peer_ranks = (attention_ranks[subgroup_index],)
+    else:
+        ffn_peer_ranks = (ffn_ranks[subgroup_index],)
+        attention_peer_ranks = tuple(
+            attention_ranks[subgroup_index * ratio + offset] for offset in range(ratio)
+        )
+    subgroup_ranks = (*ffn_peer_ranks, *attention_peer_ranks)
     rank_in_subgroup = subgroup_ranks.index(world_rank)
-    p2p_rank = role_rank + min_size if config.role == "attention" else role_rank
+    p2p_rank = world_rank
 
     destinations: list[int] = []
-    if ffn_size <= world_rank < ffn_size + min_size:
-        local_attention_rank = world_rank - ffn_size
-        destination = local_attention_rank
+    if config.role == "attention" and attention_fans_out:
+        destinations.extend(ffn_peer_ranks)
+    elif config.role == "attention" and ffn_size <= world_rank < ffn_size + min_size:
+        destination = world_rank - ffn_size
         while destination < ffn_size:
             destinations.append(destination)
             destination += min_size
@@ -182,6 +204,8 @@ def build_rank_mapping(
         subgroup_index=subgroup_index,
         rank_in_subgroup=rank_in_subgroup,
         subgroup_ranks=subgroup_ranks,
+        ffn_peer_ranks=ffn_peer_ranks,
+        attention_peer_ranks=attention_peer_ranks,
         dp_metadata_destinations=tuple(destinations),
     )
 

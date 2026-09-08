@@ -1212,7 +1212,7 @@ class AFDDeepSeekMultiTokenPredictor(native_mtp.DeepSeekMultiTokenPredictor):
             positions,
             previous_hidden_states,
             inputs_embeds,
-            current_step_idx,
+            spec_step_idx,
         )
 
     # Patch reason: upstream exposes logits for every constructed role.
@@ -1255,7 +1255,15 @@ class AFDDeepSeekMultiTokenPredictor(native_mtp.DeepSeekMultiTokenPredictor):
         return self.layers[str(layer_idx)].compute_ffn_output(hidden_states)
 
 
-@native_mtp.support_torch_compile
+@native_mtp.support_torch_compile(
+    dynamic_arg_dims={
+        "input_ids": 0,
+        "positions": 0,
+        "hidden_states": 0,
+        "intermediate_tensors": 0,
+        "inputs_embeds": 0,
+    },
+)
 class AFDDeepSeekV4MTP(native_mtp.DeepSeekV4MTP):
     """Strict AFD role wrapper for the native DSV4 MTP model."""
 
@@ -1274,8 +1282,47 @@ class AFDDeepSeekV4MTP(native_mtp.DeepSeekV4MTP):
             vllm_config=vllm_config,
             prefix=native_mtp.maybe_prefix(prefix, "mtp"),
         )
+        speculative_config = vllm_config.speculative_config
+        self._afd_num_speculative_tokens = int(
+            speculative_config.num_speculative_tokens
+            if speculative_config is not None
+            else 1
+        )
+        self._afd_next_speculative_step = 0
         self.set_moe_parameters()
         # ### PATCH END
+
+    # Patch reason: the pinned merged proposer omits ``spec_step_idx`` on every
+    # repeated invocation of a single MTP layer.
+    # Patch functionality: number implicit invocations within each N-token draft
+    # while preserving an explicitly supplied step.
+    # Signature: compatible with upstream; no added parameters.
+    # Upstream: vllm_ascend/models/deepseek_v4_mtp.py
+    # Commit: 3da28f9414583d2d0b672a8f06d1fae142404bda
+    def forward(
+        self,
+        input_ids: torch.Tensor,
+        positions: torch.Tensor,
+        hidden_states: torch.Tensor,
+        intermediate_tensors: Any | None = None,
+        inputs_embeds: torch.Tensor | None = None,
+        spec_step_idx: int | None = None,
+    ) -> torch.Tensor:
+        # ### PATCH START: recover the omitted merged-draft iteration index.
+        del intermediate_tensors
+        if spec_step_idx is None:
+            spec_step_idx = self._afd_next_speculative_step
+            self._afd_next_speculative_step = (
+                spec_step_idx + 1
+            ) % self._afd_num_speculative_tokens
+        # ### PATCH END
+        return self.model(
+            input_ids,
+            positions,
+            hidden_states,
+            inputs_embeds,
+            int(spec_step_idx),
+        )
 
     def compute_ffn_output(
         self,

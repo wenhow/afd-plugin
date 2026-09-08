@@ -61,8 +61,8 @@ case "$ENABLE_MTP" in
     MTP_ARGS=()
     ;;
   1)
-    if [[ "$MTP_NUM_SPECULATIVE_TOKENS" != "1" ]]; then
-      echo "DeepSeek-V4 MTP supports exactly one speculative token" >&2
+    if [[ ! "$MTP_NUM_SPECULATIVE_TOKENS" =~ ^[1-3]$ ]]; then
+      echo "DeepSeek-V4 MTP supports num_speculative_tokens in [1, 3]" >&2
       exit 2
     fi
     case "$EXECUTION_MODE" in
@@ -88,7 +88,7 @@ case "$ENABLE_MTP" in
         exit 2
         ;;
     esac
-    MTP_CONFIG="$(printf '{"method":"mtp","num_speculative_tokens":1,"enforce_eager":%s}' "$MTP_DRAFT_ENFORCE_EAGER")"
+    MTP_CONFIG="$(printf '{"method":"mtp","num_speculative_tokens":%s,"enforce_eager":%s}' "$MTP_NUM_SPECULATIVE_TOKENS" "$MTP_DRAFT_ENFORCE_EAGER")"
     MTP_ARGS=(
       --speculative-config
       "$MTP_CONFIG"

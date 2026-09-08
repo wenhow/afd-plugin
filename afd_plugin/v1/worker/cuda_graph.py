@@ -200,8 +200,10 @@ def _use_ffn_peer_layout_key(
     return (
         attention_size is not None
         and ffn_size is not None
-        and int(attention_size) >= int(ffn_size)
-        and int(attention_size) % int(ffn_size) == 0
+        and min(int(attention_size), int(ffn_size)) > 0
+        and max(int(attention_size), int(ffn_size))
+        % min(int(attention_size), int(ffn_size))
+        == 0
     )
 
 

@@ -20,9 +20,9 @@ cann_version_text="${resolved_cann}"
 if [[ -x "${CANN_ROOT}/query_pkg_version.sh" ]]; then
   cann_version_text+=$'\n'"$("${CANN_ROOT}/query_pkg_version.sh" 2>&1 || true)"
 fi
-if [[ "${cann_version_text}" != *"9.0.1"* ]] \
+if [[ "${cann_version_text}" != *"9.0.0"* ]] \
   && ! is_true "${ALLOW_CANN_VERSION_MISMATCH}"; then
-  die "CANN 9.0.1 not detected at ${resolved_cann}"
+  die "CANN 9.0.0 not detected at ${resolved_cann}"
 fi
 
 if [[ "${CANN_ROOT}" == *"/home/develp/"* ]]; then
@@ -53,8 +53,9 @@ resolved_ip="$(resolve_hccl_ip)"
 
 npu_list="$(npu-smi info -l)"
 npu_chip_count="$(awk -F: '/Chip Count/ {gsub(/[[:space:]]/, "", $2); sum += $2} END {print sum + 0}' <<<"${npu_list}")"
-if (( npu_chip_count < 16 )); then
-  die "A8F8 requires 16 NPU chips, detected ${npu_chip_count}"
+required_npu_count=$((ATTENTION_RANKS + FFN_RANKS))
+if (( npu_chip_count < required_npu_count )); then
+  die "A${ATTENTION_RANKS}F${FFN_RANKS} requires ${required_npu_count} NPU chips, detected ${npu_chip_count}"
 fi
 
 assert_positive_integer ATTENTION_RANKS "${ATTENTION_RANKS}"
@@ -79,10 +80,8 @@ fi
 if [[ "${ENABLE_MTP}" == "1" ]]; then
   [[ "${EXECUTION_MODE}" == "eager" && "${U_BATCHES}" == "1" ]] \
     || die "MTP M1 requires eager/U1"
-  [[ "${ATTENTION_RANKS}" == "8" && "${FFN_RANKS}" == "8" ]] \
-    || die "MTP M1 requires A8F8"
-  [[ "${MTP_NUM_SPECULATIVE_TOKENS}" == "1" ]] \
-    || die "MTP M1 supports one speculative token"
+  [[ "${MTP_NUM_SPECULATIVE_TOKENS}" =~ ^[1-3]$ ]] \
+    || die "MTP supports num_speculative_tokens in [1, 3]"
 fi
 
 if is_true "${OFFLINE}"; then

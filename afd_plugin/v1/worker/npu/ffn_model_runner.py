@@ -289,21 +289,29 @@ class AFDNPUFFNModelRunner(NPUModelRunner):
         control_enabled = bool(
             getattr(self.connector, "mtp_phase_control_enabled", False),
         )
-        graph_replay = bool(
-            getattr(self.connector, "mtp_phase_graph_replay", False),
-        )
-        if self._draft_uses_aclgraph() and (
-            graph_replay
-            or (
-                not control_enabled
-                and self._make_mtp_graph_key(dp_metadata_list) in self._mtp_acl_graphs
-            )
-        ):
-            self._replay_mtp_graph(dp_metadata_list)
+        speculative_config = self.vllm_config.speculative_config
+        if speculative_config is None:
             return
-        self._mtp_ffn_forward(
-            sorted(int(stage_idx) for stage_idx in dp_metadata_list) or [0]
-        )
+        num_speculative_tokens = int(speculative_config.num_speculative_tokens)
+        stage_ids = sorted(int(stage_idx) for stage_idx in dp_metadata_list) or [0]
+        for speculative_step in range(num_speculative_tokens):
+            graph_replay = bool(
+                getattr(self.connector, "mtp_phase_graph_replay", False),
+            )
+            if self._draft_uses_aclgraph() and (
+                graph_replay
+                or (
+                    not control_enabled
+                    and self._make_mtp_graph_key(dp_metadata_list)
+                    in self._mtp_acl_graphs
+                )
+            ):
+                self._replay_mtp_graph(dp_metadata_list)
+                continue
+            self._mtp_ffn_forward(
+                stage_ids,
+                expected_speculative_step=speculative_step,
+            )
 
     def _recv_mtp_phase_ready(self) -> bool:
         if self.vllm_config.speculative_config is None:
@@ -700,6 +708,7 @@ class AFDNPUFFNModelRunner(NPUModelRunner):
         stage_ids: list[int],
         *,
         header: Any | None = None,
+        expected_speculative_step: int | None = None,
     ) -> torch.Tensor | None:
         if self.vllm_config.speculative_config is None:
             return None
@@ -723,8 +732,16 @@ class AFDNPUFFNModelRunner(NPUModelRunner):
             num_tokens=header.num_tokens,
         )
         metadata = payload.context.metadata
-        if metadata.phase != "mtp" or metadata.speculative_step != 0:
-            raise RuntimeError("DSV4 AFD FFN received an invalid MTP phase")
+        if metadata.phase != "mtp" or (
+            expected_speculative_step is not None
+            and metadata.speculative_step != expected_speculative_step
+        ):
+            raise RuntimeError(
+                "DSV4 AFD FFN received an invalid MTP phase: "
+                f"phase={metadata.phase!r}, "
+                f"speculative_step={metadata.speculative_step}, "
+                f"expected_step={expected_speculative_step}"
+            )
 
         afd_metadata = AFDForwardContextMetadata(
             tokens_start_loc=[0],
@@ -848,7 +865,9 @@ class AFDNPUFFNModelRunner(NPUModelRunner):
             )
             existing_graph_info["graph"].replay()
             if self._draft_uses_aclgraph():
-                self._replay_mtp_graph(dp_metadata_list)
+                assert self.speculative_config is not None
+                for _ in range(int(self.speculative_config.num_speculative_tokens)):
+                    self._replay_mtp_graph(dp_metadata_list)
             return 0
         # ### PATCH END: mirror duplicate target graph replay.
 
@@ -872,7 +891,15 @@ class AFDNPUFFNModelRunner(NPUModelRunner):
                 )
                 # Warmup remains end-to-end; only the actual target capture
                 # omits the eager draft phase.
-                self._mtp_ffn_forward(stage_ids)
+                speculative_config = getattr(self, "speculative_config", None)
+                if speculative_config is not None:
+                    for speculative_step in range(
+                        int(speculative_config.num_speculative_tokens)
+                    ):
+                        self._mtp_ffn_forward(
+                            stage_ids,
+                            expected_speculative_step=speculative_step,
+                        )
             else:
                 with graph_capture(device=self.device):
                     self._capture_graphs(
@@ -915,11 +942,18 @@ class AFDNPUFFNModelRunner(NPUModelRunner):
                 stage_idx=0,
                 attention_peer_counts=peer_layout,
             )
-            output = self._mtp_ffn_forward([0], header=header)
+            output = self._mtp_ffn_forward(
+                [0],
+                header=header,
+                expected_speculative_step=0,
+            )
         self._mtp_acl_graphs[graph_key] = {
             "graph": graph,
             "output": output,
         }
+        assert self.speculative_config is not None
+        for _ in range(1, int(self.speculative_config.num_speculative_tokens)):
+            graph.replay()
         logger.debug("AFD NPU FFN captured MTP ACL graph for key=%s", graph_key)
 
     def _capture_graphs(
@@ -1084,18 +1118,23 @@ def _ffn_token_counts_across_ranks(
             attention_counts = [
                 attention_counts[i // tp_size] for i in range(int(connector.attn_size))
             ]
-        if (
-            len(attention_counts) >= int(connector.attn_size)
-            and int(connector.attn_size) >= int(connector.ffn_size)
-            and int(connector.attn_size) % int(connector.ffn_size) == 0
-        ):
-            group_size = int(connector.attn_size) // int(connector.ffn_size)
+        attention_size = int(connector.attn_size)
+        ffn_size = int(connector.ffn_size)
+        if len(attention_counts) >= attention_size and attention_size >= ffn_size:
+            group_size = attention_size // ffn_size
             values = [
                 max(1, sum(attention_counts[idx * group_size : (idx + 1) * group_size]))
-                for idx in range(int(connector.ffn_size))
+                for idx in range(ffn_size)
             ]
+        elif len(attention_counts) >= attention_size and ffn_size > attention_size:
+            fanout = ffn_size // attention_size
+            values = []
+            for attention_tokens in attention_counts[:attention_size]:
+                transport_tokens = max(int(attention_tokens), fanout)
+                base, remainder = divmod(transport_tokens, fanout)
+                values.extend(base + (offset < remainder) for offset in range(fanout))
         else:
-            values = [max(1, int(fallback))] * int(connector.ffn_size)
+            values = [max(1, int(fallback))] * ffn_size
     return torch.tensor(values, dtype=torch.int32, device="cpu")
 
 

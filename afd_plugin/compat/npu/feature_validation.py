@@ -19,6 +19,9 @@ if TYPE_CHECKING:
     from afd_plugin.connectors.base import ConnectorExtraInfo
 
 
+MAX_DSV4_AFD_SPECULATIVE_TOKENS = 3
+
+
 def fail_if_unsupported_npu_afd_features(
     vllm_config: VllmConfig,
     *,
@@ -159,14 +162,10 @@ def _fail_if_unsupported_deepseek_v4_features(
         )
     tensor_parallel_size = int(parallel_config.tensor_parallel_size)
     if tensor_parallel_size not in (1, 2):
-        raise RuntimeError(
-            "DeepSeek-V4 AFD supports only tensor_parallel_size=1 or 2"
-        )
+        raise RuntimeError("DeepSeek-V4 AFD supports only tensor_parallel_size=1 or 2")
     if tensor_parallel_size == 2:
         if afd_config.connector != "P2pHcclAFDConnector":
-            raise RuntimeError(
-                "DeepSeek-V4 AFD TP2 supports only P2pHcclAFDConnector"
-            )
+            raise RuntimeError("DeepSeek-V4 AFD TP2 supports only P2pHcclAFDConnector")
         if afd_config.num_attention_ranks != afd_config.num_ffn_ranks:
             raise RuntimeError(
                 "DeepSeek-V4 AFD TP2 currently requires equal Attention and FFN ranks"
@@ -206,8 +205,14 @@ def _fail_if_unsupported_deepseek_v4_features(
             raise RuntimeError("DeepSeek-V4 AFD MTP supports only P2pHcclAFDConnector")
         if getattr(speculative_config, "method", None) != "mtp":
             raise RuntimeError("DeepSeek-V4 AFD supports only MTP speculative method")
-        if int(getattr(speculative_config, "num_speculative_tokens", 0)) != 1:
-            raise RuntimeError("DeepSeek-V4 AFD MTP supports num_speculative_tokens=1")
+        num_speculative_tokens = int(
+            getattr(speculative_config, "num_speculative_tokens", 0)
+        )
+        if not 1 <= num_speculative_tokens <= MAX_DSV4_AFD_SPECULATIVE_TOKENS:
+            raise RuntimeError(
+                "DeepSeek-V4 AFD MTP requires num_speculative_tokens in "
+                f"[1, {MAX_DSV4_AFD_SPECULATIVE_TOKENS}]"
+            )
         draft_enforce_eager = bool(getattr(speculative_config, "enforce_eager", False))
         target_enforce_eager = bool(vllm_config.model_config.enforce_eager)
         if target_enforce_eager and not draft_enforce_eager:
@@ -266,41 +271,29 @@ def _fail_if_unsupported_deepseek_v4_pd(
             "DeepSeek-V4 AFD Mooncake PD attaches KV transfer only to Attention"
         )
     if afd_config.connector != "P2pHcclAFDConnector":
-        raise RuntimeError(
-            "DeepSeek-V4 AFD Mooncake PD requires P2pHcclAFDConnector"
-        )
+        raise RuntimeError("DeepSeek-V4 AFD Mooncake PD requires P2pHcclAFDConnector")
     if getattr(kv_config, "kv_connector", None) != "MooncakeHybridConnector":
-        raise RuntimeError(
-            "DeepSeek-V4 AFD PD supports only MooncakeHybridConnector"
-        )
+        raise RuntimeError("DeepSeek-V4 AFD PD supports only MooncakeHybridConnector")
     if getattr(kv_config, "kv_role", None) != "kv_consumer":
         raise RuntimeError(
             "DeepSeek-V4 AFD Decode Attention must use kv_role=kv_consumer"
         )
     parallel_config = vllm_config.parallel_config
     if int(parallel_config.tensor_parallel_size) not in (1, 2):
-        raise RuntimeError(
-            "DeepSeek-V4 AFD Mooncake PD supports only TP1 or TP2"
-        )
+        raise RuntimeError("DeepSeek-V4 AFD Mooncake PD supports only TP1 or TP2")
     if int(getattr(kv_config, "kv_parallel_size", 1)) != 1:
-        raise RuntimeError(
-            "DeepSeek-V4 AFD Mooncake PD requires kv_parallel_size=1"
-        )
+        raise RuntimeError("DeepSeek-V4 AFD Mooncake PD requires kv_parallel_size=1")
 
     engine_id = getattr(kv_config, "engine_id", None)
     if not isinstance(engine_id, str) or not engine_id.strip():
-        raise RuntimeError(
-            "DeepSeek-V4 AFD Mooncake PD requires a non-empty engine_id"
-        )
+        raise RuntimeError("DeepSeek-V4 AFD Mooncake PD requires a non-empty engine_id")
     kv_port = getattr(kv_config, "kv_port", None)
     if (
         not isinstance(kv_port, int)
         or isinstance(kv_port, bool)
         or not 1 <= kv_port <= 65535
     ):
-        raise RuntimeError(
-            "DeepSeek-V4 AFD Mooncake PD requires kv_port in 1..65535"
-        )
+        raise RuntimeError("DeepSeek-V4 AFD Mooncake PD requires kv_port in 1..65535")
 
     extra_config = getattr(kv_config, "kv_connector_extra_config", None)
     if not isinstance(extra_config, dict):
@@ -327,6 +320,8 @@ def _fail_if_unsupported_deepseek_v4_pd(
             f"Mooncake DP={decode['dp_size']}, TP={decode['tp_size']}; "
             f"Attention DP={expected_decode_dp}, TP={expected_decode_tp}"
         )
+
+
 def _validate_mooncake_parallel_config(
     extra_config: dict[str, object],
     role: str,

@@ -33,6 +33,7 @@ def _vllm_config(
     max_num_batched_tokens: int = 16,
     mtp: bool = False,
     mtp_draft_enforce_eager: bool = True,
+    num_speculative_tokens: int = 1,
     enforce_eager: bool = True,
     tensor_parallel_size: int = 1,
     data_parallel_size: int = 1,
@@ -64,6 +65,7 @@ def _vllm_config(
             SimpleNamespace(
                 method="mtp",
                 enforce_eager=mtp_draft_enforce_eager,
+                num_speculative_tokens=num_speculative_tokens,
             )
             if mtp
             else None
@@ -90,6 +92,7 @@ def _connector(
     max_num_batched_tokens: int = 16,
     mtp: bool = False,
     mtp_draft_enforce_eager: bool = True,
+    num_speculative_tokens: int = 1,
     tensor_parallel_size: int = 1,
     data_parallel_size: int = 1,
 ):
@@ -101,6 +104,7 @@ def _connector(
             max_num_batched_tokens=max_num_batched_tokens,
             mtp=mtp,
             mtp_draft_enforce_eager=mtp_draft_enforce_eager,
+            num_speculative_tokens=num_speculative_tokens,
             tensor_parallel_size=tensor_parallel_size,
             data_parallel_size=data_parallel_size,
         ),
@@ -116,6 +120,14 @@ def _connector(
     connector.mtp_header_buffers = [
         torch.empty(4 + ffn, dtype=torch.int32) for _ in range(num_ubatches)
     ]
+    if ffn > attention:
+        connector.mtp_header_buffers_by_peer = [
+            {
+                peer_rank: torch.empty(4 + ffn, dtype=torch.int32)
+                for peer_rank in connector.mapping.ffn_peer_ranks
+            }
+            for _ in range(num_ubatches)
+        ]
     return connector
 
 
@@ -185,7 +197,7 @@ def test_p2p_hccl_accepts_integer_multiple_topology(
 
 @pytest.mark.parametrize(
     ("attention", "ffn"),
-    [(1, 2), (3, 2), (0, 1), (1, 0), (-1, 1), (1, -1)],
+    [(3, 2), (0, 1), (1, 0), (-1, 1), (1, -1)],
 )
 def test_p2p_hccl_rejects_invalid_unequal_topology(attention, ffn):
     with pytest.raises(ValueError, match="P2P AFD connectors require"):
@@ -322,6 +334,37 @@ def test_p2p_hccl_mtp_header_uses_graph_send_while_compiling(monkeypatch):
         )
 
 
+def test_p2p_hccl_mtp_header_carries_each_configured_speculative_step(monkeypatch):
+    connector = _connector(
+        role="attention",
+        mtp=True,
+        num_speculative_tokens=3,
+    )
+    headers = []
+    monkeypatch.setattr(
+        connector,
+        "_send_tensor",
+        lambda tensor, *, dst, group: headers.append(tensor.clone()),
+    )
+
+    for speculative_step in range(3):
+        connector.send_mtp_header(
+            num_tokens=3,
+            speculative_step=speculative_step,
+            num_tokens_across_dp=torch.tensor([3], dtype=torch.int32),
+            stage_idx=0,
+        )
+
+    assert [int(header[1]) for header in headers] == [0, 1, 2]
+    with pytest.raises(RuntimeError, match="speculative step must be in"):
+        connector.send_mtp_header(
+            num_tokens=3,
+            speculative_step=3,
+            num_tokens_across_dp=torch.tensor([3], dtype=torch.int32),
+            stage_idx=0,
+        )
+
+
 def test_p2p_hccl_full_draft_graph_prepares_header_before_send(monkeypatch):
     connector = _connector(
         role="attention",
@@ -410,6 +453,35 @@ def test_p2p_hccl_mtp_projects_attention_counts_to_unequal_ffn_world(
     header, dst, group = sent[0]
     assert (dst, group) == (1, connector.ids_pg_list[0])
     assert header.tolist() == [0x4D545031, 0, 5, 2, 5, 9]
+
+
+def test_p2p_hccl_mtp_fans_out_header_and_projected_counts(monkeypatch):
+    connector = _connector(
+        role="attention",
+        attention=1,
+        ffn=2,
+        mtp=True,
+        num_speculative_tokens=3,
+    )
+    sent = []
+    monkeypatch.setattr(
+        connector,
+        "_send_tensor",
+        lambda tensor, *, dst, group: sent.append((tensor.clone(), dst, group)),
+    )
+
+    connector.send_mtp_header(
+        num_tokens=5,
+        speculative_step=2,
+        num_tokens_across_dp=torch.tensor([5], dtype=torch.int32),
+        stage_idx=0,
+    )
+
+    assert [(dst, header.tolist()) for header, dst, _group in sent] == [
+        (0, [0x4D545031, 2, 3, 2, 3, 2]),
+        (1, [0x4D545031, 2, 2, 2, 3, 2]),
+    ]
+    assert all(group is connector.ids_pg_list[0] for _, _, group in sent)
 
 
 def test_p2p_hccl_mtp_expands_dp_counts_for_equal_tp2(monkeypatch):
@@ -604,6 +676,34 @@ def test_p2p_hccl_ffn_captures_mtp_headers_from_static_peer_layout(monkeypatch):
         (5, connector.ids_pg_list[0]),
     ]
     assert connector.mtp_stage_layouts[0].seq_lens == (4, 5)
+
+
+def test_p2p_hccl_ffn_captures_fanout_mtp_header_layout(monkeypatch):
+    connector = _connector(
+        role="ffn",
+        role_rank=1,
+        attention=1,
+        ffn=2,
+        mtp=True,
+    )
+    receives = []
+    monkeypatch.setattr(
+        connector,
+        "_recv_tensor",
+        lambda tensor, *, src, group: receives.append((tensor, src, group)),
+    )
+
+    header = connector.recv_mtp_header_for_graph(
+        stage_idx=0,
+        attention_peer_counts=(5,),
+    )
+
+    assert header.num_tokens == 2
+    assert header.num_tokens_across_dp.tolist() == [3, 2]
+    assert [(src, group) for _tensor, src, group in receives] == [
+        (2, connector.ids_pg_list[0]),
+    ]
+    assert connector.mtp_stage_layouts[0].peer_slices == ((2, 0, 2),)
 
 
 def test_p2p_hccl_ffn_graph_header_rejects_wrong_attention_layout():
@@ -1756,6 +1856,77 @@ def test_p2p_hccl_attention_uses_mapped_ffn_rank(monkeypatch):
     ]
 
 
+def test_p2p_hccl_attention_fans_out_ids_hidden_and_gathers_output(monkeypatch):
+    connector = _connector(role="attention", attention=1, ffn=2)
+    sent_ids = []
+    sent_hidden = []
+    monkeypatch.setattr(
+        hccl_module.dist,
+        "send",
+        lambda tensor, *, dst, group: sent_ids.append(
+            (tensor.clone(), dst, group),
+        ),
+    )
+    monkeypatch.setattr(
+        connector,
+        "_send_tensor",
+        lambda tensor, *, dst, group: sent_hidden.append(
+            (tensor.clone(), dst, group),
+        ),
+    )
+    hidden = torch.arange(20, dtype=torch.float32).reshape(5, 4)
+
+    connector.send_input_ids(torch.arange(5), ubatch_idx=0)
+    connector._send_attention_tensor(hidden, group=connector.data_pg_list[0])
+
+    assert [(dst, tensor.tolist()) for tensor, dst, _group in sent_ids] == [
+        (0, [0, 1, 2]),
+        (1, [3, 4]),
+    ]
+    assert [(dst, tuple(tensor.shape)) for tensor, dst, _group in sent_hidden] == [
+        (0, (3, 4)),
+        (1, (2, 4)),
+    ]
+    assert torch.equal(sent_hidden[0][0], hidden[:3])
+    assert torch.equal(sent_hidden[1][0], hidden[3:])
+
+    def recv(tensor, *, src, group):
+        assert group is connector.data_pg_list[0]
+        tensor.fill_(src + 1)
+
+    monkeypatch.setattr(connector, "_recv_tensor", recv)
+    output = torch.empty_like(hidden)
+    connector._recv_attention_tensor(output, group=connector.data_pg_list[0])
+
+    assert output[:, 0].tolist() == [1, 1, 1, 2, 2]
+
+
+def test_p2p_hccl_attention_fanout_pads_and_discards_dummy_token(monkeypatch):
+    connector = _connector(role="attention", attention=1, ffn=2)
+    sent = []
+    monkeypatch.setattr(
+        connector,
+        "_send_tensor",
+        lambda tensor, *, dst, group: sent.append((tensor.clone(), dst, group)),
+    )
+    hidden = torch.full((1, 4), 7, dtype=torch.float32)
+
+    connector._send_attention_tensor(hidden, group=connector.data_pg_list[0])
+
+    assert [tuple(tensor.shape) for tensor, _dst, _group in sent] == [(1, 4), (1, 4)]
+    assert torch.equal(sent[0][0], hidden)
+    assert torch.equal(sent[1][0], torch.zeros_like(hidden))
+
+    def recv(tensor, *, src, group):
+        tensor.fill_(src + 11)
+
+    monkeypatch.setattr(connector, "_recv_tensor", recv)
+    output = torch.empty_like(hidden)
+    connector._recv_attention_tensor(output, group=connector.data_pg_list[0])
+
+    assert output.tolist() == [[11, 11, 11, 11]]
+
+
 def test_p2p_hccl_ffn_receives_ids_then_hidden_and_returns_state(monkeypatch):
     connector = _connector(role="ffn")
     connector.dp_metadata_list = {
@@ -2056,6 +2227,49 @@ def test_p2p_hccl_control_plane_prepares_aggregate_unequal_buffers(monkeypatch):
     assert connector.stage_layouts[1].peer_slices == ((4, 0, 1), (5, 1, 3))
 
 
+@pytest.mark.parametrize(
+    ("role_rank", "expected_peer", "expected_tokens"),
+    [
+        (0, 4, 3),
+        (1, 4, 2),
+        (2, 5, 2),
+        (3, 5, 1),
+    ],
+)
+def test_p2p_hccl_control_plane_prepares_ffn_fanout_shard(
+    monkeypatch,
+    role_rank,
+    expected_peer,
+    expected_tokens,
+):
+    connector = _connector(
+        role="ffn",
+        role_rank=role_rank,
+        attention=2,
+        ffn=4,
+    )
+    prepared = []
+    monkeypatch.setattr(
+        connector,
+        "prepare_stage_buffer",
+        lambda stage_idx, num_tokens: prepared.append((stage_idx, num_tokens)),
+    )
+    payload = AFDControlPayload(
+        dp_metadata_list={
+            0: AFDDPMetadata(torch.tensor([5, 3], dtype=torch.int32)),
+        },
+        is_graph_capturing=False,
+        is_warmup=False,
+    )
+
+    connector.control_plane.update_state_from_dp_metadata(payload)
+
+    layout = connector.stage_layouts[0]
+    assert layout.peer_ranks == (expected_peer,)
+    assert layout.seq_lens == (expected_tokens,)
+    assert prepared == [(0, expected_tokens)]
+
+
 def test_p2p_hccl_reuses_control_plane_stage_layout(monkeypatch):
     connector = _connector(
         role="ffn",
@@ -2149,6 +2363,50 @@ def test_p2p_hccl_control_plane_receives_from_first_subgroup_attention(monkeypat
 
     assert connector.control_plane.recv_dp_metadata_list() is expected
     assert calls == [(4, connector.p2p_pg, torch.device("cpu"))]
+
+
+def test_p2p_hccl_control_plane_fans_out_from_one_attention(monkeypatch):
+    payload = AFDControlPayload(
+        dp_metadata_list={},
+        is_graph_capturing=False,
+        is_warmup=False,
+    )
+    attention = _connector(role="attention", attention=1, ffn=2)
+    attention.p2p_pg = object()
+    sent = []
+    monkeypatch.setattr(
+        hccl_module,
+        "send_control_payload",
+        lambda value, *, dst, group, device: sent.append(
+            (value, dst, group, device),
+        ),
+    )
+
+    attention.control_plane.send_dp_metadata_list(payload)
+
+    assert [(dst, device.type) for _value, dst, _group, device in sent] == [
+        (0, "cpu"),
+        (1, "cpu"),
+    ]
+
+    for role_rank in (0, 1):
+        ffn = _connector(
+            role="ffn",
+            role_rank=role_rank,
+            attention=1,
+            ffn=2,
+        )
+        ffn.p2p_pg = object()
+        received = []
+        monkeypatch.setattr(
+            hccl_module,
+            "recv_control_payload",
+            lambda *, src, group, device, received=received: (
+                received.append(src) or payload
+            ),
+        )
+        assert ffn.control_plane.recv_dp_metadata_list() is payload
+        assert received == [2]
 
 
 @pytest.mark.parametrize(

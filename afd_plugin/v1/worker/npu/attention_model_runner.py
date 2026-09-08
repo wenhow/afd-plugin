@@ -122,7 +122,7 @@ _ASCEND_COMMON_METADATA_FIELDS = frozenset(
 class _AFDMTPPhaseAwareRunnable:
     """Announce a live draft phase at the exact runnable boundary."""
 
-    def __init__(self, runnable: ACLGraphWrapper, callback: Any) -> None:
+    def __init__(self, runnable: Any, callback: Any) -> None:
         self._runnable = runnable
         self._callback = callback
 
@@ -1774,14 +1774,14 @@ class AFDNPUAttentionModelRunner(NPUModelRunner):
             self._install_ascend_ubatch_wrapper()
 
     def _configure_mtp_draft_graph(self) -> None:
-        if self.speculative_config is None or bool(
-            getattr(self.speculative_config, "enforce_eager", False),
-        ):
+        if self.speculative_config is None:
             return
         draft_runnable = getattr(self.drafter, "_runnable", None)
-        if not isinstance(draft_runnable, ACLGraphWrapper):
+        if isinstance(draft_runnable, _AFDMTPPhaseAwareRunnable):
+            return
+        if not callable(draft_runnable):
             raise RuntimeError(
-                "DSV4 AFD full draft Graph requires an ACLGraphWrapper",
+                "DSV4 AFD MTP requires a callable merged-draft runnable",
             )
         # ### PATCH START: synchronize AFD draft graph replay.
         # Upstream vLLM-Ascend commit 3da28f94 constructs MTP through
@@ -1789,7 +1789,8 @@ class AFDNPUAttentionModelRunner(NPUModelRunner):
         # pre-replay synchronization. AFD inserts a remote FFN graph and HCCL
         # boundary, so graph-parameter updates must wait for the previous
         # replay to finish before buffers are reused.
-        draft_runnable.use_eagle = False
+        if isinstance(draft_runnable, ACLGraphWrapper):
+            draft_runnable.use_eagle = False
         self.drafter._runnable = _AFDMTPPhaseAwareRunnable(
             draft_runnable,
             self._announce_live_mtp_phase,
@@ -1798,17 +1799,23 @@ class AFDNPUAttentionModelRunner(NPUModelRunner):
 
     def _announce_live_mtp_phase(
         self,
-        draft_runnable: ACLGraphWrapper,
+        draft_runnable: Any,
     ) -> CUDAGraphMode | None:
         if not bool(getattr(self, "_afd_in_mtp_proposal", False)):
             return None
         forward_context = get_forward_context()
         runtime_mode = forward_context.cudagraph_runtime_mode
-        graph_requested = runtime_mode != CUDAGraphMode.NONE and runtime_mode.has_mode(
-            draft_runnable.runtime_mode,
+        draft_runtime_mode = getattr(
+            draft_runnable,
+            "runtime_mode",
+            CUDAGraphMode.NONE,
         )
+        graph_requested = runtime_mode != CUDAGraphMode.NONE and runtime_mode.has_mode(
+            draft_runtime_mode,
+        )
+        graph_entries = getattr(draft_runnable, "concrete_aclgraph_entries", {})
         graph_entry = (
-            draft_runnable.concrete_aclgraph_entries.get(
+            graph_entries.get(
                 forward_context.batch_descriptor,
             )
             if graph_requested

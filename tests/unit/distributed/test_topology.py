@@ -6,7 +6,7 @@ from types import ModuleType, SimpleNamespace
 import pytest
 
 from afd_plugin.config import AFDConfig
-from afd_plugin.distributed import resolve_role_rank
+from afd_plugin.distributed import build_rank_mapping, resolve_role_rank
 
 
 def _vllm_config(
@@ -31,8 +31,10 @@ def _afd_config(
     role: str = "attention",
     num_attention_ranks: int = 1,
     num_ffn_ranks: int = 1,
+    connector: str = "P2pNcclAFDConnector",
 ):
     return AFDConfig(
+        connector=connector,
         role=role,
         num_attention_ranks=num_attention_ranks,
         num_ffn_ranks=num_ffn_ranks,
@@ -106,4 +108,64 @@ def test_resolve_role_rank_rejects_derived_rank_outside_role_size(monkeypatch):
         resolve_role_rank(
             _vllm_config(dp_size=2, dp_rank=1, tp_size=2),
             _afd_config(num_attention_ranks=2),
+        )
+
+
+@pytest.mark.parametrize(
+    ("role", "role_rank", "subgroup_index", "ffn_peers", "attention_peers"),
+    [
+        ("attention", 0, 0, (0, 1), (4,)),
+        ("attention", 1, 1, (2, 3), (5,)),
+        ("ffn", 0, 0, (0, 1), (4,)),
+        ("ffn", 1, 0, (0, 1), (4,)),
+        ("ffn", 2, 1, (2, 3), (5,)),
+        ("ffn", 3, 1, (2, 3), (5,)),
+    ],
+)
+def test_build_rank_mapping_supports_integer_ffn_fanout(
+    role,
+    role_rank,
+    subgroup_index,
+    ffn_peers,
+    attention_peers,
+):
+    config = _afd_config(
+        role=role,
+        num_attention_ranks=2,
+        num_ffn_ranks=4,
+        connector="P2pHcclAFDConnector",
+    )
+
+    mapping = build_rank_mapping(config, role_rank)
+
+    assert mapping.ratio == 2
+    assert mapping.attention_fans_out is True
+    assert mapping.subgroup_index == subgroup_index
+    assert mapping.ffn_peer_ranks == ffn_peers
+    assert mapping.attention_peer_ranks == attention_peers
+    assert mapping.subgroup_ranks == (*ffn_peers, *attention_peers)
+    assert mapping.p2p_rank == mapping.world_rank
+
+
+def test_build_rank_mapping_rejects_ffn_fanout_for_nccl():
+    with pytest.raises(ValueError, match="other than P2pHcclAFDConnector"):
+        build_rank_mapping(
+            _afd_config(
+                num_attention_ranks=2,
+                num_ffn_ranks=4,
+                connector="P2pNcclAFDConnector",
+            ),
+            0,
+        )
+
+
+def test_build_rank_mapping_rejects_non_integer_ffn_fanout():
+    with pytest.raises(ValueError, match="num_ffn_ranks to be a multiple"):
+        build_rank_mapping(
+            _afd_config(
+                num_attention_ranks=2,
+                num_ffn_ranks=3,
+                connector="P2pHcclAFDConnector",
+            ),
+            0,
         )

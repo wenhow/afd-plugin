@@ -227,3 +227,67 @@ def test_mtp_remote_moe_does_not_require_or_send_input_ids(monkeypatch):
     assert "input_ids" not in send_kwargs
     assert send_kwargs["num_tokens_across_dp"].tolist() == [3]
     assert connector.received[0][2] == {"phase": "mtp"}
+
+
+def test_single_mtp_layer_preserves_proposal_step_for_remote_protocol():
+    observed_steps = []
+
+    class RecordingLayer(nn.Module):
+        def forward(
+            self,
+            input_ids,
+            positions,
+            previous_hidden_states,
+            inputs_embeds,
+            spec_step_index,
+        ):
+            del input_ids, positions, previous_hidden_states, inputs_embeds
+            observed_steps.append(spec_step_index)
+            return torch.ones((1, 8))
+
+    predictor = object.__new__(adapter.AFDDeepSeekMultiTokenPredictor)
+    nn.Module.__init__(predictor)
+    predictor.afd_role = "attention"
+    predictor.num_mtp_layers = 1
+    predictor.layers = nn.ModuleDict({"0": RecordingLayer()})
+
+    for speculative_step in range(3):
+        predictor(
+            torch.ones(1, dtype=torch.int32),
+            torch.ones(1, dtype=torch.int64),
+            torch.ones((1, 8)),
+            torch.ones((1, 8)),
+            spec_step_idx=speculative_step,
+        )
+
+    assert observed_steps == [0, 1, 2]
+
+
+def test_mtp_model_numbers_implicit_merged_draft_steps():
+    observed_steps = []
+
+    class RecordingPredictor(nn.Module):
+        def forward(
+            self,
+            input_ids,
+            positions,
+            hidden_states,
+            inputs_embeds,
+            spec_step_idx,
+        ):
+            del input_ids, positions, inputs_embeds
+            observed_steps.append(spec_step_idx)
+            return hidden_states
+
+    model = object.__new__(adapter.AFDDeepSeekV4MTP)
+    nn.Module.__init__(model)
+    model.model = RecordingPredictor()
+    model._afd_num_speculative_tokens = 3
+    model._afd_next_speculative_step = 0
+    inputs = torch.ones((1, 8))
+
+    for _ in range(4):
+        model.forward(inputs, inputs, inputs)
+    model.forward(inputs, inputs, inputs, spec_step_idx=2)
+
+    assert observed_steps == [0, 1, 2, 0, 2]

@@ -42,12 +42,16 @@ case "${role}" in
     ;;
 esac
 
-(( ATTENTION_RANKS >= FFN_RANKS )) \
-  || die "Attention ranks must be greater than or equal to FFN ranks"
-(( ATTENTION_RANKS % FFN_RANKS == 0 )) \
-  || die "Attention ranks must be an integer multiple of FFN ranks"
-ratio=$((ATTENTION_RANKS / FFN_RANKS))
-required_ffn_tokens=$((ATTENTION_MAX_NUM_BATCHED_TOKENS * ratio))
+larger_ranks=$((ATTENTION_RANKS > FFN_RANKS ? ATTENTION_RANKS : FFN_RANKS))
+smaller_ranks=$((ATTENTION_RANKS < FFN_RANKS ? ATTENTION_RANKS : FFN_RANKS))
+(( larger_ranks % smaller_ranks == 0 )) \
+  || die "Attention and FFN ranks must have an integer ratio"
+ratio=$((larger_ranks / smaller_ranks))
+if (( FFN_RANKS > ATTENTION_RANKS )); then
+  required_ffn_tokens=$(((ATTENTION_MAX_NUM_BATCHED_TOKENS + ratio - 1) / ratio))
+else
+  required_ffn_tokens=$((ATTENTION_MAX_NUM_BATCHED_TOKENS * ratio))
+fi
 (( FFN_MAX_NUM_BATCHED_TOKENS >= required_ffn_tokens )) \
   || die "FFN_MAX_NUM_BATCHED_TOKENS must be at least ${required_ffn_tokens}"
 
@@ -111,13 +115,11 @@ case "${ENABLE_MTP}" in
   1)
     [[ "${EXECUTION_MODE}" == "eager" && "${U_BATCHES}" == "1" ]] \
       || die "MTP M1 requires eager/U1"
-    [[ "${ATTENTION_RANKS}" == "8" && "${FFN_RANKS}" == "8" ]] \
-      || die "MTP M1 requires A8F8"
-    [[ "${MTP_NUM_SPECULATIVE_TOKENS}" == "1" ]] \
-      || die "MTP M1 supports one speculative token"
+    [[ "${MTP_NUM_SPECULATIVE_TOKENS}" =~ ^[1-3]$ ]] \
+      || die "MTP supports num_speculative_tokens in [1, 3]"
     mtp_args=(
       --speculative-config
-      '{"method":"mtp","num_speculative_tokens":1,"enforce_eager":true}'
+      "{\"method\":\"mtp\",\"num_speculative_tokens\":${MTP_NUM_SPECULATIVE_TOKENS},\"enforce_eager\":true}"
     )
     ;;
   *)

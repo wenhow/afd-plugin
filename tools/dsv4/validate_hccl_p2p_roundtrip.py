@@ -81,9 +81,59 @@ def _mtp_hidden_value(attention_rank: int, *, step_idx: int) -> int:
     return 40 + 20 * step_idx + attention_rank
 
 
+def _balanced_split_sizes(num_tokens: int, num_peers: int) -> list[int]:
+    transport_tokens = max(num_tokens, num_peers)
+    base, remainder = divmod(transport_tokens, num_peers)
+    return [base + (offset < remainder) for offset in range(num_peers)]
+
+
 def _ffn_token_counts(counts: list[int], *, ffn_size: int) -> list[int]:
-    ratio = len(counts) // ffn_size
-    return [sum(counts[rank * ratio : (rank + 1) * ratio]) for rank in range(ffn_size)]
+    attention_size = len(counts)
+    if attention_size >= ffn_size:
+        ratio = attention_size // ffn_size
+        return [
+            sum(counts[rank * ratio : (rank + 1) * ratio]) for rank in range(ffn_size)
+        ]
+    ratio = ffn_size // attention_size
+    return [
+        shard_tokens
+        for attention_tokens in counts
+        for shard_tokens in _balanced_split_sizes(attention_tokens, ratio)
+    ]
+
+
+def _ffn_peer_shards(
+    counts: list[int],
+    *,
+    ffn_size: int,
+    ffn_rank: int,
+) -> list[tuple[int, int, int]]:
+    """Return ``(attention_rank, start, end)`` shards received by one FFN rank."""
+
+    attention_size = len(counts)
+    if attention_size >= ffn_size:
+        ratio = attention_size // ffn_size
+        return [
+            (attention_rank, 0, counts[attention_rank])
+            for attention_rank in range(ffn_rank * ratio, (ffn_rank + 1) * ratio)
+        ]
+    ratio = ffn_size // attention_size
+    attention_rank, fanout_index = divmod(ffn_rank, ratio)
+    split_sizes = _balanced_split_sizes(counts[attention_rank], ratio)
+    start = sum(split_sizes[:fanout_index])
+    return [(attention_rank, start, start + split_sizes[fanout_index])]
+
+
+def _expected_shard_values(
+    values: list[int],
+    *,
+    start: int,
+    end: int,
+    padding_value: int,
+) -> list[int]:
+    if end > len(values):
+        values = [*values, *([padding_value] * (end - len(values)))]
+    return values[start:end]
 
 
 def _validate_graph_transport(
@@ -166,11 +216,15 @@ def _validate_graph_transport(
             returned_buffers[stage_idx] = torch.empty_like(static_hidden[stage_idx])
             continue
 
-        first_attention_rank = role_rank * connector.ratio
-        peer_counts = counts[
-            first_attention_rank : first_attention_rank + connector.ratio
-        ]
-        ids = connector.recv_input_ids(sum(peer_counts), ubatch_idx=stage_idx)
+        peer_shards = _ffn_peer_shards(
+            counts,
+            ffn_size=connector.ffn_size,
+            ffn_rank=role_rank,
+        )
+        ids = connector.recv_input_ids(
+            sum(end - start for _rank, start, end in peer_shards),
+            ubatch_idx=stage_idx,
+        )
         received_ids[stage_idx] = ids.cpu().tolist()
 
     dist.barrier(group=connector.p2p_pg)
@@ -326,19 +380,26 @@ def _validate_graph_transport(
                 }
             )
     else:
-        first_attention_rank = role_rank * connector.ratio
         for stage_idx, counts in counts_by_stage.items():
             expected_ids: list[int] = []
-            for attention_rank in range(
-                first_attention_rank,
-                first_attention_rank + connector.ratio,
-            ):
+            peer_shards = _ffn_peer_shards(
+                counts,
+                ffn_size=connector.ffn_size,
+                ffn_rank=role_rank,
+            )
+            for attention_rank, start, end in peer_shards:
+                source_values = _input_id_values(
+                    attention_rank,
+                    counts[attention_rank],
+                    step_idx=step_idx,
+                    stage_idx=stage_idx,
+                )
                 expected_ids.extend(
-                    _input_id_values(
-                        attention_rank,
-                        counts[attention_rank],
-                        step_idx=step_idx,
-                        stage_idx=stage_idx,
+                    _expected_shard_values(
+                        source_values,
+                        start=start,
+                        end=end,
+                        padding_value=0,
                     )
                 )
             if received_ids[stage_idx] != expected_ids:
@@ -350,9 +411,7 @@ def _validate_graph_transport(
                 {
                     "phase": "graph_capture",
                     "stage": stage_idx,
-                    "peer_tokens": counts[
-                        first_attention_rank : first_attention_rank + connector.ratio
-                    ],
+                    "peer_tokens": [end - start for _, start, end in peer_shards],
                     "input_ids_external": True,
                     "fan_in_out": True,
                     "multistream": multistream,
@@ -418,6 +477,7 @@ def _validate_mtp_graph_transport(
     stages: int,
     step_idx: int,
     tensor_parallel_size: int,
+    num_speculative_tokens: int,
 ) -> list[dict[str, object]]:
     """Capture and replay the merged MTP phase on physical HCCL groups."""
 
@@ -557,8 +617,13 @@ def _validate_mtp_graph_transport(
         checks.append(
             {
                 "phase": "mtp_graph_capture",
-                "peer_tokens": attention_peer_counts[
-                    role_rank * connector.ratio : (role_rank + 1) * connector.ratio
+                "peer_tokens": [
+                    end - start
+                    for _, start, end in _ffn_peer_shards(
+                        attention_peer_counts,
+                        ffn_size=ffn_size,
+                        ffn_rank=role_rank,
+                    )
                 ],
                 "header_fan_in": True,
                 "captured": True,
@@ -566,9 +631,10 @@ def _validate_mtp_graph_transport(
         )
 
     dist.barrier(group=connector.p2p_pg)
-    graph.replay()
-    torch.npu.synchronize()
-    dist.barrier(group=connector.p2p_pg)
+    for _ in range(num_speculative_tokens):
+        graph.replay()
+        torch.npu.synchronize()
+        dist.barrier(group=connector.p2p_pg)
 
     if role == "attention":
         assert static_hidden is not None
@@ -581,6 +647,7 @@ def _validate_mtp_graph_transport(
                 "tokens": int(static_hidden.shape[0]),
                 "updated_input": True,
                 "roundtrip": True,
+                "replays": num_speculative_tokens,
             }
         )
     else:
@@ -588,6 +655,7 @@ def _validate_mtp_graph_transport(
             {
                 "phase": "mtp_graph_replay",
                 "fan_in_out": True,
+                "replays": num_speculative_tokens,
             }
         )
     return checks
@@ -603,6 +671,7 @@ def _worker(
     stages: int,
     steps: int,
     enable_mtp: bool,
+    num_speculative_tokens: int,
     graph_transport: bool,
     graph_multistream: bool,
     mtp_graph_transport: bool,
@@ -670,6 +739,7 @@ def _worker(
                 SimpleNamespace(
                     method="mtp",
                     enforce_eager=not mtp_graph_transport,
+                    num_speculative_tokens=num_speculative_tokens,
                 )
                 if enable_mtp
                 else None
@@ -784,14 +854,12 @@ def _worker(
                     )
                     continue
 
-                first_attention_rank = role_rank * connector.ratio
-                peer_attention_ranks = list(
-                    range(
-                        first_attention_rank,
-                        first_attention_rank + connector.ratio,
-                    ),
+                peer_shards = _ffn_peer_shards(
+                    counts,
+                    ffn_size=ffn_size,
+                    ffn_rank=role_rank,
                 )
-                peer_counts = [counts[index] for index in peer_attention_ranks]
+                peer_counts = [end - start for _, start, end in peer_shards]
                 aggregate_tokens = sum(peer_counts)
                 received_ids = connector.recv_input_ids(
                     aggregate_tokens,
@@ -804,28 +872,35 @@ def _worker(
                 )
                 expected_ids: list[int] = []
                 expected_hidden_values: list[int] = []
-                for attention_rank, num_tokens in zip(
-                    peer_attention_ranks,
-                    peer_counts,
-                    strict=True,
-                ):
+                for attention_rank, start, end in peer_shards:
+                    id_values = _input_id_values(
+                        attention_rank,
+                        counts[attention_rank],
+                        step_idx=step_idx,
+                        stage_idx=stage_idx,
+                    )
                     expected_ids.extend(
-                        _input_id_values(
-                            attention_rank,
-                            num_tokens,
-                            step_idx=step_idx,
-                            stage_idx=stage_idx,
+                        _expected_shard_values(
+                            id_values,
+                            start=start,
+                            end=end,
+                            padding_value=0,
                         ),
                     )
+                    hidden_values = [
+                        _hidden_value(
+                            attention_rank,
+                            step_idx=step_idx,
+                            stage_idx=stage_idx,
+                        )
+                    ] * counts[attention_rank]
                     expected_hidden_values.extend(
-                        [
-                            _hidden_value(
-                                attention_rank,
-                                step_idx=step_idx,
-                                stage_idx=stage_idx,
-                            )
-                        ]
-                        * num_tokens,
+                        _expected_shard_values(
+                            hidden_values,
+                            start=start,
+                            end=end,
+                            padding_value=0,
+                        )
                     )
                 if received.input_ids.cpu().tolist() != expected_ids:
                     raise AssertionError(
@@ -872,119 +947,132 @@ def _worker(
                 mtp_counts,
                 ffn_size=ffn_size,
             )
-            if role == "attention":
-                num_tokens = mtp_counts[role_rank]
-                hidden = torch.full(
-                    (num_tokens, 16),
-                    _mtp_hidden_value(role_rank, step_idx=step_idx),
-                    dtype=torch.bfloat16,
-                    device="npu:0",
-                )
-                context = AFDTransferContext(
-                    metadata=AFDTransferMetadata.create_attention_metadata(
-                        layer_idx=0,
-                        stage_idx=0,
-                        seq_len=num_tokens,
-                        phase="mtp",
-                        speculative_step=0,
-                    ),
-                )
-                connector.send_attn_output(
-                    hidden,
-                    context,
-                    num_tokens_across_dp=torch.tensor(
-                        _dp_token_counts(
-                            mtp_counts,
-                            tensor_parallel_size=tensor_parallel_size,
-                        ),
-                        dtype=torch.int32,
-                    ),
-                )
-                returned = connector.recv_ffn_output(
-                    ref_tensor=torch.empty_like(hidden),
-                    ubatch_idx=0,
-                    phase="mtp",
-                )
-                if not torch.equal(returned.cpu(), (hidden + 2).cpu()):
-                    raise AssertionError(
-                        "MTP round-trip mismatch for "
-                        f"attention={role_rank} step={step_idx}"
+            for speculative_step in range(num_speculative_tokens):
+                value_step = step_idx * num_speculative_tokens + speculative_step
+                if role == "attention":
+                    num_tokens = mtp_counts[role_rank]
+                    hidden = torch.full(
+                        (num_tokens, 16),
+                        _mtp_hidden_value(role_rank, step_idx=value_step),
+                        dtype=torch.bfloat16,
+                        device="npu:0",
                     )
+                    context = AFDTransferContext(
+                        metadata=AFDTransferMetadata.create_attention_metadata(
+                            layer_idx=0,
+                            stage_idx=0,
+                            seq_len=num_tokens,
+                            phase="mtp",
+                            speculative_step=speculative_step,
+                        ),
+                    )
+                    connector.send_attn_output(
+                        hidden,
+                        context,
+                        num_tokens_across_dp=torch.tensor(
+                            _dp_token_counts(
+                                mtp_counts,
+                                tensor_parallel_size=tensor_parallel_size,
+                            ),
+                            dtype=torch.int32,
+                        ),
+                    )
+                    returned = connector.recv_ffn_output(
+                        ref_tensor=torch.empty_like(hidden),
+                        ubatch_idx=0,
+                        phase="mtp",
+                    )
+                    if not torch.equal(returned.cpu(), (hidden + 2).cpu()):
+                        raise AssertionError(
+                            "MTP round-trip mismatch for "
+                            f"attention={role_rank} step={step_idx} "
+                            f"proposal={speculative_step}"
+                        )
+                    checks.append(
+                        {
+                            "phase": "mtp",
+                            "step": step_idx,
+                            "speculative_step": speculative_step,
+                            "tokens": num_tokens,
+                            "ffn_tokens": expected_ffn_counts,
+                            "roundtrip": True,
+                        }
+                    )
+                    continue
+
+                peer_shards = _ffn_peer_shards(
+                    mtp_counts,
+                    ffn_size=ffn_size,
+                    ffn_rank=role_rank,
+                )
+                peer_counts = [end - start for _, start, end in peer_shards]
+                header = connector.recv_mtp_header(stage_idx=0)
+                if header.speculative_step != speculative_step:
+                    raise AssertionError(
+                        "MTP speculative step mismatch for "
+                        f"ffn={role_rank}: {header.speculative_step} != "
+                        f"{speculative_step}"
+                    )
+                if header.num_tokens != sum(peer_counts):
+                    raise AssertionError(
+                        f"MTP aggregate token mismatch for ffn={role_rank}: "
+                        f"{header.num_tokens} != {sum(peer_counts)}"
+                    )
+                if header.num_tokens_across_dp.tolist() != expected_ffn_counts:
+                    raise AssertionError(
+                        f"MTP FFN counts mismatch: "
+                        f"{header.num_tokens_across_dp.tolist()} != "
+                        f"{expected_ffn_counts}"
+                    )
+                received = connector.recv_attn_output(
+                    ubatch_idx=0,
+                    layer_idx=0,
+                    phase="mtp",
+                    speculative_step=header.speculative_step,
+                    num_tokens=header.num_tokens,
+                )
+                expected_hidden_values: list[int] = []
+                for attention_rank, start, end in peer_shards:
+                    hidden_values = [
+                        _mtp_hidden_value(attention_rank, step_idx=value_step)
+                    ] * mtp_counts[attention_rank]
+                    expected_hidden_values.extend(
+                        _expected_shard_values(
+                            hidden_values,
+                            start=start,
+                            end=end,
+                            padding_value=0,
+                        )
+                    )
+                actual_hidden_values = received.hidden_states[:, 0].cpu().tolist()
+                if actual_hidden_values != expected_hidden_values:
+                    raise AssertionError(
+                        f"MTP hidden aggregation mismatch for ffn={role_rank} "
+                        f"step={step_idx} proposal={speculative_step}"
+                    )
+                if received.context.metadata.seq_lens != peer_counts:
+                    raise AssertionError(
+                        f"MTP peer lengths mismatch: "
+                        f"{received.context.metadata.seq_lens} != {peer_counts}"
+                    )
+                connector.send_ffn_output(
+                    received.hidden_states + 2,
+                    received.context,
+                    ubatch_idx=0,
+                )
                 checks.append(
                     {
                         "phase": "mtp",
                         "step": step_idx,
-                        "tokens": num_tokens,
+                        "speculative_step": speculative_step,
+                        "peer_tokens": peer_counts,
+                        "aggregate_tokens": header.num_tokens,
                         "ffn_tokens": expected_ffn_counts,
-                        "roundtrip": True,
+                        "header_fan_in": True,
+                        "hidden_fan_in": True,
+                        "output_split": True,
                     }
                 )
-                continue
-
-            first_attention_rank = role_rank * connector.ratio
-            peer_attention_ranks = list(
-                range(
-                    first_attention_rank,
-                    first_attention_rank + connector.ratio,
-                )
-            )
-            peer_counts = [mtp_counts[index] for index in peer_attention_ranks]
-            header = connector.recv_mtp_header(stage_idx=0)
-            if header.num_tokens != sum(peer_counts):
-                raise AssertionError(
-                    f"MTP aggregate token mismatch for ffn={role_rank}: "
-                    f"{header.num_tokens} != {sum(peer_counts)}"
-                )
-            if header.num_tokens_across_dp.tolist() != expected_ffn_counts:
-                raise AssertionError(
-                    f"MTP FFN counts mismatch: "
-                    f"{header.num_tokens_across_dp.tolist()} != "
-                    f"{expected_ffn_counts}"
-                )
-            received = connector.recv_attn_output(
-                ubatch_idx=0,
-                layer_idx=0,
-                phase="mtp",
-                speculative_step=header.speculative_step,
-                num_tokens=header.num_tokens,
-            )
-            expected_hidden_values: list[int] = []
-            for attention_rank, num_tokens in zip(
-                peer_attention_ranks,
-                peer_counts,
-                strict=True,
-            ):
-                expected_hidden_values.extend(
-                    [_mtp_hidden_value(attention_rank, step_idx=step_idx)] * num_tokens
-                )
-            actual_hidden_values = received.hidden_states[:, 0].cpu().tolist()
-            if actual_hidden_values != expected_hidden_values:
-                raise AssertionError(
-                    f"MTP hidden aggregation mismatch for ffn={role_rank} "
-                    f"step={step_idx}"
-                )
-            if received.context.metadata.seq_lens != peer_counts:
-                raise AssertionError(
-                    f"MTP peer lengths mismatch: "
-                    f"{received.context.metadata.seq_lens} != {peer_counts}"
-                )
-            connector.send_ffn_output(
-                received.hidden_states + 2,
-                received.context,
-                ubatch_idx=0,
-            )
-            checks.append(
-                {
-                    "phase": "mtp",
-                    "step": step_idx,
-                    "peer_tokens": peer_counts,
-                    "aggregate_tokens": header.num_tokens,
-                    "ffn_tokens": expected_ffn_counts,
-                    "header_fan_in": True,
-                    "hidden_fan_in": True,
-                    "output_split": True,
-                }
-            )
 
         if graph_transport:
             checks.extend(
@@ -1010,6 +1098,7 @@ def _worker(
                     stages=stages,
                     step_idx=2,
                     tensor_parallel_size=tensor_parallel_size,
+                    num_speculative_tokens=num_speculative_tokens,
                 )
             )
 
@@ -1067,6 +1156,12 @@ def main() -> None:
     parser.add_argument("--stages", type=int, choices=(1, 2), default=2)
     parser.add_argument("--steps", type=int, default=2)
     parser.add_argument("--enable-mtp", action="store_true")
+    parser.add_argument(
+        "--num-speculative-tokens",
+        type=int,
+        choices=(1, 2, 3),
+        default=1,
+    )
     parser.add_argument("--graph-transport", action="store_true")
     parser.add_argument("--graph-multistream", action="store_true")
     parser.add_argument("--mtp-graph-transport", action="store_true")
@@ -1081,14 +1176,18 @@ def main() -> None:
         parser.error("--steps must be positive")
     if args.mtp_graph_transport and not args.enable_mtp:
         parser.error("--mtp-graph-transport requires --enable-mtp")
+    if args.num_speculative_tokens != 1 and not args.enable_mtp:
+        parser.error("--num-speculative-tokens requires --enable-mtp")
     if args.graph_multistream and not args.graph_transport:
         parser.error("--graph-multistream requires --graph-transport")
     if args.graph_multistream and args.stages != 2:
         parser.error("--graph-multistream requires --stages 2")
     if args.mtp_graph_transport and not args.graph_transport:
         parser.error("--mtp-graph-transport requires --graph-transport")
-    if attention_size < ffn_size or attention_size % ffn_size != 0:
-        parser.error("Attention count must be an integer multiple of FFN count")
+    larger_size = max(attention_size, ffn_size)
+    smaller_size = min(attention_size, ffn_size)
+    if larger_size % smaller_size != 0:
+        parser.error("Attention and FFN counts must have an integer ratio")
     if (
         attention_size % args.tensor_parallel_size != 0
         or ffn_size % args.tensor_parallel_size != 0
@@ -1129,6 +1228,7 @@ def main() -> None:
                 args.stages,
                 args.steps,
                 args.enable_mtp,
+                args.num_speculative_tokens,
                 args.graph_transport,
                 args.graph_multistream,
                 args.mtp_graph_transport,
@@ -1189,7 +1289,8 @@ def main() -> None:
                 attention_size // args.tensor_parallel_size
             ),
             "ffn_data_parallel_size": ffn_size // args.tensor_parallel_size,
-            "ratio": attention_size // ffn_size,
+            "ratio": larger_size // smaller_size,
+            "direction": "fan_out" if ffn_size > attention_size else "fan_in",
             "attention_devices": args.attention_devices,
             "ffn_devices": args.ffn_devices,
         },
@@ -1197,6 +1298,7 @@ def main() -> None:
         "stages": args.stages,
         "steps": args.steps,
         "enable_mtp": args.enable_mtp,
+        "num_speculative_tokens": args.num_speculative_tokens,
         "graph_transport": args.graph_transport,
         "graph_multistream": args.graph_multistream,
         "mtp_graph_transport": args.mtp_graph_transport,
