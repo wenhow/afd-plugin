@@ -27,7 +27,10 @@ M10/M11 本机开发门禁。M10 保持单 MTP layer，将
 `F=kA` 采用 Attention token 连续均衡 scatter、FFN 计算、原序 gather，token 少于 fanout
 时补零占位并在返回前丢弃。CANN 9.0.0 下 A1F2/A2F4 的 `N=2/3 x eager/Graph x
 U1/U2` 共 16 个 NPU 组件项全部通过；A8F8 eager/U1/N2 与 A4F8 eager/U1/N2 实模
-各完成 1 条 prompt、16 个输出 token 的同栈 golden exact、正常退出和 NPU 清理。该结果
+各完成 1 条 prompt、16 个输出 token 的同栈 golden exact、正常退出和 NPU 清理。随后
+10 prompt 诊断确认 MTP-off 与 native N2 在近边界 token 上稳定不同，AFD N2 的 U1/U2
+输出均与 native N2 达到 10/10 exact；提交 `4f052b92407eef50d5aa363282d6a961821a6b25`
+已将 A5 standalone 改为 5 类路径匹配 native control，禁止跨执行路径复用金标。该结果
 关闭两个新增门禁的本机范围，不替代 A8F4 高 HBM/A5、双机 PD 组合、完整 F1 或性能验收。
 
 M9 在 2026-09-04 完成双 A3 的 TP1、MTP off、Graph/U2 数据面与性能/Profile 测量：
@@ -116,7 +119,7 @@ A3 验收通过只说明实现语义和 A3 性能成立，不等于 A5 已支持
 
 第一阶段新增两个硬门禁，2026-09-08 本机开发状态如下：
 
-1. **多 speculative token**：模型仍使用一个 MTP layer，`num_speculative_tokens` 对外最大值已冻结为 3；`N=1/2/3` 的执行、协议、Graph key/cache、组件回归与 A8F8   eager/U1/N2 实模 smoke 已完成。
+1. **多 speculative token**：模型仍使用一个 MTP layer，`num_speculative_tokens` 对外最大值已冻结为 3；`N=1/2/3` 的执行、协议、Graph key/cache、组件回归已完成，A8F8 N2 的 U1/U2 输出与路径匹配 native N2 达到 10/10 exact；A5 无并发完整 F0/F1 待执行。
 2. **取消 `A >= F` 方向限制**：首版扩展到双向整数比例，即 `A=kF`、`A=F`、   `F=kA`。A8F4、A8F8、A4F8 是三个代表点；非整数比例不在本次范围。双向 rank   mapping、数据/控制面、Graph/MTP 路径与 A1F2/A2F4 组件矩阵已完成，A4F8   eager/U1/N2 实模 smoke 已通过；A8F4 仍因 A3 HBM 限制留到高 HBM/A5。
 
 两个新增门禁的本机范围已经完成，但第一阶段总体仍未冻结。后续顺序为：
@@ -138,7 +141,7 @@ A3 验收通过只说明实现语义和 A3 性能成立，不等于 A5 已支持
 
 2026-09-08 已补齐外部验证交付物，但尚未把“脚本可执行”升级为“硬件门禁通过”：
 
-- A5 standalone 固定 9 个代表点，覆盖 A8F8 基础/N1、eager U2 N2、Graph U1 N2、Graph U2 N3，以及 A4F8/A8F4 的 eager U1 N2 和 Graph U2 N3；F1 固定两次冷启动、batch 1/8/32、30/30 token exact、1800 秒 idle-resume、shutdown/fatal/NPU cleanup。
+- A5 先生成 eager MTP-off/N1/N2、target Graph + draft eager N2、target/draft Graph N3 共 5 个路径匹配 native control；standalone 固定 9 个代表点，覆盖 A8F8 基础/N1、eager U2 N2、Graph U1 N2、Graph U2 N3，以及 A4F8/A8F4 的 eager U1 N2 和 Graph U2 N3；F1 固定两次冷启动、batch 1/8/32、30/30 token exact、1800 秒 idle-resume、shutdown/fatal/NPU cleanup。
 - 双机 PD 固定 3 个路径匹配 no-AFD control 和 4 个 AFD 点：A8F8 N2/N3、A4F8 N3、A8F4 N3；control golden 按 Attention DP、target/draft execution、U 数和 MTP N 隔离，不能跨路径复用。
 - `pd.sh` 的部署约束已同步为双向整数 A/F 和 N1-N3，矩阵按拓扑动态生成 device list 与 FFN capacity；外部执行和证据回传步骤见 `DEEPSEEK_V4_AFD_PHASE1_A5_MULTI_NODE_VALIDATION_GUIDE_ZH.md`。
 - 只有上述外部原始证据通过分析后，才能关闭 A5、PD Graph 动态路由、生命周期和 F1；当前不创建第一阶段功能 tag。
@@ -418,8 +421,8 @@ P2 使用第 6 章的 concurrency、长度、三轮波动、延迟、HBM 和 `to
 | A3-P7M7 | full draft ACL Graph | 已通过：A8F8 U1/U2 各 30/30 golden、batch 1/8/32、A4F2 full-draft Graph 组件、动态 batch、128/128 P1、shutdown/fatal/cleanup；27.510 token/s 仅作单轮 guard |
 | A3-P7M8 | HCCL P2P TP2 功能基线 | 已冻结等量 A8F8、DP4/TP2、eager/U1；TP2 full-draft Graph U2 最大组合保持 fail-fast |
 | A3-P7M9 | Mooncake PD + AFD | TP1/MTP off/Graph U2 双 A3 数据面、三拓扑三轮测量及双侧 Profile 已完成；一期 3 control + 4 AFD 外部矩阵和证据收集脚本已就绪，动态路由、生命周期、F1 的硬件证据待回传；10 单元公平 P2 和物理 A:F 扫描属于后续性能阶段 |
-| A3-P7M10 | 多 speculative token | 本机门禁已通过：保持单 MTP layer，对外最大 `N=3`；`N=1/2/3` 代码回归，A1F2/A2F4 的 N2/N3 eager/Graph U1/U2 共 16 项 NPU 组件，以及 A8F8 eager/U1/N2 实模 smoke 通过；A5 9 点和双机 N2/N3 验证包已就绪，硬件结果待回传 |
-| A3-P7M11 | `F=kA` 双向非等量拓扑 | 本机门禁已通过：完成双向整数 rank mapping、scatter/gather、dummy padding、控制面、MTP/Graph；A1F2/A2F4 组件矩阵和 A4F8 eager/U1/N2 实模 smoke 通过；A4F8/A8F4 双机矩阵与 A5 指导书已就绪，A8F4 高 HBM和完整 F1 证据仍保留 |
+| A3-P7M10 | 多 speculative token | 本机开发门禁已通过：保持单 MTP layer，对外最大 `N=3`；`N=1/2/3` 代码回归和 A1F2/A2F4 的 N2/N3 eager/Graph U1/U2 共 16 项 NPU 组件通过；A8F8 N2 的 U1/U2 输出均与 native N2 达到 10/10 exact。A5 需无并发生成 5 个路径 control 并完成 9 点 F0/F1，双机 N2/N3 硬件结果待回传 |
+| A3-P7M11 | `F=kA` 双向非等量拓扑 | 本机开发门禁已通过：完成双向整数 rank mapping、scatter/gather、dummy padding、控制面、MTP/Graph；A1F2/A2F4 组件矩阵和 A4F8 eager/U1/N2 实模 smoke 通过；A4F8/A8F4 双机矩阵与 A5 指导书已就绪，A8F4 高 HBM 和完整 F1 证据仍保留 |
 
 ### 5.1 A3-P0：固定性能实验协议
 
@@ -1670,19 +1673,24 @@ NPU、吞吐、token/s/NPU、TPOT、CV、HBM、FFN `Free/wall`、`Bubble/wall`�
 15. 当前功能里程碑为 M9 Mooncake PD；TP1/MTP off/Graph U2 已完成双 A3 三拓扑请求、三轮性能和双侧 DP0 Profile 观测。A16F8 是物理 2:1；按 wall 归一化后 FFN Free 从 71.977% 降至 38.395%，Bubble 却从 18.164% 升至 36.954%，不能宣称 bubble 已消除。R14 AllToAllV 静态 split-cache 已撤回，FFN Graph 动态路由是当前 P0。顺序固定为：先实现 graph-safe 动态路由并重跑 golden，再关闭优雅停止/二次启动门禁，再完成路径匹配 PD control 和 30/30 F1；随后执行 C0 加 T1/T2/T3 x all-on/V1/off 的 10 单元正式 P2，并补其他执行组合；上述门禁全部完成后才做固定 F16 的物理 1:1/2:1/4:1 扫描。A64F16 超出当前双 16 卡 A3，不能从 A16F8 外推；
 16. `UPSTREAM-DSV4-BI-001` 和 `UPSTREAM-DSV4-SHORT-EXTEND-001` 归属 vLLM-Ascend/执行路径，不作为 afd-plugin 代码缺陷；batch-invariant 和 golden/token exact 统一后移到全部计划功能开发完成后的 F1，只有路径匹配 control 稳定而 AFD 相对它发生新增分叉才阻塞插件正确性冻结；
 17. TP/SP/CP/DCP/PP、TP3、非等量 TP2 和 TP2 最大 Graph+MTP 组合不作为第一阶段门禁；
-18. M10/M11 本机门禁已完成：最大 `N=3`，A1F2/A2F4 的 N2/N3 eager/Graph U1/U2
-    共 16 项 NPU 组件通过，A8F8 和 A4F8 eager/U1/N2 实模 smoke 均通过；证据位于
-    `/mnt/workspace/validation/phase1_cann900`，恢复时不得退回单 token 或 `A>=F` 假设；
-19. A5 到位后从硬件审计和独立工具链开始，不复用 A3 二进制，并重新生成原生 MTP golden；
+18. M10/M11 本机开发门禁已完成：最大 `N=3`，A1F2/A2F4 的 N2/N3 eager/Graph U1/U2
+    共 16 项 NPU 组件在精确源码栈通过；A8F8 N2 的 U1/U2 输出均与 native N2 达到
+    10/10 exact，A4F8 eager/U1/N2 实模 smoke 通过。组件证据位于
+    `/mnt/workspace/validation/phase1_cann900_exact_3e88ad2`；恢复时不得退回单 token、
+    `A>=F` 或跨 target/draft/MTP 路径复用 golden 的假设；
+19. A5 到位后从硬件审计和独立工具链开始，不复用 A3 二进制；先无并发生成 5 份路径
+    匹配 native control，再执行 9 点 standalone F0/F1；
 20. 每次阶段完成都保存日志、原始数据、解析结果和清理证据。
 
 ## 13. 一句话路线
 
 在 CANN 9.0.0、vLLM 0.23 + `rfc/vllm_cann` 目标栈已经完成 HCCL P2P eager U1/U2、
 Graph/U1/U2、单 token MTP M0-M7、双向整数比例组件与 TP2/M8 历史基线。M10/M11
-已关闭本机开发门禁：单 MTP layer 最大 `N=3`，A1F2/A2F4 16 项组件和 A8F8/A4F8
-eager/U1/N2 实模 smoke 通过。M9 的
+已关闭本机开发门禁：单 MTP layer 最大 `N=3`，A1F2/A2F4 16 项组件通过，A8F8 N2
+的 U1/U2 输出均与路径匹配 native N2 达到 10/10 exact，A4F8 eager/U1/N2 实模 smoke
+通过。M9 的
 TP1/MTP off/Graph U2 已完成双 A3 三拓扑运行和 Profile 观测，但动态路由、优雅退出和
-路径匹配 F1 未冻结。第一阶段下一步推进高 HBM A5 A8F4、双机 PD 组合和 F1；第一阶段
+路径匹配 F1 未冻结。第一阶段下一步在 A5 生成 5 类 native control，完成 9 点 standalone、
+高 HBM A8F4、双机 PD 组合和 F1；第一阶段
 功能 tag 完成后，第二阶段再做 U3 和正式性能
 收益；TP/SP/CP/DCP/PP、TP3、非等量 TP2 和 TP2 最大 Graph+MTP 不作为第一阶段门禁。

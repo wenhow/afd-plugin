@@ -16,7 +16,7 @@
 
 第一阶段仍需完成的外部硬门禁：
 
-1. A5 平台审计、独立安装和同栈 native golden。
+1. A5 平台审计、独立安装和 5 份同栈、路径匹配 native control。
 2. A5 standalone A8F8、A4F8、A8F4 的 eager/Graph、U1/U2、MTP N=1/2/3 代表矩阵。
 3. A8F4 在高 HBM A5 上的真实模型加载和端到端请求。
 4. 双机 PD Graph/U2 下的 A8F8 N2/N3、A4F8 N3、A8F4 N3。
@@ -70,49 +70,38 @@ npu-smi info
 
 通过条件：两个上游 commit 与第 1 节完全一致；三个 `status --short` 均为空；CANN 只有 9.0.0；NPU 健康；开始验证前没有其他 NPU 进程。把输出保存为文本，后续随证据包回传。
 
-## 4. A5 同栈 native golden
+## 4. A5 同栈路径匹配 native control
 
-只在 A5 生成一次 native no-AFD golden。以下服务使用 8 卡，示例端口需保持空闲：
+不能把 MTP-off 的 token 文件跨路径用作 N2/N3 的 exact golden。speculative decoding 会改变 target 校验的执行 shape；即使 native 自身稳定，近似并列 logits 也可能在 MTP-off 和 N2 间选择不同 token。必须按 target/draft 执行模式与 MTP N 生成以下 5 份 no-AFD control：
+
+| control key | target | draft | MTP |
+|---|---|---|---|
+| `eager_mtp_off` | eager | off | off |
+| `eager_mtp_n1` | eager | eager | N1 |
+| `eager_mtp_n2` | eager | eager | N2 |
+| `graph_target_draft_eager_mtp_n2` | FULL_DECODE_ONLY | eager | N2 |
+| `graph_target_draft_graph_mtp_n3` | FULL_DECODE_ONLY | Graph | N3 |
+
+生成器逐点使用 8 卡冷启动、执行 10 条 prompt x 3 轮、正常停止并检查 NPU 清理。开始前本机不得存在任何其他 NPU 进程：
 
 ```bash
 source "$BUNDLE_ROOT/bin/activate_runtime.sh"
 cd "$AFD_PLUGIN_ROOT"
 export MODEL_PATH HCCL_IF_IP GLOO_SOCKET_IFNAME HCCL_SOCKET_IFNAME
-export NATIVE_ROOT="/data/validation/dsv4-phase1-a5-native"
-mkdir -p "$NATIVE_ROOT"
+export PHASE1_GOLDEN_ROOT="/data/validation/dsv4-phase1-a5-native-controls"
 
-setsid env \
-  API_HOST=127.0.0.1 API_PORT=8900 \
-  ASCEND_RT_VISIBLE_DEVICES=0,1,2,3,4,5,6,7 \
-  ENABLE_MTP=0 TENSOR_PARALLEL_SIZE=1 \
-  bash tools/dsv4/run_v023_native_baseline.sh \
-  >"$NATIVE_ROOT/server.log" 2>&1 &
-export NATIVE_PID=$!
-printf '%s\n' "$NATIVE_PID" >"$NATIVE_ROOT/server.pid"
+bash tools/dsv4/run_phase1_native_controls.sh list
+bash tools/dsv4/run_phase1_native_controls.sh preflight
+bash tools/dsv4/run_phase1_native_controls.sh run
 ```
 
-等待 `curl -fsS http://127.0.0.1:8900/health` 成功，然后生成 3 轮稳定 golden：
+若中途失败，保留原目录；处理后可使用同一根目录只生成尚不存在的 control，例如：
 
 ```bash
-python tools/dsv4/generate_golden.py \
-  --endpoint http://127.0.0.1:8900/v1/completions \
-  --model dsv4-v023-native \
-  --prompt-source tools/dsv4/phase1_prompts.json \
-  --output "$NATIVE_ROOT/golden_results.json" \
-  --rounds 3 \
-  --metadata baseline_kind=native_no_afd \
-  --metadata cann_version=9.0.0 \
-  --metadata vllm_commit=0fc695fc6d1d82e9a5ac6835ac8e4e1c83703665 \
-  --metadata vllm_ascend_commit=3da28f9414583d2d0b672a8f06d1fae142404bda
-
-kill -TERM -- "-$NATIVE_PID"
-wait "$NATIVE_PID" || true
-npu-smi info >"$NATIVE_ROOT/npu-after-stop.txt"
-jq '{passed,rounds,prompt_count,mismatched_prompt_indices}' \
-  "$NATIVE_ROOT/golden_results.json"
+bash tools/dsv4/run_phase1_native_controls.sh run eager_mtp_n2
 ```
 
-必须得到 `passed=true`、`rounds=3`、`prompt_count=10`、空 mismatch，并确认停止后没有 NPU 进程。后续所有 A5 standalone 与 PD control 都使用这一个文件作为 prompt/token 参考源。
+每个 `golden_results.json` 必须是 `passed=true`、`rounds=3`、`prompt_count=10`、空 mismatch；metadata 中的 control key、target/draft、MTP N、CANN 和两个上游 commit 必须与表格及第 1 节一致。矩阵 preflight 会再次校验这些字段。PD 的 `NATIVE_GOLDEN_PATH` 可用 `$PHASE1_GOLDEN_ROOT/eager_mtp_off/golden_results.json` 提供固定 prompt 集；PD 输出判定仍必须使用第 7 节生成的路径匹配 control golden。
 
 ## 5. A5 standalone 门禁
 
@@ -136,7 +125,7 @@ jq '{passed,rounds,prompt_count,mismatched_prompt_indices}' \
 source "$BUNDLE_ROOT/bin/activate_runtime.sh"
 cd "$AFD_PLUGIN_ROOT"
 export MODEL_PATH
-export PHASE1_GOLDEN="$NATIVE_ROOT/golden_results.json"
+export PHASE1_GOLDEN_ROOT
 export PHASE1_OUTPUT_BASE="/data/validation/dsv4-phase1-a5-$(date +%Y%m%d_%H%M%S)"
 bash tools/dsv4/run_phase1_a5_matrix.sh list
 bash tools/dsv4/run_phase1_a5_matrix.sh preflight
@@ -156,7 +145,7 @@ export PHASE1_OUTPUT_BASE="/data/validation/dsv4-phase1-a5-retry-$(date +%Y%m%d_
 bash tools/dsv4/run_phase1_a5_matrix.sh f0 a8f4_graph_u2_n3
 ```
 
-每个 `validation_summary.json` 必须满足：`passed=true`；topology/rank/capacity 与点名一致；U2 点观察到真实双 stage；两个 role return code 为 0；fatal marker 为空；每轮停止后 NPU cleanup 通过。不得使用 `ALLOW_NPU_PROCESSES` 绕过清理门禁。
+每个 `validation_summary.json` 必须满足：`passed=true`；`golden` 指向该点对应的路径匹配 control；topology/rank/capacity 与点名一致；U2 点观察到真实双 stage；两个 role return code 为 0；fatal marker 为空；每轮停止后 NPU cleanup 通过。不得使用 `ALLOW_NPU_PROCESSES` 绕过清理门禁。
 
 ## 6. 双机 PD 配置
 
@@ -186,7 +175,7 @@ export MATRIX_RUN_BASE="/data/run/dsv4-phase1-pd-r1"
 | `control_graph_u2_mtp3_a8` | `afd_graph_u2_mtp3`、`afd_graph_u2_split_a8f4_mtp3` | P8 + D8；P8 + A8F8；P8F4 + A8 |
 | `control_graph_u2_mtp3_a4` | `afd_graph_u2_split_a4f8_mtp3` | P8 + D4；P8F8 + A4 |
 
-把第 4 节的 native golden 放到 `common.env` 的 `NATIVE_GOLDEN_PATH`。三个 control golden 分别存入 `${MATRIX_RUN_BASE}/f1-control/<路径键>/golden_results.json`；不要跨路径键复制。
+把第 4 节的 `eager_mtp_off` control 放到 `common.env` 的 `NATIVE_GOLDEN_PATH`，仅用于提供同一 prompt 集。三个 PD control golden 分别存入 `${MATRIX_RUN_BASE}/f1-control/<路径键>/golden_results.json`；不要跨路径键复制，也不要用任一 native control 代替 PD control。
 
 ## 7. 生成路径匹配 control
 
@@ -278,7 +267,7 @@ source "$BUNDLE_ROOT/bin/activate_runtime.sh"
 cd "$AFD_PLUGIN_ROOT"
 bash tools/dsv4/collect_phase1_validation.sh \
   /data/artifacts/dsv4-phase1-a5-evidence.tar.gz \
-  "$NATIVE_ROOT" \
+  "$PHASE1_GOLDEN_ROOT" \
   "$PHASE1_OUTPUT_BASE/f0" \
   "$PHASE1_OUTPUT_BASE/f1"
 sha256sum -c /data/artifacts/dsv4-phase1-a5-evidence.tar.gz.sha256
@@ -286,7 +275,7 @@ sha256sum -c /data/artifacts/dsv4-phase1-a5-evidence.tar.gz.sha256
 
 PD 每个 `collect` 会打印一个小型归档及 `.sha256`。回传以下内容：
 
-1. A5 evidence tar 和 `.sha256`。
+1. 包含 5 份 native control 和 9 点 standalone 结果的 A5 evidence tar 及 `.sha256`。
 2. 两轮所有 control/AFD 角色的 `collect` 归档和 `.sha256`。
 3. 两台机器 H0 审计文本。
 4. 三份路径匹配 control golden。
