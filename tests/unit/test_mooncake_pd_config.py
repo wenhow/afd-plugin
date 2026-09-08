@@ -8,7 +8,7 @@ from pathlib import Path
 import pytest
 
 from tools.dsv4 import generate_golden
-from tools.dsv4.generate_golden import _parse_metadata
+from tools.dsv4.generate_golden import _load_prompt_source, _parse_metadata
 from tools.dsv4.mooncake_pd_config import build_mooncake_pd_config
 
 ROOT_DIR = Path(__file__).resolve().parents[2]
@@ -337,8 +337,8 @@ def test_mooncake_pd_recipes_accept_dp4_tp2_without_relaxing_other_modes():
 
     assert "Mooncake PD M9 baseline requires eager/U1" not in attention
     assert "Mooncake PD M9 baseline requires MTP off" not in attention
-    assert "8:1|4:2)" in control
-    assert "8:1|4:2)" in manual
+    assert "8:1|4:1|4:2)" in control
+    assert "8:1|4:1|4:2)" in manual
     assert 'export TENSOR_PARALLEL_SIZE="${DECODE_TP_SIZE}"' in manual
     assert 'export EXECUTION_MODE="${DECODE_EXECUTION_MODE}"' in manual
     assert 'export U_BATCHES="${DECODE_U_BATCHES}"' in manual
@@ -381,6 +381,16 @@ def test_generate_golden_metadata_rejects_duplicates():
     }
     with pytest.raises(ValueError, match="duplicate"):
         _parse_metadata(["kind=first", "kind=second"])
+
+
+def test_generate_golden_accepts_prompt_only_source(tmp_path):
+    source_path = tmp_path / "prompts.json"
+    source_path.write_text(json.dumps({"prompts": ["first", "second"]}))
+
+    prompts, reference = _load_prompt_source(source_path)
+
+    assert prompts == ["first", "second"]
+    assert reference == {}
 
 
 def test_generate_golden_records_stability_metadata_and_reference(

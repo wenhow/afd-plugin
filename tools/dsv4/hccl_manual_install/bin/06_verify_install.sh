@@ -12,9 +12,11 @@ source "${SCRIPT_DIR}/activate_runtime.sh"
 
 export EXPECTED_VLLM_COMMIT="${VLLM_COMMIT}"
 export EXPECTED_ASCEND_COMMIT="${VLLM_ASCEND_COMMIT}"
+export EXPECTED_NPU_COUNT="$((ATTENTION_RANKS + FFN_RANKS))"
 
 python - <<'PY'
 from importlib.metadata import version
+import os
 
 import torch
 import torch_npu
@@ -31,7 +33,11 @@ assert version("transformers") == "5.5.4"
 assert version("numpy") == "2.2.6"
 assert P2pHcclAFDConnector.__name__ == "P2pHcclAFDConnector"
 assert torch.npu.is_available(), "torch-npu cannot see an Ascend device"
-assert torch.npu.device_count() == 16, torch.npu.device_count()
+expected_npus = int(os.environ["EXPECTED_NPU_COUNT"])
+assert torch.npu.device_count() >= expected_npus, (
+    torch.npu.device_count(),
+    expected_npus,
+)
 
 print("DSV4_AFD_HCCL_RUNTIME_OK")
 print("torch", torch.__version__)

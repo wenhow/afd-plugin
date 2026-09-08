@@ -83,22 +83,12 @@ DeepSeek-V4 的拆分边界放在远端 MoE，而不是把整个 FFN 子层搬�
 
 ### 2.2.1 两阶段交付口径与第一阶段完成度（2026-09-08）
 
-最终交付拆成两个阶段：第一阶段只验收功能，第二阶段交付 U3 和正式性能收益。第一阶段
-固定 TP1，并明确不包含 TP/SP/CP/DCP/PP、TP3、非等量 TP2 和 TP2 最大
-Graph+MTP 组合；仓库中已经冻结的等量 DP4/TP2 eager/U1 证据继续保留，但不作为
-第一阶段交付门禁。
+最终交付拆成两个阶段：第一阶段只验收功能，第二阶段交付 U3 和正式性能收益。第一阶段固定 TP1，并明确不包含 TP/SP/CP/DCP/PP、TP3、非等量 TP2 和 TP2 最大Graph+MTP 组合；仓库中已经冻结的等量 DP4/TP2 eager/U1 证据继续保留，但不作为第一阶段交付门禁。
 
 第一阶段的 MTP 目标不是增加 checkpoint 中的 MTP layer 数，而是在模型
-`num_nextn_predict_layers=1` 的前提下，支持通过 `num_speculative_tokens=N` 配置每轮多个
-draft token。本轮已将对外最大值冻结为 `N=3`，复用同一个 MTP layer 执行多个
-speculative step，并完成 `N=1/2/3` 代码回归、N2/N3 本机 NPU 组件与 A8F8 N2 实模
-smoke。
+`num_nextn_predict_layers=1` 的前提下，支持通过 `num_speculative_tokens=N` 配置每轮多个draft token。本轮已将对外最大值冻结为 `N=3`，复用同一个 MTP layer 执行多个speculative step，并完成 `N=1/2/3` 代码回归、N2/N3 本机 NPU 组件与 A8F8 N2 实模 smoke。
 
-第一阶段同时取消 `P2pHcclAFDConnector` 的 `A >= F` 方向限制。目标拓扑改为双向整数
-比例：支持 `A=kF`、`A=F` 和 `F=kA`，最小代表拓扑为 A8F4、A8F8 和 A4F8。`F=kA`
-已选择 Attention token 连续均衡 scatter、各 FFN 计算、原序 gather 的语义；token 少于
-fanout 时补零占位并在返回前丢弃。非整数 A/F 比例没有纳入本次范围，其他 connector
-继续拒绝 `A<F`。
+第一阶段同时取消 `P2pHcclAFDConnector` 的 `A >= F` 方向限制。目标拓扑改为双向整数比例：支持 `A=kF`、`A=F` 和 `F=kA`，最小代表拓扑为 A8F4、A8F8 和 A4F8。`F=kA`已选择 Attention token 连续均衡 scatter、各 FFN 计算、原序 gather 的语义；token 少于fanout 时补零占位并在返回前丢弃。非整数 A/F 比例没有纳入本次范围，其他 connector继续拒绝 `A<F`。
 
 | 第一阶段能力 | 当前完成度 | 已有证据 | 关闭条件 |
 |---|---|---|---|
@@ -110,10 +100,9 @@ fanout 时补零占位并在返回前丢弃。非整数 A/F 比例没有纳入�
 | AF 双向整数比例 | 本机门禁完成 | `A=kF/A=F/F=kA` rank mapping、数据/控制面、Graph/MTP；A4F8 N2 smoke | A8F4 高 HBM E2E、双机 PD 组合和完整 F1 |
 | PD 分离 | 未完成 | Mooncake contract/runtime/round-trip；双 A3 Graph/U2 运行与 Profile | FFN Graph 动态路由、优雅退出、路径匹配 token exact；一期组合矩阵通过 |
 
-因此两个新增门禁的本机开发范围已完成，但第一阶段总体状态仍是**未完成**。剩余硬缺口
-包括 A8F4 高 HBM/A5 实模、双机 PD + 多 token/双向拓扑组合、PD Graph 动态路由正确性、
-优雅退出和路径匹配 F1。第二阶段只在第一阶段功能冻结后推进 U3、正式吞吐/延迟/资源
-效率、稳定性阈值和性能 tag。
+因此两个新增门禁的本机开发范围已完成，但第一阶段总体状态仍是**未完成**。剩余硬缺口包括 A8F4 高 HBM/A5 实模、双机 PD + 多 token/双向拓扑组合、PD Graph 动态路由正确性、优雅退出和路径匹配 F1。第二阶段只在第一阶段功能冻结后推进 U3、正式吞吐/延迟/资源效率、稳定性阈值和性能 tag。
+
+本轮继续完成了外部验收工具，而不是外部硬件结论：`run_phase1_a5_matrix.sh` 固定 A5 9 点 standalone F0/F1；`pd_graph_matrix.sh` 新增 A8F8 N2/N3、A4F8 N3、A8F4 N3 及 3 个路径匹配 control；`pd.sh` 同步支持双向整数 A/F、N1-N3、动态 FFN capacity 和按本地角色计算 NPU 数；`collect_phase1_validation.sh` 生成带 SHA256、截断日志且排除 profiler raw 的证据包。完整执行顺序、关闭条件和回传清单见 `DEEPSEEK_V4_AFD_PHASE1_A5_MULTI_NODE_VALIDATION_GUIDE_ZH.md`。这些交付物通过本机代码/脚本门禁后仍保持“待外部验证”，不得据此创建功能 tag。
 
 本轮固定栈和证据如下：
 
@@ -125,6 +114,7 @@ fanout 时补零占位并在返回前丢弃。非整数 A/F 比例没有纳入�
 | NPU 组件 | `/mnt/workspace/validation/phase1_cann900`；A1F2/A2F4 x eager/Graph x U1/U2 x N2/N3，16/16 通过且全部 role 正常 close |
 | A8F8 实模 | `a8f8_eager_u1_n2_real_fix1/validation_summary.json`；N2、1/1 prompt、16-token exact、HTTP 200、双 role rc=0、无 fatal、清理通过 |
 | A4F8 实模 | `a4f8_eager_u1_n2_real/validation_summary.json`；fanout ratio=2、N2、1/1 prompt、16-token exact、HTTP 200、双 role rc=0、无 fatal、清理通过 |
+| 外部验证包 | A5 9 点；双机 3 个路径匹配 control + 4 个 AFD 点；两次冷启动、30/30、取消恢复、动态路由、优雅退出与清理；硬件证据待回传 |
 
 ### 2.3 特性关系
 
@@ -2079,6 +2069,7 @@ DP4/TP2 eager/U1 功能 tag 保留，但不改变本次范围。
 | `891e794` | Graph/U2 混合 DAG 与逻辑/物理 stream 解耦基线 |
 | `2164240` | Graph/U2 三项新增物理流水默认全开；双 A3 R14 采集的代码基线 |
 | `71168312` | 第一阶段 M10/M11：单 MTP layer N1-N3、双向整数 A/F、组件/recipe/部署验证 |
+| 本轮交付提交 | 第一期 A5/双机矩阵、路径匹配 control、证据收集器、安装补丁包与执行指导书 |
 
 ### 13.2 冻结 tag
 
@@ -2105,6 +2096,7 @@ M9 目前没有功能 tag；A3 目标栈也没有可发布的性能 tag。
 ### 13.3 进一步阅读
 
 - [A3 性能、非等量与 A5 路线](DEEPSEEK_V4_AFD_A3_PERFORMANCE_A5_PORTING_ROADMAP_ZH.md)
+- [第一期 A5 与双机验证指导书](DEEPSEEK_V4_AFD_PHASE1_A5_MULTI_NODE_VALIDATION_GUIDE_ZH.md)
 - [P8+A16F8 双 A3 Graph/U2 验证指导书与实测结果](DEEPSEEK_V4_AFD_P8_A16F8_DUAL_A3_GRAPH_U2_VALIDATION_GUIDE_ZH.md)
 - [DeepSeek-V4 AFD HCCL P2P 安装部署指南](DEEPSEEK_V4_AFD_HCCL_P2P_INSTALL_DEPLOYMENT_GUIDE_ZH.md)
 - [MTP M0 原生基线](DEEPSEEK_V4_AFD_MTP_M0_NATIVE_BASELINE_REPORT_ZH.md)

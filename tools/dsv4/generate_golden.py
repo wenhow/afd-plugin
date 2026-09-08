@@ -51,6 +51,11 @@ def _request_completion(
 
 def _load_prompt_source(path: Path) -> tuple[list[str], dict[str, Any]]:
     payload = json.loads(path.read_text(encoding="utf-8"))
+    prompts = payload.get("prompts")
+    if isinstance(prompts, list) and prompts and all(
+        isinstance(prompt, str) and prompt for prompt in prompts
+    ):
+        return prompts, {}
     golden = payload.get("golden")
     if not isinstance(golden, dict) or not golden:
         raise ValueError(f"prompt source has no golden records: {path}")
@@ -98,7 +103,8 @@ def main() -> None:
                     "round": round_index + 1,
                     "prompt_index": prompt_index,
                     "prompt": prompt,
-                    "matched_reference": (
+                    "matched_reference": bool(reference_golden)
+                    and (
                         result["prompt_token_ids"]
                         == reference_golden[str(prompt_index)]["prompt_token_ids"]
                         and result["token_ids"]

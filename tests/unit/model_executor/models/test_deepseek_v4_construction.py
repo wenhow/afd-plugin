@@ -142,6 +142,7 @@ def _vllm_config(*, role: str, layer_count: int = 43, mtp: bool = False):
         speculative_config=(
             SimpleNamespace(
                 method="mtp",
+                num_speculative_tokens=1,
                 draft_model_config=SimpleNamespace(hf_config=config),
             )
             if mtp

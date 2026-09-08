@@ -1,16 +1,17 @@
-# DeepSeek-V4 AFD HCCL P2P 手工安装包
+# DeepSeek-V4 AFD 第一期 CANN 9.0.0 手工安装包
 
-该目录用于生成可复制到其他 Atlas A3 环境的安装脚本包。默认生成轻量包，
-包内只有安装脚本、固定版本清单和 afd-plugin MTP M1 补丁，不包含三个源码仓库、
-模型或 Python wheel。目标机安装时重新下载：
+该目录用于生成可复制到 A5 或双机/多机环境的安装脚本包。默认生成轻量包，
+包内包含安装脚本、一期验证指导书、固定版本清单和 afd-plugin 一期补丁，不包含
+三个源码仓库、模型或 Python wheel。目标机安装时重新下载：
 
 - vLLM `0fc695fc6d1d82e9a5ac6835ac8e4e1c83703665`；
 - vLLM-Ascend `3da28f9414583d2d0b672a8f06d1fae142404bda` 及递归 submodule；
-- afd-plugin 已发布基础提交 `d7aeb9b7554803931e42bf405623f212030ed60f`。
+- afd-plugin 分支基线提交 `9db1fb981f5262986e7ea05938e9c6ed57b5a885`。
 
 脚本随后校验并应用包内补丁，将 afd-plugin 恢复为
-`dsv4-afd-v023-hccl-mtp-m1-v1` 对应的精确源码树。下载提交、目标 tree、补丁
-SHA256 和包内文件 SHA256 均记录在 `manifest/` 中。
+`manifest/versions.env` 记录的精确目标源码树。下载提交、目标 commit/tree、补丁
+SHA256 和包内文件 SHA256 均记录在 `manifest/` 中。完整硬件矩阵和证据回传步骤见
+包根目录 `PHASE1_A5_MULTI_NODE_VALIDATION_GUIDE_ZH.md`。
 
 ## 0. 从交付 ZIP 开始
 
@@ -49,8 +50,8 @@ dsv4-afd-hccl-manual-install-slim-YYYYmmdd_HHMMSS.tar.gz.sha256
 
 ## 2. 目标机前提
 
-- AArch64、16 张可用 Ascend NPU；
-- CANN 9.0.1 和 Python 3.12 已安装；
+- AArch64、满足所选 A/F 拓扑数量的可用 Ascend NPU；
+- CANN 9.0.0 和 Python 3.12 已安装；
 - DeepSeek-V4-Flash W8A8 模型已放到目标机；
 - 可访问配置中的三个 Git 地址、vLLM-Ascend submodule 地址和 Python 包源；
 - 已安装 `git`、`tar`、`curl`、`iproute2`/`iproute` 等基础工具。
@@ -71,7 +72,7 @@ vi config.env
 
 必须修改：
 
-- `CANN_ROOT`：目标机唯一使用的 CANN 9.0.1；
+- `CANN_ROOT`：目标机唯一使用的 CANN 9.0.0；
 - `MODEL_PATH`：DeepSeek-V4-Flash W8A8 模型路径；
 - `PYTHON_BIN`：Python 3.12；
 - `SOC_VERSION`：目标机真实 SoC；
@@ -80,7 +81,7 @@ vi config.env
 - 必要时修改 Git 和 pip 镜像地址。
 
 轻量包保持 `USE_BUNDLED_SOURCES="0"`。不要把验证机 IP 复制到其他机器，
-也不要在已经 source CANN 9.1.0 的 shell 中继续安装。
+也不要在已经 source 其他 CANN 版本的 shell 中继续安装。
 
 ## 4. 校验和安装
 
@@ -131,7 +132,7 @@ INCLUDE_SOURCES=1 \
 
 ## 6. 启动和停止
 
-默认配置启动已验证的 A8F8 Graph/U1：
+默认配置启动一期最大组合 A8F8 Graph/U2、graph draft MTP N=3：
 
 ```bash
 bash bin/07_start.sh
@@ -140,23 +141,25 @@ bash bin/10_smoke_request.sh
 bash bin/09_stop.sh
 ```
 
-运行 eager/U1 + MTP M1 时修改：
+切换到最小定位组合 eager/U1 + MTP N=1 时修改：
 
 ```bash
 EXECUTION_MODE="eager"
 U_BATCHES="1"
 ENABLE_MTP="1"
 MTP_NUM_SPECULATIVE_TOKENS="1"
+MTP_DRAFT_EXECUTION="eager"
 ```
 
-MTP M1 只支持等量 A8F8、eager/U1、一个 MTP layer 和一个 speculative token。
+模型仍使用一个 MTP layer；每轮 speculative token 数支持 `N=1..3`。
 
 ## 7. 运行边界
 
 - HCCL Connector 不需要 `pip install hccl`；
 - HCCL-only 不构建 afd-plugin CAMP2P custom ops；
 - vLLM-Ascend `custom_transformer` ops 仍必须构建和 source；
-- Graph 只支持 U1 和等量 A/F；
-- MTP M1 只支持 eager/U1 和等量 A8F8；
+- TP1 支持 eager/Graph、U1/U2 和 MTP N=1..3；
+- `P2pHcclAFDConnector` 支持 `A=kF`、`A=F`、`F=kA` 的整数比例；
+- 非整数 A/F、U3、一期范围外并行和正式性能结论仍不在本包验收范围；
 - 业务流量只进入 Attention API；
 - 启动成功必须同时满足 Attention health 和全部 FFN connector loop ready。

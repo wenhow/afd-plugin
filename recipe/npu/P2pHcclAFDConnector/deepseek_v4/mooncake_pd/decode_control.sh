@@ -32,9 +32,9 @@ MAX_CUDAGRAPH_CAPTURE_SIZE="${MAX_CUDAGRAPH_CAPTURE_SIZE:-8}"
 CUDAGRAPH_CAPTURE_SIZES="${CUDAGRAPH_CAPTURE_SIZES:-1 2 4 8}"
 
 case "${DECODE_DP_SIZE}:${DECODE_TP_SIZE}" in
-  8:1|4:2) ;;
+  8:1|4:1|4:2) ;;
   *)
-    echo "M9 PD control supports Decode DP8/TP1 or DP4/TP2" >&2
+    echo "Phase-one PD control supports Decode DP8/TP1, DP4/TP1, or DP4/TP2" >&2
     exit 2
     ;;
 esac
@@ -79,10 +79,6 @@ case "${ENABLE_MTP}" in
     MTP_ARGS=()
     ;;
   1)
-    if [[ "${MTP_NUM_SPECULATIVE_TOKENS}" != "1" ]]; then
-      echo "DeepSeek-V4 MTP supports exactly one speculative token" >&2
-      exit 2
-    fi
     case "${EXECUTION_MODE}:${MTP_DRAFT_EXECUTION}" in
       eager:eager|full-decode-only:eager) MTP_DRAFT_ENFORCE_EAGER=true ;;
       full-decode-only:graph) MTP_DRAFT_ENFORCE_EAGER=false ;;
@@ -91,7 +87,11 @@ case "${ENABLE_MTP}" in
         exit 2
         ;;
     esac
-    MTP_CONFIG="$(printf '{"method":"mtp","num_speculative_tokens":1,"enforce_eager":%s}' "${MTP_DRAFT_ENFORCE_EAGER}")"
+    if [[ ! "${MTP_NUM_SPECULATIVE_TOKENS}" =~ ^[1-3]$ ]]; then
+      echo "DeepSeek-V4 MTP supports num_speculative_tokens in [1, 3]" >&2
+      exit 2
+    fi
+    MTP_CONFIG="$(printf '{"method":"mtp","num_speculative_tokens":%s,"enforce_eager":%s}' "${MTP_NUM_SPECULATIVE_TOKENS}" "${MTP_DRAFT_ENFORCE_EAGER}")"
     MTP_ARGS=(--speculative-config "${MTP_CONFIG}")
     ;;
   *)

@@ -57,12 +57,28 @@ def test_hccl_p2p_config_accepts_integer_multiple_attention_ranks():
     assert config.num_ffn_ranks == 2
 
 
+def test_hccl_p2p_config_accepts_integer_multiple_ffn_ranks():
+    config = parse_afd_config(
+        {
+            "afd": {
+                "role": "attention",
+                "connector": "P2pHcclAFDConnector",
+                "num_attention_ranks": 1,
+                "num_ffn_ranks": 2,
+            },
+        },
+    )
+
+    assert config.num_attention_ranks == 1
+    assert config.num_ffn_ranks == 2
+
+
 @pytest.mark.parametrize(
     ("attention", "ffn"),
-    [(1, 2), (3, 2), (0, 1), (1, 0), (-1, 1), (1, -1)],
+    [(3, 2), (2, 3), (0, 1), (1, 0), (-1, 1), (1, -1)],
 )
 def test_hccl_p2p_config_rejects_unsupported_topology(attention, ffn):
-    with pytest.raises(ValueError, match="P2P AFD connectors require"):
+    with pytest.raises(ValueError, match="require"):
         parse_afd_config(
             {
                 "afd": {

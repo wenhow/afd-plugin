@@ -80,7 +80,6 @@ case "${EXECUTION_MODE}" in
     execution_args=(--enforce-eager)
     ;;
   full-decode-only)
-    [[ "${U_BATCHES}" == "1" ]] || die "Graph requires U1"
     read -r -a capture_sizes <<<"${CUDAGRAPH_CAPTURE_SIZES}"
     execution_args=(
       --max-cudagraph-capture-size "${MAX_CUDAGRAPH_CAPTURE_SIZE}"
@@ -97,7 +96,6 @@ ubatch_args=()
 case "${U_BATCHES}" in
   1) ;;
   2)
-    [[ "${EXECUTION_MODE}" == "eager" ]] || die "U2 requires eager mode"
     ubatch_args=(
       --enable-dbo
       --dbo-decode-token-threshold "${DBO_DECODE_TOKEN_THRESHOLD}"
@@ -113,13 +111,16 @@ mtp_args=()
 case "${ENABLE_MTP}" in
   0) ;;
   1)
-    [[ "${EXECUTION_MODE}" == "eager" && "${U_BATCHES}" == "1" ]] \
-      || die "MTP M1 requires eager/U1"
     [[ "${MTP_NUM_SPECULATIVE_TOKENS}" =~ ^[1-3]$ ]] \
       || die "MTP supports num_speculative_tokens in [1, 3]"
+    case "${EXECUTION_MODE}:${MTP_DRAFT_EXECUTION}" in
+      eager:eager|full-decode-only:eager) mtp_enforce_eager=true ;;
+      full-decode-only:graph) mtp_enforce_eager=false ;;
+      *) die "Unsupported target/draft execution: ${EXECUTION_MODE}/${MTP_DRAFT_EXECUTION}" ;;
+    esac
     mtp_args=(
       --speculative-config
-      "{\"method\":\"mtp\",\"num_speculative_tokens\":${MTP_NUM_SPECULATIVE_TOKENS},\"enforce_eager\":true}"
+      "{\"method\":\"mtp\",\"num_speculative_tokens\":${MTP_NUM_SPECULATIVE_TOKENS},\"enforce_eager\":${mtp_enforce_eager}}"
     )
     ;;
   *)

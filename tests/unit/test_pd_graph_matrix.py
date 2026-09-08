@@ -38,7 +38,7 @@ def test_matrix_generates_split_a16f8_contract(tmp_path):
     subprocess.run(["bash", str(MATRIX), "init", str(tmp_path)], check=True)
 
     generated = sorted(tmp_path.glob("*.env"))
-    assert len(generated) == 19  # common.env plus six points x three roles
+    assert len(generated) == 40  # common.env plus thirteen points x three roles
     repo_head = subprocess.run(
         ["git", "-C", str(ROOT), "rev-parse", "HEAD"],
         check=True,
@@ -72,6 +72,142 @@ def test_matrix_generates_split_a16f8_contract(tmp_path):
             "AFD_HCCL_GRAPH_U2_FFN_CROSS_LAYER",
         ):
             assert config[flag] == "1"
+
+
+@pytest.mark.parametrize(
+    (
+        "point",
+        "control_point",
+        "attention_ranks",
+        "ffn_ranks",
+        "attention_devices",
+        "ffn_devices",
+        "ffn_capacity",
+        "tokens",
+        "draft",
+    ),
+    [
+        (
+            "afd_graph_u2_mtp2",
+            "control_graph_u2_mtp2_a8",
+            8,
+            8,
+            range(8),
+            range(8, 16),
+            4096,
+            2,
+            "eager",
+        ),
+        (
+            "afd_graph_u2_mtp3",
+            "control_graph_u2_mtp3_a8",
+            8,
+            8,
+            range(8),
+            range(8, 16),
+            4096,
+            3,
+            "graph",
+        ),
+        (
+            "afd_graph_u2_split_a4f8_mtp3",
+            "control_graph_u2_mtp3_a4",
+            4,
+            8,
+            range(4),
+            range(8, 16),
+            2048,
+            3,
+            "graph",
+        ),
+        (
+            "afd_graph_u2_split_a8f4_mtp3",
+            "control_graph_u2_mtp3_a8",
+            8,
+            4,
+            range(8),
+            range(8, 12),
+            8192,
+            3,
+            "graph",
+        ),
+    ],
+)
+def test_phase1_points_match_control_and_topology_contract(
+    tmp_path,
+    point,
+    control_point,
+    attention_ranks,
+    ffn_ranks,
+    attention_devices,
+    ffn_devices,
+    ffn_capacity,
+    tokens,
+    draft,
+):
+    subprocess.run(["bash", str(MATRIX), "init", str(tmp_path)], check=True)
+    point_role = "attention" if "split" in point else "decode"
+    config = _source_config(tmp_path / f"{point}-{point_role}.env")
+    control = _source_config(tmp_path / f"{control_point}-decode.env")
+
+    assert config["ATTENTION_RANKS"] == str(attention_ranks)
+    assert config["FFN_RANKS"] == str(ffn_ranks)
+    assert config["ATTENTION_DEVICES"] == ",".join(map(str, attention_devices))
+    assert config["FFN_DEVICES"] == ",".join(map(str, ffn_devices))
+    assert config["FFN_MAX_NUM_BATCHED_TOKENS"] == str(ffn_capacity)
+    assert config["DECODE_MTP_NUM_SPECULATIVE_TOKENS"] == str(tokens)
+    assert config["DECODE_MTP_DRAFT_EXECUTION"] == draft
+    assert config["PD_CONTROL_GOLDEN_PATH"] == control["PD_CONTROL_GOLDEN_PATH"]
+    assert config["DECODE_DP_SIZE"] == control["DECODE_DP_SIZE"]
+    assert config["DECODE_EXECUTION_MODE"] == control["DECODE_EXECUTION_MODE"]
+    assert config["DECODE_U_BATCHES"] == control["DECODE_U_BATCHES"]
+    assert config["DECODE_ENABLE_MTP"] == control["DECODE_ENABLE_MTP"]
+    assert config["DECODE_MTP_NUM_SPECULATIVE_TOKENS"] == control[
+        "DECODE_MTP_NUM_SPECULATIVE_TOKENS"
+    ]
+    assert config["DECODE_MTP_DRAFT_EXECUTION"] == control[
+        "DECODE_MTP_DRAFT_EXECUTION"
+    ]
+
+
+def test_a5_matrix_lists_the_blocking_phase1_cases():
+    matrix = ROOT / "tools/dsv4/run_phase1_a5_matrix.sh"
+    output = subprocess.check_output(["bash", str(matrix), "list"], text=True)
+
+    assert output.splitlines() == [
+        "a8f8_eager_u1_mtp_off",
+        "a8f8_eager_u1_n1",
+        "a8f8_eager_u2_n2",
+        "a8f8_graph_u1_n2",
+        "a8f8_graph_u2_n3",
+        "a4f8_eager_u1_n2",
+        "a4f8_graph_u2_n3",
+        "a8f4_eager_u1_n2",
+        "a8f4_graph_u2_n3",
+    ]
+
+
+def test_phase1_collector_caps_logs_and_excludes_profiler_data(tmp_path):
+    collector = ROOT / "tools/dsv4/collect_phase1_validation.sh"
+    run_root = tmp_path / "run"
+    (run_root / "profiles/raw").mkdir(parents=True)
+    (run_root / "cycle_1").mkdir(parents=True)
+    (run_root / "validation_summary.json").write_text('{"passed": true}\n')
+    (run_root / "cycle_1/attention.log").write_text("x" * 1024)
+    (run_root / "profiles/raw/large.bin").write_bytes(b"p" * 1024)
+    output = tmp_path / "evidence.tar.gz"
+
+    subprocess.run(
+        ["bash", str(collector), str(output), str(run_root)],
+        check=True,
+        env=os.environ | {"PHASE1_EVIDENCE_LOG_TAIL_BYTES": "128"},
+    )
+
+    listing = subprocess.check_output(["tar", "-tzf", str(output)], text=True)
+    assert "validation_summary.json" in listing
+    assert "attention.log.tail" in listing
+    assert "profiles/raw/large.bin" not in listing
+    assert output.with_suffix(output.suffix + ".sha256").is_file()
 
 
 def _write_stage_log(path: Path, ranks: range, stage_count: int = 2) -> None:

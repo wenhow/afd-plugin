@@ -32,12 +32,12 @@ export PATH="${SYSTEM_PATH}:${PATH:-}"
 
 : "${VLLM_COMMIT:=0fc695fc6d1d82e9a5ac6835ac8e4e1c83703665}"
 : "${VLLM_ASCEND_COMMIT:=3da28f9414583d2d0b672a8f06d1fae142404bda}"
-: "${AFD_SOURCE_COMMIT:=d7aeb9b7554803931e42bf405623f212030ed60f}"
-: "${AFD_SOURCE_TREE:=15fb688b54339be6c7dbcb5c15826a3f4895553f}"
-: "${AFD_TARGET_COMMIT:=8f2e7c80d7b7c9c6fd3f350e314189bc9d4359ac}"
-: "${AFD_TARGET_TREE:=8f2dfdb1533353d424ccfd78d66d8647df37ac85}"
-: "${AFD_PATCH_SHA256:=d56906ae5587168b14abc913cb7baa08ed6e2e826578c84674c5c4a7c81e847b}"
-: "${AFD_SNAPSHOT_ID:=dsv4-afd-v023-hccl-mtp-m1-v1}"
+: "${AFD_SOURCE_COMMIT:=9db1fb981f5262986e7ea05938e9c6ed57b5a885}"
+: "${AFD_SOURCE_TREE:=unset}"
+: "${AFD_TARGET_COMMIT:=unset}"
+: "${AFD_TARGET_TREE:=unset}"
+: "${AFD_PATCH_SHA256:=unset}"
+: "${AFD_SNAPSHOT_ID:=dsv4-afd-v023-cann900-phase1-external-v1}"
 
 log() {
   printf '[hccl-install] %s\n' "$*"
@@ -92,6 +92,19 @@ resolve_hccl_ip() {
 
 device_list_count() {
   awk -F, '{print NF}' <<<"$1"
+}
+
+device_lists_are_disjoint() {
+  local first="$1" second="$2" device
+  local -A seen=()
+  IFS=',' read -r -a first_devices <<<"${first}"
+  IFS=',' read -r -a second_devices <<<"${second}"
+  for device in "${first_devices[@]}"; do
+    seen["${device//[[:space:]]/}"]=1
+  done
+  for device in "${second_devices[@]}"; do
+    [[ -z "${seen[${device//[[:space:]]/}]+x}" ]] || return 1
+  done
 }
 
 pid_is_alive() {

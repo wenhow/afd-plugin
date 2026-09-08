@@ -53,17 +53,17 @@ verify_git_head() {
 }
 
 apply_afd_patch() {
-  local patch_file="${BUNDLE_ROOT}/manifest/afd-plugin-mtp-m1.patch"
+  local patch_file="${BUNDLE_ROOT}/manifest/afd-plugin-phase1.patch"
   local actual_patch_sha current_tree unexpected_untracked
 
   require_file "${patch_file}"
   actual_patch_sha="$(sha256sum "${patch_file}" | awk '{print $1}')"
   [[ "${actual_patch_sha}" == "${AFD_PATCH_SHA256}" ]] \
     || die "afd-plugin patch checksum mismatch"
-  verify_git_head "${AFD_PLUGIN_ROOT}" "${AFD_SOURCE_COMMIT}" "afd-plugin base"
 
   current_tree="$(git -C "${AFD_PLUGIN_ROOT}" write-tree)"
   git -C "${AFD_PLUGIN_ROOT}" diff --quiet \
+    && git -C "${AFD_PLUGIN_ROOT}" diff --cached --quiet \
     || die "afd-plugin has tracked worktree changes"
   unexpected_untracked="$(
     git -C "${AFD_PLUGIN_ROOT}" ls-files --others --exclude-standard \
@@ -77,6 +77,7 @@ apply_afd_patch() {
     log "Reusing patched afd-plugin release tree: ${AFD_SNAPSHOT_ID}"
     return
   fi
+  verify_git_head "${AFD_PLUGIN_ROOT}" "${AFD_SOURCE_COMMIT}" "afd-plugin base"
   [[ "${current_tree}" == "${AFD_SOURCE_TREE}" ]] \
     || die "afd-plugin source has changes outside the expected release patch"
 
@@ -85,6 +86,15 @@ apply_afd_patch() {
   current_tree="$(git -C "${AFD_PLUGIN_ROOT}" write-tree)"
   [[ "${current_tree}" == "${AFD_TARGET_TREE}" ]] \
     || die "afd-plugin patched tree does not match ${AFD_TARGET_COMMIT}"
+  GIT_AUTHOR_NAME=afd-plugin-delivery \
+  GIT_AUTHOR_EMAIL=afd-plugin-delivery@localhost \
+  GIT_AUTHOR_DATE=2000-01-01T00:00:00Z \
+  GIT_COMMITTER_NAME=afd-plugin-delivery \
+  GIT_COMMITTER_EMAIL=afd-plugin-delivery@localhost \
+  GIT_COMMITTER_DATE=2000-01-01T00:00:00Z \
+    git -C "${AFD_PLUGIN_ROOT}" commit -q -m "Apply ${AFD_SNAPSHOT_ID}"
+  [[ "$(git -C "${AFD_PLUGIN_ROOT}" show -s --format=%T HEAD)" == "${AFD_TARGET_TREE}" ]] \
+    || die "afd-plugin delivery commit tree mismatch"
 }
 
 ensure_dir "${CODE_ROOT}"
@@ -101,7 +111,7 @@ if is_true "${USE_BUNDLED_SOURCES}"; then
     "${VLLM_ASCEND_ROOT}" \
     "vLLM-Ascend"
   extract_source \
-    "${BUNDLE_ROOT}/sources/afd-plugin-mtp-m1-snapshot.tar.gz" \
+    "${BUNDLE_ROOT}/sources/afd-plugin-phase1-snapshot.tar.gz" \
     "${AFD_PLUGIN_ROOT}" \
     "afd-plugin"
 else
@@ -138,5 +148,11 @@ printf '%s\n' "${VLLM_COMMIT}" >"${VLLM_ROOT}/.bundle-source-version"
 printf '%s\n' "${VLLM_ASCEND_COMMIT}" >"${VLLM_ASCEND_ROOT}/.bundle-source-version"
 printf '%s\n' "${AFD_TARGET_COMMIT} ${AFD_SNAPSHOT_ID}" \
   >"${AFD_PLUGIN_ROOT}/.bundle-source-version"
+for source_root in "${VLLM_ROOT}" "${VLLM_ASCEND_ROOT}" "${AFD_PLUGIN_ROOT}"; do
+  if [[ -d "${source_root}/.git" ]]; then
+    grep -qxF '.bundle-source-version' "${source_root}/.git/info/exclude" 2>/dev/null \
+      || printf '%s\n' '.bundle-source-version' >>"${source_root}/.git/info/exclude"
+  fi
+done
 
 log "Sources are ready under ${CODE_ROOT}"

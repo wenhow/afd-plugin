@@ -111,19 +111,13 @@ A3 验收通过只说明实现语义和 A3 性能成立，不等于 A5 已支持
 
 ### 2.3 两阶段交付范围与新增功能里程碑
 
-第一阶段交付 DeepSeek-V4 AFD 功能，不包含 U3 和正式性能收益。执行口径固定 TP1；
-TP/SP/CP/DCP/PP、TP3、非等量 TP2 和 TP2 最大 Graph+MTP 组合不作为第一阶段目标。
+第一阶段交付 DeepSeek-V4 AFD 功能，不包含 U3 和正式性能收益。执行口径固定 TP1；TP/SP/CP/DCP/PP、TP3、非等量 TP2 和 TP2 最大 Graph+MTP 组合不作为第一阶段目标。
 等量 DP4/TP2 eager/U1 的历史功能基线继续保留，但不阻塞第一阶段冻结。
 
 第一阶段新增两个硬门禁，2026-09-08 本机开发状态如下：
 
-1. **多 speculative token**：模型仍使用一个 MTP layer，`num_speculative_tokens` 对外
-   最大值已冻结为 3；`N=1/2/3` 的执行、协议、Graph key/cache、组件回归与 A8F8
-   eager/U1/N2 实模 smoke 已完成。
-2. **取消 `A >= F` 方向限制**：首版扩展到双向整数比例，即 `A=kF`、`A=F`、
-   `F=kA`。A8F4、A8F8、A4F8 是三个代表点；非整数比例不在本次范围。双向 rank
-   mapping、数据/控制面、Graph/MTP 路径与 A1F2/A2F4 组件矩阵已完成，A4F8
-   eager/U1/N2 实模 smoke 已通过；A8F4 仍因 A3 HBM 限制留到高 HBM/A5。
+1. **多 speculative token**：模型仍使用一个 MTP layer，`num_speculative_tokens` 对外最大值已冻结为 3；`N=1/2/3` 的执行、协议、Graph key/cache、组件回归与 A8F8   eager/U1/N2 实模 smoke 已完成。
+2. **取消 `A >= F` 方向限制**：首版扩展到双向整数比例，即 `A=kF`、`A=F`、   `F=kA`。A8F4、A8F8、A4F8 是三个代表点；非整数比例不在本次范围。双向 rank   mapping、数据/控制面、Graph/MTP 路径与 A1F2/A2F4 组件矩阵已完成，A4F8   eager/U1/N2 实模 smoke 已通过；A8F4 仍因 A3 HBM 限制留到高 HBM/A5。
 
 两个新增门禁的本机范围已经完成，但第一阶段总体仍未冻结。后续顺序为：
 
@@ -139,11 +133,15 @@ TP/SP/CP/DCP/PP、TP3、非等量 TP2 和 TP2 最大 Graph+MTP 组合不作为�
   -> 性能 tag
 ```
 
-`F=kA` 已冻结为 scatter/gather 语义：一个 Attention rank 将连续 token 均衡切给连续的
-`k` 个 FFN rank，各 FFN 均参与计算，Attention 按相同 slice 顺序 gather output。若本地
-token 数小于 `k`，传输层补零使每个 FFN 至少收到一个 token，gather 后仅保留真实 token。
-控制面从该 Attention source 向全部 FFN peer 发送同一 stage metadata；MTP header、FFN
-count 投影与 Graph key/cache 使用同一 per-peer layout。非整数比例继续 fail-fast。
+`F=kA` 已冻结为 scatter/gather 语义：一个 Attention rank 将连续 token 均衡切给连续的`k` 个 FFN rank，各 FFN 均参与计算，Attention 按相同 slice 顺序 gather output。若本地token 数小于 `k`，传输层补零使每个 FFN 至少收到一个 token，gather 后仅保留真实 token。
+控制面从该 Attention source 向全部 FFN peer 发送同一 stage metadata；MTP header、FFN count 投影与 Graph key/cache 使用同一 per-peer layout。非整数比例继续 fail-fast。
+
+2026-09-08 已补齐外部验证交付物，但尚未把“脚本可执行”升级为“硬件门禁通过”：
+
+- A5 standalone 固定 9 个代表点，覆盖 A8F8 基础/N1、eager U2 N2、Graph U1 N2、Graph U2 N3，以及 A4F8/A8F4 的 eager U1 N2 和 Graph U2 N3；F1 固定两次冷启动、batch 1/8/32、30/30 token exact、1800 秒 idle-resume、shutdown/fatal/NPU cleanup。
+- 双机 PD 固定 3 个路径匹配 no-AFD control 和 4 个 AFD 点：A8F8 N2/N3、A4F8 N3、A8F4 N3；control golden 按 Attention DP、target/draft execution、U 数和 MTP N 隔离，不能跨路径复用。
+- `pd.sh` 的部署约束已同步为双向整数 A/F 和 N1-N3，矩阵按拓扑动态生成 device list 与 FFN capacity；外部执行和证据回传步骤见 `DEEPSEEK_V4_AFD_PHASE1_A5_MULTI_NODE_VALIDATION_GUIDE_ZH.md`。
+- 只有上述外部原始证据通过分析后，才能关闭 A5、PD Graph 动态路由、生命周期和 F1；当前不创建第一阶段功能 tag。
 
 ## 3. 已冻结基线
 
@@ -419,9 +417,9 @@ P2 使用第 6 章的 concurrency、长度、三轮波动、延迟、HBM 和 `to
 | A3-P7M6 | Graph 非等量拓扑 | 已通过 graph key 隔离、A2F1/A4F2 两 stage capture/replay 和 A4F2 target Graph + eager MTP 组合组件；A8F4 实模 F0 留到 A5 |
 | A3-P7M7 | full draft ACL Graph | 已通过：A8F8 U1/U2 各 30/30 golden、batch 1/8/32、A4F2 full-draft Graph 组件、动态 batch、128/128 P1、shutdown/fatal/cleanup；27.510 token/s 仅作单轮 guard |
 | A3-P7M8 | HCCL P2P TP2 功能基线 | 已冻结等量 A8F8、DP4/TP2、eager/U1；TP2 full-draft Graph U2 最大组合保持 fail-fast |
-| A3-P7M9 | Mooncake PD + AFD | TP1/MTP off/Graph U2 双 A3 数据面、三拓扑三轮测量及双侧 Profile 已完成；动态路由 P0、生命周期、F1、10 单元公平 P2 和后续物理 A:F 扫描待完成 |
-| A3-P7M10 | 多 speculative token | 本机门禁已通过：保持单 MTP layer，对外最大 `N=3`；`N=1/2/3` 代码回归，A1F2/A2F4 的 N2/N3 eager/Graph U1/U2 共 16 项 NPU 组件，以及 A8F8 eager/U1/N2 实模 smoke 通过；双机 PD/F1 待完成 |
-| A3-P7M11 | `F=kA` 双向非等量拓扑 | 本机门禁已通过：完成双向整数 rank mapping、scatter/gather、dummy padding、控制面、MTP/Graph；A1F2/A2F4 组件矩阵和 A4F8 eager/U1/N2 实模 smoke 通过；A8F4 高 HBM与双机 PD/F1 门禁仍保留 |
+| A3-P7M9 | Mooncake PD + AFD | TP1/MTP off/Graph U2 双 A3 数据面、三拓扑三轮测量及双侧 Profile 已完成；一期 3 control + 4 AFD 外部矩阵和证据收集脚本已就绪，动态路由、生命周期、F1 的硬件证据待回传；10 单元公平 P2 和物理 A:F 扫描属于后续性能阶段 |
+| A3-P7M10 | 多 speculative token | 本机门禁已通过：保持单 MTP layer，对外最大 `N=3`；`N=1/2/3` 代码回归，A1F2/A2F4 的 N2/N3 eager/Graph U1/U2 共 16 项 NPU 组件，以及 A8F8 eager/U1/N2 实模 smoke 通过；A5 9 点和双机 N2/N3 验证包已就绪，硬件结果待回传 |
+| A3-P7M11 | `F=kA` 双向非等量拓扑 | 本机门禁已通过：完成双向整数 rank mapping、scatter/gather、dummy padding、控制面、MTP/Graph；A1F2/A2F4 组件矩阵和 A4F8 eager/U1/N2 实模 smoke 通过；A4F8/A8F4 双机矩阵与 A5 指导书已就绪，A8F4 高 HBM和完整 F1 证据仍保留 |
 
 ### 5.1 A3-P0：固定性能实验协议
 

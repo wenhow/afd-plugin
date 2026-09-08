@@ -51,13 +51,6 @@ fi
 resolved_ip="$(resolve_hccl_ip)"
 [[ -n "${resolved_ip}" ]] || die "Could not resolve an IPv4 address on ${NIC_NAME}"
 
-npu_list="$(npu-smi info -l)"
-npu_chip_count="$(awk -F: '/Chip Count/ {gsub(/[[:space:]]/, "", $2); sum += $2} END {print sum + 0}' <<<"${npu_list}")"
-required_npu_count=$((ATTENTION_RANKS + FFN_RANKS))
-if (( npu_chip_count < required_npu_count )); then
-  die "A${ATTENTION_RANKS}F${FFN_RANKS} requires ${required_npu_count} NPU chips, detected ${npu_chip_count}"
-fi
-
 assert_positive_integer ATTENTION_RANKS "${ATTENTION_RANKS}"
 assert_positive_integer FFN_RANKS "${FFN_RANKS}"
 assert_zero_or_one ENABLE_MTP "${ENABLE_MTP}"
@@ -65,6 +58,27 @@ assert_zero_or_one ENABLE_MTP "${ENABLE_MTP}"
   || die "ATTENTION_DEVICES count does not match ATTENTION_RANKS"
 [[ "$(device_list_count "${FFN_DEVICES}")" == "${FFN_RANKS}" ]] \
   || die "FFN_DEVICES count does not match FFN_RANKS"
+device_lists_are_disjoint "${ATTENTION_DEVICES}" "${FFN_DEVICES}" \
+  || die "ATTENTION_DEVICES and FFN_DEVICES must be disjoint"
+larger_ranks=$((ATTENTION_RANKS > FFN_RANKS ? ATTENTION_RANKS : FFN_RANKS))
+smaller_ranks=$((ATTENTION_RANKS < FFN_RANKS ? ATTENTION_RANKS : FFN_RANKS))
+(( larger_ranks % smaller_ranks == 0 )) \
+  || die "Attention and FFN ranks must have an integer ratio"
+ratio=$((larger_ranks / smaller_ranks))
+if (( FFN_RANKS > ATTENTION_RANKS )); then
+  required_ffn_tokens=$(((ATTENTION_MAX_NUM_BATCHED_TOKENS + ratio - 1) / ratio))
+else
+  required_ffn_tokens=$((ATTENTION_MAX_NUM_BATCHED_TOKENS * ratio))
+fi
+(( FFN_MAX_NUM_BATCHED_TOKENS >= required_ffn_tokens )) \
+  || die "FFN_MAX_NUM_BATCHED_TOKENS must be at least ${required_ffn_tokens}"
+
+npu_list="$(npu-smi info -l)"
+npu_chip_count="$(awk -F: '/Chip Count/ {gsub(/[[:space:]]/, "", $2); sum += $2} END {print sum + 0}' <<<"${npu_list}")"
+required_npu_count=$((ATTENTION_RANKS + FFN_RANKS))
+if (( npu_chip_count < required_npu_count )); then
+  die "A${ATTENTION_RANKS}F${FFN_RANKS} requires ${required_npu_count} NPU chips, detected ${npu_chip_count}"
+fi
 
 case "${EXECUTION_MODE}" in
   eager|full-decode-only) ;;
@@ -74,14 +88,13 @@ case "${U_BATCHES}" in
   1|2) ;;
   *) die "U_BATCHES must be 1 or 2" ;;
 esac
-if [[ "${EXECUTION_MODE}" == "full-decode-only" ]]; then
-  [[ "${U_BATCHES}" == "1" ]] || die "Graph requires U1"
-fi
 if [[ "${ENABLE_MTP}" == "1" ]]; then
-  [[ "${EXECUTION_MODE}" == "eager" && "${U_BATCHES}" == "1" ]] \
-    || die "MTP M1 requires eager/U1"
   [[ "${MTP_NUM_SPECULATIVE_TOKENS}" =~ ^[1-3]$ ]] \
     || die "MTP supports num_speculative_tokens in [1, 3]"
+  case "${EXECUTION_MODE}:${MTP_DRAFT_EXECUTION}" in
+    eager:eager|full-decode-only:eager|full-decode-only:graph) ;;
+    *) die "Unsupported target/draft execution: ${EXECUTION_MODE}/${MTP_DRAFT_EXECUTION}" ;;
+  esac
 fi
 
 if is_true "${OFFLINE}"; then

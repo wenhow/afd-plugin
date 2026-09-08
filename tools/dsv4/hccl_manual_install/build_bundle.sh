@@ -10,10 +10,16 @@ OUTPUT_DIR="${1:-/mnt/workspace/artifacts}"
 
 VLLM_COMMIT=0fc695fc6d1d82e9a5ac6835ac8e4e1c83703665
 VLLM_ASCEND_COMMIT=3da28f9414583d2d0b672a8f06d1fae142404bda
-AFD_SOURCE_COMMIT=d7aeb9b7554803931e42bf405623f212030ed60f
-AFD_RELEASE_REF="${AFD_RELEASE_REF:-dsv4-afd-v023-hccl-mtp-m1-v1}"
+AFD_SOURCE_COMMIT="${AFD_SOURCE_COMMIT:-9db1fb981f5262986e7ea05938e9c6ed57b5a885}"
+AFD_RELEASE_REF="${AFD_RELEASE_REF:-HEAD}"
+AFD_SNAPSHOT_ID="${AFD_SNAPSHOT_ID:-dsv4-afd-v023-cann900-phase1-external-v1}"
 AFD_TARGET_COMMIT="$(git -C "${AFD_REPO_ROOT}" rev-parse "${AFD_RELEASE_REF}^{commit}" 2>/dev/null)" \
   || { echo "afd-plugin release ref does not exist: ${AFD_RELEASE_REF}" >&2; exit 2; }
+[[ -z "$(git -C "${AFD_REPO_ROOT}" status --short)" ]] \
+  || { echo "afd-plugin worktree must be clean before packaging" >&2; exit 2; }
+git -C "${AFD_REPO_ROOT}" merge-base --is-ancestor \
+  "${AFD_SOURCE_COMMIT}" "${AFD_TARGET_COMMIT}" \
+  || { echo "afd-plugin source commit is not an ancestor of the target" >&2; exit 2; }
 AFD_SOURCE_TREE="$(git -C "${AFD_REPO_ROOT}" show -s --format=%T "${AFD_SOURCE_COMMIT}")"
 AFD_TARGET_TREE="$(git -C "${AFD_REPO_ROOT}" show -s --format=%T "${AFD_TARGET_COMMIT}")"
 INCLUDE_SOURCES="${INCLUDE_SOURCES:-0}"
@@ -46,13 +52,15 @@ payload_root="${temp_root}/${package_name}"
 mkdir -p "${payload_root}/manifest"
 cp -a "${BUNDLE_SOURCE_DIR}/." "${payload_root}/"
 cp "${BUNDLE_SOURCE_DIR}/config.env.example" "${payload_root}/config.env"
+cp "${AFD_REPO_ROOT}/docs/npu/DEEPSEEK_V4_AFD_PHASE1_A5_MULTI_NODE_VALIDATION_GUIDE_ZH.md" \
+  "${payload_root}/PHASE1_A5_MULTI_NODE_VALIDATION_GUIDE_ZH.md"
 
 if (( include_sources == 1 )); then
   sed -i 's/^USE_BUNDLED_SOURCES=.*/USE_BUNDLED_SOURCES="1"/' \
     "${payload_root}/config.env"
 fi
 
-patch_file="${payload_root}/manifest/afd-plugin-mtp-m1.patch"
+patch_file="${payload_root}/manifest/afd-plugin-phase1.patch"
 git -C "${AFD_REPO_ROOT}" diff --binary \
   "${AFD_SOURCE_COMMIT}..${AFD_TARGET_COMMIT}" >"${patch_file}"
 AFD_PATCH_SHA256="$(sha256sum "${patch_file}" | awk '{print $1}')"
@@ -76,7 +84,7 @@ AFD_SOURCE_TREE="${AFD_SOURCE_TREE}"
 AFD_TARGET_COMMIT="${AFD_TARGET_COMMIT}"
 AFD_TARGET_TREE="${AFD_TARGET_TREE}"
 AFD_PATCH_SHA256="${AFD_PATCH_SHA256}"
-AFD_SNAPSHOT_ID="${AFD_RELEASE_REF}"
+AFD_SNAPSHOT_ID="${AFD_SNAPSHOT_ID}"
 BUNDLE_INCLUDES_SOURCES="${include_sources}"
 EOF
 
@@ -117,7 +125,7 @@ if (( include_sources == 1 )); then
   git -C "${AFD_REPO_ROOT}" archive "${AFD_TARGET_COMMIT}" \
     | tar -xf - -C "${afd_stage}"
   tar --sort=name --mtime='@0' --owner=0 --group=0 --numeric-owner \
-    -czf "${payload_root}/sources/afd-plugin-mtp-m1-snapshot.tar.gz" \
+    -czf "${payload_root}/sources/afd-plugin-phase1-snapshot.tar.gz" \
     -C "${afd_stage}" .
 fi
 

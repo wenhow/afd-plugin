@@ -41,7 +41,7 @@ export VLLM_PLUGINS=ascend,ascend_model,ascend_model_loader,ascend_kv_connector,
 
 case "${PATH}:${LD_LIBRARY_PATH:-}:${PYTHONPATH:-}:${ASCEND_HOME_PATH:-}" in
   *cann-9.1*)
-    die "CANN 9.1 leaked into the fixed 9.0.1 runtime"
+    die "CANN 9.1 leaked into the fixed 9.0.0 runtime"
     ;;
 esac
 

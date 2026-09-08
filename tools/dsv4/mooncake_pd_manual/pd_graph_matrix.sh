@@ -19,12 +19,25 @@ CORE_POINTS=(
   afd_graph_u2
   afd_graph_u2_mtp1
 )
+PHASE1_VALIDATION_POINTS=(
+  control_graph_u2_mtp2_a8
+  control_graph_u2_mtp3_a8
+  control_graph_u2_mtp3_a4
+  afd_graph_u2_mtp2
+  afd_graph_u2_mtp3
+  afd_graph_u2_split_a4f8_mtp3
+  afd_graph_u2_split_a8f4_mtp3
+)
 RATIO_POINTS=(
   afd_graph_u2
   afd_graph_u2_split_a8f8
   afd_graph_u2_split_a16f8
 )
-POINTS=("${CORE_POINTS[@]}" "${RATIO_POINTS[@]:1}")
+POINTS=(
+  "${CORE_POINTS[@]}"
+  "${PHASE1_VALIDATION_POINTS[@]}"
+  "${RATIO_POINTS[@]:1}"
+)
 COLOCATED_ROLES=(prefill decode proxy)
 SPLIT_ROLES=(prefill_ffn attention proxy)
 
@@ -35,7 +48,7 @@ Usage:
   bash pd_graph_matrix.sh list <config-dir>
   bash pd_graph_matrix.sh commands <config-dir> <point>
   bash pd_graph_matrix.sh print-config <config-dir> <point> <role>
-  bash pd_graph_matrix.sh check|start|status|smoke|collect|profile-start|profile-check|profile-stop|profile-finalize|stop <config-dir> <point> <role>
+  bash pd_graph_matrix.sh check|start|status|smoke|record-control|validate|collect|profile-start|profile-check|profile-stop|profile-finalize|stop <config-dir> <point> <role>
   bash pd_graph_matrix.sh collect-final <config-dir> <point> <role>
   bash pd_graph_matrix.sh monitor-start|monitor-stop <config-dir> <point> <NPU-role>
   bash pd_graph_matrix.sh evidence|profile-analyse|profile-summary <config-dir> <AFD-point> <AFD-role>
@@ -48,6 +61,13 @@ Points:
   afd_graph_u1        PD + AFD, Graph, U1, MTP off, P8+A8F8 (24 NPUs)
   afd_graph_u2        PD + AFD, Graph, U2, MTP off, P8+A8F8 (24 NPUs)
   afd_graph_u2_mtp1   PD + AFD, Graph, U2, eager draft MTP x1, P8+A8F8 (24 NPUs)
+  control_graph_u2_mtp2_a8  PD control, Graph U2, eager draft MTP x2, P8+D8 (16 NPUs)
+  control_graph_u2_mtp3_a8  PD control, Graph U2, graph draft MTP x3, P8+D8 (16 NPUs)
+  control_graph_u2_mtp3_a4  PD control, Graph U2, graph draft MTP x3, P8+D4 (12 NPUs)
+  afd_graph_u2_mtp2   PD + AFD, Graph, U2, eager draft MTP x2, P8+A8F8 (24 NPUs)
+  afd_graph_u2_mtp3   PD + AFD, Graph, U2, graph draft MTP x3, P8+A8F8 (24 NPUs)
+  afd_graph_u2_split_a4f8_mtp3  PD + AFD, Graph U2, graph draft MTP x3, P8F8+A4 (20 NPUs)
+  afd_graph_u2_split_a8f4_mtp3  PD + AFD, Graph U2, graph draft MTP x3, P8F4+A8 (20 NPUs)
   afd_graph_u2_split_a8f8   PD + AFD, Graph U2, P8F8+A8 placement control (24 NPUs)
   afd_graph_u2_split_a16f8  PD + AFD, Graph U2, P8F8+A16 target (32 NPUs)
 
@@ -74,6 +94,7 @@ load_point_spec() {
   MATRIX_EXPECT_EXECUTION_MODE=full-decode-only
   MATRIX_EXPECT_MTP_DRAFT_EXECUTION=eager
   MATRIX_EXPECT_MTP_NUM_SPECULATIVE_TOKENS=1
+  MATRIX_CONTROL_KEY="${point}"
   MATRIX_PREFILL_NPUS=8
   MATRIX_CONTROL_TOTAL_NPUS=16
   MATRIX_RESERVED_NPUS=32
@@ -126,6 +147,101 @@ load_point_spec() {
       MATRIX_ATTENTION_NPUS=8
       MATRIX_FFN_NPUS=8
       MATRIX_RESOURCE_LABEL=P8+A8F8
+      ;;
+    afd_graph_u2_mtp2)
+      MATRIX_EXPECT_VARIANT=pd_afd
+      MATRIX_EXPECT_U_BATCHES=2
+      MATRIX_EXPECT_MTP=1
+      MATRIX_EXPECT_MTP_NUM_SPECULATIVE_TOKENS=2
+      MATRIX_DECODE_NPUS=16
+      MATRIX_ATTENTION_NPUS=8
+      MATRIX_FFN_NPUS=8
+      MATRIX_CONTROL_KEY=graph_u2_mtp2_a8
+      MATRIX_RESOURCE_LABEL=P8+A8F8
+      ;;
+    afd_graph_u2_mtp3)
+      MATRIX_EXPECT_VARIANT=pd_afd
+      MATRIX_EXPECT_U_BATCHES=2
+      MATRIX_EXPECT_MTP=1
+      MATRIX_EXPECT_MTP_DRAFT_EXECUTION=graph
+      MATRIX_EXPECT_MTP_NUM_SPECULATIVE_TOKENS=3
+      MATRIX_DECODE_NPUS=16
+      MATRIX_ATTENTION_NPUS=8
+      MATRIX_FFN_NPUS=8
+      MATRIX_CONTROL_KEY=graph_u2_mtp3_a8
+      MATRIX_RESOURCE_LABEL=P8+A8F8
+      ;;
+    control_graph_u2_mtp2_a8)
+      MATRIX_EXPECT_VARIANT=pd_control
+      MATRIX_EXPECT_U_BATCHES=2
+      MATRIX_EXPECT_MTP=1
+      MATRIX_EXPECT_MTP_NUM_SPECULATIVE_TOKENS=2
+      MATRIX_DECODE_NPUS=8
+      MATRIX_ATTENTION_NPUS=0
+      MATRIX_FFN_NPUS=0
+      MATRIX_CONTROL_KEY=graph_u2_mtp2_a8
+      MATRIX_RESOURCE_LABEL=P8+D8
+      ;;
+    control_graph_u2_mtp3_a8)
+      MATRIX_EXPECT_VARIANT=pd_control
+      MATRIX_EXPECT_U_BATCHES=2
+      MATRIX_EXPECT_MTP=1
+      MATRIX_EXPECT_MTP_DRAFT_EXECUTION=graph
+      MATRIX_EXPECT_MTP_NUM_SPECULATIVE_TOKENS=3
+      MATRIX_DECODE_NPUS=8
+      MATRIX_ATTENTION_NPUS=0
+      MATRIX_FFN_NPUS=0
+      MATRIX_CONTROL_KEY=graph_u2_mtp3_a8
+      MATRIX_RESOURCE_LABEL=P8+D8
+      ;;
+    control_graph_u2_mtp3_a4)
+      MATRIX_EXPECT_VARIANT=pd_control
+      MATRIX_EXPECT_U_BATCHES=2
+      MATRIX_EXPECT_MTP=1
+      MATRIX_EXPECT_MTP_DRAFT_EXECUTION=graph
+      MATRIX_EXPECT_MTP_NUM_SPECULATIVE_TOKENS=3
+      MATRIX_ATTENTION_RANKS=4
+      MATRIX_DECODE_NPUS=4
+      MATRIX_ATTENTION_NPUS=0
+      MATRIX_FFN_NPUS=0
+      MATRIX_MAX_NUM_SEQS=8
+      MATRIX_MAX_CUDAGRAPH_CAPTURE_SIZE=4
+      MATRIX_CUDAGRAPH_CAPTURE_SIZES="1 2 4"
+      MATRIX_CONTROL_KEY=graph_u2_mtp3_a4
+      MATRIX_RESOURCE_LABEL=P8+D4
+      ;;
+    afd_graph_u2_split_a4f8_mtp3)
+      MATRIX_EXPECT_VARIANT=pd_afd
+      MATRIX_EXPECT_U_BATCHES=2
+      MATRIX_EXPECT_MTP=1
+      MATRIX_EXPECT_MTP_DRAFT_EXECUTION=graph
+      MATRIX_EXPECT_MTP_NUM_SPECULATIVE_TOKENS=3
+      MATRIX_PLACEMENT=split
+      MATRIX_ATTENTION_RANKS=4
+      MATRIX_DECODE_NPUS=12
+      MATRIX_ATTENTION_NPUS=4
+      MATRIX_FFN_NPUS=8
+      MATRIX_MAX_NUM_SEQS=8
+      MATRIX_FFN_MAX_NUM_BATCHED_TOKENS=2048
+      MATRIX_MAX_CUDAGRAPH_CAPTURE_SIZE=4
+      MATRIX_CUDAGRAPH_CAPTURE_SIZES="1 2 4"
+      MATRIX_CONTROL_KEY=graph_u2_mtp3_a4
+      MATRIX_RESOURCE_LABEL=P8F8+A4
+      ;;
+    afd_graph_u2_split_a8f4_mtp3)
+      MATRIX_EXPECT_VARIANT=pd_afd
+      MATRIX_EXPECT_U_BATCHES=2
+      MATRIX_EXPECT_MTP=1
+      MATRIX_EXPECT_MTP_DRAFT_EXECUTION=graph
+      MATRIX_EXPECT_MTP_NUM_SPECULATIVE_TOKENS=3
+      MATRIX_PLACEMENT=split
+      MATRIX_FFN_RANKS=4
+      MATRIX_DECODE_NPUS=12
+      MATRIX_ATTENTION_NPUS=8
+      MATRIX_FFN_NPUS=4
+      MATRIX_FFN_MAX_NUM_BATCHED_TOKENS=8192
+      MATRIX_CONTROL_KEY=graph_u2_mtp3_a8
+      MATRIX_RESOURCE_LABEL=P8F4+A8
       ;;
     afd_graph_u2_split_a8f8)
       MATRIX_EXPECT_VARIANT=pd_afd
@@ -196,12 +312,30 @@ config_path() {
   printf '%s/%s-%s.env\n' "${CONFIG_DIR}" "$1" "$2"
 }
 
+device_range() {
+  local start="$1"
+  local count="$2"
+  local end=$((start + count))
+  local device separator=""
+  for ((device = start; device < end; device++)); do
+    printf '%s%s' "${separator}" "${device}"
+    separator=,
+  done
+}
+
 write_role_config() {
   local point="$1"
   local role="$2"
-  local output_path
+  local output_path attention_devices ffn_devices ffn_device_start
   load_point_spec "${point}"
   output_path="$(config_path "${point}" "${role}")"
+  attention_devices="$(device_range 0 "${MATRIX_ATTENTION_RANKS}")"
+  if [[ "${MATRIX_PLACEMENT}" == "split" ]]; then
+    ffn_device_start="${MATRIX_PREFILL_NPUS}"
+  else
+    ffn_device_start="${MATRIX_ATTENTION_RANKS}"
+  fi
+  ffn_devices="$(device_range "${ffn_device_start}" "${MATRIX_FFN_RANKS}")"
   cat >"${output_path}" <<EOF
 # Generated by pd_graph_matrix.sh. Edit common.env, not this file.
 MATRIX_CONFIG_DIR="\$(cd "\$(dirname "\${BASH_SOURCE[0]}")" && pwd)"
@@ -217,8 +351,8 @@ AFD_PLACEMENT="${MATRIX_PLACEMENT}"
 ATTENTION_RANKS="${MATRIX_ATTENTION_RANKS}"
 FFN_RANKS="${MATRIX_FFN_RANKS}"
 DECODE_DP_SIZE="${MATRIX_ATTENTION_RANKS}"
-ATTENTION_DEVICES="$([[ "${MATRIX_ATTENTION_RANKS}" == "16" ]] && printf '0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15' || printf '0,1,2,3,4,5,6,7')"
-FFN_DEVICES="8,9,10,11,12,13,14,15"
+ATTENTION_DEVICES="${attention_devices}"
+FFN_DEVICES="${ffn_devices}"
 MAX_NUM_SEQS="${MATRIX_MAX_NUM_SEQS}"
 ATTENTION_MAX_NUM_BATCHED_TOKENS="${MATRIX_ATTENTION_MAX_NUM_BATCHED_TOKENS}"
 FFN_MAX_NUM_BATCHED_TOKENS="${MATRIX_FFN_MAX_NUM_BATCHED_TOKENS}"
@@ -247,7 +381,7 @@ STATE_ROOT="\${RUN_ROOT}/state/${role}"
 LOG_ROOT="\${RUN_ROOT}/logs/${role}"
 VALIDATION_ROOT="\${RUN_ROOT}/validation"
 OUTPUT_ROOT="\${RUN_ROOT}/output"
-PD_CONTROL_GOLDEN_PATH="\${RUN_ROOT}/deferred-f1/golden_results.json"
+PD_CONTROL_GOLDEN_PATH="\${MATRIX_RUN_BASE}/f1-control/${MATRIX_CONTROL_KEY}/golden_results.json"
 COLOCATED_PREFILL_PID_FILE="\${RUN_ROOT}/state/prefill/prefill.pid"
 AFD_PROFILE_ATTENTION_DIR="\${MATRIX_PROFILE_BASE}/${point}/attention"
 AFD_PROFILE_FFN_DIR="\${MATRIX_PROFILE_BASE}/${point}/ffn"
@@ -352,10 +486,10 @@ source_and_validate_config() {
     || die "DECODE_U_BATCHES mismatch for ${POINT}"
   [[ "${DECODE_ENABLE_MTP}" == "${MATRIX_EXPECT_MTP}" ]] \
     || die "DECODE_ENABLE_MTP mismatch for ${POINT}"
-  [[ "${DECODE_MTP_DRAFT_EXECUTION}" == "eager" ]] \
-    || die "The primary matrix fixes the MTP draft to eager"
-  [[ "${DECODE_MTP_NUM_SPECULATIVE_TOKENS}" == "1" ]] \
-    || die "The primary matrix supports one speculative token"
+  [[ "${DECODE_MTP_DRAFT_EXECUTION}" == "${MATRIX_EXPECT_MTP_DRAFT_EXECUTION}" ]] \
+    || die "MTP draft execution mismatch for ${POINT}"
+  [[ "${DECODE_MTP_NUM_SPECULATIVE_TOKENS}" == "${MATRIX_EXPECT_MTP_NUM_SPECULATIVE_TOKENS}" ]] \
+    || die "MTP speculative token count mismatch for ${POINT}"
   [[ "${ATTENTION_RANKS}" =~ ^[0-9]+$ && "${ATTENTION_RANKS}" -gt 0 ]] \
     || die "ATTENTION_RANKS must be a positive integer"
   [[ "${ENABLE_BATCH_INVARIANT}" == "0" ]] \
@@ -365,7 +499,8 @@ source_and_validate_config() {
   validate_device_list FFN_DEVICES "${FFN_DEVICES}" "${MATRIX_FFN_RANKS}"
   if [[ "${DEPLOYMENT_VARIANT}" == "pd_afd" && "${MATRIX_PLACEMENT}" == "colocated" ]]; then
     validate_device_list DECODE_AFD_DEVICES \
-      "${ATTENTION_DEVICES},${FFN_DEVICES}" 16
+      "${ATTENTION_DEVICES},${FFN_DEVICES}" \
+      "$((MATRIX_ATTENTION_RANKS + MATRIX_FFN_RANKS))"
   fi
 }
 
@@ -797,8 +932,10 @@ delegate_action() {
   config="$(require_generated_config)"
   source_and_validate_config "${config}"
   case "${ACTION}:${ROLE}" in
-    smoke:proxy|check:*|start:*|status:*|collect:*|profile-start:*|profile-check:*|profile-stop:*|profile-finalize:*|stop:*|print-config:*) ;;
+    smoke:proxy|record-control:proxy|validate:proxy|check:*|start:*|status:*|collect:*|profile-start:*|profile-check:*|profile-stop:*|profile-finalize:*|stop:*|print-config:*) ;;
     smoke:*) die "smoke must run with role=proxy" ;;
+    record-control:*) die "record-control must run with role=proxy" ;;
+    validate:*) die "validate must run with role=proxy" ;;
     *) die "Unsupported delegated action: ${ACTION}" ;;
   esac
   exec bash "${PD_SCRIPT}" "${ACTION}" "${config}"
@@ -936,7 +1073,7 @@ case "${ACTION}" in
     [[ -n "${POINT}" ]] || die "commands requires a point"
     commands_action
     ;;
-  print-config|check|start|status|smoke|collect|profile-start|profile-check|profile-stop|profile-finalize|stop)
+  print-config|check|start|status|smoke|record-control|validate|collect|profile-start|profile-check|profile-stop|profile-finalize|stop)
     [[ -n "${POINT}" && -n "${ROLE}" ]] \
       || die "${ACTION} requires a point and role"
     delegate_action

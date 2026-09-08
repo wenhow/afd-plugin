@@ -359,7 +359,7 @@ validate_common_config() {
   reject_placeholder PREFILL_IP "${PREFILL_IP:-}"
   reject_placeholder DECODE_IP "${DECODE_IP:-}"
   [[ "${AFD_PD_COMMIT:-}" =~ ^[0-9a-f]{40}$ ]] \
-    || die "AFD_PD_COMMIT must be the delivered 40-character M9 commit"
+    || die "AFD_PD_COMMIT must be the delivered 40-character phase-one commit"
   assert_integer STARTUP_TIMEOUT_SECONDS "${STARTUP_TIMEOUT_SECONDS}"
   assert_integer STOP_TIMEOUT_SECONDS "${STOP_TIMEOUT_SECONDS}"
   assert_integer AFD_PROFILE_START_TIMEOUT_SECONDS \
@@ -386,20 +386,30 @@ validate_common_config() {
     || die "M9 baseline requires Prefill DP2/TP4"
   if [[ "${DEPLOYMENT_VARIANT}" == "pd_control" ]]; then
     case "${DECODE_DP_SIZE}:${DECODE_TP_SIZE}" in
-      8:1|4:2) ;;
-      *) die "M9 control supports Decode DP8/TP1 or DP4/TP2" ;;
+      8:1|4:1|4:2) ;;
+      *) die "Phase-one control supports Decode DP8/TP1, DP4/TP1, or DP4/TP2" ;;
     esac
   else
     [[ "${DECODE_TP_SIZE}" == "1" ]] \
       || die "Unequal A/F PD validation requires TP1"
-    (( ATTENTION_RANKS >= FFN_RANKS )) \
-      || die "ATTENTION_RANKS must be greater than or equal to FFN_RANKS"
-    (( ATTENTION_RANKS % FFN_RANKS == 0 )) \
-      || die "ATTENTION_RANKS must be an integer multiple of FFN_RANKS"
+    assert_integer ATTENTION_RANKS "${ATTENTION_RANKS}"
+    assert_integer FFN_RANKS "${FFN_RANKS}"
+    (( ATTENTION_RANKS > 0 && FFN_RANKS > 0 )) \
+      || die "ATTENTION_RANKS and FFN_RANKS must be positive"
+    local larger_ranks smaller_ranks ratio
+    larger_ranks=$((ATTENTION_RANKS > FFN_RANKS ? ATTENTION_RANKS : FFN_RANKS))
+    smaller_ranks=$((ATTENTION_RANKS < FFN_RANKS ? ATTENTION_RANKS : FFN_RANKS))
+    (( larger_ranks % smaller_ranks == 0 )) \
+      || die "Attention and FFN ranks must have an integer ratio"
+    ratio=$((larger_ranks / smaller_ranks))
     (( DECODE_DP_SIZE == ATTENTION_RANKS )) \
       || die "DECODE_DP_SIZE must equal ATTENTION_RANKS under TP1"
     local required_ffn_tokens
-    required_ffn_tokens=$((ATTENTION_MAX_NUM_BATCHED_TOKENS * ATTENTION_RANKS / FFN_RANKS))
+    if (( FFN_RANKS > ATTENTION_RANKS )); then
+      required_ffn_tokens=$(((ATTENTION_MAX_NUM_BATCHED_TOKENS + ratio - 1) / ratio))
+    else
+      required_ffn_tokens=$((ATTENTION_MAX_NUM_BATCHED_TOKENS * ratio))
+    fi
     (( FFN_MAX_NUM_BATCHED_TOKENS >= required_ffn_tokens )) \
       || die "FFN_MAX_NUM_BATCHED_TOKENS must be at least ${required_ffn_tokens}"
   fi
@@ -489,8 +499,8 @@ validate_common_config() {
     eager|graph) ;;
     *) die "DECODE_MTP_DRAFT_EXECUTION must be eager or graph" ;;
   esac
-  [[ "${DECODE_MTP_NUM_SPECULATIVE_TOKENS}" == "1" ]] \
-    || die "M9 MTP supports exactly one speculative token"
+  [[ "${DECODE_MTP_NUM_SPECULATIVE_TOKENS}" =~ ^[1-3]$ ]] \
+    || die "Phase-one MTP requires num_speculative_tokens in [1, 3]"
   if [[ "${DECODE_ENABLE_MTP}" == "1" ]]; then
     if [[ "${DECODE_EXECUTION_MODE}" == "eager" \
       && "${DECODE_MTP_DRAFT_EXECUTION}" != "eager" ]]; then
@@ -768,12 +778,21 @@ validate_colocated_control_processes() {
 
 check_npus() {
   require_command npu-smi
-  local expected=8
-  if [[ "${NODE_ROLE}" == "decode" && "${DEPLOYMENT_VARIANT}" == "pd_afd" ]] \
-    || [[ "${NODE_ROLE}" == "prefill_ffn" ]] \
-    || [[ "${NODE_ROLE}" == "attention" && "${ATTENTION_RANKS}" == "16" ]]; then
-    expected=16
-  fi
+  local expected
+  case "${NODE_ROLE}" in
+    prefill) expected="$(device_list_count "${PREFILL_DEVICES}")" ;;
+    prefill_ffn)
+      expected=$(($(device_list_count "${PREFILL_DEVICES}") + $(device_list_count "${FFN_DEVICES}")))
+      ;;
+    attention) expected="$(device_list_count "${ATTENTION_DEVICES}")" ;;
+    decode)
+      expected="$(device_list_count "${ATTENTION_DEVICES}")"
+      if [[ "${DEPLOYMENT_VARIANT}" == "pd_afd" ]]; then
+        expected=$((expected + $(device_list_count "${FFN_DEVICES}")))
+      fi
+      ;;
+    proxy) expected=0 ;;
+  esac
   local detected
   detected="$(npu-smi info -l | awk -F: '/Chip Count/ {gsub(/[[:space:]]/, "", $2); sum += $2} END {print sum + 0}')"
   (( detected >= expected )) || die "${NODE_ROLE} requires ${expected} NPUs, detected ${detected}"
