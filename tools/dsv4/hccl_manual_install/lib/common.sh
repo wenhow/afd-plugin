@@ -67,6 +67,25 @@ is_true() {
   esac
 }
 
+source_vendor_env() {
+  local vendor_env="$1"
+  local had_nounset=0
+  local source_rc=0
+  shift
+  case $- in
+    *u*) had_nounset=1 ;;
+  esac
+  set +u
+  # shellcheck disable=SC1090
+  source "${vendor_env}" "$@" || source_rc=$?
+  if (( had_nounset )); then
+    set -u
+  else
+    set +u
+  fi
+  return "${source_rc}"
+}
+
 require_command() {
   command -v "$1" >/dev/null 2>&1 || die "Missing command: $1"
 }

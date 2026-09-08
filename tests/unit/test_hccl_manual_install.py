@@ -69,3 +69,47 @@ def test_reused_vllm_ascend_accepts_scm_prefix_with_pinned_commit():
     assert 'ascend_version.endswith(ascend_suffix)' in install_deps
     assert "EXPECTED_ASCEND_COMMIT" in install_deps
     assert 'endswith(expected_ascend_suffix)' in verify_install
+
+
+def test_vendor_env_temporarily_disables_and_restores_nounset(tmp_path):
+    vendor_env = tmp_path / "set_env.bash"
+    vendor_env.write_text(
+        'export ASCEND_CUSTOM_OPP_PATH="${ASCEND_CUSTOM_OPP_PATH}:/custom/opp"\n'
+    )
+    script = r"""
+source "$1"
+set -u
+unset ASCEND_CUSTOM_OPP_PATH
+source_vendor_env "$2"
+[[ "${ASCEND_CUSTOM_OPP_PATH}" == ":/custom/opp" ]]
+case $- in
+  *u*) ;;
+  *) exit 3 ;;
+esac
+"""
+    result = subprocess.run(
+        [
+            "bash",
+            "-c",
+            script,
+            "bash",
+            str(INSTALLER / "lib/common.sh"),
+            str(vendor_env),
+        ],
+        env={
+            **os.environ,
+            "CONFIG_FILE": str(INSTALLER / "config.env.example"),
+        },
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0, result.stderr
+
+
+def test_runtime_uses_vendor_env_wrapper_for_all_environment_scripts():
+    runtime = (INSTALLER / "bin/activate_runtime.sh").read_text()
+    assert runtime.count("source_vendor_env") == 3
+    assert 'source "${CANN_ROOT}/set_env.sh"' not in runtime
+    assert 'source "${CANN_ROOT}/nnal/atb/set_env.sh"' not in runtime
+    assert 'source "${ops_env}"' not in runtime

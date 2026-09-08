@@ -18,8 +18,8 @@ export LD_LIBRARY_PATH="${PYTHON_LIBRARY_PATH}"
 
 # CANN first, then the selected venv. This prevents another venv or toolkit
 # from leaking into the deployment process.
-# shellcheck disable=SC1090
-source "${CANN_ROOT}/set_env.sh"
+source_vendor_env "${CANN_ROOT}/set_env.sh" \
+  || die "Failed to source CANN environment: ${CANN_ROOT}/set_env.sh"
 
 export VIRTUAL_ENV="${VENV_ROOT}"
 export PATH="${VENV_ROOT}/bin:${PATH}"
@@ -27,8 +27,8 @@ export PATH="${VENV_ROOT}/bin:${PATH}"
 # NNAL probes torch's C++ ABI with python3, so source it only after the venv is
 # on PATH.
 if [[ -f "${CANN_ROOT}/nnal/atb/set_env.sh" ]]; then
-  # shellcheck disable=SC1090
-  source "${CANN_ROOT}/nnal/atb/set_env.sh"
+  source_vendor_env "${CANN_ROOT}/nnal/atb/set_env.sh" \
+    || die "Failed to source NNAL/ATB environment"
 fi
 
 export DSV4_CANN_ROOT="${CANN_ROOT}"
@@ -48,6 +48,6 @@ esac
 if is_true "${LOAD_VLLM_ASCEND_OPS:-0}"; then
   ops_env="${VLLM_ASCEND_ROOT}/vllm_ascend/_cann_ops_custom/vendors/custom_transformer/bin/set_env.bash"
   require_file "${ops_env}"
-  # shellcheck disable=SC1090
-  source "${ops_env}"
+  source_vendor_env "${ops_env}" \
+    || die "Failed to source vLLM-Ascend custom ops environment"
 fi

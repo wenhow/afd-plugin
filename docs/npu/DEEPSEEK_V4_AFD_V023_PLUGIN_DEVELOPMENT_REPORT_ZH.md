@@ -2087,7 +2087,7 @@ DP4/TP2 eager/U1 功能 tag 保留，但不改变本次范围。
 | `2164240` | Graph/U2 三项新增物理流水默认全开；双 A3 R14 采集的代码基线 |
 | `71168312` | 第一阶段 M10/M11：单 MTP layer N1-N3、双向整数 A/F、组件/recipe/部署验证 |
 | `ec106f5b` | 第一期 A5/双机矩阵、路径匹配 control、证据收集器、安装补丁包与执行指导书 |
-| 本次更新 | 参考双机已验证 R14 overlay，提供双 A3 复用环境 profile、旧 `2164240` 到一期目标的离线增量包、dirty seed 无损留档、vLLM-Ascend SCM 版本前缀兼容、导入根审计、预置 PD common 模板，以及无 `ss` 容器的端口检查回退 |
+| 本次更新 | 参考双机已验证 R14 overlay，提供双 A3 复用环境 profile、旧 `2164240` 到一期目标的离线增量包、dirty seed 无损留档、vLLM-Ascend SCM 版本前缀兼容、供应商环境脚本 nounset 隔离、导入根审计、预置 PD common 模板，以及无 `ss` 容器的端口检查回退 |
 
 ### 13.2 冻结 tag
 

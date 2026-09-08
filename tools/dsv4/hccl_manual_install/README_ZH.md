@@ -142,6 +142,10 @@ afd-plugin 补丁并比对最终 Git tree。任一版本不匹配都会停止。
 核验 Git HEAD 和 Python 实际导入根。此前安装中断后，可直接用新版包重跑；已创建的
 一期 AFD 目标仅在工作树干净且提交是新版目标祖先时自动升级。
 
+CANN、NNAL/ATB 和 custom ops 的供应商 `set_env` 可能直接读取尚未定义的环境变量。
+安装器在 source 这些脚本期间临时关闭 Bash `nounset`，随后恢复原状态；容器无需手工
+预设 `ASCEND_CUSTOM_OPP_PATH`，也不需要修改供应商脚本。
+
 双机 PD common 模板也已预置，但 `NATIVE_GOLDEN_PATH` 指向的 A5 native control
 结果不随包分发；完成 A5 control 后需把该文件放到两台机器的预置路径，或只修改该
 路径项。

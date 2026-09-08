@@ -72,6 +72,10 @@ CANN 9.0.0 的唯一真实根目录；不得先 source 其他版本再继续。
 和实际 Python 导入根。因旧审计前缀不匹配而中断时不需要重装 env，换用新版包直接
 重跑 `install_all.sh`；干净的既有一期目标目录会沿包内提交链升级。
 
+供应商 CANN、NNAL/ATB 和 custom ops 的 `set_env` 在严格 Bash `set -u` 下可能读取
+未定义变量。新版安装器会在 source 期间临时关闭 nounset 并立即恢复；不要为绕过
+错误手工修改供应商脚本，也不需要在配置中伪造 `ASCEND_CUSTOM_OPP_PATH`。
+
 安装完成后保存包目录和源码目录：
 
 ```bash
