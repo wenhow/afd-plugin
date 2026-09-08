@@ -144,7 +144,27 @@ read_pid_file() {
 
 port_is_listening() {
   local port="$1"
-  ss -ltn | awk -v expected=":${port}" '$4 ~ expected "$" {found=1} END {exit !found}'
+  if command -v ss >/dev/null 2>&1; then
+    ss -ltn | awk -v expected=":${port}" \
+      '$4 ~ expected "$" {found=1} END {exit !found}'
+    return
+  fi
+  if command -v netstat >/dev/null 2>&1; then
+    netstat -lnt | awk -v expected=":${port}" \
+      '$4 ~ expected "$" && $6 == "LISTEN" {found=1} END {exit !found}'
+    return
+  fi
+  local port_hex
+  local -a tcp_tables=(/proc/net/tcp)
+  [[ -r /proc/net/tcp6 ]] && tcp_tables+=(/proc/net/tcp6)
+  printf -v port_hex '%04X' "${port}"
+  awk -v expected="${port_hex}" '
+    FNR > 1 {
+      split($2, address, ":")
+      if (toupper(address[2]) == expected && $4 == "0A") found=1
+    }
+    END {exit !found}
+  ' "${tcp_tables[@]}"
 }
 
 assert_positive_integer() {

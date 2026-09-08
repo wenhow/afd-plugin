@@ -75,7 +75,8 @@ CONFIG_PROFILE=dual-a3-reuse \
 - CANN 9.0.0 和 Python 3.12 已安装；
 - DeepSeek-V4-Flash W8A8 模型已放到目标机；
 - 可访问配置中的三个 Git 地址、vLLM-Ascend submodule 地址和 Python 包源；
-- 已安装 `git`、`tar`、`curl`、`iproute2`/`iproute` 等基础工具。
+- 已安装 `git`、`tar`、`curl` 等基础工具。容器没有 `ss` 时会依次使用
+  `netstat`、`/proc/net/tcp*` 检查监听端口，不需要为此重装环境。
 
 如果目标环境使用内部 Git 镜像，可在 `config.env` 中改写三个 `*_GIT_URL`，
 但镜像必须包含清单指定的提交。

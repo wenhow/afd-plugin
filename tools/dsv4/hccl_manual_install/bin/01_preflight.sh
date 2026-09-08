@@ -5,7 +5,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=../lib/common.sh
 source "${SCRIPT_DIR}/../lib/common.sh"
 
-for command_name in bash git tar awk sed grep find ss curl npu-smi setsid nohup ps; do
+for command_name in bash git tar awk sed grep find curl npu-smi setsid nohup ps; do
   require_command "${command_name}"
 done
 
