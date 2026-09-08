@@ -83,7 +83,7 @@ prepare_afd_from_seed_bundle() {
 
   ensure_dir "$(dirname "${AFD_PLUGIN_ROOT}")"
   log "Creating afd-plugin target from validated seed: ${AFD_SEED_ROOT}"
-  git clone --no-checkout --local "${AFD_SEED_ROOT}" "${AFD_PLUGIN_ROOT}"
+  git clone --no-checkout --no-hardlinks "${AFD_SEED_ROOT}" "${AFD_PLUGIN_ROOT}"
   git -C "${AFD_PLUGIN_ROOT}" fetch "${seed_bundle}" HEAD
   git -C "${AFD_PLUGIN_ROOT}" checkout --detach "${AFD_TARGET_COMMIT}"
   verify_git_head "${AFD_PLUGIN_ROOT}" "${AFD_TARGET_COMMIT}" \
