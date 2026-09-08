@@ -172,8 +172,11 @@ def test_phase1_points_match_control_and_topology_contract(
 
 def test_a5_matrix_lists_the_blocking_phase1_cases():
     matrix = ROOT / "tools/dsv4/run_phase1_a5_matrix.sh"
+    script = matrix.read_text(encoding="utf-8")
     output = subprocess.check_output(["bash", str(matrix), "list"], text=True)
 
+    assert 'export PYTHONPATH="${REPO_ROOT}:${DSV4_VLLM_ROOT}' in script
+    assert "imported_roots" in script
     assert output.splitlines() == [
         "a8f8_eager_u1_mtp_off",
         "a8f8_eager_u1_n1",

@@ -54,6 +54,7 @@ contains_case() {
 
 activate_and_audit() {
   source "${SCRIPT_DIR}/activate_v023_vllm_cann_runtime.sh"
+  export PYTHONPATH="${REPO_ROOT}:${DSV4_VLLM_ROOT}:${DSV4_VLLM_ASCEND_ROOT}${PYTHONPATH:+:${PYTHONPATH}}"
   local expected_vllm=0fc695fc6d1d82e9a5ac6835ac8e4e1c83703665
   local expected_ascend=3da28f9414583d2d0b672a8f06d1fae142404bda
   [[ "$(git -C "${DSV4_VLLM_ROOT}" rev-parse HEAD)" == "${expected_vllm}" ]] \
@@ -72,6 +73,28 @@ activate_and_audit() {
   [[ -f "${MODEL_PATH:-/nonexistent}/config.json" ]] || die "MODEL_PATH is invalid"
   [[ -f "${PHASE1_GOLDEN:-/nonexistent}" ]] || die "PHASE1_GOLDEN is invalid"
   [[ -f "${RUNNER}" ]] || die "Validation runner is missing"
+
+  local imported_roots=()
+  mapfile -t imported_roots < <(
+    cd "${REPO_ROOT}"
+    "${DSV4_RUNTIME_VENV}/bin/python" - <<'PY'
+from pathlib import Path
+
+import afd_plugin
+import vllm
+import vllm_ascend
+
+print(Path(afd_plugin.__file__).resolve().parent.parent)
+print(Path(vllm.__file__).resolve().parent.parent)
+print(Path(vllm_ascend.__file__).resolve().parent.parent)
+PY
+  )
+  [[ "${imported_roots[0]:-}" == "$(readlink -f "${REPO_ROOT}")" ]] \
+    || die "afd-plugin imports from ${imported_roots[0]:-unknown}, not ${REPO_ROOT}"
+  [[ "${imported_roots[1]:-}" == "$(readlink -f "${DSV4_VLLM_ROOT}")" ]] \
+    || die "vLLM imports from ${imported_roots[1]:-unknown}, not ${DSV4_VLLM_ROOT}"
+  [[ "${imported_roots[2]:-}" == "$(readlink -f "${DSV4_VLLM_ASCEND_ROOT}")" ]] \
+    || die "vLLM-Ascend imports from ${imported_roots[2]:-unknown}, not ${DSV4_VLLM_ASCEND_ROOT}"
 
   local npu_process_count
   npu_process_count="$(npu-smi info | awk '

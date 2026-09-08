@@ -184,10 +184,14 @@ def test_dsv4_hccl_recipe_owns_connector_specific_launchers():
 
 def test_dsv4_shared_recipe_is_connector_neutral():
     common_runner = RUNNER_PATH.read_text(encoding="utf-8")
+    role_runtime = (COMMON_RECIPE_DIR / "activate_role_runtime.sh").read_text(
+        encoding="utf-8"
+    )
     assert "CONNECTOR_RECIPE_DIRS" in common_runner
     assert "COMMON_RECIPE_DIR" in common_runner
     assert (COMMON_RECIPE_DIR / "validate_golden.py").is_file()
     assert (COMMON_RECIPE_DIR / "activate_role_runtime.sh").is_file()
+    assert 'export PYTHONPATH="${ROOT_DIR}:${DSV4_VLLM_ROOT}' in role_runtime
 
     camp_runner = (CAMP_RECIPE_DIR / "run_validation.py").read_text(encoding="utf-8")
     assert 'sys.argv.extend(["--connector", "CAMP2pAFDConnector"])' in camp_runner

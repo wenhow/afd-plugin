@@ -1325,6 +1325,12 @@ forward 传递实际 `speculative_step`；固定上游版本未传该字段时�
 项真实 NPU 组件，以及 A8F8 eager/U1/N2 单请求实模 smoke。该证据关闭 M10 本机门禁，
 但不把历史 M0-M7 的 30/30 或性能数据外推到 N2/N3；完整 F1 与性能仍需后续独立执行。
 
+`2026-09-08` 交付复核显式固定 CANN 9.0.0、vLLM `0fc695fc6d1d82e9a5ac6835ac8e4e1c83703665`
+和 vLLM-Ascend `3da28f9414583d2d0b672a8f06d1fae142404bda` 的实际导入路径；精确组合下
+`pytest` 收集 1072 项并无失败。阶段一 A5 runner 同时检查源码 commit、clean worktree、
+实际 Python import root、CANN 根、golden、模型和空闲 NPU 进程表，避免只看 distribution
+版本但误用另一棵 editable 源码。该复核是本机开发门禁，不替代 A5 实模或双机 PD 结果。
+
 详细证据见 M0、M1、M2、M3、M4 和 full-draft Graph 六份专项报告。
 
 ## 8. 特性五：AF 非等量拓扑
@@ -2069,7 +2075,7 @@ DP4/TP2 eager/U1 功能 tag 保留，但不改变本次范围。
 | `891e794` | Graph/U2 混合 DAG 与逻辑/物理 stream 解耦基线 |
 | `2164240` | Graph/U2 三项新增物理流水默认全开；双 A3 R14 采集的代码基线 |
 | `71168312` | 第一阶段 M10/M11：单 MTP layer N1-N3、双向整数 A/F、组件/recipe/部署验证 |
-| 本轮交付提交 | 第一期 A5/双机矩阵、路径匹配 control、证据收集器、安装补丁包与执行指导书 |
+| `ec106f5b` | 第一期 A5/双机矩阵、路径匹配 control、证据收集器、安装补丁包与执行指导书 |
 
 ### 13.2 冻结 tag
 
