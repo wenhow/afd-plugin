@@ -202,6 +202,10 @@ Mooncake、CANN 和 `NATIVE_GOLDEN_PATH`；路径不变时无需手填。`init` 
 afd-plugin HEAD 写入 `common.env`；两台机器的 `AFD_PD_COMMIT` 必须相同。每一轮在
 两台机器设置同一个逻辑运行根：
 
+复用包沿同一提交链升级后无需重新 `init`。第一次执行矩阵 `check` 时会把旧
+`AFD_PD_COMMIT` 快进到当前干净 checkout，并重新生成 role 配置；也可先执行
+`bash "$MATRIX" refresh-config "$CFG"`。分叉提交和脏工作树仍会停止并保留现场。
+
 `NATIVE_GOLDEN_PATH` 的路径虽已预置，但文件不在补丁包内。完成第 4 节后，将 A5
 生成的 `eager_mtp_off/golden_results.json` 放到两台机器的预置路径；若实际落盘位置
 不同，只修改 `common.env` 中这一项。

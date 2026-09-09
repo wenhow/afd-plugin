@@ -161,6 +161,7 @@ def test_mooncake_pd_manual_entry_is_safe_and_size_capped():
         assert action in help_output
 
     assert "pkill" not in script
+    assert "must be executed with bash, not sourced" in script
     assert "stop_name attention" in script
     assert "stop_name ffn" in script
     assert "stop_name decode-control" in script
@@ -205,6 +206,7 @@ def test_mooncake_pd_manual_entry_is_safe_and_size_capped():
     assert 'if port_is_listening "${port}"; then' in script
     assert 'port_is_listening "${port}" && die' not in script
     assert 'die "Mooncake local NPU round-trip failed;' in script
+    assert "configured=${AFD_PD_COMMIT}, actual=${actual_afd_commit}" in script
     assert "/usr/lib/aarch64-linux-gnu/libjemalloc.so.2" in runtime
     assert "/usr/lib64/libjemalloc.so.2" in runtime
     assert "MOONCAKE_JEMALLOC" in runtime

@@ -13,6 +13,7 @@ from tools.dsv4 import run_pd_performance
 
 ROOT = Path(__file__).resolve().parents[2]
 MATRIX = ROOT / "tools/dsv4/mooncake_pd_manual/pd_graph_matrix.sh"
+PD_SCRIPT = MATRIX.parent / "pd.sh"
 GUIDE = (
     ROOT / "docs/npu/DEEPSEEK_V4_AFD_P8_A16F8_DUAL_A3_GRAPH_U2_VALIDATION_GUIDE_ZH.md"
 )
@@ -32,6 +33,101 @@ def _source_config(path: Path) -> dict[str, str]:
         for item in result.stdout.decode().split("\0")
         if "=" in item
     }
+
+
+@pytest.mark.parametrize("script", [MATRIX, PD_SCRIPT])
+def test_shell_entrypoints_reject_sourcing_without_exiting_caller(script):
+    result = subprocess.run(
+        [
+            "bash",
+            "-c",
+            'source "$1"; rc=$?; printf "caller-alive:%s\\n" "$rc"',
+            "bash",
+            str(script),
+        ],
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0
+    assert "caller-alive:2" in result.stdout
+    assert "current shell was left unchanged" in result.stderr
+
+
+def test_matrix_refreshes_fast_forwarded_afd_commit(tmp_path):
+    repo = tmp_path / "afd-plugin"
+    manual_dir = repo / "tools/dsv4/mooncake_pd_manual"
+    manual_dir.mkdir(parents=True)
+    shutil.copy2(MATRIX, manual_dir / MATRIX.name)
+    shutil.copy2(MATRIX.parent / "config.env.example", manual_dir / "config.env.example")
+    subprocess.run(["git", "init", "-q", str(repo)], check=True)
+    subprocess.run(["git", "-C", str(repo), "add", "."], check=True)
+    subprocess.run(
+        [
+            "git",
+            "-C",
+            str(repo),
+            "-c",
+            "user.name=tests",
+            "-c",
+            "user.email=tests@localhost",
+            "commit",
+            "-qm",
+            "base",
+        ],
+        check=True,
+    )
+    old_commit = subprocess.check_output(
+        ["git", "-C", str(repo), "rev-parse", "HEAD"], text=True
+    ).strip()
+    (repo / "release-marker").write_text("next\n")
+    subprocess.run(["git", "-C", str(repo), "add", "release-marker"], check=True)
+    subprocess.run(
+        [
+            "git",
+            "-C",
+            str(repo),
+            "-c",
+            "user.name=tests",
+            "-c",
+            "user.email=tests@localhost",
+            "commit",
+            "-qm",
+            "upgrade",
+        ],
+        check=True,
+    )
+    new_commit = subprocess.check_output(
+        ["git", "-C", str(repo), "rev-parse", "HEAD"], text=True
+    ).strip()
+
+    template = tmp_path / "site.env"
+    template.write_text(
+        (MATRIX.parent / "config.env.example")
+        .read_text()
+        .replace(
+            'AFD_PLUGIN_ROOT="${CODE_ROOT}/afd-plugin"',
+            f'AFD_PLUGIN_ROOT="{repo}"',
+        )
+    )
+    config_dir = tmp_path / "matrix"
+    env = os.environ | {"PD_GRAPH_MATRIX_COMMON_TEMPLATE": str(template)}
+    copied_matrix = manual_dir / MATRIX.name
+    subprocess.run(
+        ["bash", str(copied_matrix), "init", str(config_dir)], env=env, check=True
+    )
+    common = config_dir / "common.env"
+    common.write_text(common.read_text().replace(new_commit, old_commit))
+
+    result = subprocess.run(
+        ["bash", str(copied_matrix), "refresh-config", str(config_dir)],
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert _source_config(common)["AFD_PD_COMMIT"] == new_commit
+    assert "Refreshed fast-forwarded afd-plugin config" in result.stdout
 
 
 def test_matrix_generates_split_a16f8_contract(tmp_path):

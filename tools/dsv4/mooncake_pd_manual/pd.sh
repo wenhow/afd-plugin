@@ -1,4 +1,10 @@
 #!/usr/bin/env bash
+
+if [[ "${BASH_SOURCE[0]}" != "$0" ]]; then
+  printf 'pd.sh must be executed with bash, not sourced; current shell was left unchanged.\n' >&2
+  return 2
+fi
+
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -523,8 +529,10 @@ validate_common_config() {
     || die "vLLM commit mismatch"
   [[ "$(git_head "${VLLM_ASCEND_ROOT}")" == "${VLLM_ASCEND_COMMIT}" ]] \
     || die "vLLM-Ascend commit mismatch"
-  [[ "$(git_head "${AFD_PLUGIN_ROOT}")" == "${AFD_PD_COMMIT}" ]] \
-    || die "afd-plugin commit mismatch"
+  local actual_afd_commit
+  actual_afd_commit="$(git_head "${AFD_PLUGIN_ROOT}")"
+  [[ "${actual_afd_commit}" == "${AFD_PD_COMMIT}" ]] \
+    || die "afd-plugin commit mismatch: configured=${AFD_PD_COMMIT}, actual=${actual_afd_commit}; run the matrix check once to refresh a fast-forwarded config"
   [[ -z "$(git -c safe.directory="${VLLM_ROOT}" -C "${VLLM_ROOT}" status --short)" ]] \
     || die "vLLM worktree is dirty"
   validate_vllm_ascend_worktree

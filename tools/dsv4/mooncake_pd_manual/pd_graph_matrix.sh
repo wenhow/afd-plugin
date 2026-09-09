@@ -1,4 +1,10 @@
 #!/usr/bin/env bash
+
+if [[ "${BASH_SOURCE[0]}" != "$0" ]]; then
+  printf 'pd_graph_matrix.sh must be executed with bash, not sourced; current shell was left unchanged.\n' >&2
+  return 2
+fi
+
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -45,6 +51,7 @@ usage() {
   cat <<'EOF'
 Usage:
   bash pd_graph_matrix.sh init <config-dir>
+  bash pd_graph_matrix.sh refresh-config <config-dir>
   bash pd_graph_matrix.sh list <config-dir>
   bash pd_graph_matrix.sh commands <config-dir> <point>
   bash pd_graph_matrix.sh print-config <config-dir> <point> <role>
@@ -418,6 +425,57 @@ init_action() {
   log "Common template: ${common_template}"
   log "Pinned afd-plugin ${afd_commit} in ${CONFIG_DIR}/common.env"
   log "Review common.env: fixed IPs, NIC, model path, and commits must match the site"
+}
+
+refresh_config_action() {
+  local common_config="${CONFIG_DIR}/common.env"
+  [[ -f "${common_config}" ]] \
+    || die "Missing matrix config: ${common_config}; run init first"
+
+  set -a
+  # shellcheck disable=SC1090
+  source "${common_config}"
+  set +a
+
+  local matrix_repo configured_repo configured_commit actual_commit status
+  matrix_repo="$(cd "${SCRIPT_DIR}/../../.." && pwd -P)"
+  configured_repo="$(cd "${AFD_PLUGIN_ROOT}" 2>/dev/null && pwd -P)" \
+    || die "AFD_PLUGIN_ROOT is not accessible: ${AFD_PLUGIN_ROOT}"
+  [[ "${configured_repo}" == "${matrix_repo}" ]] \
+    || die "Matrix checkout and AFD_PLUGIN_ROOT differ: matrix=${matrix_repo}, configured=${configured_repo}"
+
+  configured_commit="${AFD_PD_COMMIT:-}"
+  [[ "${configured_commit}" =~ ^[0-9a-f]{40}$ ]] \
+    || die "AFD_PD_COMMIT is not a 40-character commit: ${configured_commit:-unset}"
+  actual_commit="$(git -c safe.directory="${configured_repo}" \
+    -C "${configured_repo}" rev-parse HEAD)" \
+    || die "Cannot resolve afd-plugin HEAD: ${configured_repo}"
+  [[ "${actual_commit}" =~ ^[0-9a-f]{40}$ ]] \
+    || die "afd-plugin HEAD is not a 40-character commit: ${actual_commit}"
+  [[ "${configured_commit}" != "${actual_commit}" ]] || return 0
+
+  status="$(git -c safe.directory="${configured_repo}" \
+    -C "${configured_repo}" status --short --untracked-files=all)"
+  [[ -z "${status}" ]] \
+    || die "Refusing to refresh AFD_PD_COMMIT because afd-plugin is dirty"
+  git -c safe.directory="${configured_repo}" -C "${configured_repo}" \
+    merge-base --is-ancestor "${configured_commit}" "${actual_commit}" \
+    || die "Refusing non-fast-forward AFD config change: configured=${configured_commit}, actual=${actual_commit}"
+  [[ "$(grep -c '^AFD_PD_COMMIT=' "${common_config}")" == "1" ]] \
+    || die "Expected exactly one AFD_PD_COMMIT entry in ${common_config}"
+
+  sed -i \
+    "s/^AFD_PD_COMMIT=.*/AFD_PD_COMMIT=\"${actual_commit}\"/" \
+    "${common_config}"
+  local point role generated=0
+  for point in "${POINTS[@]}"; do
+    load_point_spec "${point}"
+    while IFS= read -r role; do
+      write_role_config "${point}" "${role}"
+      generated=$((generated + 1))
+    done < <(roles_for_point)
+  done
+  log "Refreshed fast-forwarded afd-plugin config: ${configured_commit} -> ${actual_commit}; regenerated ${generated} role configs"
 }
 
 compare_ratio_action() {
@@ -907,7 +965,7 @@ collect_final_action() {
       printf 'failure=%s\n' "${failure}"
     done
   } >"${STATE_ROOT}/collect-final-gates.txt"
-  exec bash "${PD_SCRIPT}" collect "${config}"
+  bash "${PD_SCRIPT}" collect "${config}"
 }
 
 commands_action() {
@@ -933,6 +991,9 @@ commands_action() {
 
 delegate_action() {
   local config
+  if [[ "${ACTION}" == "check" ]]; then
+    refresh_config_action
+  fi
   config="$(require_generated_config)"
   source_and_validate_config "${config}"
   case "${ACTION}:${ROLE}" in
@@ -942,7 +1003,12 @@ delegate_action() {
     validate:*) die "validate must run with role=proxy" ;;
     *) die "Unsupported delegated action: ${ACTION}" ;;
   esac
-  exec bash "${PD_SCRIPT}" "${ACTION}" "${config}"
+  local rc=0
+  bash "${PD_SCRIPT}" "${ACTION}" "${config}" || rc=$?
+  if (( rc != 0 )); then
+    warn "${ACTION} failed with status ${rc}; the caller shell was not replaced"
+    return "${rc}"
+  fi
 }
 
 benchmark_action() {
@@ -1072,6 +1138,7 @@ compare_action() {
 case "${ACTION}" in
   help|-h|--help) usage ;;
   init) init_action ;;
+  refresh-config) refresh_config_action ;;
   list) list_action ;;
   commands)
     [[ -n "${POINT}" ]] || die "commands requires a point"

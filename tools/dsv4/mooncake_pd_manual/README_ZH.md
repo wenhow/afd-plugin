@@ -43,6 +43,9 @@ control golden 只在 A3-P 生成并保存：
 40 位 HEAD 自动写入 `common.env`；直接复制 `config.env.example` 时必须手工替换
 `CHANGE_ME`，不能填写分支名。镜像已经在目标 `VENV_ROOT` 内安装 Mooncake 0.3.9
 时使用 `MOONCAKE_INSTALL_MODE=existing`，不需要传 wheel；否则使用 `wheel`。
+安装包沿同一提交链升级后，矩阵 `check` 会自动刷新旧 `common.env` 中的
+`AFD_PD_COMMIT` 并重新生成 role 配置。也可以先显式执行
+`bash "$MATRIX" refresh-config "$CFG"`；分叉提交或脏工作树不会自动刷新。
 所有 `check/start` 操作还要求 afd-plugin 工作树完全干净；验证内容必须先提交到该
 40 位 HEAD，不能用未校验的 overlay 或本地 diff 改变实际运行代码。
 
