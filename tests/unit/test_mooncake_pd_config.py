@@ -279,6 +279,12 @@ def test_mooncake_pd_manual_entry_is_safe_and_size_capped():
     assert "status=f0_functional_smoke_passed_no_golden" in script
     assert 'ALLOW_COLOCATED_PD_CONTROL="0"' in config
     assert "device_lists_are_disjoint" in script
+    check_npus = script.split("check_npus()", 1)[1].split("owned_pid_names()", 1)[0]
+    assert "local expected=8" in check_npus
+    assert '"${NODE_ROLE}" == "decode"' in check_npus
+    assert '"${NODE_ROLE}" == "prefill_ffn"' in check_npus
+    assert '"${NODE_ROLE}" == "attention"' in check_npus
+    assert "device_list_count" not in check_npus
     assert "validate_colocated_control_processes" in script
     assert "process_is_descendant_of" in script
     assert "validate_control_golden" in script

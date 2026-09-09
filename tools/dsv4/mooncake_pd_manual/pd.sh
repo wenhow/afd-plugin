@@ -778,21 +778,12 @@ validate_colocated_control_processes() {
 
 check_npus() {
   require_command npu-smi
-  local expected
-  case "${NODE_ROLE}" in
-    prefill) expected="$(device_list_count "${PREFILL_DEVICES}")" ;;
-    prefill_ffn)
-      expected=$(($(device_list_count "${PREFILL_DEVICES}") + $(device_list_count "${FFN_DEVICES}")))
-      ;;
-    attention) expected="$(device_list_count "${ATTENTION_DEVICES}")" ;;
-    decode)
-      expected="$(device_list_count "${ATTENTION_DEVICES}")"
-      if [[ "${DEPLOYMENT_VARIANT}" == "pd_afd" ]]; then
-        expected=$((expected + $(device_list_count "${FFN_DEVICES}")))
-      fi
-      ;;
-    proxy) expected=0 ;;
-  esac
+  local expected=8
+  if [[ "${NODE_ROLE}" == "decode" && "${DEPLOYMENT_VARIANT}" == "pd_afd" ]] \
+    || [[ "${NODE_ROLE}" == "prefill_ffn" ]] \
+    || [[ "${NODE_ROLE}" == "attention" && "${ATTENTION_RANKS}" == "16" ]]; then
+    expected=16
+  fi
   local detected
   detected="$(npu-smi info -l | awk -F: '/Chip Count/ {gsub(/[[:space:]]/, "", $2); sum += $2} END {print sum + 0}')"
   (( detected >= expected )) || die "${NODE_ROLE} requires ${expected} NPUs, detected ${detected}"
