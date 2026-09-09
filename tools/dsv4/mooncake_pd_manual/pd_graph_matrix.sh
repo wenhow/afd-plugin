@@ -80,6 +80,11 @@ Points:
 
 F0 uses the smoke action and never reads golden. benchmark fixes the main
 workload to C32/1024/128/128 by default. P1 runs once; P2 runs three times.
+
+Failure handling:
+  MATRIX_FAILURE_MODE=auto        Keep an interactive caller shell alive (default).
+  MATRIX_FAILURE_MODE=return      Always return the failed action's status.
+  MATRIX_FAILURE_MODE=keep-shell  Always return zero after reporting a failure.
 EOF
 }
 
@@ -1003,12 +1008,7 @@ delegate_action() {
     validate:*) die "validate must run with role=proxy" ;;
     *) die "Unsupported delegated action: ${ACTION}" ;;
   esac
-  local rc=0
-  bash "${PD_SCRIPT}" "${ACTION}" "${config}" || rc=$?
-  if (( rc != 0 )); then
-    warn "${ACTION} failed with status ${rc}; the caller shell was not replaced"
-    return "${rc}"
-  fi
+  bash "${PD_SCRIPT}" "${ACTION}" "${config}"
 }
 
 benchmark_action() {
@@ -1135,48 +1135,81 @@ compare_action() {
   log "Matrix comparison: ${output}"
 }
 
-case "${ACTION}" in
-  help|-h|--help) usage ;;
-  init) init_action ;;
-  refresh-config) refresh_config_action ;;
-  list) list_action ;;
-  commands)
-    [[ -n "${POINT}" ]] || die "commands requires a point"
-    commands_action
-    ;;
-  print-config|check|start|status|smoke|record-control|validate|collect|profile-start|profile-check|profile-stop|profile-finalize|stop)
-    [[ -n "${POINT}" && -n "${ROLE}" ]] \
-      || die "${ACTION} requires a point and role"
-    delegate_action
-    ;;
-  monitor-start|monitor-stop|evidence|profile-analyse|profile-summary)
-    [[ -n "${POINT}" && -n "${ROLE}" ]] \
-      || die "${ACTION} requires a point and role"
-    case "${ACTION}" in
-      monitor-start) monitor_start_action ;;
-      monitor-stop) monitor_stop_action ;;
-      evidence) evidence_action ;;
-      profile-analyse) profile_analyse_action ;;
-      profile-summary) profile_summary_action ;;
-    esac
-    ;;
-  collect-final)
-    [[ -n "${POINT}" && -n "${ROLE}" ]] \
-      || die "collect-final requires a point and role"
-    collect_final_action
-    ;;
-  benchmark)
-    [[ -n "${POINT}" && -n "${ROLE}" ]] \
-      || die "benchmark requires a point and p1|p2|profile"
-    benchmark_action
-    ;;
-  compare)
-    [[ -n "${POINT}" ]] || die "compare requires p1|p2"
-    compare_action
-    ;;
-  compare-ratio)
-    [[ -n "${POINT}" ]] || die "compare-ratio requires p1|p2"
-    compare_ratio_action
-    ;;
-  *) usage; die "Unknown action: ${ACTION}" ;;
-esac
+dispatch_action() {
+  case "${ACTION}" in
+    help|-h|--help) usage ;;
+    init) init_action ;;
+    refresh-config) refresh_config_action ;;
+    list) list_action ;;
+    commands)
+      [[ -n "${POINT}" ]] || die "commands requires a point"
+      commands_action
+      ;;
+    print-config|check|start|status|smoke|record-control|validate|collect|profile-start|profile-check|profile-stop|profile-finalize|stop)
+      [[ -n "${POINT}" && -n "${ROLE}" ]] \
+        || die "${ACTION} requires a point and role"
+      delegate_action
+      ;;
+    monitor-start|monitor-stop|evidence|profile-analyse|profile-summary)
+      [[ -n "${POINT}" && -n "${ROLE}" ]] \
+        || die "${ACTION} requires a point and role"
+      case "${ACTION}" in
+        monitor-start) monitor_start_action ;;
+        monitor-stop) monitor_stop_action ;;
+        evidence) evidence_action ;;
+        profile-analyse) profile_analyse_action ;;
+        profile-summary) profile_summary_action ;;
+      esac
+      ;;
+    collect-final)
+      [[ -n "${POINT}" && -n "${ROLE}" ]] \
+        || die "collect-final requires a point and role"
+      collect_final_action
+      ;;
+    benchmark)
+      [[ -n "${POINT}" && -n "${ROLE}" ]] \
+        || die "benchmark requires a point and p1|p2|profile"
+      benchmark_action
+      ;;
+    compare)
+      [[ -n "${POINT}" ]] || die "compare requires p1|p2"
+      compare_action
+      ;;
+    compare-ratio)
+      [[ -n "${POINT}" ]] || die "compare-ratio requires p1|p2"
+      compare_ratio_action
+      ;;
+    *) usage; die "Unknown action: ${ACTION}" ;;
+  esac
+}
+
+set +e
+(
+  set -e
+  dispatch_action
+)
+action_rc=$?
+set -e
+
+if (( action_rc != 0 )); then
+  failure_mode="${MATRIX_FAILURE_MODE:-auto}"
+  case "${failure_mode}" in
+    return)
+      exit "${action_rc}"
+      ;;
+    keep-shell)
+      warn "${ACTION} failed with status ${action_rc}; returning zero only to keep the caller shell alive"
+      exit 0
+      ;;
+    auto)
+      if [[ -t 0 && -t 1 ]]; then
+        warn "${ACTION} failed with status ${action_rc}; returning zero only to keep the interactive caller shell alive"
+        exit 0
+      fi
+      exit "${action_rc}"
+      ;;
+    *)
+      die "Invalid MATRIX_FAILURE_MODE=${failure_mode}; expected auto, return, or keep-shell"
+      ;;
+  esac
+fi

@@ -2043,7 +2043,9 @@ def _balanced_split_sizes(num_tokens: int, num_peers: int) -> tuple[int, ...]:
         raise ValueError(f"token count must be non-negative, got {num_tokens}")
     if num_peers <= 0:
         raise ValueError(f"peer count must be positive, got {num_peers}")
-    base, remainder = divmod(num_tokens, num_peers)
+    # torch.compile cannot lower divmod when num_tokens is a symbolic shape.
+    base = num_tokens // num_peers
+    remainder = num_tokens % num_peers
     return tuple(base + (offset < remainder) for offset in range(num_peers))
 
 

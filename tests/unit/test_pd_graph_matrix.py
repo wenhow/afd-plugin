@@ -54,12 +54,35 @@ def test_shell_entrypoints_reject_sourcing_without_exiting_caller(script):
     assert "current shell was left unchanged" in result.stderr
 
 
+def test_matrix_keep_shell_mode_survives_caller_errexit():
+    result = subprocess.run(
+        [
+            "bash",
+            "-c",
+            'set -e; MATRIX_FAILURE_MODE=keep-shell bash "$1" invalid-action; '
+            'printf "caller-alive\\n"',
+            "bash",
+            str(MATRIX),
+        ],
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0
+    assert "caller-alive" in result.stdout
+    assert "invalid-action failed with status 2" in result.stderr
+    assert "returning zero only to keep the caller shell alive" in result.stderr
+
+
 def test_matrix_refreshes_fast_forwarded_afd_commit(tmp_path):
     repo = tmp_path / "afd-plugin"
     manual_dir = repo / "tools/dsv4/mooncake_pd_manual"
     manual_dir.mkdir(parents=True)
     shutil.copy2(MATRIX, manual_dir / MATRIX.name)
-    shutil.copy2(MATRIX.parent / "config.env.example", manual_dir / "config.env.example")
+    shutil.copy2(
+        MATRIX.parent / "config.env.example",
+        manual_dir / "config.env.example",
+    )
     subprocess.run(["git", "init", "-q", str(repo)], check=True)
     subprocess.run(["git", "-C", str(repo), "add", "."], check=True)
     subprocess.run(

@@ -1901,6 +1901,23 @@ def test_p2p_hccl_attention_fans_out_ids_hidden_and_gathers_output(monkeypatch):
     assert output[:, 0].tolist() == [1, 1, 1, 2, 2]
 
 
+def test_balanced_split_sizes_supports_fullgraph_dynamic_shapes():
+    def split_tensor(tensor):
+        first, second = hccl_module._balanced_split_sizes(int(tensor.shape[0]), 2)
+        return tensor[:first], tensor[first : first + second]
+
+    compiled = torch.compile(
+        split_tensor,
+        backend="eager",
+        fullgraph=True,
+        dynamic=True,
+    )
+
+    for num_tokens, expected_sizes in ((1, (1, 0)), (2, (1, 1)), (5, (3, 2))):
+        shards = compiled(torch.ones((num_tokens, 4)))
+        assert tuple(shard.shape[0] for shard in shards) == expected_sizes
+
+
 def test_p2p_hccl_attention_fanout_pads_and_discards_dummy_token(monkeypatch):
     connector = _connector(role="attention", attention=1, ffn=2)
     sent = []
