@@ -2166,6 +2166,32 @@ def test_npu_ffn_runner_executes_all_configured_mtp_steps(monkeypatch):
     assert calls == [((0,), 0), ((0,), 1), ((0,), 2)]
 
 
+def test_npu_ffn_runner_graph_draft_uses_static_wire_step(monkeypatch):
+    runner = _new_ffn_runner()
+    runner.vllm_config = _vllm_config(
+        role="ffn",
+        connector="P2pHcclAFDConnector",
+        speculative_config=_mtp_speculative_config(
+            enforce_eager=False,
+            num_speculative_tokens=3,
+        ),
+    )
+    runner.connector = _FakeFFNConnector()
+    runner.connector.mtp_phase_control_enabled = False
+    runner.use_aclgraph = True
+    runner._mtp_acl_graphs = {}
+    calls = []
+    monkeypatch.setattr(
+        runner,
+        "_mtp_ffn_forward",
+        lambda *_args, **kwargs: calls.append(kwargs["expected_speculative_step"]),
+    )
+
+    runner._execute_mtp_after_target({0: _FakeDPMetadata([8])})
+
+    assert calls == [0, 0, 0]
+
+
 def test_npu_ffn_runner_uses_one_control_marker_per_merged_mtp_phase(monkeypatch):
     runner = _new_ffn_runner()
     runner.vllm_config = _vllm_config(
@@ -3658,6 +3684,46 @@ def test_npu_ffn_runner_hybrid_capture_omits_eager_mtp_phase(monkeypatch):
         ("target", True),
         ("exit", runner.device),
     ]
+
+
+def test_npu_ffn_runner_graph_draft_warmup_uses_static_wire_step(monkeypatch):
+    _require_npu_runtime()
+    from afd_plugin.v1.worker.npu import ffn_model_runner
+
+    runner = _new_ffn_runner()
+    runner.vllm_config = _vllm_config(
+        role="ffn",
+        connector="P2pHcclAFDConnector",
+        speculative_config=_mtp_speculative_config(
+            enforce_eager=False,
+            num_speculative_tokens=3,
+        ),
+    )
+    runner.connector = _FakeFFNConnector()
+    runner.use_aclgraph = True
+    runner.speculative_config = runner.vllm_config.speculative_config
+    calls = []
+    monkeypatch.setattr(runner, "_ffn_forward", lambda **_kwargs: None)
+    monkeypatch.setattr(
+        runner,
+        "_mtp_ffn_forward",
+        lambda *_args, **kwargs: calls.append(kwargs["expected_speculative_step"]),
+    )
+    monkeypatch.setattr(
+        ffn_model_runner,
+        "set_cudagraph_capturing_enabled",
+        lambda _enabled: None,
+    )
+    monkeypatch.setattr(ffn_model_runner.torch.npu, "mem_get_info", lambda: (0, 0))
+
+    runner.capture_model(
+        dp_metadata_list={0: _FakeDPMetadata([2])},
+        is_warmup=True,
+        input_ids_by_stage={},
+        connector_state_prepared=True,
+    )
+
+    assert calls == [0, 0, 0]
 
 
 def test_npu_ffn_runner_duplicate_graph_u2_capture_replays_target_only(

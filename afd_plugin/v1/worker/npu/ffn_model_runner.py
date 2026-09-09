@@ -310,7 +310,9 @@ class AFDNPUFFNModelRunner(NPUModelRunner):
                 continue
             self._mtp_ffn_forward(
                 stage_ids,
-                expected_speculative_step=speculative_step,
+                expected_speculative_step=self._expected_mtp_wire_step(
+                    speculative_step,
+                ),
             )
 
     def _recv_mtp_phase_ready(self) -> bool:
@@ -405,6 +407,13 @@ class AFDNPUFFNModelRunner(NPUModelRunner):
             and getattr(speculative_config, "method", None) == "mtp"
             and not bool(getattr(speculative_config, "enforce_eager", False))
         )
+
+    def _expected_mtp_wire_step(self, logical_step: int) -> int:
+        """Return the step encoded by the active Attention wire protocol."""
+        # The Graph-capable merged-draft path uses one stable header buffer for
+        # every MTP iteration. Its wire step is therefore always zero; FFN's
+        # ordered loop remains the source of truth for the logical step.
+        return 0 if self._draft_uses_aclgraph() else logical_step
 
     def _make_mtp_graph_key(
         self,
@@ -898,7 +907,9 @@ class AFDNPUFFNModelRunner(NPUModelRunner):
                     ):
                         self._mtp_ffn_forward(
                             stage_ids,
-                            expected_speculative_step=speculative_step,
+                            expected_speculative_step=self._expected_mtp_wire_step(
+                                speculative_step,
+                            ),
                         )
             else:
                 with graph_capture(device=self.device):
