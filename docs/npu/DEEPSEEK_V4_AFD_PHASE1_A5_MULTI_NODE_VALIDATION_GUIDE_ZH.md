@@ -306,9 +306,25 @@ export MATRIX_RUN_BASE="/data/run/dsv4-phase1-pd-r1"
 | `control_graph_u2_mtp3_a8` | `afd_graph_u2_split_a8f4_mtp3` | `prefill_ffn`（P8F4） | `attention`（A8） |
 | `control_graph_u2_mtp3_a4` | `afd_graph_u2_split_a4f8_mtp3` | `prefill_ffn`（P8F8） | `attention`（A4） |
 
-三个 PD control 分别写到
-`${MATRIX_RUN_BASE}/f1-control/<路径键>/golden_results.json`。不得跨路径键复制，也不得
-用 A5 native golden 代替这些 PD control。
+这里的“写到”是指：在 Proxy 所在的 P/F 机执行 `record-control` 后，脚本自动生成
+`golden_results.json`；**不需要手工创建或填写 JSON**。`<路径键>` 就是对应的 PD
+control 点名。若第 6.2 节设置：
+
+```bash
+export MATRIX_RUN_BASE="/data/run/dsv4-phase1-pd-r1"
+```
+
+则三个文件的实际路径分别是：
+
+| PD control 点 | 自动生成的文件 |
+|---|---|
+| `control_graph_u2_mtp2_a8` | `/data/run/dsv4-phase1-pd-r1/f1-control/control_graph_u2_mtp2_a8/golden_results.json` |
+| `control_graph_u2_mtp3_a8` | `/data/run/dsv4-phase1-pd-r1/f1-control/control_graph_u2_mtp3_a8/golden_results.json` |
+| `control_graph_u2_mtp3_a4` | `/data/run/dsv4-phase1-pd-r1/f1-control/control_graph_u2_mtp3_a4/golden_results.json` |
+
+用户只需设置 `MATRIX_RUN_BASE`，并按第 7 节分别执行三次 `record-control`。脚本生成的
+角色配置会自动填写各自的 `PD_CONTROL_GOLDEN_PATH`。文件保存在 Proxy 所在的 P/F 机，
+后续也由该机上的 Proxy 读取；不得在三个目录间复制，也不得用 A5 native golden 代替。
 
 ## 7. 双 A3 专属：生成路径匹配 PD control
 
