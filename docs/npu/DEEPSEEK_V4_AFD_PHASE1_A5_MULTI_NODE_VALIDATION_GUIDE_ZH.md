@@ -14,6 +14,32 @@
 | 并行 | TP1；A/F 只验收 `A=kF`、`A=F`、`F=kA` 的整数比例 |
 | MTP | `num_speculative_tokens=1/2/3`，最大值 3 |
 
+### 1.1 先选择验证轨道
+
+本文同时保留 A5 和双 A3 两条验证轨道，但同一组机器不需要顺序执行全部章节。
+先按当前机器选择路径：
+
+| 当前环境 | 必须执行 | 不在本机执行 | 能得到的结论 |
+|---|---|---|---|
+| A5 | 第 2、3、4、5、9 节的 A5 部分 | 第 6、7、8 节 | A5 native control 和 standalone AFD 门禁 |
+| 双 A3，仅验证启动/F0 | 第 2、3、6、8.2、9 节的双 A3 部分 | 第 4、5、7、8.3 节 | 双机服务启动、health、smoke、取消后恢复；不含 token-exact |
+| 双 A3，完整 F1 | 第 2、3、6、7、8、9 节的双 A3 部分 | 第 4、5 节 | 双机路径匹配 control、AFD 30/30 token-exact 和生命周期门禁 |
+
+A5 和双 A3 没有验证产物依赖。两条轨道只共享仓库中版本固定的 10 条 prompt 清单：
+
+```text
+tools/dsv4/phase1_prompts.json
+          ├── A5 第 4 节生成 5 份 native control -> 第 5 节 standalone AFD
+          └── 双 A3 第 7 节生成 3 份 PD control -> 第 8.3 节双机 AFD
+```
+
+旧版文档让双 A3 的 `NATIVE_GOLDEN_PATH` 指向 A5 `eager_mtp_off`，实际只为读取其中
+的 prompt，造成了不必要的交叉依赖。新版双 A3 配置直接指向上述 prompt-only JSON。
+A5 native token 不会进入双 A3 流程；双 A3 的 exact golden 必须由第 7 节在相同 PD
+拓扑和相同 Graph/MTP 组合上生成。
+
+### 1.2 总体验收范围
+
 第一阶段仍需完成的外部硬门禁：
 
 1. A5 平台审计、独立安装和 5 份同栈、路径匹配 native control。
@@ -25,7 +51,9 @@
 
 不属于第一阶段：U3、正式 P2 性能收益、A5 参数调优、非整数 A/F、TP/SP/CP/DCP/PP、TP3、非等量 TP2 和 TP2 full-draft Graph/U2/MTP 最大组合。
 
-## 2. 补丁包安装
+## 2. 补丁包安装（按平台选择）
+
+### 2.1 双 A3 使用复用包
 
 已经按 `/mnt/workspace/delivery/config.env.example` 安装过的两台 A3 使用文件名包含
 `slim-dual-a3-reuse` 的专用包。它已固定现有安装目录、模型、CANN 9.0.0、NIC 和旧
@@ -59,10 +87,14 @@ bash bin/install_all.sh
 本来就以 overlay 方式修改 `profiler.py`，因此该文件显示 `M` 是已知现场状态。新版
 目标已包含 R14 profiler 能力及后续修复，不要把旧 overlay 再应用一次。
 
+### 2.2 A5 或其他新节点使用通用包
+
 A5 或其他新节点不使用该双机专用 profile，使用通用 `slim` 包，并填写
 `CANN_ROOT`、`MODEL_PATH`、`PYTHON_BIN`、`SOC_VERSION`、`NIC_NAME`、必要时的
 `HCCL_IF_IP`、安装/源码目录和实际可访问的 Git/pip 镜像。`CANN_ROOT` 必须指向
 CANN 9.0.0 的唯一真实根目录；不得先 source 其他版本再继续。
+
+### 2.3 两条轨道共同要求
 
 精简容器没有 `ss` 不阻塞安装或验证，也不需要重装 env。端口门禁会按
 `ss -> netstat -> /proc/net/tcp*` 自动回退；三种来源都不可用才视为环境缺失。
@@ -86,7 +118,7 @@ export AFD_PLUGIN_ROOT
 
 轻量包会从分支基线提交应用二进制 patch，核对目标 tree，并生成内容确定的本地交付 commit。各节点的交付 commit 必须相同，且工作树必须干净。
 
-## 3. H0 平台审计
+## 3. H0 平台审计（A5 与双 A3 都执行）
 
 每台 NPU 节点都执行，任何一项不一致就停止：
 
@@ -105,7 +137,10 @@ npu-smi info
 
 通过条件：两个上游 commit 与第 1 节完全一致；三个 `status --short` 均为空；CANN 只有 9.0.0；NPU 健康；开始验证前没有其他 NPU 进程。把输出保存为文本，后续随证据包回传。
 
-## 4. A5 同栈路径匹配 native control
+## 4. A5 专属：同栈路径匹配 native control
+
+**执行位置：A5。双 A3 操作者不要在 A3 上运行本节脚本。** 本节的 5 份 control
+只供 A5 第 5 节使用，不向双 A3 交付任何文件。
 
 不能把 MTP-off 的 token 文件跨路径用作 N2/N3 的 exact golden。speculative decoding 会改变 target 校验的执行 shape；即使 native 自身稳定，近似并列 logits 也可能在 MTP-off 和 N2 间选择不同 token。必须按 target/draft 执行模式与 MTP N 生成以下 5 份 no-AFD control：
 
@@ -136,9 +171,15 @@ bash tools/dsv4/run_phase1_native_controls.sh run
 bash tools/dsv4/run_phase1_native_controls.sh run eager_mtp_n2
 ```
 
-每个 `golden_results.json` 必须是 `passed=true`、`rounds=3`、`prompt_count=10`、空 mismatch；metadata 中的 control key、target/draft、MTP N、CANN 和两个上游 commit 必须与表格及第 1 节一致。矩阵 preflight 会再次校验这些字段。PD 的 `NATIVE_GOLDEN_PATH` 可用 `$PHASE1_GOLDEN_ROOT/eager_mtp_off/golden_results.json` 提供固定 prompt 集；PD 输出判定仍必须使用第 7 节生成的路径匹配 control golden。
+每个 `golden_results.json` 必须是 `passed=true`、`rounds=3`、`prompt_count=10`、空 mismatch；metadata 中的 control key、target/draft、MTP N、CANN 和两个上游 commit 必须与表格及第 1 节一致。矩阵 preflight 会再次校验这些字段。
 
-## 5. A5 standalone 门禁
+本节完成后，A5 留存全部 5 份 control，供第 5 节 standalone 验证使用。双 A3 不
+复制这些文件；它直接使用仓库中的 `tools/dsv4/phase1_prompts.json`。
+
+## 5. A5 专属：standalone AFD 门禁
+
+**执行位置：A5。双 A3 完全跳过本节。** 本节读取第 4 节的 5 份 control，但不会
+向第 6、7、8 节输出任何依赖文件。
 
 矩阵脚本固定了 9 个代表点：
 
@@ -182,72 +223,130 @@ bash tools/dsv4/run_phase1_a5_matrix.sh f0 a8f4_graph_u2_n3
 
 每个 `validation_summary.json` 必须满足：`passed=true`；`golden` 指向该点对应的路径匹配 control；serial mismatch 为空；batch 1/8/32 的 `valid=true` 并保留各自 `token_exact_count`；topology/rank/capacity 与点名一致；U2 点观察到真实双 stage；两个 role return code 为 0；fatal marker 为空；每轮停止后 NPU cleanup 通过。batch exact 若仍复现 `UPSTREAM-DSV4-BI-001`，保留原始记录并单独分析；只有路径匹配 control 稳定而 AFD serial 新增分叉才阻塞插件门禁。不得使用 `ALLOW_NPU_PROCESSES` 绕过清理门禁。
 
-## 6. 双机 PD 配置
+## 6. 双 A3 专属：准备 PD 配置
 
-以下将 Prefill/FFN 机记为 P/F，将 Attention 机记为 A；Proxy 可放在 P/F。两台机器安装同一个补丁包，模型、CANN、上游 commit 和 afd-plugin 交付 commit 必须一致。
+**执行位置：两台 A3。A5 不执行本节。** 以下将 Prefill/FFN 机记为 P/F，将
+Attention 机记为 A；Proxy 放在 P/F。两台机器必须安装同一个补丁包，并使用相同的
+模型、CANN、两个上游 commit 和 afd-plugin 交付 commit。
 
-双机专用包已附带按历史实跑配置生成的 `DUAL_A3_PD_COMMON.env.example`。在两台机器
-各自执行一次 `init`，直接以该文件为模板：
+### 6.1 先确认要做 F0 还是 F1
+
+| 目标 | 仓库 prompt 清单 | 第 7 节 PD control | 第 8 节允许动作 |
+|---|---|---|---|
+| 启动定位/F0 | 包内已有，不读取 | 跳过 | `check`、`start`、`status`、`smoke`、`stop`、`collect` |
+| 正式 F1 | 包内已有，直接读取 | 必须先生成 3 份 | F0 全部动作，加 `validate`、`evidence` |
+
+正式 F1 的 prompt 来源随 afd-plugin 一起安装，默认路径为：
+
+```text
+${AFD_PLUGIN_ROOT}/tools/dsv4/phase1_prompts.json
+```
+
+两台机器确认文件存在；它的内容由同一 afd-plugin commit 保证一致：
+
+```bash
+test -s "$AFD_PLUGIN_ROOT/tools/dsv4/phase1_prompts.json"
+sha256sum "$AFD_PLUGIN_ROOT/tools/dsv4/phase1_prompts.json"
+```
+
+双 A3 模板中的 `NATIVE_GOLDEN_PATH` 是为了兼容既有脚本保留的历史字段名；在新版
+模板中它指向这个 prompt-only JSON，不代表依赖 A5 native golden。第 7 节会调用
+双 A3 上的 no-AFD 服务生成 token。
+
+### 6.2 初始化或升级配置
+
+双机专用包包含 `DUAL_A3_PD_COMMON.env.example`。两台机器都先设置：
 
 ```bash
 export MATRIX="$AFD_PLUGIN_ROOT/tools/dsv4/mooncake_pd_manual/pd_graph_matrix.sh"
 export CFG="/data/config/dsv4-phase1-pd"
 export PD_GRAPH_MATRIX_COMMON_TEMPLATE="$BUNDLE_ROOT/DUAL_A3_PD_COMMON.env.example"
+export MATRIX_FAILURE_MODE=keep-shell
+```
+
+第一次创建配置时，两台机器分别执行：
+
+```bash
 bash "$MATRIX" init "$CFG"
 bash "$MATRIX" list "$CFG"
 ```
 
-不要修改生成的 `*-role.env`。检查 `common.env` 中的 Prefill/Decode IP、NIC、模型、
-Mooncake、CANN 和 `NATIVE_GOLDEN_PATH`；路径不变时无需手填。`init` 会把本机
-afd-plugin HEAD 写入 `common.env`；两台机器的 `AFD_PD_COMMIT` 必须相同。每一轮在
-两台机器设置同一个逻辑运行根：
+如果 `$CFG` 已存在，不要重新 `init`；安装新版包后执行：
 
-复用包沿同一提交链升级后无需重新 `init`。第一次执行矩阵 `check` 时会把旧
-`AFD_PD_COMMIT` 快进到当前干净 checkout，并重新生成 role 配置；也可先执行
-`bash "$MATRIX" refresh-config "$CFG"`。分叉提交和脏工作树仍会停止并保留现场。
+```bash
+bash "$MATRIX" refresh-config "$CFG"
+bash "$MATRIX" list "$CFG"
+```
 
-`NATIVE_GOLDEN_PATH` 的路径虽已预置，但文件不在补丁包内。完成第 4 节后，将 A5
-生成的 `eager_mtp_off/golden_results.json` 放到两台机器的预置路径；若实际落盘位置
-不同，只修改 `common.env` 中这一项。
+`refresh-config` 只允许沿交付提交链快进干净的 afd-plugin 目录；分叉提交或脏工作树会
+报错并保留现场。`MATRIX_FAILURE_MODE=keep-shell` 会在动作失败后保留当前终端，因此
+不能只看 shell 是否还在；看到任何 `ERROR` 或 `failed with status` 都必须停止当前点，
+只有明确出现对应的 `preflight passed`、`ready` 或 `complete` 才能进入下一步。
+
+不要修改生成的 `*-role.env`。只检查两台机器的 `common.env` 中以下字段：
+
+1. Prefill/Decode IP 和 `NIC_NAME` 与机器一致。
+2. `MODEL_PATH`、Mooncake、CANN 和 venv 指向同一套固定运行环境。
+3. 两台机器的 `AFD_PD_COMMIT` 相同。
+4. `NATIVE_GOLDEN_PATH` 指向
+   `${AFD_PLUGIN_ROOT}/tools/dsv4/phase1_prompts.json`。
+
+每轮在两台机器设置同一个逻辑运行根。第一轮使用：
 
 ```bash
 export MATRIX_RUN_BASE="/data/run/dsv4-phase1-pd-r1"
 ```
 
-一期 F1 使用 3 个路径匹配 control 和 4 个 AFD 点：
+### 6.3 control、AFD 点和物理角色映射
 
-| control 点 | 对应 AFD 点 | 物理角色 |
-|---|---|---|
-| `control_graph_u2_mtp2_a8` | `afd_graph_u2_mtp2` | P8 + D8；P8 + A8F8 |
-| `control_graph_u2_mtp3_a8` | `afd_graph_u2_mtp3`、`afd_graph_u2_split_a8f4_mtp3` | P8 + D8；P8 + A8F8；P8F4 + A8 |
-| `control_graph_u2_mtp3_a4` | `afd_graph_u2_split_a4f8_mtp3` | P8 + D4；P8F8 + A4 |
+| PD control | AFD 点 | P/F 机角色 | A 机角色 |
+|---|---|---|---|
+| `control_graph_u2_mtp2_a8` | `afd_graph_u2_mtp2` | `prefill` | `decode`（A8F8 共置） |
+| `control_graph_u2_mtp3_a8` | `afd_graph_u2_mtp3` | `prefill` | `decode`（A8F8 共置） |
+| `control_graph_u2_mtp3_a8` | `afd_graph_u2_split_a8f4_mtp3` | `prefill_ffn`（P8F4） | `attention`（A8） |
+| `control_graph_u2_mtp3_a4` | `afd_graph_u2_split_a4f8_mtp3` | `prefill_ffn`（P8F8） | `attention`（A4） |
 
-把第 4 节的 `eager_mtp_off` control 放到 `common.env` 的 `NATIVE_GOLDEN_PATH`，仅用于提供同一 prompt 集。三个 PD control golden 分别存入 `${MATRIX_RUN_BASE}/f1-control/<路径键>/golden_results.json`；不要跨路径键复制，也不要用任一 native control 代替 PD control。
+三个 PD control 分别写到
+`${MATRIX_RUN_BASE}/f1-control/<路径键>/golden_results.json`。不得跨路径键复制，也不得
+用 A5 native golden 代替这些 PD control。
 
-## 7. 生成路径匹配 control
+## 7. 双 A3 专属：生成路径匹配 PD control
 
-以 `control_graph_u2_mtp2_a8` 为例，启动前先在对应节点执行 `check`：
+**仅正式 F1 执行本节；只做启动/F0 时跳过。** 开始前必须满足：两台机器第 3、6 节
+已通过；Proxy 所在机的 `NATIVE_GOLDEN_PATH` 指向仓库 prompt 清单；本轮使用新的
+`MATRIX_RUN_BASE`；两台 NPU 机器没有上一点残留进程。
+
+需要依次生成以下三份 control，不能少，也不能互相复用：
+
+1. `control_graph_u2_mtp2_a8`
+2. `control_graph_u2_mtp3_a8`
+3. `control_graph_u2_mtp3_a4`
+
+下面是第一个点的完整顺序。每条命令都在注释指定的机器执行：
 
 ```bash
+# 1. 三个角色分别预检。
 # P/F 机
 bash "$MATRIX" check "$CFG" control_graph_u2_mtp2_a8 prefill
 # A 机
 bash "$MATRIX" check "$CFG" control_graph_u2_mtp2_a8 decode
-# Proxy 所在机
+# Proxy 所在 P/F 机
 bash "$MATRIX" check "$CFG" control_graph_u2_mtp2_a8 proxy
-```
 
-按 Prefill、Decode、Proxy 顺序启动，在 Proxy 生成 control golden，再逆序停止和收集：
-
-```bash
+# 2. 按 Prefill -> Decode -> Proxy 启动。
 # P/F 机
 bash "$MATRIX" start "$CFG" control_graph_u2_mtp2_a8 prefill
 # A 机
 bash "$MATRIX" start "$CFG" control_graph_u2_mtp2_a8 decode
-# Proxy 所在机
+# Proxy 所在 P/F 机
 bash "$MATRIX" start "$CFG" control_graph_u2_mtp2_a8 proxy
+
+# 3. Proxy 生成本路径的 no-AFD control。
 bash "$MATRIX" record-control "$CFG" control_graph_u2_mtp2_a8 proxy
+
+# 4. 按 Proxy -> Decode -> Prefill 逆序停止，每个角色随后 collect。
 bash "$MATRIX" stop "$CFG" control_graph_u2_mtp2_a8 proxy
+bash "$MATRIX" collect "$CFG" control_graph_u2_mtp2_a8 proxy
 # A 机
 bash "$MATRIX" stop "$CFG" control_graph_u2_mtp2_a8 decode
 bash "$MATRIX" collect "$CFG" control_graph_u2_mtp2_a8 decode
@@ -256,43 +355,104 @@ bash "$MATRIX" stop "$CFG" control_graph_u2_mtp2_a8 prefill
 bash "$MATRIX" collect "$CFG" control_graph_u2_mtp2_a8 prefill
 ```
 
-将点名依次替换为 `control_graph_u2_mtp3_a8` 和 `control_graph_u2_mtp3_a4`，重复本节。每次 control 必须自身 30/30 稳定；若 native 与 control 不同，保留差异但不得用 native golden 直接替代 PD control。
+保持角色和顺序不变，把点名依次替换为 `control_graph_u2_mtp3_a8`、
+`control_graph_u2_mtp3_a4`，各执行一遍完整流程。每份 control 必须自身 30/30 稳定。
+后续 AFD 必须与对应的 PD control token-exact 一致；本流程不读取或比较 A5 token。
 
-## 8. 双机 AFD F0/F1
+## 8. 双 A3 专属：AFD F0/F1
 
-共置 A8F8 点 `afd_graph_u2_mtp2`、`afd_graph_u2_mtp3` 使用 P/F 机的 `prefill` 和 A 机的 `decode`。启动顺序与 control 相同。在 Proxy 先执行 `smoke`，再执行 `validate`：
+### 8.1 四个验证点
+
+按第 6.3 节的表执行四个点。共置 A8F8 点由 `decode` 动作在 A 机内部连续拉起 FFN
+和 Attention；split 点先由 P/F 机的 `prefill_ffn` 拉起 Prefill 和等待连接的 FFN，
+再由 A 机的 `attention` 拉起 Attention。FFN 没有 HTTP 端口，必须以 `status` 输出的
+connector loop 数量判断是否 ready。
+
+### 8.2 F0：可跳过第 4、5、7 节的启动与请求验证
+
+F0 不读取任何 golden，适合先定位安装、模型加载、Graph capture、HCCL、Mooncake 和
+服务生命周期。不得在 F0 执行 `validate`，也不得把 F0 结果标记为 token-exact。
+
+以下是当前 A4F8 点的完整 F0 顺序：
 
 ```bash
-# 两台 NPU 节点和 Proxy：启动前分别执行 check，然后按 prefill/decode/proxy 启动。
-bash "$MATRIX" smoke "$CFG" afd_graph_u2_mtp2 proxy
-bash "$MATRIX" validate "$CFG" afd_graph_u2_mtp2 proxy
-bash "$MATRIX" evidence "$CFG" afd_graph_u2_mtp2 decode
-```
-
-split 点 `afd_graph_u2_split_a4f8_mtp3`、`afd_graph_u2_split_a8f4_mtp3` 使用 P/F 机的 `prefill_ffn` 和 A 机的 `attention`：
-
-```bash
+# 1. 三个角色分别预检。
 # P/F 机
 bash "$MATRIX" check "$CFG" afd_graph_u2_split_a4f8_mtp3 prefill_ffn
 # A 机
 bash "$MATRIX" check "$CFG" afd_graph_u2_split_a4f8_mtp3 attention
-# Proxy 所在机
+# Proxy 所在 P/F 机
 bash "$MATRIX" check "$CFG" afd_graph_u2_split_a4f8_mtp3 proxy
 
-# 三个 check 都通过后再启动。
+# 2. 三个 check 明确通过后，按 P/F -> A -> Proxy 启动。
+# prefill_ffn 会让 FFN 在后台等待 Attention，因此该命令返回后立即启动 A 机。
 # P/F 机
 bash "$MATRIX" start "$CFG" afd_graph_u2_split_a4f8_mtp3 prefill_ffn
 # A 机
 bash "$MATRIX" start "$CFG" afd_graph_u2_split_a4f8_mtp3 attention
-# Proxy 所在机
+# Proxy 所在 P/F 机
 bash "$MATRIX" start "$CFG" afd_graph_u2_split_a4f8_mtp3 proxy
-bash "$MATRIX" smoke "$CFG" afd_graph_u2_split_a4f8_mtp3 proxy
-bash "$MATRIX" validate "$CFG" afd_graph_u2_split_a4f8_mtp3 proxy
+
+# 3. 分别确认 Prefill、全部 FFN loop、Attention health 和 Proxy health。
+# P/F 机
+bash "$MATRIX" status "$CFG" afd_graph_u2_split_a4f8_mtp3 prefill_ffn
 # A 机
-bash "$MATRIX" evidence "$CFG" afd_graph_u2_split_a4f8_mtp3 attention
+bash "$MATRIX" status "$CFG" afd_graph_u2_split_a4f8_mtp3 attention
+# Proxy 所在 P/F 机
+bash "$MATRIX" status "$CFG" afd_graph_u2_split_a4f8_mtp3 proxy
+
+# 4. Proxy 执行不依赖 golden 的 smoke 和取消后恢复。
+bash "$MATRIX" smoke "$CFG" afd_graph_u2_split_a4f8_mtp3 proxy
+
+# 5. 按 Proxy -> Attention -> Prefill/FFN 逆序停止并收集。
+bash "$MATRIX" stop "$CFG" afd_graph_u2_split_a4f8_mtp3 proxy
+bash "$MATRIX" collect "$CFG" afd_graph_u2_split_a4f8_mtp3 proxy
+# A 机
+bash "$MATRIX" stop "$CFG" afd_graph_u2_split_a4f8_mtp3 attention
+bash "$MATRIX" collect "$CFG" afd_graph_u2_split_a4f8_mtp3 attention
+# P/F 机
+bash "$MATRIX" stop "$CFG" afd_graph_u2_split_a4f8_mtp3 prefill_ffn
+bash "$MATRIX" collect "$CFG" afd_graph_u2_split_a4f8_mtp3 prefill_ffn
 ```
 
-四个 AFD 点都按逆序 `proxy -> decode/attention -> prefill/prefill_ffn` 停止。每个角色停止后执行对应的 `collect`。第一次全部通过后，把 `MATRIX_RUN_BASE` 改成 `...-r2`，重新生成 3 份 control golden，再完整执行 4 个 AFD 点，形成第二次独立冷启动证据。
+验证 A8F4 时把点名替换为 `afd_graph_u2_split_a8f4_mtp3`，角色不变。验证两个共置
+A8F8 点时，P/F 机角色改为 `prefill`，A 机角色改为 `decode`；点名分别为
+`afd_graph_u2_mtp2` 和 `afd_graph_u2_mtp3`。每个点必须重新执行 check、冷启动、
+status、smoke、逆序停止和 collect，不能在运行中切换点名。
+
+### 8.3 F1：依赖第 7 节的正式 token-exact 验收
+
+先确认当前 `MATRIX_RUN_BASE` 下已经有第 7 节的三份 PD control。每个 AFD 点按 8.2
+的角色映射重新冷启动；`smoke` 通过后，在停止服务之前执行该点对应的
+`validate` 和 `evidence`：
+
+```bash
+# afd_graph_u2_mtp2 正在运行时，在 Proxy 和 A 机分别执行：
+bash "$MATRIX" validate "$CFG" afd_graph_u2_mtp2 proxy
+bash "$MATRIX" evidence "$CFG" afd_graph_u2_mtp2 decode
+
+# afd_graph_u2_mtp3 正在运行时：
+bash "$MATRIX" validate "$CFG" afd_graph_u2_mtp3 proxy
+bash "$MATRIX" evidence "$CFG" afd_graph_u2_mtp3 decode
+
+# afd_graph_u2_split_a4f8_mtp3 正在运行时：
+bash "$MATRIX" validate "$CFG" afd_graph_u2_split_a4f8_mtp3 proxy
+bash "$MATRIX" evidence "$CFG" afd_graph_u2_split_a4f8_mtp3 attention
+
+# afd_graph_u2_split_a8f4_mtp3 正在运行时：
+bash "$MATRIX" validate "$CFG" afd_graph_u2_split_a8f4_mtp3 proxy
+bash "$MATRIX" evidence "$CFG" afd_graph_u2_split_a8f4_mtp3 attention
+```
+
+每一组命令只在对应点运行期间执行；不要同时启动四个点。完成 `validate/evidence` 后，
+按 8.2 的逆序停止和 collect。第一轮全部通过后，两台机器切换到新的运行根：
+
+```bash
+export MATRIX_RUN_BASE="/data/run/dsv4-phase1-pd-r2"
+```
+
+随后重新执行第 7 节生成 3 份 control，再完整执行本节 4 个 AFD 点，形成第二次独立
+冷启动证据。
 
 每个 AFD 点必须同时满足：
 
@@ -307,6 +467,8 @@ bash "$MATRIX" evidence "$CFG" afd_graph_u2_split_a4f8_mtp3 attention
 
 ## 9. 证据打包与回传
 
+### 9.1 A5 操作者
+
 Standalone 验证使用统一收集器；它保留 JSON、环境、NPU 快照和截断日志，不包含 profiler 原始目录：
 
 ```bash
@@ -320,12 +482,21 @@ bash tools/dsv4/collect_phase1_validation.sh \
 sha256sum -c /data/artifacts/dsv4-phase1-a5-evidence.tar.gz.sha256
 ```
 
-PD 每个 `collect` 会打印一个小型归档及 `.sha256`。回传以下内容：
+A5 只回传以下内容，不需要收集双 A3 的 PD 角色日志：
 
 1. 包含 5 份 native control 和 9 点 standalone 结果的 A5 evidence tar 及 `.sha256`。
-2. 两轮所有 control/AFD 角色的 `collect` 归档和 `.sha256`。
-3. 两台机器 H0 审计文本。
-4. 三份路径匹配 control golden。
-5. 任何失败点的完整 `validation_summary.json`、role 日志尾部、首次 fatal 前后至少 200 行，以及当时的 `npu-smi info`。
+2. A5 的 H0 审计文本。
+
+### 9.2 双 A3 操作者
+
+PD 每个 `collect` 会打印一个小型归档及 `.sha256`。双 A3 不需要生成或回传 A5
+standalone evidence；回传以下内容：
+
+1. 两轮所有 control/AFD 角色的 `collect` 归档和 `.sha256`。
+2. 两台机器 H0 审计文本。
+3. 每轮 3 份路径匹配 PD control golden，共 6 份，路径中保留 `r1/r2` 标识。
+4. 仓库 `tools/dsv4/phase1_prompts.json` 的 SHA256 和 afd-plugin commit。
+5. 任何失败点的完整 `validation_summary.json`、role 日志尾部、首次 fatal 前后至少
+   200 行，以及当时的 `npu-smi info`。
 
 不要只回传成功截图，也不要在失败后覆盖原 `RUN_ROOT`。收到上述材料后，可按 stack、启动、数据面、Graph 动态路由、token exact、生命周期和清理六类门禁逐项分析。

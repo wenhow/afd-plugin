@@ -85,7 +85,7 @@ DEPLOYMENT_SLUG="${DEPLOYMENT_VARIANT//_/-}"
 : "${LOG_ROOT:=${RUN_ROOT}/logs/${NODE_ROLE}}"
 : "${VALIDATION_ROOT:=${RUN_ROOT}/validation}"
 : "${OUTPUT_ROOT:=${RUN_ROOT}/output}"
-: "${NATIVE_GOLDEN_PATH:=${GOLDEN_PATH:-/data/z00569729/validation/dsv4_v023_vllm_cann_native_baseline/golden_results.json}}"
+: "${NATIVE_GOLDEN_PATH:=${GOLDEN_PATH:-${AFD_PLUGIN_ROOT}/tools/dsv4/phase1_prompts.json}}"
 : "${PD_CONTROL_GOLDEN_PATH:=/data/z00569729/validation/dsv4_m9_pd_control/golden_results.json}"
 : "${VLLM_COMMIT:=0fc695fc6d1d82e9a5ac6835ac8e4e1c83703665}"
 : "${VLLM_ASCEND_COMMIT:=3da28f9414583d2d0b672a8f06d1fae142404bda}"
@@ -1722,7 +1722,8 @@ record_control_action() {
   } >"${run_dir}/summary.env"
   printf '%s\n' "${run_dir}" >"${STATE_ROOT}/last-validation-dir"
   log "PD control golden recorded: ${PD_CONTROL_GOLDEN_PATH}"
-  log "Native semantic reference vs PD control: ${reference_comparison} (informational)"
+  log "Prompt-source token reference vs PD control: ${reference_comparison} "\
+"(informational; 0/N is expected for a prompt-only source)"
 }
 
 functional_smoke_action() {

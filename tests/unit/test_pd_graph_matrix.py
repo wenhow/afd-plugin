@@ -17,6 +17,9 @@ PD_SCRIPT = MATRIX.parent / "pd.sh"
 GUIDE = (
     ROOT / "docs/npu/DEEPSEEK_V4_AFD_P8_A16F8_DUAL_A3_GRAPH_U2_VALIDATION_GUIDE_ZH.md"
 )
+PHASE1_GUIDE = (
+    ROOT / "docs/npu/DEEPSEEK_V4_AFD_PHASE1_A5_MULTI_NODE_VALIDATION_GUIDE_ZH.md"
+)
 
 
 def _source_config(path: Path) -> dict[str, str]:
@@ -140,7 +143,15 @@ def test_matrix_refreshes_fast_forwarded_afd_commit(tmp_path):
         ["bash", str(copied_matrix), "init", str(config_dir)], env=env, check=True
     )
     common = config_dir / "common.env"
-    common.write_text(common.read_text().replace(new_commit, old_commit))
+    common.write_text(
+        common.read_text()
+        .replace(new_commit, old_commit)
+        .replace(
+            'NATIVE_GOLDEN_PATH="${AFD_PLUGIN_ROOT}/tools/dsv4/phase1_prompts.json"',
+            'NATIVE_GOLDEN_PATH="/data/z00569729/validation/'
+            'dsv4-phase1-a5-native-controls/eager_mtp_off/golden_results.json"',
+        )
+    )
 
     result = subprocess.run(
         ["bash", str(copied_matrix), "refresh-config", str(config_dir)],
@@ -149,8 +160,43 @@ def test_matrix_refreshes_fast_forwarded_afd_commit(tmp_path):
     )
 
     assert result.returncode == 0, result.stderr
-    assert _source_config(common)["AFD_PD_COMMIT"] == new_commit
+    refreshed_config = _source_config(common)
+    assert refreshed_config["AFD_PD_COMMIT"] == new_commit
+    assert refreshed_config["NATIVE_GOLDEN_PATH"] == (
+        f"{repo}/tools/dsv4/phase1_prompts.json"
+    )
     assert "Refreshed fast-forwarded afd-plugin config" in result.stdout
+    assert "Refreshed legacy A5 prompt dependency" in result.stdout
+
+
+def test_matrix_refreshes_legacy_prompt_source_without_commit_change(tmp_path):
+    subprocess.run(["bash", str(MATRIX), "init", str(tmp_path)], check=True)
+    common = tmp_path / "common.env"
+    common.write_text(
+        common.read_text()
+        .replace(
+            'AFD_PLUGIN_ROOT="${CODE_ROOT}/afd-plugin"',
+            f'AFD_PLUGIN_ROOT="{ROOT}"',
+        )
+        .replace(
+            'NATIVE_GOLDEN_PATH="${AFD_PLUGIN_ROOT}/tools/dsv4/phase1_prompts.json"',
+            'NATIVE_GOLDEN_PATH="/data/z00569729/validation/'
+            'dsv4_v023_vllm_cann_native_baseline/golden_results.json"',
+        )
+    )
+
+    result = subprocess.run(
+        ["bash", str(MATRIX), "refresh-config", str(tmp_path)],
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0, result.stderr
+    config = _source_config(common)
+    assert config["NATIVE_GOLDEN_PATH"] == (
+        f"{ROOT}/tools/dsv4/phase1_prompts.json"
+    )
+    assert "Refreshed legacy A5 prompt dependency" in result.stdout
 
 
 def test_matrix_generates_split_a16f8_contract(tmp_path):
@@ -164,7 +210,11 @@ def test_matrix_generates_split_a16f8_contract(tmp_path):
         capture_output=True,
         text=True,
     ).stdout.strip()
-    assert _source_config(tmp_path / "common.env")["AFD_PD_COMMIT"] == repo_head
+    common_config = _source_config(tmp_path / "common.env")
+    assert common_config["AFD_PD_COMMIT"] == repo_head
+    assert common_config["NATIVE_GOLDEN_PATH"] == (
+        f'{common_config["AFD_PLUGIN_ROOT"]}/tools/dsv4/phase1_prompts.json'
+    )
 
     for role in ("prefill_ffn", "attention", "proxy"):
         config = _source_config(tmp_path / f"afd_graph_u2_split_a16f8-{role}.env")
@@ -204,8 +254,8 @@ def test_matrix_init_accepts_site_common_template(tmp_path):
             'AFD_PLUGIN_ROOT="${CODE_ROOT}/afd-plugin-phase1-a5"',
         )
         .replace(
-            'NATIVE_GOLDEN_PATH="/data/z00569729/validation/dsv4_v023_vllm_cann_native_baseline/golden_results.json"',
-            'NATIVE_GOLDEN_PATH="/data/z00569729/validation/dsv4-phase1-a5-native-controls/eager_mtp_off/golden_results.json"',
+            'NATIVE_GOLDEN_PATH="${AFD_PLUGIN_ROOT}/tools/dsv4/phase1_prompts.json"',
+            'NATIVE_GOLDEN_PATH="/data/site-specific/prompts.json"',
         )
     )
     env = os.environ.copy()
@@ -217,9 +267,7 @@ def test_matrix_init_accepts_site_common_template(tmp_path):
 
     config = _source_config(config_dir / "common.env")
     assert config["AFD_PLUGIN_ROOT"].endswith("/afd-plugin-phase1-a5")
-    assert config["NATIVE_GOLDEN_PATH"].endswith(
-        "/dsv4-phase1-a5-native-controls/eager_mtp_off/golden_results.json"
-    )
+    assert config["NATIVE_GOLDEN_PATH"] == "/data/site-specific/prompts.json"
     assert re.fullmatch(r"[0-9a-f]{40}", config["AFD_PD_COMMIT"])
 
 
@@ -662,6 +710,26 @@ def test_step_by_step_guide_uses_generated_point_role_contracts(tmp_path):
         benchmark = f'bash "$MATRIX" benchmark "$CFG" {point} p2'
         evidence = f'bash "$MATRIX" evidence "$CFG" {point} {role}'
         assert guide.index(benchmark) < guide.index(evidence)
+
+
+def test_phase1_guide_separates_platforms_and_uses_valid_matrix_roles(tmp_path):
+    subprocess.run(["bash", str(MATRIX), "init", str(tmp_path)], check=True)
+    guide = PHASE1_GUIDE.read_text(encoding="utf-8")
+
+    assert "A5 和双 A3 没有验证产物依赖" in guide
+    assert "F0：可跳过第 4、5、7 节" in guide
+    assert "F1：依赖第 7 节" in guide
+    assert "${AFD_PLUGIN_ROOT}/tools/dsv4/phase1_prompts.json" in guide
+
+    command_pattern = re.compile(
+        r'bash "\$MATRIX" '
+        r"(check|start|status|smoke|record-control|validate|evidence|stop|collect) "
+        r'"\$CFG" ([a-z0-9_]+) ([a-z0-9_]+)'
+    )
+    commands = command_pattern.findall(guide)
+    assert commands
+    for _action, point, role in commands:
+        assert (tmp_path / f"{point}-{role}.env").is_file(), (point, role)
 
 
 def _summary(point: str, *, output_throughput: float, active_npus: int) -> dict:

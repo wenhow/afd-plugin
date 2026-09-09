@@ -443,11 +443,23 @@ refresh_config_action() {
   set +a
 
   local matrix_repo configured_repo configured_commit actual_commit status
+  local prompt_source_refreshed=0
   matrix_repo="$(cd "${SCRIPT_DIR}/../../.." && pwd -P)"
   configured_repo="$(cd "${AFD_PLUGIN_ROOT}" 2>/dev/null && pwd -P)" \
     || die "AFD_PLUGIN_ROOT is not accessible: ${AFD_PLUGIN_ROOT}"
   [[ "${configured_repo}" == "${matrix_repo}" ]] \
     || die "Matrix checkout and AFD_PLUGIN_ROOT differ: matrix=${matrix_repo}, configured=${configured_repo}"
+
+  case "${NATIVE_GOLDEN_PATH:-}" in
+    /data/z00569729/validation/dsv4_v023_vllm_cann_native_baseline/golden_results.json|\
+    /data/z00569729/validation/dsv4-phase1-a5-native-controls/eager_mtp_off/golden_results.json)
+      prompt_source_refreshed=1
+      ;;
+  esac
+  if (( prompt_source_refreshed )); then
+    [[ "$(grep -c '^NATIVE_GOLDEN_PATH=' "${common_config}")" == "1" ]] \
+      || die "Expected exactly one NATIVE_GOLDEN_PATH entry in ${common_config}"
+  fi
 
   configured_commit="${AFD_PD_COMMIT:-}"
   [[ "${configured_commit}" =~ ^[0-9a-f]{40}$ ]] \
@@ -457,7 +469,15 @@ refresh_config_action() {
     || die "Cannot resolve afd-plugin HEAD: ${configured_repo}"
   [[ "${actual_commit}" =~ ^[0-9a-f]{40}$ ]] \
     || die "afd-plugin HEAD is not a 40-character commit: ${actual_commit}"
-  [[ "${configured_commit}" != "${actual_commit}" ]] || return 0
+  if [[ "${configured_commit}" == "${actual_commit}" ]]; then
+    if (( prompt_source_refreshed )); then
+      sed -i \
+        's|^NATIVE_GOLDEN_PATH=.*|NATIVE_GOLDEN_PATH="${AFD_PLUGIN_ROOT}/tools/dsv4/phase1_prompts.json"|' \
+        "${common_config}"
+      log "Refreshed legacy A5 prompt dependency to the repository prompt manifest"
+    fi
+    return 0
+  fi
 
   status="$(git -c safe.directory="${configured_repo}" \
     -C "${configured_repo}" status --short --untracked-files=all)"
@@ -472,6 +492,11 @@ refresh_config_action() {
   sed -i \
     "s/^AFD_PD_COMMIT=.*/AFD_PD_COMMIT=\"${actual_commit}\"/" \
     "${common_config}"
+  if (( prompt_source_refreshed )); then
+    sed -i \
+      's|^NATIVE_GOLDEN_PATH=.*|NATIVE_GOLDEN_PATH="${AFD_PLUGIN_ROOT}/tools/dsv4/phase1_prompts.json"|' \
+      "${common_config}"
+  fi
   local point role generated=0
   for point in "${POINTS[@]}"; do
     load_point_spec "${point}"
@@ -481,6 +506,9 @@ refresh_config_action() {
     done < <(roles_for_point)
   done
   log "Refreshed fast-forwarded afd-plugin config: ${configured_commit} -> ${actual_commit}; regenerated ${generated} role configs"
+  if (( prompt_source_refreshed )); then
+    log "Refreshed legacy A5 prompt dependency to the repository prompt manifest"
+  fi
 }
 
 compare_ratio_action() {

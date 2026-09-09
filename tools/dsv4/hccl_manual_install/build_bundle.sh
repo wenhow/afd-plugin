@@ -106,7 +106,6 @@ if [[ "${CONFIG_PROFILE}" == "dual-a3-reuse" ]]; then
     "${payload_root}/DUAL_A3_PD_COMMON.env.example"
   sed -i \
     -e 's|^AFD_PLUGIN_ROOT=.*|AFD_PLUGIN_ROOT="${CODE_ROOT}/afd-plugin-phase1-a5"|' \
-    -e 's|^NATIVE_GOLDEN_PATH=.*|NATIVE_GOLDEN_PATH="/data/z00569729/validation/dsv4-phase1-a5-native-controls/eager_mtp_off/golden_results.json"|' \
     -e "s|^AFD_PD_COMMIT=.*|AFD_PD_COMMIT=\"${AFD_TARGET_COMMIT}\"|" \
     "${payload_root}/DUAL_A3_PD_COMMON.env.example"
 fi

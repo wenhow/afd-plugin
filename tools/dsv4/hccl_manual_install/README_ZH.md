@@ -146,9 +146,9 @@ CANN、NNAL/ATB 和 custom ops 的供应商 `set_env` 可能直接读取尚未�
 安装器在 source 这些脚本期间临时关闭 Bash `nounset`，随后恢复原状态；容器无需手工
 预设 `ASCEND_CUSTOM_OPP_PATH`，也不需要修改供应商脚本。
 
-双机 PD common 模板也已预置，但 `NATIVE_GOLDEN_PATH` 指向的 A5 native control
-结果不随包分发；完成 A5 control 后需把该文件放到两台机器的预置路径，或只修改该
-路径项。
+双机 PD common 模板已预置。为兼容旧脚本保留的 `NATIVE_GOLDEN_PATH` 默认指向
+afd-plugin 自带的 `tools/dsv4/phase1_prompts.json`；它只是 `record-control` 的固定
+prompt 来源，不依赖或复用 A5 native control。
 
 ## 5. Python wheel 离线安装
 
