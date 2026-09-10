@@ -25,6 +25,11 @@
 | 双 A3，仅验证启动/F0 | 第 2、3、6、8.2、9 节的双 A3 部分 | 第 4、5、7、8.3 节 | 双机服务启动、health、smoke、取消后恢复；不含 token-exact |
 | 双 A3，完整 F1 | 第 2、3、6、7、8、9 节的双 A3 部分 | 第 4、5 节 | 双机路径匹配 control、AFD 30/30 token-exact 和生命周期门禁 |
 
+本文现场 A3 的单个 NPU 可用容量约 61.27 GiB。双 A3 只执行 A8F8 N2、
+A8F8 N3、A4F8 N3 三个 AFD 点；A8F4 的 TP1/EP4 专家权重超过该容量，
+不属于这两台 A3 的必跑项，详见第 6.4 节。脚本能生成某个拓扑的配置，不代表
+该拓扑能在当前硬件上装下真实模型。
+
 A5 和双 A3 没有验证产物依赖。两条轨道只共享仓库中版本固定的 10 条 prompt 清单：
 
 ```text
@@ -45,7 +50,8 @@ A5 native token 不会进入双 A3 流程；双 A3 的 exact golden 必须由第
 1. A5 平台审计、独立安装和 5 份同栈、路径匹配 native control。
 2. A5 standalone A8F8、A4F8、A8F4 的 eager/Graph、U1/U2、MTP N=1/2/3 代表矩阵。
 3. A8F4 在高 HBM A5 上的真实模型加载和端到端请求。
-4. 双机 PD Graph/U2 下的 A8F8 N2/N3、A4F8 N3、A8F4 N3。
+4. 双 A3 PD Graph/U2 下的 A8F8 N2/N3、A4F8 N3。A8F4 N3 的 PD 验证留待
+   FFN 单卡容量足够的独立双机环境，不由当前双 A3 承担。
 5. 每个 PD 点的真实双 stage、FFN Graph 动态路由、取消后恢复、优雅退出、NPU 清理和第二次冷启动。
 6. 路径匹配的 PD no-AFD control，以及每次冷启动 10 条 prompt x 3 轮的 30/30 token exact。
 
@@ -205,6 +211,10 @@ bash tools/dsv4/run_phase1_native_controls.sh run eager_mtp_n2
 | `a8f4_eager_u1_n2` | `A=2F` 高 HBM 基础路径 |
 | `a8f4_graph_u2_n3` | `A=2F` 最大一期组合 |
 
+A8F4 使用高 HBM A5。当前 W8A8 模型在 FFN TP1/EP4 下，仅主模型 routed
+expert 权重就需要每卡 64.5 GiB；还需另计 MTP、shared expert、量化参数、通信
+和运行缓冲。不能将这两个点直接搬到单 NPU 可用约 61 GiB 的 A3 上执行。
+
 先执行 F0。F0 每点一次冷启动、1 轮、batch 1/8/32，不等待 30 分钟 idle：
 
 ```bash
@@ -313,7 +323,6 @@ export MATRIX_RUN_BASE="/data/run/dsv4-phase1-pd-r1"
 |---|---|---|---|
 | `control_graph_u2_mtp2_a8` | `afd_graph_u2_mtp2` | `prefill` | `decode`（A8F8 共置） |
 | `control_graph_u2_mtp3_a8` | `afd_graph_u2_mtp3` | `prefill` | `decode`（A8F8 共置） |
-| `control_graph_u2_mtp3_a8` | `afd_graph_u2_split_a8f4_mtp3` | `prefill_ffn`（P8F4） | `attention`（A8） |
 | `control_graph_u2_mtp3_a4` | `afd_graph_u2_split_a4f8_mtp3` | `prefill_ffn`（P8F8） | `attention`（A4） |
 
 这里的“写到”是指：在 Proxy 所在的 P/F 机执行 `record-control` 后，脚本自动生成
@@ -335,6 +344,40 @@ export MATRIX_RUN_BASE="/data/run/dsv4-phase1-pd-r1"
 用户只需设置 `MATRIX_RUN_BASE`，并按第 7 节分别执行三次 `record-control`。脚本生成的
 角色配置会自动填写各自的 `PD_CONTROL_GOLDEN_PATH`。文件保存在 Proxy 所在的 P/F 机，
 后续也由该机上的 Proxy 读取；不得在三个目录间复制，也不得用 A5 native golden 代替。
+
+### 6.4 当前 A3 不执行 A8F4：FFN 权重容量限制
+
+2026-09-10 现场反馈 A4F8 的 smoke 已成功。随后提供的
+`641e0740f8ba4dea93864b6357af0a28.zip` 中，A8F4 的 FFN 在主模型构造阶段
+就 OOM：`ffn-20260910_084611.log` 的 08:48:10 栈落在
+`w8a8_dynamic.py:get_weight -> torch.empty(w13_weight)`。当时容量 61.27 GiB，
+已分配 59.95 GiB，再申请 1.00 GiB 失败；其他 FFN rank 也相继 OOM。
+这不是 Graph capture 或在线请求阶段的错误，Attention 日志尚未显示服务 ready。
+
+日志确认 FFN 为 TP1、EP4，每卡 64/256 个专家。按本机同款模型配置的 43 层、
+`hidden_size=4096`、`moe_intermediate_size=2048`，以及上游 W8A8 的 int8
+权重布局，主模型 routed expert 的单卡权重下限为：
+
+```text
+43 × (256 / 4) × (2 × 2048 × 4096 + 4096 × 2048) × 1 byte
+= 64.5 GiB / NPU
+```
+
+| FFN 分布 | 每层每卡 routed expert 数 | 主模型 routed 权重/卡 | 加上 1 层 MTP routed 权重/卡 |
+|---|---|---|---|
+| F8、TP1/EP8 | 32 | 32.25 GiB | 33 GiB |
+| F4、TP1/EP4 | 64 | 64.5 GiB | 66 GiB |
+
+这些数值还不包含 shared expert、量化 scale、其他参数、HCCL、工作区和图内存。
+仅 F4 主模型 routed 权重已经超过现场单 NPU 容量，因此缩小 batch、降低
+`gpu_memory_utilization`、关闭 Graph 或关闭/迁移 MTP 都不能解决这一容量缺口。
+reserved 与 allocated 接近，日志中的通用碎片化提示也不应作为本次主因。
+
+当前双 A3 保留 A8F8 N2/N3 和 A4F8 N3 三个验证点。对
+`afd_graph_u2_split_a8f4_mtp3` 记录“受 FFN HBM 容量限制，未通过/未验收”，
+保留本次失败日志，不把它标为功能通过，也不阻塞其余三个点的 F1。高 HBM A5 的
+standalone A8F4 按第 4、5 节独立验证；A8F4 PD 另行安排容量足够的双机环境，
+并在该环境重新生成路径匹配 control，不能沿用当前 A3 的 token golden。
 
 ## 7. 双 A3 专属：生成路径匹配 PD control
 
@@ -387,10 +430,11 @@ bash "$MATRIX" collect "$CFG" control_graph_u2_mtp2_a8 prefill
 
 ## 8. 双 A3 专属：AFD F0/F1
 
-### 8.1 四个验证点
+### 8.1 当前双 A3 的三个验证点
 
-按第 6.3 节的表执行四个点。共置 A8F8 点由 `decode` 动作在 A 机内部连续拉起 FFN
-和 Attention；split 点先由 P/F 机的 `prefill_ffn` 拉起 Prefill 和等待连接的 FFN，
+按第 6.3 节的表执行三个点，A8F4 按第 6.4 节记录容量限制。共置 A8F8 点由
+`decode` 动作在 A 机内部连续拉起 FFN 和 Attention；split 点先由 P/F 机的
+`prefill_ffn` 拉起 Prefill 和等待连接的 FFN，
 再由 A 机的 `attention` 拉起 Attention。FFN 没有 HTTP 端口，必须以 `status` 输出的
 connector loop 数量判断是否 ready。
 
@@ -446,8 +490,8 @@ bash "$MATRIX" stop "$CFG" afd_graph_u2_split_a4f8_mtp3 prefill_ffn
 bash "$MATRIX" collect "$CFG" afd_graph_u2_split_a4f8_mtp3 prefill_ffn
 ```
 
-验证 A8F4 时把点名替换为 `afd_graph_u2_split_a8f4_mtp3`，角色不变。验证两个共置
-A8F8 点时，P/F 机角色改为 `prefill`，A 机角色改为 `decode`；点名分别为
+当前双 A3 跳过 `afd_graph_u2_split_a8f4_mtp3`。验证两个共置 A8F8 点时，
+P/F 机角色改为 `prefill`，A 机角色改为 `decode`；点名分别为
 `afd_graph_u2_mtp2` 和 `afd_graph_u2_mtp3`。每个点必须重新执行 check、冷启动、
 status、smoke、逆序停止和 collect，不能在运行中切换点名。
 
@@ -469,20 +513,16 @@ bash "$MATRIX" evidence "$CFG" afd_graph_u2_mtp3 decode
 # afd_graph_u2_split_a4f8_mtp3 正在运行时：
 bash "$MATRIX" validate "$CFG" afd_graph_u2_split_a4f8_mtp3 proxy
 bash "$MATRIX" evidence "$CFG" afd_graph_u2_split_a4f8_mtp3 attention
-
-# afd_graph_u2_split_a8f4_mtp3 正在运行时：
-bash "$MATRIX" validate "$CFG" afd_graph_u2_split_a8f4_mtp3 proxy
-bash "$MATRIX" evidence "$CFG" afd_graph_u2_split_a8f4_mtp3 attention
 ```
 
-每一组命令只在对应点运行期间执行；不要同时启动四个点。完成 `validate/evidence` 后，
-按 8.2 的逆序停止和 collect。第一轮全部通过后，两台机器切换到新的运行根：
+每一组命令只在对应点运行期间执行；不要同时启动多个点。完成 `validate/evidence`
+后，按 8.2 的逆序停止和 collect。第一轮三个适用点通过后，两台机器切换到新的运行根：
 
 ```bash
 export MATRIX_RUN_BASE="/data/run/dsv4-phase1-pd-r2"
 ```
 
-随后重新执行第 7 节生成 3 份 control，再完整执行本节 4 个 AFD 点，形成第二次独立
+随后重新执行第 7 节生成 3 份 control，再完整执行本节 3 个 AFD 点，形成第二次独立
 冷启动证据。
 
 每个 AFD 点必须同时满足：
@@ -491,7 +531,7 @@ export MATRIX_RUN_BASE="/data/run/dsv4-phase1-pd-r2"
 2. `smoke`、取消请求后的 health recovery、batch 1/8/32 和 `validate` 通过。
 3. 路径匹配 control 的 10 条 prompt x 3 轮达到 30/30 token exact。
 4. `evidence` 覆盖全部 Attention rank，并观测到真实 U2 两 stage。
-5. A4F8/A8F4 日志中的 rank、peer 和 per-peer token count 符合各自 fan-out/fan-in 方向。
+5. A4F8 日志中的 rank、peer 和 per-peer token count 符合 `F=2A` 的 fan-out 方向。
 6. 无 OOM、timeout、`Communication_Error`、`507015`、Python traceback 或 EngineCore fatal。
 7. Attention 先退出、FFN 随后正常退出；停止后无残留端口和 NPU 进程。
 8. 第二次冷启动结果与第一次一致。
@@ -523,7 +563,8 @@ A5 只回传以下内容，不需要收集双 A3 的 PD 角色日志：
 PD 每个 `collect` 会打印一个小型归档及 `.sha256`。双 A3 不需要生成或回传 A5
 standalone evidence；回传以下内容：
 
-1. 两轮所有 control/AFD 角色的 `collect` 归档和 `.sha256`。
+1. 两轮全部 3 个 control、3 个适用 AFD 点各角色的 `collect` 归档和 `.sha256`；
+   A8F4 另附容量受限说明和已有失败日志。
 2. 两台机器 H0 审计文本。
 3. 每轮 3 份路径匹配 PD control golden，共 6 份，路径中保留 `r1/r2` 标识。
 4. 仓库 `tools/dsv4/phase1_prompts.json` 的 SHA256 和 afd-plugin commit。
