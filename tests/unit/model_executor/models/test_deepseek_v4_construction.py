@@ -13,7 +13,8 @@ torch = pytest.importorskip("torch")
 pytest.importorskip("vllm_ascend")
 nn = torch.nn
 
-from vllm.config import CompilationMode  # noqa: E402
+from vllm.compilation.wrapper import TorchCompileWithNoGuardsWrapper  # noqa: E402
+from vllm.config import CompilationMode, CUDAGraphMode  # noqa: E402
 
 from afd_plugin.model_executor.models import deepseek_v4 as adapter  # noqa: E402
 
@@ -142,6 +143,7 @@ def _vllm_config(*, role: str, layer_count: int = 43, mtp: bool = False):
         speculative_config=(
             SimpleNamespace(
                 method="mtp",
+                enforce_eager=True,
                 num_speculative_tokens=1,
                 draft_model_config=SimpleNamespace(hf_config=config),
             )
@@ -658,6 +660,65 @@ def test_mtp_constructor_enforces_role_ownership(
         assert mtp_construction_env["attention"] == []
         assert mtp_construction_env["moe"] == ["mtp.0.mlp"]
         assert names == {"model.layers.0.mtp_block.mlp.weight"}
+
+
+@pytest.mark.parametrize("num_speculative_tokens", [1, 2, 3])
+@pytest.mark.parametrize("enforce_eager", [True, False])
+def test_mtp_eager_steps_survive_compiled_target_configuration(
+    monkeypatch, mtp_construction_env, num_speculative_tokens, enforce_eager
+):
+    config = _vllm_config(role="attention", layer_count=1, mtp=True)
+    config.speculative_config.enforce_eager = enforce_eager
+    config.speculative_config.num_speculative_tokens = num_speculative_tokens
+    config.compilation_config.mode = CompilationMode.VLLM_COMPILE
+    config.compilation_config.cudagraph_mode = CUDAGraphMode.FULL_DECODE_ONLY
+    compiled_graphs = []
+
+    def backend(graph, _example_inputs, **_kwargs):
+        compiled_graphs.append(graph)
+        return graph.forward
+
+    def init_compiled_model(model, **_kwargs):
+        # Exercise the real model decorator and its compile decision, using
+        # vLLM's guard policy with a CPU backend instead of Ascend kernels.
+        compiled = torch.compile(
+            model.forward,
+            backend=backend,
+            fullgraph=True,
+            dynamic=False,
+            options={"guard_filter_fn": torch.compiler.skip_all_guards_unsafe},
+        )
+        model.aot_compiled_fn = lambda _model, *args, **kwargs: compiled(
+            *args, **kwargs
+        )
+
+    monkeypatch.setattr(
+        TorchCompileWithNoGuardsWrapper, "__init__", init_compiled_model
+    )
+
+    class StepOutput(nn.Module):
+        def forward(
+            self, input_ids, positions, hidden_states, inputs_embeds, spec_step_idx
+        ):
+            return torch.full_like(hidden_states, spec_step_idx)
+
+    model = adapter.AFDDeepSeekV4MTP(vllm_config=config)
+    model.model = StepOutput()
+    torch._dynamo.reset_code(model.forward.__func__.__code__)
+    inputs = torch.ones((4, 2))
+    observed = [
+        int(model(inputs, inputs, inputs)[0, 0])
+        for _ in range(2 * num_speculative_tokens)
+    ]
+
+    if enforce_eager and num_speculative_tokens > 1:
+        assert observed == list(range(num_speculative_tokens)) * 2
+        assert compiled_graphs == []
+    else:
+        # Graph draft and single-token eager draft keep compilation. Their
+        # wire step is zero, so neither relies on a changing Python counter.
+        assert len(compiled_graphs) == 1
+    assert config.compilation_config.mode == CompilationMode.VLLM_COMPILE
 
 
 def test_afd_activation_is_required_before_construction():

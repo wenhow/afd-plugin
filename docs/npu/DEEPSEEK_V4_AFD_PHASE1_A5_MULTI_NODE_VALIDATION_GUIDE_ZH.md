@@ -448,6 +448,13 @@ F0 不读取任何 golden，适合先定位安装、模型加载、Graph capture
 单机验证不同。请两端安装包含短输入分片与执行模式配对修复的新版包，详见
 `docs/npu/DEEPSEEK_V4_PD_FIRST_DECODE_GRAPH_MODE_FIX_VALIDATION_ZH.md`。
 
+`afd_graph_u2_mtp2` 的配置是 target Graph U2 + eager draft MTP 2。
+若启动时 FFN 报 `speculative_step=0, expected_step=1`，随后 Attention 报
+`Connection closed by peer`，请安装包含 eager 多步 MTP 编译修复的新版包。
+该修复让 eager 的多步草稿模型直接执行，保留 target Graph、graph draft 和
+MTP 1 的编译路径；不需要改为 graph draft 或重新下载权重。修复和验证范围见
+`docs/npu/DEEPSEEK_V4_MTP_EAGER_COMPILE_FIX_VALIDATION_ZH.md`。
+
 以下是当前 A4F8 点的完整 F0 顺序：
 
 ```bash

@@ -1255,6 +1255,11 @@ class AFDDeepSeekMultiTokenPredictor(native_mtp.DeepSeekMultiTokenPredictor):
         return self.layers[str(layer_idx)].compute_ffn_output(hidden_states)
 
 
+# ### PATCH START: keep multi-step eager draft orchestration outside compile.
+# The pinned proposer omits spec_step_idx. Guard-free compiled reuse freezes
+# the Python iteration counter below at step zero, violating the eager AFD
+# wire protocol on the second draft token. Graph draft uses static headers;
+# it and single-token draft retain their existing compilation paths.
 @native_mtp.support_torch_compile(
     dynamic_arg_dims={
         "input_ids": 0,
@@ -1263,7 +1268,15 @@ class AFDDeepSeekMultiTokenPredictor(native_mtp.DeepSeekMultiTokenPredictor):
         "intermediate_tensors": 0,
         "inputs_embeds": 0,
     },
+    enable_if=lambda config: (
+        not (
+            config.speculative_config is not None
+            and config.speculative_config.enforce_eager
+            and config.speculative_config.num_speculative_tokens > 1
+        )
+    ),
 )
+# ### PATCH END: keep multi-step eager draft orchestration outside compile.
 class AFDDeepSeekV4MTP(native_mtp.DeepSeekV4MTP):
     """Strict AFD role wrapper for the native DSV4 MTP model."""
 
