@@ -1944,6 +1944,74 @@ def test_p2p_hccl_attention_fanout_pads_and_discards_dummy_token(monkeypatch):
     assert output.tolist() == [[11, 11, 11, 11]]
 
 
+@pytest.mark.parametrize("num_peers", [2, 4])
+@pytest.mark.parametrize("num_tokens", [1, 2, 3, 5, 8, 9])
+@pytest.mark.parametrize("direction", ["send", "recv"])
+def test_p2p_hccl_fanout_reuses_graph_for_short_and_odd_batches(
+    monkeypatch,
+    num_peers,
+    num_tokens,
+    direction,
+):
+    connector = _connector(role="attention", attention=1, ffn=num_peers)
+    shards = []
+    monkeypatch.setattr(
+        connector,
+        "_send_tensor",
+        lambda tensor, *, dst, group: shards.append(tensor.clone()),
+    )
+
+    def recv(tensor, *, src, group):
+        tensor.fill_(src + 11)
+        shards.append(tensor.clone())
+
+    monkeypatch.setattr(connector, "_recv_tensor", recv)
+    graphs = []
+
+    def backend(graph, example_inputs):
+        graphs.append((graph, example_inputs))
+        return graph.forward
+
+    def transfer(tensor):
+        if direction == "send":
+            connector._send_attention_tensor(tensor, group=connector.data_pg_list[0])
+        else:
+            connector._recv_attention_tensor(tensor, group=connector.data_pg_list[0])
+        return tuple(shards)
+
+    warmup = torch.ones((8, 4))
+    torch._dynamo.mark_dynamic(warmup, 0)
+    torch._dynamo.reset_code(transfer.__code__)
+    torch.compile(transfer, backend=backend, fullgraph=True)(warmup)
+    assert len(graphs) == 1
+    graph, example_inputs = graphs[0]
+    hidden = torch.arange(num_tokens * 4, dtype=torch.float32).reshape(num_tokens, 4)
+    # vLLM reuses the range graph without Dynamo's shape guards. Calling the
+    # saved graph directly must handle sizes absent from the warmup batch.
+    graph_inputs = []
+    for value in example_inputs:
+        if isinstance(value, torch.SymInt):
+            # Dynamo may also lift connector.ratio as a symbolic argument.
+            graph_inputs.append(num_tokens if int(value) == 8 else int(value))
+        else:
+            graph_inputs.append(hidden)
+    result = graph(*graph_inputs)
+    base, remainder = divmod(max(num_tokens, num_peers), num_peers)
+    sizes = [base + (peer < remainder) for peer in range(num_peers)]
+    assert [shard.shape[0] for shard in result] == sizes, graph.code
+    if direction == "send":
+        expected = torch.cat((hidden, torch.zeros((max(num_peers - num_tokens, 0), 4))))
+        torch.testing.assert_close(torch.cat(result), expected)
+    else:
+        expected = torch.cat(
+            [
+                torch.full((size, 4), peer + 11, dtype=torch.float32)
+                for peer, size in enumerate(sizes)
+            ]
+        )[:num_tokens]
+        torch.testing.assert_close(hidden, expected)
+
+
 def test_p2p_hccl_ffn_receives_ids_then_hidden_and_returns_state(monkeypatch):
     connector = _connector(role="ffn")
     connector.dp_metadata_list = {
@@ -2357,7 +2425,11 @@ def test_p2p_hccl_control_plane_uses_one_sender_per_subgroup(monkeypatch):
     ]
 
 
-def test_p2p_hccl_control_plane_receives_from_first_subgroup_attention(monkeypatch):
+@pytest.mark.parametrize("target_graph_replay", [None, False, True])
+def test_p2p_hccl_control_plane_receives_from_first_subgroup_attention(
+    monkeypatch,
+    target_graph_replay,
+):
     connector = _connector(
         role="ffn",
         role_rank=1,
@@ -2369,6 +2441,7 @@ def test_p2p_hccl_control_plane_receives_from_first_subgroup_attention(monkeypat
         dp_metadata_list={},
         is_graph_capturing=False,
         is_warmup=False,
+        target_graph_replay=target_graph_replay,
     )
     calls = []
 
@@ -2378,7 +2451,9 @@ def test_p2p_hccl_control_plane_receives_from_first_subgroup_attention(monkeypat
 
     monkeypatch.setattr(hccl_module, "recv_control_payload", recv)
 
+    connector.target_graph_replay = not bool(target_graph_replay)
     assert connector.control_plane.recv_dp_metadata_list() is expected
+    assert connector.target_graph_replay is target_graph_replay
     assert calls == [(4, connector.p2p_pg, torch.device("cpu"))]
 
 

@@ -259,7 +259,8 @@ def test_p2p_module_exports_connector_class():
     assert module.P2pNcclAFDConnector.__module__ == "afd_plugin.connectors.gpu.p2p"
 
 
-def test_p2p_dp_metadata_serialization_uses_json_payload():
+@pytest.mark.parametrize("target_graph_replay", [None, False, True])
+def test_p2p_dp_metadata_serialization_uses_json_payload(target_graph_replay):
     module = importlib.import_module("afd_plugin.connectors.metadata")
     metadata = AFDDPMetadata(num_tokens_across_dp_cpu=[3, 5])
 
@@ -270,6 +271,7 @@ def test_p2p_dp_metadata_serialization_uses_json_payload():
             is_warmup=False,
             mtp_phase_control_enabled=True,
             tensor_parallel_size=2,
+            target_graph_replay=target_graph_replay,
         ),
     )
     decoded_payload = module.decode_control_payload(payload)
@@ -288,6 +290,15 @@ def test_p2p_dp_metadata_serialization_uses_json_payload():
     assert decoded_payload.mtp_phase_ready is False
     assert decoded_payload.mtp_phase_control_enabled is True
     assert decoded_payload.tensor_parallel_size == 2
+    assert decoded_payload.target_graph_replay is target_graph_replay
+
+
+def test_p2p_legacy_control_payload_has_no_target_execution_mode():
+    module = importlib.import_module("afd_plugin.connectors.metadata")
+
+    payload = module.decode_control_payload(b'{"dp_metadata_list":{}}')
+
+    assert payload.target_graph_replay is None
 
 
 def test_p2p_mtp_phase_control_payload_round_trip():

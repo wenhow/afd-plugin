@@ -65,6 +65,20 @@ class AFDNPUAttentionWorker(NPUWorker):
             self.device,
         )
 
+    # Upstream source: vLLM-Ascend 3da28f94, NPUWorker.execute_dummy_batch.
+    # Patch reason: online idle DP ranks also need the MTP phase handshake;
+    # FFN must not post draft device receives before target sampling completes.
+    # Patch functionality: distinguish serving dummy work from startup capture.
+    # Signature: matches upstream; no added parameters.
+    def execute_dummy_batch(self) -> None:
+        # ### PATCH START: AFD online dummy scope
+        self.model_runner._afd_live_dummy_execution = True
+        try:
+            super().execute_dummy_batch()
+        finally:
+            self.model_runner._afd_live_dummy_execution = False
+        # ### PATCH END: AFD online dummy scope
+
     def profile(self, is_start: bool = True, profile_prefix: str | None = None):
         del profile_prefix
         if is_start:

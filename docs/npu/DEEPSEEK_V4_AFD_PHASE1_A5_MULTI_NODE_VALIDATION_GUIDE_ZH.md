@@ -399,6 +399,11 @@ connector loop 数量判断是否 ready。
 F0 不读取任何 golden，适合先定位安装、模型加载、Graph capture、HCCL、Mooncake 和
 服务生命周期。不得在 F0 执行 `validate`，也不得把 F0 结果标记为 token-exact。
 
+图捕获和 health 成功后仍需执行 smoke。PD 首轮只有 1 个 Decode token，曾触发
+编译后的 FFN 分片为空、空闲 DP 的 FFN 错用缓存图；该入口与完整 prompt 的
+单机验证不同。请两端安装包含短输入分片与执行模式配对修复的新版包，详见
+`docs/npu/DEEPSEEK_V4_PD_FIRST_DECODE_GRAPH_MODE_FIX_VALIDATION_ZH.md`。
+
 以下是当前 A4F8 点的完整 F0 顺序：
 
 ```bash

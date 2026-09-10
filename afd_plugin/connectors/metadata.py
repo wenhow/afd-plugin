@@ -142,6 +142,10 @@ class AFDControlPayload:
             work and therefore expects a following ``mtp_phase_ready`` marker.
             Startup profile, warmup, and capture steps execute paired dummy
             draft work directly and leave this disabled.
+        target_graph_replay: Attention's selected target execution mode. False
+            prevents FFN cache hits from overriding an eager target or its
+            paired dummy draft. None retains legacy shape-based selection for
+            callers that do not supply an execution mode.
         tensor_parallel_size: Attention-side TP size. FFN validates this
             against its local TP group before receiving AFD tensors so a
             mismatched deployment fails before the HCCL message order drifts.
@@ -157,6 +161,7 @@ class AFDControlPayload:
     mtp_phase_graph_replay: bool = False
     mtp_phase_control_enabled: bool = False
     tensor_parallel_size: int = 1
+    target_graph_replay: bool | None = None
 
     def __post_init__(self) -> None:
         self.dp_metadata_list = {
@@ -384,6 +389,7 @@ def encode_control_payload(payload: AFDControlPayload) -> bytes:
         "mtp_phase_graph_replay": bool(payload.mtp_phase_graph_replay),
         "mtp_phase_control_enabled": bool(payload.mtp_phase_control_enabled),
         "tensor_parallel_size": int(payload.tensor_parallel_size),
+        "target_graph_replay": payload.target_graph_replay,
     }
     return json.dumps(wire_payload, separators=(",", ":"), sort_keys=True).encode(
         "utf-8",
@@ -423,6 +429,7 @@ def decode_control_payload(payload_bytes: bytes) -> AFDControlPayload:
             payload.get("mtp_phase_control_enabled", False),
         ),
         tensor_parallel_size=int(payload.get("tensor_parallel_size", 1)),
+        target_graph_replay=payload.get("target_graph_replay"),
     )
 
 

@@ -382,6 +382,7 @@ class P2pHcclAFDConnector(AFDConnectorBase):
         self.mtp_graph_header_values_by_peer: dict[int, tuple[int, ...]] = {}
         self.mtp_phase_control_enabled = False
         self.mtp_phase_graph_replay = False
+        self.target_graph_replay: bool | None = None
         self.is_graph_capturing = False
         self.is_warmup = False
         self.a2f_send_stream = None
@@ -509,6 +510,7 @@ class P2pHcclAFDConnector(AFDConnectorBase):
         self.mtp_graph_header_values_by_peer = {}
         self.mtp_phase_control_enabled = False
         self.mtp_phase_graph_replay = False
+        self.target_graph_replay = None
         self.a2f_send_stream = None
         self.f2a_recv_stream = None
         self.attention_graph_compute_stream = None
@@ -1198,6 +1200,12 @@ class P2pHcclAFDConnector(AFDConnectorBase):
         self,
         tensor: torch.Tensor,
     ) -> torch.Tensor:
+        if torch.compiler.is_compiling() and self.attention_fans_out:
+            # vLLM reuses this graph without shape guards. Always retain enough
+            # padding for a one-token batch: tracing a conditional pad at a
+            # larger size would omit it. Peer slices trim the unused tail.
+            padding_shape = (self.ratio - 1, *tensor.shape[1:])
+            return torch.cat((tensor, tensor.new_zeros(padding_shape)), dim=0)
         peer_slices = self._attention_peer_slices(int(tensor.shape[0]))
         transport_tokens = peer_slices[-1][2]
         if transport_tokens == int(tensor.shape[0]):
@@ -1232,11 +1240,18 @@ class P2pHcclAFDConnector(AFDConnectorBase):
     ) -> torch.Tensor:
         peer_slices = self._attention_peer_slices(int(ref_tensor.shape[0]))
         transport_tokens = peer_slices[-1][2]
-        transport = (
-            ref_tensor
-            if transport_tokens == int(ref_tensor.shape[0])
-            else ref_tensor.new_empty((transport_tokens, *ref_tensor.shape[1:]))
-        )
+        if torch.compiler.is_compiling() and self.attention_fans_out:
+            # The receive graph must also retain capacity for padding when
+            # reused for a batch smaller than the FFN peer count.
+            transport = ref_tensor.new_empty(
+                (ref_tensor.shape[0] + self.ratio - 1, *ref_tensor.shape[1:]),
+            )
+        else:
+            transport = (
+                ref_tensor
+                if transport_tokens == int(ref_tensor.shape[0])
+                else ref_tensor.new_empty((transport_tokens, *ref_tensor.shape[1:]))
+            )
         for source_rank, start, end in peer_slices:
             shard = (
                 ref_tensor
@@ -2007,6 +2022,7 @@ class P2pHcclAFDControlPlane(AFDControlPlane):
         self.connector.mtp_phase_control_enabled = bool(
             payload.mtp_phase_control_enabled,
         )
+        self.connector.target_graph_replay = payload.target_graph_replay
         self.connector.mtp_phase_graph_replay = False
         return payload
 
@@ -2043,10 +2059,12 @@ def _balanced_split_sizes(num_tokens: int, num_peers: int) -> tuple[int, ...]:
         raise ValueError(f"token count must be non-negative, got {num_tokens}")
     if num_peers <= 0:
         raise ValueError(f"peer count must be positive, got {num_peers}")
-    # torch.compile cannot lower divmod when num_tokens is a symbolic shape.
-    base = num_tokens // num_peers
-    remainder = num_tokens % num_peers
-    return tuple(base + (offset < remainder) for offset in range(num_peers))
+    # Keep the split branch-free. Python comparisons against the remainder
+    # specialize the traced parity, but vLLM reuses that graph without guards.
+    return tuple(
+        (num_tokens + num_peers - 1 - offset) // num_peers
+        for offset in range(num_peers)
+    )
 
 
 def _project_attention_counts_to_ffn(

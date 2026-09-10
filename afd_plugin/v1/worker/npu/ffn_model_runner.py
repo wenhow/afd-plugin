@@ -249,7 +249,10 @@ class AFDNPUFFNModelRunner(NPUModelRunner):
             is_warmup=is_warmup and graph_enabled,
             is_graph_capturing=is_graph_capturing and graph_enabled,
             graph_enabled=graph_enabled,
-            graph_exists=graph_info is not None,
+            # An idle Attention DP can run eager with the same padded shape
+            # as a cached graph. Its selected mode must also govern FFN.
+            graph_exists=graph_info is not None
+            and getattr(self.connector, "target_graph_replay", None) is not False,
         )
         if run_mode in (AFDGraphRunMode.WARMUP, AFDGraphRunMode.CAPTURE):
             return self.execute_ffn_step(
@@ -301,6 +304,9 @@ class AFDNPUFFNModelRunner(NPUModelRunner):
             graph_replay
             or (
                 not control_enabled
+                # Ascend's dummy drafter inherits its target runtime mode;
+                # only a live proposer can independently select draft Graph.
+                and getattr(self.connector, "target_graph_replay", None) is not False
                 and self._make_mtp_graph_key(dp_metadata_list) in self._mtp_acl_graphs
             )
         ):

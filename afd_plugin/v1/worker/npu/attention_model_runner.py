@@ -261,6 +261,7 @@ class AFDNPUAttentionModelRunner(NPUModelRunner):
         self._afd_transaction_counter = 0
         self._afd_async_moe_ubatch_metadata = None
         self._afd_live_execution = False
+        self._afd_live_dummy_execution = False
         self._afd_in_mtp_proposal = False
         self._afd_mtp_phase_announced = False
         self._afd_mtp_graph_replayed = False
@@ -1612,7 +1613,11 @@ class AFDNPUAttentionModelRunner(NPUModelRunner):
             return
         if getattr(self, "_afd_suppress_metadata_send", False):
             return
-        self._send_dp_metadata(dp_metadata, ubatch_slices)
+        self._send_dp_metadata(
+            dp_metadata,
+            ubatch_slices,
+            target_graph_replay=padded_graph_tokens is not None,
+        )
 
     def _install_async_moe_ubatch_metadata_on_forward_context(
         self,
@@ -1630,6 +1635,8 @@ class AFDNPUAttentionModelRunner(NPUModelRunner):
         self,
         dp_metadata: DPMetadata | AFDDPMetadata | None,
         ubatch_slices: UBatchSlices | None,
+        *,
+        target_graph_replay: bool | None = None,
     ) -> None:
         assert self.connector.control_plane is not None, (
             "_send_dp_metadata needs control plane driven connectors"
@@ -1698,8 +1705,10 @@ class AFDNPUAttentionModelRunner(NPUModelRunner):
                 ),
             ),
             mtp_phase_control_enabled=bool(
-                getattr(self, "_afd_live_execution", False),
+                getattr(self, "_afd_live_execution", False)
+                or getattr(self, "_afd_live_dummy_execution", False),
             ),
+            target_graph_replay=target_graph_replay,
         )
         self.connector.control_plane.update_state_from_dp_metadata(payload)
         stage_count = len(dp_metadata_list)
@@ -1801,9 +1810,23 @@ class AFDNPUAttentionModelRunner(NPUModelRunner):
         self,
         draft_runnable: Any,
     ) -> CUDAGraphMode | None:
-        if not bool(getattr(self, "_afd_in_mtp_proposal", False)):
+        if not (
+            bool(getattr(self, "_afd_in_mtp_proposal", False))
+            or bool(getattr(self, "_afd_live_dummy_execution", False))
+        ):
             return None
         forward_context = get_forward_context()
+        if isinstance(self.connector, P2pHcclAFDConnector):
+            # Draft DP sync can pad a one-token target to the idle ranks'
+            # four tokens. Refresh the stable header from the draft context
+            # before entering the runnable, outside graph capture.
+            draft_dp_metadata = forward_context.dp_metadata
+            if draft_dp_metadata is None:
+                draft_dp_metadata = _make_uniform_dp_metadata(
+                    self.dp_size,
+                    forward_context.num_tokens,
+                )
+            self.connector.prepare_mtp_header_for_graph({0: draft_dp_metadata})
         runtime_mode = forward_context.cudagraph_runtime_mode
         draft_runtime_mode = getattr(
             draft_runnable,
@@ -2117,7 +2140,15 @@ class AFDNPUAttentionModelRunner(NPUModelRunner):
                 stage1_counts,
             )
 
-        if allow_dp_padding or is_draft_model or should_ubatch:
+        # Graph padding must follow the synchronized mode. A live first step
+        # can force NONE while idle ranks initially selected FULL; using those
+        # local decisions gives FFN peers incompatible collective layouts.
+        if (
+            synced_cudagraph_mode != CUDAGraphMode.NONE
+            or allow_dp_padding
+            or is_draft_model
+            or should_ubatch
+        ):
             num_tokens_after_padding = torch.tensor(
                 [max_tokens_across_dp] * self.dp_size,
                 device="cpu",
@@ -2235,8 +2266,7 @@ class AFDNPUAttentionModelRunner(NPUModelRunner):
                     num_tokens_padded=num_tokens_padded,
                     uniform_decode=uniform_decode,
                     cudagraph_mode=cudagraph_mode,
-                    allow_dp_padding=(cudagraph_mode != CUDAGraphMode.NONE)
-                    or enable_sp(self.vllm_config)
+                    allow_dp_padding=enable_sp(self.vllm_config)
                     or oproj_tp_enable()
                     or embedding_tp_enable(),
                     request_boundary_stage0_tokens=request_boundary_stage0_tokens,
