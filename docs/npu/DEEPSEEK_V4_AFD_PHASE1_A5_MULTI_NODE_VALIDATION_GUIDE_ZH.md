@@ -104,6 +104,16 @@ CANN 9.0.0 的唯一真实根目录；不得先 source 其他版本再继续。
 和实际 Python 导入根。因旧审计前缀不匹配而中断时不需要重装 env，换用新版包直接
 重跑 `install_all.sh`；干净的既有一期目标目录会沿包内提交链升级。
 
+更新含 MTP Graph 修复的安装包时，两台机器都需要先停止旧服务，在新版包目录
+执行 `bash bin/install_all.sh`，再执行第 6 节的 `refresh-config`。仅解压或
+`refresh-config` 不会更新正在导入的 afd-plugin 源码；两端源码升级后必须重新
+启动，以重新捕获 Graph。复用 profile 会沿用已有上游环境。
+
+MTP N=2/3 的 FFN 图必须在一次捕获内包含完整 N 步，并在每个 merged-draft
+阶段重放一次。旧版“捕获单步后重复重放”的行为可能在第 2 步报 HCCL 建链超时，
+随后出现 `capture_end 107025`。该问题的修正范围和验证边界见
+`docs/npu/DEEPSEEK_V4_MTP_MERGED_GRAPH_FIX_VALIDATION_ZH.md`。
+
 供应商 CANN、NNAL/ATB 和 custom ops 的 `set_env` 在严格 Bash `set -u` 下可能读取
 未定义变量。新版安装器会在 source 期间临时关闭 nounset 并立即恢复；不要为绕过
 错误手工修改供应商脚本，也不需要在配置中伪造 `ASCEND_CUSTOM_OPP_PATH`。

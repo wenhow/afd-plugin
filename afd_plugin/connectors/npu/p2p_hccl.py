@@ -1419,9 +1419,9 @@ class P2pHcclAFDConnector(AFDConnectorBase):
                 "DSV4 MTP draft Graph speculative step must be in "
                 f"[0, {self.num_speculative_tokens}), got {speculative_step}"
             )
-        # A single MTP layer reuses one captured HCCL graph for every proposal
-        # iteration. The fixed graph header carries step 0; live ordering is
-        # enforced by one control-plane phase marker per replay.
+        # The merged MTP graph reuses this header buffer across its N draft
+        # iterations. The fixed header carries step 0; live ordering is
+        # enforced by one control-plane phase marker per merged replay.
         peer_slices = self._attention_peer_slices(num_tokens)
         if not torch.compiler.is_compiling() and any(
             header_values_by_peer[peer_rank][2] != end - start

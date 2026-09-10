@@ -479,7 +479,7 @@ def _validate_mtp_graph_transport(
     tensor_parallel_size: int,
     num_speculative_tokens: int,
 ) -> list[dict[str, object]]:
-    """Capture and replay the merged MTP phase on physical HCCL groups."""
+    """Match a merged Attention graph to the production FFN capture/replay."""
 
     import torch
     import torch.distributed as dist
@@ -526,8 +526,8 @@ def _validate_mtp_graph_transport(
         connector.control_plane.update_state_from_dp_metadata(received_control)
 
     static_hidden = None
-    returned_buffer = None
-    header = None
+    returned_buffers = []
+    runner = None
     if role == "attention":
         num_tokens = attention_peer_counts[role_rank]
         static_hidden = torch.full(
@@ -536,57 +536,95 @@ def _validate_mtp_graph_transport(
             dtype=torch.bfloat16,
             device="npu:0",
         )
-        returned_buffer = torch.empty_like(static_hidden)
+        returned_buffers = [
+            torch.empty_like(static_hidden) for _ in range(num_speculative_tokens)
+        ]
+    else:
+        # Load worker modules only in the FFN subprocess, after torch_npu and
+        # Ascend ops are initialized. Keep the real runner's graph lifecycle;
+        # substitute a small +2 kernel for model weights in this transport test.
+        import vllm_ascend.ops  # noqa: F401
+
+        from afd_plugin.v1.worker.npu.ffn_model_runner import AFDNPUFFNModelRunner
+
+        expected_ffn_counts = _ffn_token_counts(
+            attention_peer_counts,
+            ffn_size=ffn_size,
+        )
+
+        class RoundtripFFNRunner(AFDNPUFFNModelRunner):
+            def _mtp_ffn_forward(
+                self,
+                stage_ids,
+                *,
+                header=None,
+                expected_speculative_step=None,
+            ):
+                assert stage_ids == [0]
+                assert header.speculative_step == expected_speculative_step == 0
+                if header.num_tokens_across_dp.tolist() != expected_ffn_counts:
+                    raise AssertionError("MTP graph FFN count projection mismatch")
+                payload = self.connector.recv_attn_output(
+                    ubatch_idx=0,
+                    layer_idx=0,
+                    phase="mtp",
+                    speculative_step=header.speculative_step,
+                    num_tokens=header.num_tokens,
+                )
+                output = payload.hidden_states + 2
+                self.connector.send_ffn_output(output, payload.context, ubatch_idx=0)
+                return output
+
+        runner = object.__new__(RoundtripFFNRunner)
+        runner.vllm_config = connector.vllm_config
+        runner.speculative_config = connector.vllm_config.speculative_config
+        runner.connector = connector
+        runner.max_num_tokens = connector.max_num_batched_tokens
+        runner.cudagraph_batch_sizes = ()
+        runner.use_aclgraph = True
+        runner.graph_pool = torch.npu.graph_pool_handle()
+        runner._mtp_acl_graphs = {}
 
     dist.barrier(group=connector.p2p_pg)
     graph = torch.npu.NPUGraph()
     connector.is_graph_capturing = True
-    with torch.npu.graph(graph, pool=torch.npu.graph_pool_handle()):
-        if role == "attention":
-            assert static_hidden is not None
-            assert returned_buffer is not None
-            context = AFDTransferContext(
-                metadata=AFDTransferMetadata.create_attention_metadata(
-                    layer_idx=0,
-                    stage_idx=0,
-                    seq_len=int(static_hidden.shape[0]),
-                    phase="mtp",
-                    speculative_step=0,
-                ),
-            )
-            connector.send_attn_output(
-                static_hidden,
-                context,
-                num_tokens_across_dp=torch.tensor(
-                    _dp_token_counts(
-                        attention_peer_counts,
-                        tensor_parallel_size=tensor_parallel_size,
+    if role == "attention":
+        assert static_hidden is not None
+        hidden = static_hidden
+        with torch.npu.graph(graph, pool=torch.npu.graph_pool_handle()):
+            # Like _run_merged_draft, record all N sends/receives before leaving
+            # capture. Feeding each result into the next step detects missing
+            # or duplicated iterations, rather than checking only the last send.
+            for returned_buffer in returned_buffers:
+                context = AFDTransferContext(
+                    metadata=AFDTransferMetadata.create_attention_metadata(
+                        layer_idx=0,
+                        stage_idx=0,
+                        seq_len=int(hidden.shape[0]),
+                        phase="mtp",
+                        speculative_step=0,
                     ),
-                    dtype=torch.int32,
-                ),
-            )
-            connector.recv_ffn_output(
-                returned_buffer,
-                ubatch_idx=0,
-                phase="mtp",
-            )
-        else:
-            header = connector.recv_mtp_header_for_graph(
-                stage_idx=0,
-                attention_peer_counts=tuple(attention_peer_counts),
-            )
-            payload = connector.recv_attn_output(
-                ubatch_idx=0,
-                layer_idx=0,
-                phase="mtp",
-                speculative_step=header.speculative_step,
-                num_tokens=header.num_tokens,
-            )
-            connector.send_ffn_output(
-                payload.hidden_states + 2,
-                payload.context,
-                ubatch_idx=0,
-            )
+                )
+                connector.send_attn_output(
+                    hidden,
+                    context,
+                    num_tokens_across_dp=torch.tensor(
+                        _dp_token_counts(
+                            attention_peer_counts,
+                            tensor_parallel_size=tensor_parallel_size,
+                        ),
+                        dtype=torch.int32,
+                    ),
+                )
+                connector.recv_ffn_output(
+                    returned_buffer,
+                    ubatch_idx=0,
+                    phase="mtp",
+                )
+                hidden = returned_buffer
+    else:
+        assert runner is not None
+        runner._capture_mtp_graphs(control_payload.dp_metadata_list)
     connector.is_graph_capturing = False
     torch.npu.synchronize()
     dist.barrier(group=connector.p2p_pg)
@@ -599,21 +637,11 @@ def _validate_mtp_graph_transport(
                 "tokens": attention_peer_counts[role_rank],
                 "peer_tokens": attention_peer_counts,
                 "captured": True,
+                "captured_steps": num_speculative_tokens,
             }
         )
         assert static_hidden is not None
-        static_hidden.fill_(_mtp_hidden_value(role_rank, step_idx=step_idx + 7))
     else:
-        assert header is not None
-        expected_ffn_counts = _ffn_token_counts(
-            attention_peer_counts,
-            ffn_size=ffn_size,
-        )
-        if header.num_tokens_across_dp.tolist() != expected_ffn_counts:
-            raise AssertionError(
-                "MTP graph FFN count projection mismatch: "
-                f"{header.num_tokens_across_dp.tolist()} != {expected_ffn_counts}"
-            )
         checks.append(
             {
                 "phase": "mtp_graph_capture",
@@ -627,27 +655,49 @@ def _validate_mtp_graph_transport(
                 ],
                 "header_fan_in": True,
                 "captured": True,
+                "captured_steps": num_speculative_tokens,
+                "production_ffn_runner": True,
             }
         )
 
     dist.barrier(group=connector.p2p_pg)
-    for _ in range(num_speculative_tokens):
-        graph.replay()
+    # Exercise both duplicate-capture and live replay with fresh inputs. Each
+    # replay must consume one complete N-step proposal on each side.
+    for replay_idx in range(2):
+        if role == "attention":
+            assert static_hidden is not None
+            static_hidden.fill_(
+                _mtp_hidden_value(role_rank, step_idx=step_idx + 7 + replay_idx)
+            )
+            graph.replay()
+        else:
+            assert runner is not None
+            if replay_idx == 0:
+                runner._capture_mtp_graphs(control_payload.dp_metadata_list)
+            else:
+                runner._execute_mtp_after_target(control_payload.dp_metadata_list)
         torch.npu.synchronize()
+        if role == "attention":
+            assert static_hidden is not None
+            for draft_step, returned_buffer in enumerate(returned_buffers, 1):
+                expected = static_hidden + 2 * draft_step
+                if not torch.equal(returned_buffer.cpu(), expected.cpu()):
+                    raise AssertionError(
+                        f"Merged MTP replay mismatch: attention={role_rank}, "
+                        f"replay={replay_idx}, draft_step={draft_step}"
+                    )
         dist.barrier(group=connector.p2p_pg)
 
     if role == "attention":
         assert static_hidden is not None
-        assert returned_buffer is not None
-        if not torch.equal(returned_buffer.cpu(), (static_hidden + 2).cpu()):
-            raise AssertionError(f"MTP graph replay mismatch for attention={role_rank}")
         checks.append(
             {
                 "phase": "mtp_graph_replay",
                 "tokens": int(static_hidden.shape[0]),
                 "updated_input": True,
                 "roundtrip": True,
-                "replays": num_speculative_tokens,
+                "replays": 2,
+                "steps_per_replay": num_speculative_tokens,
             }
         )
     else:
@@ -655,7 +705,8 @@ def _validate_mtp_graph_transport(
             {
                 "phase": "mtp_graph_replay",
                 "fan_in_out": True,
-                "replays": num_speculative_tokens,
+                "replays": 2,
+                "steps_per_replay": num_speculative_tokens,
             }
         )
     return checks

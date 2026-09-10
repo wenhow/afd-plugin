@@ -294,20 +294,21 @@ class AFDNPUFFNModelRunner(NPUModelRunner):
             return
         num_speculative_tokens = int(speculative_config.num_speculative_tokens)
         stage_ids = sorted(int(stage_idx) for stage_idx in dp_metadata_list) or [0]
-        for speculative_step in range(num_speculative_tokens):
-            graph_replay = bool(
-                getattr(self.connector, "mtp_phase_graph_replay", False),
+        graph_replay = bool(
+            getattr(self.connector, "mtp_phase_graph_replay", False),
+        )
+        if self._draft_uses_aclgraph() and (
+            graph_replay
+            or (
+                not control_enabled
+                and self._make_mtp_graph_key(dp_metadata_list) in self._mtp_acl_graphs
             )
-            if self._draft_uses_aclgraph() and (
-                graph_replay
-                or (
-                    not control_enabled
-                    and self._make_mtp_graph_key(dp_metadata_list)
-                    in self._mtp_acl_graphs
-                )
-            ):
-                self._replay_mtp_graph(dp_metadata_list)
-                continue
+        ):
+            # One graph contains the entire merged proposal, including all N
+            # draft iterations, matching Attention's _run_merged_draft.
+            self._replay_mtp_graph(dp_metadata_list)
+            return
+        for speculative_step in range(num_speculative_tokens):
             self._mtp_ffn_forward(
                 stage_ids,
                 expected_speculative_step=self._expected_mtp_wire_step(
@@ -874,9 +875,7 @@ class AFDNPUFFNModelRunner(NPUModelRunner):
             )
             existing_graph_info["graph"].replay()
             if self._draft_uses_aclgraph():
-                assert self.speculative_config is not None
-                for _ in range(int(self.speculative_config.num_speculative_tokens)):
-                    self._replay_mtp_graph(dp_metadata_list)
+                self._replay_mtp_graph(dp_metadata_list)
             return 0
         # ### PATCH END: mirror duplicate target graph replay.
 
@@ -948,23 +947,26 @@ class AFDNPUFFNModelRunner(NPUModelRunner):
         peer_layout = graph_key[-1]
         graph = torch.npu.NPUGraph()
         logger.debug("AFD NPU FFN capturing MTP ACL graph for key=%s", graph_key)
+        assert self.speculative_config is not None
+        # vLLM-Ascend's _run_merged_draft captures every draft iteration in one
+        # graph. HCCL creates a distinct capture resource for each send/recv;
+        # replaying a single-step FFN graph cannot match Attention's later
+        # capture-time sends. Capture the same N exchanges on both sides.
         with torch.npu.graph(graph, pool=self.graph_pool):
-            header = self.connector.recv_mtp_header_for_graph(
-                stage_idx=0,
-                attention_peer_counts=peer_layout,
-            )
-            output = self._mtp_ffn_forward(
-                [0],
-                header=header,
-                expected_speculative_step=0,
-            )
+            for _ in range(int(self.speculative_config.num_speculative_tokens)):
+                header = self.connector.recv_mtp_header_for_graph(
+                    stage_idx=0,
+                    attention_peer_counts=peer_layout,
+                )
+                output = self._mtp_ffn_forward(
+                    [0],
+                    header=header,
+                    expected_speculative_step=0,
+                )
         self._mtp_acl_graphs[graph_key] = {
             "graph": graph,
             "output": output,
         }
-        assert self.speculative_config is not None
-        for _ in range(1, int(self.speculative_config.num_speculative_tokens)):
-            graph.replay()
         logger.debug("AFD NPU FFN captured MTP ACL graph for key=%s", graph_key)
 
     def _capture_graphs(

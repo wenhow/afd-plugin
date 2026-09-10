@@ -3362,15 +3362,24 @@ def test_npu_ffn_runner_replays_target_graph_then_runs_mtp_eager(monkeypatch):
     ]
 
 
-def test_npu_ffn_runner_replays_target_then_full_draft_graph():
+@pytest.mark.parametrize("num_speculative_tokens", [1, 2, 3])
+@pytest.mark.parametrize("control_enabled", [False, True])
+def test_npu_ffn_runner_replays_target_then_full_draft_graph(
+    num_speculative_tokens,
+    control_enabled,
+):
     runner = _new_ffn_runner()
     runner.vllm_config = _vllm_config(
         role="ffn",
         connector="P2pHcclAFDConnector",
-        speculative_config=_mtp_speculative_config(enforce_eager=False),
+        speculative_config=_mtp_speculative_config(
+            enforce_eager=False,
+            num_speculative_tokens=num_speculative_tokens,
+        ),
     )
     runner.connector = _FakeFFNConnector(attn_size=2, ffn_size=2)
-    runner.connector.mtp_phase_graph_replay = True
+    runner.connector.mtp_phase_control_enabled = control_enabled
+    runner.connector.mtp_phase_graph_replay = control_enabled
     runner.model = _FakeModel()
     runner.num_layers = 1
     runner.max_num_tokens = 8
@@ -3392,12 +3401,19 @@ def test_npu_ffn_runner_replays_target_then_full_draft_graph():
     assert runner.connector.ffn_outputs == []
 
 
-def test_npu_ffn_runner_replays_draft_graph_after_eager_target(monkeypatch):
+@pytest.mark.parametrize("num_speculative_tokens", [1, 2, 3])
+def test_npu_ffn_runner_replays_draft_graph_after_eager_target(
+    monkeypatch,
+    num_speculative_tokens,
+):
     runner = _new_ffn_runner()
     runner.vllm_config = _vllm_config(
         role="ffn",
         connector="P2pHcclAFDConnector",
-        speculative_config=_mtp_speculative_config(enforce_eager=False),
+        speculative_config=_mtp_speculative_config(
+            enforce_eager=False,
+            num_speculative_tokens=num_speculative_tokens,
+        ),
     )
     runner.connector = _FakeFFNConnector(attn_size=2, ffn_size=2)
     runner.connector.mtp_phase_graph_replay = True
@@ -3724,6 +3740,107 @@ def test_npu_ffn_runner_graph_draft_warmup_uses_static_wire_step(monkeypatch):
     )
 
     assert calls == [0, 0, 0]
+
+
+@pytest.mark.parametrize("num_speculative_tokens", [1, 2, 3])
+def test_npu_ffn_runner_mtp_capture_matches_merged_attention_graph(
+    monkeypatch,
+    num_speculative_tokens,
+):
+    _require_npu_runtime()
+    from afd_plugin.v1.worker.npu import ffn_model_runner
+
+    runner = _new_ffn_runner()
+    runner.vllm_config = _vllm_config(
+        role="ffn",
+        connector="P2pHcclAFDConnector",
+        speculative_config=_mtp_speculative_config(
+            enforce_eager=False,
+            num_speculative_tokens=num_speculative_tokens,
+        ),
+    )
+    runner.speculative_config = runner.vllm_config.speculative_config
+    runner.connector = _FakeFFNConnector(attn_size=4, ffn_size=8)
+    runner.graph_pool = None
+    dp_metadata = {0: _FakeDPMetadata([4, 4, 4, 4])}
+    events = []
+    header = SimpleNamespace(speculative_step=0)
+
+    @contextmanager
+    def capture(graph, pool):
+        events.append("begin")
+        yield
+        events.append("end")
+
+    def recv_header(**kwargs):
+        assert kwargs == {"stage_idx": 0, "attention_peer_counts": (4, 4, 4, 4)}
+        events.append("recv_header")
+        return header
+
+    def forward(stage_ids, **kwargs):
+        assert stage_ids == [0]
+        assert kwargs == {"header": header, "expected_speculative_step": 0}
+        events.append("recv_compute_send")
+        return "output"
+
+    monkeypatch.setattr(ffn_model_runner.torch.npu, "NPUGraph", _FakeGraph)
+    monkeypatch.setattr(ffn_model_runner.torch.npu, "graph", capture)
+    runner.connector.recv_mtp_header_for_graph = recv_header
+    monkeypatch.setattr(runner, "_mtp_ffn_forward", forward)
+
+    runner._capture_mtp_graphs(dp_metadata)
+
+    assert events == [
+        "begin",
+        *(["recv_header", "recv_compute_send"] * num_speculative_tokens),
+        "end",
+    ]
+    graph = runner._mtp_acl_graphs[runner._make_mtp_graph_key(dp_metadata)]["graph"]
+    assert graph.replay_count == 0
+
+    # A duplicate merged capture replays exactly one complete proposal.
+    events.clear()
+    runner._capture_mtp_graphs(dp_metadata)
+    assert events == []
+    assert graph.replay_count == 1
+
+
+@pytest.mark.parametrize("num_speculative_tokens", [1, 2, 3])
+@pytest.mark.parametrize("stages", [1, 2])
+def test_npu_ffn_runner_duplicate_capture_replays_one_merged_mtp_graph(
+    num_speculative_tokens,
+    stages,
+):
+    runner = _new_ffn_runner()
+    runner.vllm_config = _vllm_config(
+        role="ffn",
+        connector="P2pHcclAFDConnector",
+        speculative_config=_mtp_speculative_config(
+            enforce_eager=False,
+            num_speculative_tokens=num_speculative_tokens,
+        ),
+    )
+    runner.speculative_config = runner.vllm_config.speculative_config
+    runner.connector = _FakeFFNConnector(attn_size=4, ffn_size=8)
+    runner.use_aclgraph = True
+    dp_metadata = {stage: _FakeDPMetadata([2] * 4) for stage in range(stages)}
+    target_graph = _FakeGraph()
+    mtp_graph = _FakeGraph()
+    runner._acl_graphs = {
+        runner._make_graph_key(dp_metadata): {"graph": target_graph},
+    }
+    runner._mtp_acl_graphs = {
+        runner._make_mtp_graph_key(dp_metadata): {"graph": mtp_graph},
+    }
+
+    runner.capture_model(
+        dp_metadata_list=dp_metadata,
+        input_ids_by_stage={},
+        connector_state_prepared=True,
+    )
+
+    assert target_graph.replay_count == 1
+    assert mtp_graph.replay_count == 1
 
 
 def test_npu_ffn_runner_duplicate_graph_u2_capture_replays_target_only(
