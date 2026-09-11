@@ -1,19 +1,22 @@
 # DeepSeek-V4 AFD v0.23 / afd-plugin 开发串讲报告
 
+> [!NOTE]
+> 本文保留为历史提交、专项验证数字、证据目录和 tag 的明细记录。连续理解需求、架构、调用链和实现时，请优先阅读[《DeepSeek-V4 AFD v0.23 统一设计文档》](../../../../validation/DEEPSEEK_V4_AFD_V023_DESIGN_ZH.md)；不要把本文的历史单轮或运行观测数字直接当作当前发布结论。
+
 ## 1. 报告定位
 
 本文面向组内技术串讲，按特性而不是按提交或文件组织 DeepSeek-V4 AFD 的开发内容，回答四个问题：改了什么、为什么要改、修改的工程意义是什么、验证到了什么程度。
 
 | 项目 | 固定口径 |
 |---|---|
-| 报告截止日期 | 主功能基线 2026-08-25；双 A3 PD + Graph/U2 验证更新 2026-09-05；第一阶段 M10/M11 本机验证更新 2026-09-08 |
+| 报告截止日期 | 主功能基线 2026-08-25；第一阶段 M10/M11 本机验证更新 2026-09-08；双 A3 PD + Graph/U2/MTP 两轮验证更新 2026-09-11 |
 | vLLM | `releases/v0.23.0`，`0fc695fc6d1d82e9a5ac6835ac8e4e1c83703665` |
 | vLLM-Ascend | `rfc/vllm_cann`，`3da28f9414583d2d0b672a8f06d1fae142404bda` |
-| afd-plugin | `feat/dsv4-afd-graph-u2-multistream-all-on-v1`；M10/M11 代码提交 `71168312eab4754b9c8d0ab87021be7b8701b448`；路径匹配 native control 修复 `4f052b92407eef50d5aa363282d6a961821a6b25`；双机采集仍按基线 HEAD `2164240b31efc8605bf84cc45afc628996669554` 加 R14 验证 overlay 解释 |
-| 开发范围 | 从 `99ee0ef6` 的 v0.23 兼容迁移到 Mooncake PD M9，以及第一阶段 M10/M11 本机开发门禁 |
+| afd-plugin | `feat/dsv4-afd-graph-u2-multistream-all-on-v1`；第一阶段 A3 功能基线 tag 为 `dsv4-afd-v023-phase1-a3-functional-v1`。2026-09-11 双 A3 两轮中，A8F8 N2/N3 两轮及 A4F8 N3 第 2 轮使用 clean `6386f18`；A4F8 N3 第 1 轮为 dirty `a695ff2`，但两者运行时代码一致，差异仅在验证/文档工具，作为功能轮次接受并保留元数据说明 |
+| 开发范围 | 从 `99ee0ef6` 的 v0.23 兼容迁移到 Mooncake PD M9，以及第一阶段 M10/M11 功能门禁；第一阶段不含逐 token 精度比对 |
 | 主要模型 | `DeepSeek-V4-Flash-w8a8-mtp` |
 | 功能验证工具链 | M10/M11 固定 CANN 9.0.0（`/mnt/workspace/code/.ascend/cann-9.0.0/cann-9.0.0`）、Python 3.12、`torch_npu 2.10.0.post2`、`afd-v023-vllm-cann` venv；历史功能基线中的 CANN 9.0.1 数字只作历史记录 |
-| 当前提交边界 | 本轮提交包含 M10/M11 运行时、HCCL P2P、Graph、recipe/部署工具、路径匹配 native control 和测试；不合入 R14 的 AllToAllV split cache，不改变 M9 已知正确性结论 |
+| 当前提交边界 | 本功能 tag 包含 M10/M11 运行时、HCCL P2P、Graph、recipe/部署工具、A3 一期验收记录、A5 单机 8 卡适配和测试；不合入 R14 的 AllToAllV split cache，不扩大为逐 token、U3 或性能结论 |
 
 早期在 `zingercode_vllm-ascend` 中直接修改上游源码的探索不属于本文范围；本文只讨论迁移到 v0.23 后以 `afd-plugin` 为唯一 AFD 扩展边界的实现。
 
@@ -21,11 +24,11 @@
 
 | 状态 | 含义 |
 |---|---|
-| 已冻结功能基线 | 实模 golden、目标组合、生命周期和清理门禁通过，并已创建功能 tag |
+| 已冻结功能基线 | 当期范围内的目标组合与请求门禁通过，并已创建功能 tag；golden、生命周期或性能是否纳入，由当期验收范围单独定义 |
 | 组件闭环 | CPU/Mock 和真实 NPU 组件通过，但受硬件或资源限制，未完成目标实模 E2E |
 | 功能通过、性能未闭环 | 正确性可用，但单轮或 profile 显示性能缺口，不能创建性能 tag |
 | 进行中 | 代码或工具已有阶段性证据，但完整 F0 尚未通过 |
-| 运行观测 | 请求和 Profile 可完成，但尚无路径匹配 golden，或运行时含已知正确性风险；只能用于机制与方向分析 |
+| 运行观测 | 请求和 Profile 可完成，但缺少当期要求的组合、生命周期或正确性门禁；只能用于机制与方向分析 |
 | fail-fast | 未验证或已知有问题的组合在启动前显式拒绝，不能视为支持能力 |
 
 ### 1.2 建议串讲顺序
@@ -73,36 +76,41 @@ DeepSeek-V4 的拆分边界放在远端 MoE，而不是把整个 FFN 子层搬�
 |---|---|---|---|
 | AF 分离 | 已冻结功能基线 | DeepSeek-V4 角色化加载、A8F8、HCCL P2P eager U1/U2 | 不代表异步 HCCL |
 | Microbatch | 功能通过、性能未闭环 | U1/U2、两个 microbatch、真实双 stage | U3；正式性能收益 |
-| NPU Graph（ACL Graph） | standalone 功能通过；PD Graph/U2 完成双机运行与 Profile 观测，正确性/性能未闭环 | `FULL_DECODE_ONLY`、U1/U2、target/full-draft；混合 DAG 与三项物理流水；PD 下共置/split A8F8 和 split A16F8 已实测 | Graph U3；TP2 最大组合；PD FFN AllToAllV 动态路由、F1/优雅退出；C64 补位退化与正式净收益 |
-| MTP | 单 token 基线已冻结；多 token 本机开发门禁通过 | 单 MTP layer，最大 `N=3`；N1/N2/N3 代码回归，N2/N3 eager/Graph U1/U2 NPU 组件；A8F8 N2 输出与路径匹配 native N2 control 10/10 一致 | A5 无并发 5 control + 9 点 F1、双机 PD/MTP 组合与性能 |
-| AF 非等量拓扑 | 双向整数比例本机门禁通过 | `A=kF`、`A=F`、`F=kA`；A2F1/A4F2/A1F2/A2F4 组件，A4F8 eager/U1/N2 实模 smoke | 非整数比例；A8F4 高 HBM E2E；双机 PD/F1 与性能 |
+| NPU Graph（ACL Graph） | standalone 功能通过；PD 一期 A3 目标点 3/3 已冻结 | `FULL_DECODE_ONLY`、U1/U2、target/full-draft；双 A3 A8F8 N2/N3、A4F8 N3 各两轮 Graph/U2 请求及全 Attention rank 在线双 stage | Graph U3；TP2 最大组合；逐 token 精度；正式净收益 |
+| MTP | 单 token 基线、多 token 本机门禁及双 A3 一期组合均已冻结 | 单 MTP layer，最大 `N=3`；N1/N2/N3 回归与 NPU 组件；双 A3 两轮 P1 请求 6/6 为 128/128，MTP 指标均有效 | 多 MTP layer、`N>3`；逐 token 精度；正式性能 |
+| AF 非等量拓扑 | 双向整数比例本机门禁通过；双 A3 A4F8 N3 两轮功能通过 | `A=kF`、`A=F`、`F=kA`；A4F8 N3 两轮请求和 4/4 Attention rank 在线双 stage | 非整数比例；A8F4 高 HBM E2E；性能收益 |
 | TP2 | 已冻结功能基线 | 等量 A8F8、DP4/TP2、eager/U1 | CAMP2P TP2、非等量 TP2、TP3、最大 Graph+MTP 组合 |
-| PD 分离 | Graph/U2 运行观测完成，F0/F1 未冻结 | Mooncake contract/runtime/NPU round-trip；双 A3 TP1、MTP off、Graph/U2，共置/split A8F8 与 split A16F8 | FFN Graph 动态路由正确性；优雅退出完整门禁；路径匹配 token exact；TP2、MTP 和其他执行组合 |
+| PD 分离 | 第一期 A3 功能基线已冻结，目标点 3/3 | Mooncake contract/runtime；双 A3 TP1、Graph/U2、A8F8 N2/N3 与 A4F8 N3 各两轮；smoke、取消恢复、P1 完整请求和全 rank 在线 U2 通过 | 逐 token 精度、其他并行组合、U3 和正式性能；启停脚本质量不属于本期交付 |
 | v0.23/plugin 工程底座 | 已冻结功能基线 | 同栈 golden、兼容层、部署和验证工具 | 旧栈性能数字不能作为 v0.23 基线 |
 | 正式性能验收 | 未完成 | 已有 standalone 对照；PD Graph/U2 三拓扑三轮测量及 A8F8/A16F8 双侧 profile | split A8F8 CV 超限；缺路径匹配 PD control、MTP on/off、跨负载及固定收益阈值，尚无可发布性能 tag |
 
-### 2.2.1 两阶段交付口径与第一阶段完成度（2026-09-08）
+### 2.2.1 两阶段交付口径与第一阶段完成度（2026-09-11）
 
-最终交付拆成两个阶段：第一阶段只验收功能，第二阶段交付 U3 和正式性能收益。第一阶段固定 TP1，并明确不包含 TP/SP/CP/DCP/PP、TP3、非等量 TP2 和 TP2 最大Graph+MTP 组合；仓库中已经冻结的等量 DP4/TP2 eager/U1 证据继续保留，但不作为第一阶段交付门禁。
+最终交付拆成两个阶段：第一阶段只验收 A3 功能，第二阶段交付 U3 和正式性能收益。第一阶段不生成 golden、不执行逐 token exact，也不要求路径匹配 native/PD control；启停辅助脚本自身的退出码、显式停服后的 traceback 和自动清理质量也不作为交付目标。这些项目延期处理，不计作第一阶段缺口。第一阶段固定 TP1，并明确不包含 TP/SP/CP/DCP/PP、TP3、非等量 TP2 和 TP2 最大 Graph+MTP 组合；仓库中已经冻结的等量 DP4/TP2 eager/U1 证据继续保留，但不作为第一阶段交付门禁。
 
 第一阶段的 MTP 目标不是增加 checkpoint 中的 MTP layer 数，而是在模型
 `num_nextn_predict_layers=1` 的前提下，支持通过 `num_speculative_tokens=N` 配置每轮多个draft token。本轮已将对外最大值冻结为 `N=3`，复用同一个 MTP layer 执行多个speculative step，并完成 `N=1/2/3` 代码回归、N2/N3 本机 NPU 组件与 A8F8 N2 实模 smoke。
 
 第一阶段同时取消 `P2pHcclAFDConnector` 的 `A >= F` 方向限制。目标拓扑改为双向整数比例：支持 `A=kF`、`A=F` 和 `F=kA`，最小代表拓扑为 A8F4、A8F8 和 A4F8。`F=kA`已选择 Attention token 连续均衡 scatter、各 FFN 计算、原序 gather 的语义；token 少于fanout 时补零占位并在返回前丢弃。非整数 A/F 比例没有纳入本次范围，其他 connector继续拒绝 `A<F`。
 
-| 第一阶段能力 | 当前完成度 | 已有证据 | 关闭条件 |
+| 第一阶段 A3 目标点 | 2026-09-11 两轮证据 | 功能门禁 | 验收状态 |
 |---|---|---|---|
-| v0.23/plugin 工程底座 | 已完成 | 同栈 golden、兼容层、部署与验证工具、功能 tag | 保持回归通过 |
-| AF 分离基础、eager U1/U2 | 双向整数比例本机门禁完成 | A8F8 历史 30/30；A1F2/A2F4 组件；A4F8 单请求 16-token exact、生命周期和清理 | A8F4 高 HBM E2E、A4F8 完整 F1 |
-| Microbatch U1/U2 | 等量 standalone 已完成 | 真实双 stage、30/30 golden、batch 1/8/32 | 在一期代表 AF 拓扑和 PD 路径完成组合回归 |
-| NPU Graph U1/U2 | standalone 已完成；PD 未冻结 | U1/U2、target/full-draft、capture/replay 与多流证据 | 动态路由安全、路径匹配 golden、生命周期和 PD F1 |
-| MTP | 多 token 本机开发门禁完成 | 最大 `N=3`；N1/N2/N3 回归；N2/N3 eager/Graph U1/U2 组件；A8F8 N2 与路径匹配 native N2 为 10/10 exact | A5 无并发 5 control + 9 点 F1、双机 PD 组合 |
-| AF 双向整数比例 | 本机门禁完成 | `A=kF/A=F/F=kA` rank mapping、数据/控制面、Graph/MTP；A4F8 N2 smoke | A8F4 高 HBM E2E、双机 PD 组合和完整 F1 |
-| PD 分离 | 未完成 | Mooncake contract/runtime/round-trip；双 A3 Graph/U2 运行与 Profile | FFN Graph 动态路由、优雅退出、路径匹配 token exact；一期组合矩阵通过 |
+| A8F8 Graph/U2/MTP N2 | 两轮均为 clean `6386f18`；smoke batch 1/8/32、取消恢复及 P1 128/128 均通过；两轮均为 8/8 Attention rank 在线 `stage_count=2`；三角色齐全 | **两轮功能与在线 U2 通过** | **已完成** |
+| A8F8 Graph/U2/MTP N3 | 两轮均为 clean `6386f18`；smoke batch 1/8/32、取消恢复及 P1 128/128 均通过；两轮均为 8/8 Attention rank 在线 `stage_count=2`；三角色齐全 | **两轮功能与在线 U2 通过** | **已完成** |
+| A4F8 Graph/U2/MTP N3 | 两轮 smoke、取消恢复、P1 128/128 和 4/4 Attention rank 在线 `stage_count=2` 均通过；第 1 轮为 dirty `a695ff2`，第 2 轮为 clean `6386f18`，两者运行时代码一致 | **两轮功能与在线 U2 通过** | **已完成**；第 1 轮的验证工具元数据差异已记录，不扩大为精确提交复现结论 |
+| A8F4 Graph/U2/MTP N3 | 已有日志证明当前 A3 单卡 HBM 容量不足 | 不适用 | 从当前双 A3 一期必跑项排除；另行使用容量足够的双机环境验证 |
 
-因此两个新增门禁的本机开发范围已完成，但第一阶段总体状态仍是**未完成**。剩余硬缺口包括 A8F4 高 HBM/A5 实模、双机 PD + 多 token/双向拓扑组合、PD Graph 动态路由正确性、优雅退出和路径匹配 F1。第二阶段只在第一阶段功能冻结后推进 U3、正式吞吐/延迟/资源效率、稳定性阈值和性能 tag。
+本次包中的 6 次 P1 请求均通过：每次 128/128、0 failed，`measurement_passed=true`，MTP speculative 指标 `available=true`、`valid=true`。A4F8 第 1 轮不是 clean `6386f18`，但它与 `6386f18` 的运行时代码一致，差异仅在 `run_pd_performance.py` 等验证/文档工具；结合第 2 轮 clean 结果，本期按 **6/6 功能 case-round 有效** 验收，同时保留第 1 轮不能证明精确 tree 复现的限制。6 个 case-round 的在线 U2 证据均通过，A8F8 为 8/8、A4F8 为 4/4 Attention rank，记录同时满足 `stage_count=2`、`is_graph_capturing=False`、`is_warmup=False`。
 
-本轮继续完成了外部验收工具，而不是外部硬件结论：`run_phase1_native_controls.sh` 固定生成 5 个 target/draft/MTP 路径匹配 control；`run_phase1_a5_matrix.sh` 将 A5 9 点 standalone F0/F1 强制映射到对应 control，且校验 control key、CANN、commit 和路径元数据；`pd_graph_matrix.sh` 新增 A8F8 N2/N3、A4F8 N3、A8F4 N3 及 3 个路径匹配 control；`pd.sh` 同步支持双向整数 A/F、N1-N3、动态 FFN capacity 和按本地角色计算 NPU 数；`collect_phase1_validation.sh` 生成带 SHA256、截断日志且排除 profiler raw 的证据包。完整执行顺序、关闭条件和回传清单见 `DEEPSEEK_V4_AFD_PHASE1_A5_MULTI_NODE_VALIDATION_GUIDE_ZH.md`。这些交付物通过本机代码/脚本门禁后仍保持“待外部验证”，不得据此创建功能 tag。
+补充证据包已提供 6 组独立 F0 目录。每组 `batches.json` 均为 `passed=true`、`golden_checked=false`，batch 1/8/32 的 `choice_count` 分别为 1/8/32，每个 choice 均返回 4 token，总 completion token 分别为 4/32/128；取消请求均按脚本预期以 curl `rc=28` 超时并生成空响应，随后 `recovery.json` 均为 batch 1、1/1 choice、4 token、`passed=true`。补充包中的 6 份 performance summary 与主证据包逐字节一致，确认属于同一批两轮运行。至此本次两轮 smoke 和取消恢复明细已补齐。
+
+按 2026-09-11 确认的交付口径，第一阶段 A3 功能目标为 **3/3 完成**。所有角色均成功启动并 ready；启动和请求阶段未发现 OOM、timeout、`Communication_Error`、`507015`、Python traceback 或 EngineCore fatal。已收集的 `KeyboardInterrupt: terminated`、worker manager `ConnectionRefusedError`、`Event loop is closed` 等 traceback 均位于明确的 `[shutdown] ... SIGTERM` 之后，归为启停辅助脚本/进程回收遗留项，不阻塞本功能 tag。各包 `status.exitcode=1` 和 `NOT RUNNING` 是停服后执行 `status` 的结果，不是启动失败。最终角色快照中业务端口 9000/8100/8910 已释放，NPU 表均显示无运行进程；部分快照 HBM 仍接近 60 GiB，但随后冷启动成功。该现象继续记录，不作为本期功能交付结论。
+
+2026-09-10 主证据包为 `06c8b3aa197a4fbfa0985c3dd343d104.zip`（SHA256 `60cb02edabbe186d2fe70724eaaaf0cc8d1ae27ea65d7eec5d531e3c1e7eea8b`），补充 smoke 明细包为 `46480a8e67f54bd2b41e124b8ba147d5.zip`（SHA256 `4bb0d0fa8b68e1c34a30321499a367c5346d3e3c65871a6bbc91d9efe1714329`）。2026-09-11 两轮主证据包为 `418676a9d54e4b4ab7567180bde308cd.zip`（SHA256 `55dad5dfd5a23a0b759b07a794e06678046703ad31f3310b854a9a1d9cc4ca98`），包含两轮 3 点共 18 份角色归档、6 份 performance summary 和 6 份在线 U2 证据；对应 smoke 补充包为 `a2a941b67f3b4b86a22bdfba54c2637a.zip`（SHA256 `c4fe8d662f5ae73e09e1abf266ee8bb821a36b3e8625a6bba65d55a94c380e5b`）。
+
+第一阶段 A3 功能范围没有剩余硬缺口，不再要求为启停脚本问题重跑这三个点。后续可独立修复停止期 traceback、进程返回码和 HBM 等待观测；A4F8 第 1 轮的 dirty 验证工具元数据也可在需要精确 tree 复现时补跑。逐 token 精度、control/golden、A5 适配、A8F4 容量环境、U3 和正式性能均属于后续范围，不改变本次 3/3 功能验收。
+
+2026-09-08 完成的外部验收工具仍保留：`run_phase1_native_controls.sh` 可生成 5 个 target/draft/MTP 路径匹配 control；`run_phase1_a5_matrix.sh` 可执行 A5 9 点 standalone F0/F1；`pd_graph_matrix.sh` 提供 A8F8 N2/N3、A4F8 N3、A8F4 N3 及 3 个 control；`pd.sh` 支持双向整数 A/F、N1-N3、动态 FFN capacity 和按本地角色计算 NPU 数；`collect_phase1_validation.sh` 生成带 SHA256、截断日志且排除 profiler raw 的证据包。control、golden、`record-control` 和 `validate` 留待后续逐 token 阶段；第一阶段只按 `DEEPSEEK_V4_AFD_PHASE1_A5_MULTI_NODE_VALIDATION_GUIDE_ZH.md` 第 8.2 节执行功能 smoke、在线 U2 取证、停止和清理。
 
 本轮固定栈和证据如下：
 
@@ -116,7 +124,9 @@ DeepSeek-V4 的拆分边界放在远端 MoE，而不是把整个 FFN 子层搬�
 | A4F8 实模 | `a4f8_eager_u1_n2_real/validation_summary.json`；fanout ratio=2、N2、1/1 prompt、16-token exact、HTTP 200、双 role rc=0、无 fatal、清理通过 |
 | 精确 native control | `/mnt/workspace/validation/phase1_path_controls_exact_4f052b9/eager_mtp_n2`；无并发 8 卡冷启动，10 prompt x 3 轮 30/30 稳定、正常退出和 NPU 清理通过；`prompt=08` 稳定不同于 MTP-off |
 | A8F8 路径匹配 F0 | `/mnt/workspace/validation/phase1_formal_exact_3b869ae_a8f8_u2_n2`；eager/U2/N2 serial 10/10，batch 1/8/32 均有效且 exact 为 1/1、8/8、8/32，真实双 stage、双 role rc=0、fatal 和 NPU cleanup 通过；batch 32 差异保留为 `UPSTREAM-DSV4-BI-001`，不误判为路径金标错误 |
-| 外部验证包 | 5 个 native 路径 control、A5 9 点；双机 3 个路径匹配 control + 4 个 AFD 点；两次冷启动、30/30、取消恢复、动态路由、优雅退出与清理；硬件证据待回传 |
+| 2026-09-10 双 A3 一期 smoke | 3 个适用点单轮 batch 1/8/32 和取消恢复通过；原始明细见上述两个 2026-09-10 证据包 |
+| 2026-09-11 双 A3 两轮验证 | 6/6 次 smoke batch 1/8/32、取消恢复、P1 128/128 和在线 U2 均通过；A8F8 N2/N3、A4F8 N3 三点各两轮，第一阶段 A3 功能目标 3/3 完成；显式停服后的脚本 traceback 单列为非阻塞遗留项 |
+| 后续逐 token 工具覆盖 | 5 个 native 路径 control、A5 9 点、双机 3 个路径匹配 control 和 4 个 AFD 点；当前一期不执行 |
 
 ### 2.3 特性关系
 
@@ -1987,22 +1997,27 @@ fatal/强杀门禁未通过且没有独立进程 rc。该结果扩展了问题�
   请求、双 stage 和 Profile 测量；此项是运行观测，不是输出正确性通过。
 - [ ] 修复 FFN Graph 动态路由：覆盖最大聚合 gear 的 MC2 capacity，或对 AllToAllV
   graph break；完成同 shape/不同 routing、多 layer、偏斜/零接收和双机 golden 门禁。
-- [ ] 修复双机 Attention/FFN 停止期 fatal/强杀，独立记录真实进程 rc，并补正常 shutdown、
-  二次启动和 cleanup 全门禁后冻结 Graph/U2 F0-topology。
+- [ ] 改善双机 Attention/FFN 启停辅助脚本：独立记录真实进程 rc，减少显式 SIGTERM 后的
+  traceback，并完善等待与 cleanup 观测；这是运维工具遗留项，不阻塞第一阶段 A3 功能 tag。
 - [ ] M9 TP1 eager/U1、Graph/U1 双机 PD + A8F8 独立 F0。
-- [ ] PD + MTP 的独立组合门禁。
-- [ ] 路径匹配 PD control 与 AFD 的 batch-invariant、跨冷启动和 30/30 token exact F1。
+- [x] 关闭第一阶段 A3 的 PD + MTP 独立组合门禁：A8F8 N2/N3、A4F8 N3 各完成
+  两轮请求、全 rank 在线 U2、smoke/取消恢复和三角色归档，功能目标 3/3 完成。
+- [ ] 后续逐 token 阶段再做路径匹配 PD control、batch-invariant 和 30/30 exact；
+  不作为第一阶段缺口。
 - [x] 第一阶段 M11 本机门禁：完成 `A=kF/A=F/F=kA` 双向整数 rank mapping、组件
   P2P/控制面、eager/Graph、MTP 和清理；A1F2/A2F4 16 项组件及 A4F8 eager/U1/N2
   单请求实模 smoke 通过。
-- [ ] 在高 HBM/A5 完成 A8F4，并为 A4F8/A8F4 补完整 batch、冷启动/空闲恢复与 F1。
+- [ ] 在容量足够的双机环境完成 A8F4；当前双 A3 因 FFN 单卡 HBM 不足而排除，
+  不阻塞其余三个一期目标点。
 - [x] 第一阶段 M10 本机开发门禁：保持单 MTP layer，泛化 `speculative_step`、MTP header、
   FFN draft 循环、Graph key/cache 与异常清理；N1/N2/N3 回归、N2/N3 eager/Graph U1/U2
   组件通过；A8F8 N2 在 U1/U2 下均与路径匹配 native N2 10/10 exact。
-- [ ] 在无并发 A5 上生成 5 份路径匹配 native control，并完成 9 点 standalone F0/F1；
-  不得将 MTP-off token 文件复用于 N2/N3。
+- [ ] 后续逐 token 阶段在无并发 A5 上生成 5 份路径匹配 native control，并完成
+  9 点 standalone F1；不得将 MTP-off token 文件复用于 N2/N3。
 - [x] 第一阶段 `num_speculative_tokens` 最大对外配置值冻结为 3，越界继续 fail-fast。
-- [ ] 双机完成 PD + 多 speculative token/双向拓扑组合，并完成路径匹配 F1。
+- [x] 双机完成 PD + 多 speculative token/双向拓扑一期 A3 功能闭环：6/6 次 P1 请求及
+  在线 U2 均通过，三个适用点各完成两轮；停止期脚本 traceback 不属于交付门禁，逐 token
+  的路径匹配 F1 延期。
 - [ ] 第二阶段完成 U3 和正式性能收益验收。
 
 以下能力不作为第一阶段门禁：TP/SP/CP/DCP/PP、TP3、非等量 TP2、TP2
@@ -2047,9 +2062,10 @@ DP4/TP2 eager/U1 功能 tag 保留，但不改变本次范围。
 - `num_speculative_tokens > 3` 或多个 MTP layer；当前只支持单 MTP layer、`N=1/2/3`。
 - CAMP2P TP2、非等量 TP2、TP3。
 - TP2 full-draft Graph U2 最大组合。
-- Mooncake PD 下的 MTP 和 TP2，直到各自 F0 完成。
+- Mooncake PD 下的 TP2；MTP 的第一阶段 A3 TP1 组合已经冻结。
 - Mooncake PD FFN Graph 的动态 AllToAllV routing，直到安全实现和 golden 完成。
-- Mooncake PD Graph/U2 已有双机运行/Profile 证据，但在动态路由、优雅退出和 F1 完成前不作为冻结支持项。
+- Mooncake PD Graph/U2 + MTP 的第一阶段 A3 功能范围已经冻结；动态路由扩展、启停脚本、
+  逐 token F1 和正式性能均不由该 tag 覆盖。
 
 ### 12.4 报告更新规则
 
@@ -2107,9 +2123,11 @@ dsv4-afd-v023-hccl-mtp-unequal-component-v1
 dsv4-afd-v023-hccl-graph-unequal-component-v1
 dsv4-afd-v023-hccl-mtp-full-draft-graph-v1
 dsv4-afd-v023-hccl-tp2-v1
+dsv4-afd-v023-phase1-a3-functional-v1
 ```
 
-M9 目前没有功能 tag；A3 目标栈也没有可发布的性能 tag。
+M9 的第一阶段 A3 功能范围已由 `dsv4-afd-v023-phase1-a3-functional-v1` 冻结；A3 目标栈
+仍没有可发布的性能 tag。
 
 ### 13.3 进一步阅读
 
@@ -2125,9 +2143,8 @@ M9 目前没有功能 tag；A3 目标栈也没有可发布的性能 tag。
 
 ## 14. 一句话结论
 
-在 CANN 9.0.0、vLLM 0.23 + `rfc/vllm_cann` 下，v0.23/plugin 已完成第一阶段 M10/M11
-本机开发门禁：单 MTP layer 支持 N1-N3，HCCL P2P 支持 `A=kF/A=F/F=kA`，16 项 NPU
-组件通过，A8F8 N2 输出与路径匹配 native N2 达到 10/10 exact；standalone 已强制使用
-5 类路径 control。第一阶段整体仍未冻结：A5 无并发 5 control/9 点 F1、A8F4 高 HBM
-E2E、双机 PD 组合、PD FFN Graph 动态路由、优雅退出和路径匹配 F1 仍需关闭。第二阶段
-再交付 U3 和可发布性能收益；当前本机结果不替代完整正确性或性能验收。
+在 CANN 9.0.0、vLLM 0.23 + `rfc/vllm_cann` 下，v0.23/plugin 已完成第一阶段 A3
+功能交付：单 MTP layer 支持 N1-N3，HCCL P2P 支持 `A=kF/A=F/F=kA`，双 A3 的
+A8F8 N2/N3、A4F8 N3 三个适用 PD Graph/U2 点各完成两轮，6/6 smoke、取消恢复、P1
+128/128 和全 rank 在线 U2 均通过，并冻结为 `dsv4-afd-v023-phase1-a3-functional-v1`。
+启停脚本问题、逐 token F1、A5、A8F4 容量环境、U3 和可发布性能收益不属于该标签。

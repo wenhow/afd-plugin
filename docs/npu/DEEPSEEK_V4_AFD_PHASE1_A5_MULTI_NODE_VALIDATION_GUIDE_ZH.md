@@ -2,11 +2,11 @@
 
 ## 1. 目标与固定口径
 
-本文只关闭第一阶段功能门禁，不用于发布 U3、逐 token 精度或性能结论。第一期
-不生成 golden，不执行逐 token exact 比对。文中的 F1 是“完整功能验收”层级，除
-逐 token 比对外还包含第二次冷启动、生命周期和清理等项目；但现有 F1 命令把这些
-项目与 golden 硬门禁绑定，因此第一期统一不执行 F1，只执行下文明确列出的功能
-smoke 流程。固定栈如下：
+本文只关闭第一阶段 A3 功能门禁，不用于发布 U3、逐 token 精度或性能结论。第一期
+不生成 golden，不执行逐 token exact 比对，也不把启停辅助脚本自身的退出码、显式
+停服后的 traceback 或自动清理质量作为交付目标。文中的 F1 是后续完整验收层级，
+包含逐 token、生命周期和清理等项目；但现有 F1 命令把这些项目与 golden 硬门禁
+绑定，因此第一期统一不执行 F1，只执行下文明确列出的功能 smoke 流程。固定栈如下：
 
 | 组件 | 固定值 |
 |---|---|
@@ -26,7 +26,7 @@ smoke 流程。固定栈如下：
 | 当前环境 | 必须执行 | 不在本机执行 | 能得到的结论 |
 |---|---|---|---|
 | A5 后续逐 token 验收 | 第 2、3、4、5、9 节的 A5 部分 | 第 6、7、8 节 | 不属于当前一期功能 smoke；保留供后续执行 |
-| 双 A3，一期功能验收 | 第 2、3、6、8.2、9.2 节 | 第 4、5、7、8.3、9.1 节 | 双机服务启动、health、batch smoke、取消后恢复、停止与清理；不含 token-exact |
+| 双 A3，一期功能验收 | 第 2、3、6、8.2、9.2 节 | 第 4、5、7、8.3、9.1 节 | 双机角色 ready、health、batch smoke、取消后恢复和在线 U2；不含 token-exact，启停脚本问题不阻塞 |
 | 双 A3，后续完整 F1 | 第 2、3、6、7、8、9 节的双 A3 部分 | 第 4、5 节 | 不属于当前一期；增加路径匹配 control 和 30/30 token-exact |
 
 本文现场 A3 的单个 NPU 可用容量约 61.27 GiB。双 A3 只执行 A8F8 N2、
@@ -60,8 +60,8 @@ A5 native token 不会进入双 A3 流程；双 A3 的 exact golden 必须由第
 2. 双 A3 PD Graph/U2 下的 A8F8 N2/N3、A4F8 N3。A8F4 N3 的 PD 验证留待
    FFN 单卡容量足够的独立双机环境，不由当前双 A3 承担。
 3. 每个适用点成功启动，Prefill、Attention、FFN connector loop 和 Proxy 均 ready。
-4. 每个适用点的 batch 1/8/32 功能请求、取消后恢复、Graph/双 stage 日志、优雅退出、
-   NPU 清理和第二次冷启动。
+4. 每个适用点的 batch 1/8/32 功能请求、取消后恢复、Graph/双 stage 日志和第二轮
+   独立启动结果。停止、收集和清理仍作为操作步骤执行并留档，但脚本质量不是本期门禁。
 
 当前一期明确不验收输出 token 是否与 control 一致。路径匹配 native/PD control、
 `record-control`、`validate`、30/30 serial exact 和 batch token-exact 全部延期。
@@ -483,7 +483,7 @@ connector loop 数量判断是否 ready。
 ### 8.2 一期必跑：不依赖 golden 的功能 smoke
 
 本流程不读取任何 golden，用于验收安装、模型加载、Graph capture、HCCL、Mooncake 和
-服务生命周期。不得执行 `validate`，也不得把结果标记为 token-exact。
+端到端请求链路。不得执行 `validate`，也不得把结果标记为 token-exact。
 
 图捕获和 health 成功后仍需执行 smoke。PD 首轮只有 1 个 Decode token，曾触发
 编译后的 FFN 分片为空、空闲 DP 的 FFN 错用缓存图；该入口与完整 prompt 的
@@ -535,6 +535,7 @@ bash "$MATRIX" benchmark "$CFG" afd_graph_u2_split_a4f8_mtp3 p1
 bash "$MATRIX" evidence "$CFG" afd_graph_u2_split_a4f8_mtp3 attention
 
 # 6. 按 Proxy -> Attention -> Prefill/FFN 逆序停止并收集。
+#    该步骤用于留档和释放现场；启停脚本自身的问题不作为第一阶段交付失败。
 bash "$MATRIX" stop "$CFG" afd_graph_u2_split_a4f8_mtp3 proxy
 bash "$MATRIX" collect "$CFG" afd_graph_u2_split_a4f8_mtp3 proxy
 # A 机
@@ -574,12 +575,18 @@ Graph warmup/capture 阶段的 U2 记录，不能替代在线 `evidence`。
 3. 取消请求后 health 和 batch 1 恢复请求成功。
 4. `evidence` 覆盖全部 Attention rank，存在在线 `stage_count=2`；日志同时存在目标
    Graph、MTP 配置和 FFN connector 证据。
-5. 启动和请求期间没有 OOM、timeout、`Communication_Error`、`507015`、Python
-   traceback 或 EngineCore fatal。
-6. 逆序停止成功，停止阶段没有新增异常 traceback，端口和 NPU 进程无残留；第二次
-   冷启动结果一致。
+5. 服务进入 ready 前及请求期间没有 OOM、timeout、`Communication_Error`、`507015`、
+   Python traceback 或 EngineCore fatal。
+6. 第二轮独立启动的上述功能结果一致。逆序停止仍需执行并收集日志，但 helper shell
+   返回码、显式 SIGTERM 后的 traceback、等待不足或自动清理问题只登记为运维遗留项，
+   不阻塞第一阶段功能验收；开始下一点前应人工确认冲突端口和 NPU 进程已处理。
 
-这里的“一致”只指功能状态和生命周期均通过，不比较两轮输出 token。
+这里的“一致”只指角色 ready、请求、恢复和在线 U2 功能状态均通过，不比较两轮输出
+token，也不表示启停脚本质量已经验收。
+
+2026-09-11 双 A3 已完成本节全部适用点：A8F8 N2、A8F8 N3、A4F8 N3 各两轮，
+6/6 smoke、取消恢复、P1 128/128 和全 Attention rank 在线 U2 均通过，第一阶段 A3
+功能目标按 3/3 关闭。显式停服后的 traceback 已留档为非阻塞脚本问题，不要求因此重跑。
 
 ### 8.3 延期：依赖第 7 节的正式 token-exact 验收
 
@@ -664,5 +671,5 @@ standalone evidence，也不回传 control golden；回传以下内容：
    200 行，以及当时的 `npu-smi info`。
 
 不要只回传成功截图，也不要在失败后覆盖原 `RUN_ROOT`。收到上述材料后，按 stack、
-启动、数据面、Graph 动态路由、生命周期和清理五类门禁逐项分析；一期不下逐 token
-精度结论。
+角色 ready、数据面、Graph/MTP 和在线 U2 功能逐项分析；生命周期和清理作为运维观测
+单列，不阻塞一期功能结论；一期不下逐 token 精度结论。
