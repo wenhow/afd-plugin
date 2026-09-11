@@ -21,6 +21,7 @@ GUIDE = (
 PHASE1_GUIDE = (
     ROOT / "docs/npu/DEEPSEEK_V4_AFD_PHASE1_A5_MULTI_NODE_VALIDATION_GUIDE_ZH.md"
 )
+A5_MATRIX = ROOT / "tools/dsv4/run_phase1_a5_matrix.sh"
 
 
 def _source_config(path: Path) -> dict[str, str]:
@@ -369,9 +370,8 @@ def test_phase1_points_match_control_and_topology_contract(
 
 
 def test_a5_matrix_lists_the_blocking_phase1_cases():
-    matrix = ROOT / "tools/dsv4/run_phase1_a5_matrix.sh"
-    script = matrix.read_text(encoding="utf-8")
-    output = subprocess.check_output(["bash", str(matrix), "list"], text=True)
+    script = A5_MATRIX.read_text(encoding="utf-8")
+    output = subprocess.check_output(["bash", str(A5_MATRIX), "list"], text=True)
 
     assert 'export PYTHONPATH="${REPO_ROOT}:${DSV4_VLLM_ROOT}' in script
     assert "imported_roots" in script
@@ -380,17 +380,60 @@ def test_a5_matrix_lists_the_blocking_phase1_cases():
     assert "PHASE1_GOLDEN=" not in script
     assert "control_key_for_case" in script
     assert "graph_target_draft_graph_mtp_n3" in script
+    assert '.metadata.cann_root == $cann_root' in script
+    assert '.metadata.cann_version == "9.0.0"' not in script
     assert output.splitlines() == [
-        "a8f8_eager_u1_mtp_off",
-        "a8f8_eager_u1_n1",
-        "a8f8_eager_u2_n2",
-        "a8f8_graph_u1_n2",
-        "a8f8_graph_u2_n3",
-        "a4f8_eager_u1_n2",
-        "a4f8_graph_u2_n3",
-        "a8f4_eager_u1_n2",
-        "a8f4_graph_u2_n3",
+        "a4f4_eager_u1_mtp_off",
+        "a4f4_eager_u1_n1",
+        "a4f4_eager_u2_n2",
+        "a4f4_graph_u1_n2",
+        "a4f4_graph_u2_n3",
+        "a2f4_eager_u1_n2",
+        "a2f4_graph_u2_n3",
+        "a4f2_eager_u1_n2",
+        "a4f2_graph_u2_n3",
     ]
+
+
+@pytest.mark.parametrize(
+    ("case_name", "attention_devices", "ffn_devices", "ffn_capacity"),
+    [
+        ("a4f4_eager_u1_mtp_off", "0,1,2,3", "4,5,6,7", "4096"),
+        ("a4f4_graph_u2_n3", "0,1,2,3", "4,5,6,7", "4096"),
+        ("a2f4_eager_u1_n2", "0,1", "2,3,4,5", "2048"),
+        ("a2f4_graph_u2_n3", "0,1", "2,3,4,5", "2048"),
+        ("a4f2_eager_u1_n2", "0,1,2,3", "4,5", "8192"),
+        ("a4f2_graph_u2_n3", "0,1,2,3", "4,5", "8192"),
+    ],
+)
+def test_a5_matrix_case_topologies_fit_one_eight_npu_node(
+    case_name,
+    attention_devices,
+    ffn_devices,
+    ffn_capacity,
+):
+    command = """
+matrix_path="$1"
+case_name="$2"
+set -- help
+source "${matrix_path}" >/dev/null
+case_arguments "${case_name}"
+printf '%s\\0' "${CASE_ARGS[@]}"
+"""
+    output = subprocess.check_output(
+        ["bash", "-c", command, "bash", str(A5_MATRIX), case_name]
+    )
+    args = output.decode().rstrip("\0").split("\0")
+
+    assert args[args.index("--attention-devices") + 1] == attention_devices
+    assert args[args.index("--ffn-devices") + 1] == ffn_devices
+    assert args[args.index("--ffn-max-num-batched-tokens") + 1] == ffn_capacity
+    selected_devices = {
+        int(device)
+        for devices in (attention_devices, ffn_devices)
+        for device in devices.split(",")
+    }
+    assert selected_devices <= set(range(8))
 
 
 def test_phase1_native_control_generator_lists_path_matched_controls():
@@ -407,6 +450,8 @@ def test_phase1_native_control_generator_lists_path_matched_controls():
     ]
     assert "run_v023_native_baseline.sh" in script
     assert "baseline_kind=native_path_control" in script
+    assert '--metadata "cann_root=${cann_root}"' in script
+    assert "--metadata cann_version=9.0.0" not in script
     assert "--rounds 3" in script
     assert "preflight-native" in script
 
@@ -803,7 +848,7 @@ def test_phase1_guide_separates_platforms_and_uses_valid_matrix_roles(tmp_path):
     assert "一期必跑：不依赖 golden 的功能 smoke" in guide
     assert "延期：依赖第 7 节的正式 token-exact 验收" in guide
     assert "不要插入 `record-control` 或 `validate`" in guide
-    assert "一期不下逐 token\n精度结论" in guide
+    assert re.search(r"一期不下逐 token\s*精度结论", guide)
     assert "${AFD_PLUGIN_ROOT}/tools/dsv4/phase1_prompts.json" in guide
 
     command_pattern = re.compile(

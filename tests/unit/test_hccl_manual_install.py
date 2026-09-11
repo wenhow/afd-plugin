@@ -191,6 +191,11 @@ def test_a5_profile_uses_path_only_cann_validation():
     runtime = (INSTALLER / "bin/activate_runtime.sh").read_text()
     assert "a5-new-install)" in builder
     assert 'EXPECTED_CANN_VERSION=""' in builder
+    assert 'ATTENTION_RANKS="4"' in builder
+    assert 'FFN_RANKS="4"' in builder
+    assert 'ATTENTION_DEVICES="0,1,2,3"' in builder
+    assert 'FFN_DEVICES="4,5,6,7"' in builder
     assert '[[ -n "${EXPECTED_CANN_VERSION}" ]]' in preflight
     assert '[[ "${EXPECTED_CANN_VERSION}" == "9.0.0"' in preflight
     assert 'if [[ "${EXPECTED_CANN_VERSION}" == "9.0.0" ]]' in runtime
+    assert 'export DSV4_CANN_VERSION="${EXPECTED_CANN_VERSION}"' in runtime

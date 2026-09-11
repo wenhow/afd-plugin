@@ -32,10 +32,16 @@ if [[ -f "${CANN_ROOT}/nnal/atb/set_env.sh" ]]; then
 fi
 
 export DSV4_CANN_ROOT="${CANN_ROOT}"
+export DSV4_CANN_VERSION="${EXPECTED_CANN_VERSION}"
 export DSV4_RUNTIME_VENV="${VENV_ROOT}"
 export DSV4_VLLM_ROOT="${VLLM_ROOT}"
 export DSV4_VLLM_ASCEND_ROOT="${VLLM_ASCEND_ROOT}"
 export DSV4_VLLM_VENV="${VENV_ROOT}"
+if [[ -f "${CANN_ROOT}/nnal/atb/set_env.sh" ]]; then
+  export DSV4_ATB_ROOT="${CANN_ROOT}/nnal/atb"
+else
+  unset DSV4_ATB_ROOT
+fi
 export SOC_VERSION
 export VLLM_PLUGINS=ascend,ascend_model,ascend_model_loader,ascend_kv_connector,afd
 

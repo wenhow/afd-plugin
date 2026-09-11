@@ -109,7 +109,8 @@ vi config.env
 也不要在已经 source 其他 CANN 版本的 shell 中继续安装。
 
 A5 包保持 `EXPECTED_CANN_VERSION=""`，只校验并加载上述路径，不强校验 CANN
-版本。双 A3 reuse 包将该值固定为 `9.0.0`。
+版本。A5 profile 同时固定单机 8 卡默认拓扑为 A4F4：Attention 使用 NPU 0-3，
+FFN 使用 NPU 4-7。双 A3 reuse 包仍固定 A8F8 和 CANN `9.0.0`。
 
 ## 4. 校验和安装
 
@@ -178,7 +179,8 @@ INCLUDE_SOURCES=1 \
 
 ## 6. 启动和停止
 
-默认配置启动一期最大组合 A8F8 Graph/U2、graph draft MTP N=3：
+A5 profile 默认启动单机 8 卡 A4F4 Graph/U2、graph draft MTP N=3；双 A3 reuse
+profile 仍启动 A8F8：
 
 ```bash
 bash bin/07_start.sh

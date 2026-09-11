@@ -85,12 +85,14 @@ if [[ -n "${DSV4_EXTRA_OPP_ENV}" ]]; then
   fi
 fi
 
-case "${PATH}:${LD_LIBRARY_PATH:-}:${PYTHONPATH:-}:${ASCEND_HOME_PATH:-}" in
-  *cann-9.1.0*)
-    echo "CANN 9.1.0 leaked into the pinned DSV4 runtime" >&2
-    return 2 2>/dev/null || exit 2
-    ;;
-esac
+if [[ "${DSV4_CANN_VERSION:-}" == "9.0.0" ]]; then
+  case "${PATH}:${LD_LIBRARY_PATH:-}:${PYTHONPATH:-}:${ASCEND_HOME_PATH:-}" in
+    *cann-9.1.0*)
+      echo "CANN 9.1.0 leaked into the pinned DSV4 runtime" >&2
+      return 2 2>/dev/null || exit 2
+      ;;
+  esac
+fi
 
 # Keep caller-selected roots available when a role performs a second runtime
 # gate before launching vLLM.

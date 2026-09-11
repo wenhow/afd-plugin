@@ -10,15 +10,15 @@ if (( $# > 0 )); then
 fi
 
 CASES=(
-  a8f8_eager_u1_mtp_off
-  a8f8_eager_u1_n1
-  a8f8_eager_u2_n2
-  a8f8_graph_u1_n2
-  a8f8_graph_u2_n3
-  a4f8_eager_u1_n2
-  a4f8_graph_u2_n3
-  a8f4_eager_u1_n2
-  a8f4_graph_u2_n3
+  a4f4_eager_u1_mtp_off
+  a4f4_eager_u1_n1
+  a4f4_eager_u2_n2
+  a4f4_graph_u1_n2
+  a4f4_graph_u2_n3
+  a2f4_eager_u1_n2
+  a2f4_graph_u2_n3
+  a4f2_eager_u1_n2
+  a4f2_graph_u2_n3
 )
 
 usage() {
@@ -68,8 +68,8 @@ audit_stack() {
     || die "vLLM-Ascend worktree is dirty"
   [[ -z "$(git -C "${REPO_ROOT}" status --short)" ]] \
     || die "afd-plugin worktree is dirty"
-  [[ "$(readlink -f "${DSV4_CANN_ROOT}")" == *cann-9.0.0* ]] \
-    || die "DSV4_CANN_ROOT is not the fixed CANN 9.0.0 tree"
+  [[ -f "${DSV4_CANN_ROOT}/set_env.sh" ]] \
+    || die "DSV4_CANN_ROOT does not contain set_env.sh"
   [[ -x "${DSV4_RUNTIME_VENV}/bin/python" ]] || die "Runtime venv is missing"
   [[ -f "${MODEL_PATH:-/nonexistent}/config.json" ]] || die "MODEL_PATH is invalid"
   [[ -f "${RUNNER}" ]] || die "Validation runner is missing"
@@ -113,13 +113,13 @@ PY
 
 control_key_for_case() {
   case "$1" in
-    a8f8_eager_u1_mtp_off) printf 'eager_mtp_off\n' ;;
-    a8f8_eager_u1_n1) printf 'eager_mtp_n1\n' ;;
-    a8f8_eager_u2_n2|a4f8_eager_u1_n2|a8f4_eager_u1_n2)
+    a4f4_eager_u1_mtp_off) printf 'eager_mtp_off\n' ;;
+    a4f4_eager_u1_n1) printf 'eager_mtp_n1\n' ;;
+    a4f4_eager_u2_n2|a2f4_eager_u1_n2|a4f2_eager_u1_n2)
       printf 'eager_mtp_n2\n'
       ;;
-    a8f8_graph_u1_n2) printf 'graph_target_draft_eager_mtp_n2\n' ;;
-    a8f8_graph_u2_n3|a4f8_graph_u2_n3|a8f4_graph_u2_n3)
+    a4f4_graph_u1_n2) printf 'graph_target_draft_eager_mtp_n2\n' ;;
+    a4f4_graph_u2_n3|a2f4_graph_u2_n3|a4f2_graph_u2_n3)
       printf 'graph_target_draft_graph_mtp_n3\n'
       ;;
     *) die "Unknown case: $1" ;;
@@ -169,24 +169,26 @@ control_metadata_for_key() {
 }
 
 validate_golden_for_case() {
-  local case_name="$1" control_key golden_path
+  local case_name="$1" control_key golden_path cann_root
   control_key="$(control_key_for_case "${case_name}")"
   control_metadata_for_key "${control_key}"
   golden_path="$(golden_for_case "${case_name}")"
+  cann_root="$(readlink -f "${DSV4_CANN_ROOT}")"
   [[ -f "${golden_path}" ]] || die "Missing native control: ${golden_path}"
   jq -e \
     --arg control_key "${control_key}" \
     --arg target_execution "${EXPECTED_TARGET_EXECUTION}" \
     --arg draft_execution "${EXPECTED_DRAFT_EXECUTION}" \
     --arg enable_mtp "${EXPECTED_ENABLE_MTP}" \
-    --arg mtp_tokens "${EXPECTED_MTP_TOKENS}" '
+    --arg mtp_tokens "${EXPECTED_MTP_TOKENS}" \
+    --arg cann_root "${cann_root}" '
     .passed == true
     and .rounds >= 3
     and .prompt_count == 10
     and (.mismatched_prompt_indices | length == 0)
     and .metadata.baseline_kind == "native_path_control"
     and .metadata.control_key == $control_key
-    and .metadata.cann_version == "9.0.0"
+    and .metadata.cann_root == $cann_root
     and .metadata.vllm_commit == "0fc695fc6d1d82e9a5ac6835ac8e4e1c83703665"
     and .metadata.vllm_ascend_commit == "3da28f9414583d2d0b672a8f06d1fae142404bda"
     and .metadata.target_execution_mode == $target_execution
@@ -218,32 +220,32 @@ case_arguments() {
     --attention-max-num-batched-tokens 4096
   )
   case "${case_name}" in
-    a8f8_eager_u1_mtp_off)
-      CASE_ARGS+=(--attention-devices 0,1,2,3,4,5,6,7 --ffn-devices 8,9,10,11,12,13,14,15 --ffn-max-num-batched-tokens 4096 --execution-mode eager --u-batches 1)
+    a4f4_eager_u1_mtp_off)
+      CASE_ARGS+=(--attention-devices 0,1,2,3 --ffn-devices 4,5,6,7 --ffn-max-num-batched-tokens 4096 --execution-mode eager --u-batches 1)
       ;;
-    a8f8_eager_u1_n1)
-      CASE_ARGS+=(--attention-devices 0,1,2,3,4,5,6,7 --ffn-devices 8,9,10,11,12,13,14,15 --ffn-max-num-batched-tokens 4096 --execution-mode eager --u-batches 1 --enable-mtp --mtp-num-speculative-tokens 1 --mtp-draft-execution eager)
+    a4f4_eager_u1_n1)
+      CASE_ARGS+=(--attention-devices 0,1,2,3 --ffn-devices 4,5,6,7 --ffn-max-num-batched-tokens 4096 --execution-mode eager --u-batches 1 --enable-mtp --mtp-num-speculative-tokens 1 --mtp-draft-execution eager)
       ;;
-    a8f8_eager_u2_n2)
-      CASE_ARGS+=(--attention-devices 0,1,2,3,4,5,6,7 --ffn-devices 8,9,10,11,12,13,14,15 --ffn-max-num-batched-tokens 4096 --execution-mode eager --u-batches 2 --enable-mtp --mtp-num-speculative-tokens 2 --mtp-draft-execution eager)
+    a4f4_eager_u2_n2)
+      CASE_ARGS+=(--attention-devices 0,1,2,3 --ffn-devices 4,5,6,7 --ffn-max-num-batched-tokens 4096 --execution-mode eager --u-batches 2 --enable-mtp --mtp-num-speculative-tokens 2 --mtp-draft-execution eager)
       ;;
-    a8f8_graph_u1_n2)
-      CASE_ARGS+=(--attention-devices 0,1,2,3,4,5,6,7 --ffn-devices 8,9,10,11,12,13,14,15 --ffn-max-num-batched-tokens 4096 --execution-mode full-decode-only --u-batches 1 --enable-mtp --mtp-num-speculative-tokens 2 --mtp-draft-execution eager)
+    a4f4_graph_u1_n2)
+      CASE_ARGS+=(--attention-devices 0,1,2,3 --ffn-devices 4,5,6,7 --ffn-max-num-batched-tokens 4096 --execution-mode full-decode-only --u-batches 1 --enable-mtp --mtp-num-speculative-tokens 2 --mtp-draft-execution eager)
       ;;
-    a8f8_graph_u2_n3)
-      CASE_ARGS+=(--attention-devices 0,1,2,3,4,5,6,7 --ffn-devices 8,9,10,11,12,13,14,15 --ffn-max-num-batched-tokens 4096 --execution-mode full-decode-only --u-batches 2 --enable-mtp --mtp-num-speculative-tokens 3 --mtp-draft-execution graph)
+    a4f4_graph_u2_n3)
+      CASE_ARGS+=(--attention-devices 0,1,2,3 --ffn-devices 4,5,6,7 --ffn-max-num-batched-tokens 4096 --execution-mode full-decode-only --u-batches 2 --enable-mtp --mtp-num-speculative-tokens 3 --mtp-draft-execution graph)
       ;;
-    a4f8_eager_u1_n2)
-      CASE_ARGS+=(--attention-devices 0,1,2,3 --ffn-devices 4,5,6,7,8,9,10,11 --ffn-max-num-batched-tokens 2048 --execution-mode eager --u-batches 1 --enable-mtp --mtp-num-speculative-tokens 2 --mtp-draft-execution eager)
+    a2f4_eager_u1_n2)
+      CASE_ARGS+=(--attention-devices 0,1 --ffn-devices 2,3,4,5 --ffn-max-num-batched-tokens 2048 --execution-mode eager --u-batches 1 --enable-mtp --mtp-num-speculative-tokens 2 --mtp-draft-execution eager)
       ;;
-    a4f8_graph_u2_n3)
-      CASE_ARGS+=(--attention-devices 0,1,2,3 --ffn-devices 4,5,6,7,8,9,10,11 --ffn-max-num-batched-tokens 2048 --execution-mode full-decode-only --u-batches 2 --enable-mtp --mtp-num-speculative-tokens 3 --mtp-draft-execution graph)
+    a2f4_graph_u2_n3)
+      CASE_ARGS+=(--attention-devices 0,1 --ffn-devices 2,3,4,5 --ffn-max-num-batched-tokens 2048 --execution-mode full-decode-only --u-batches 2 --enable-mtp --mtp-num-speculative-tokens 3 --mtp-draft-execution graph)
       ;;
-    a8f4_eager_u1_n2)
-      CASE_ARGS+=(--attention-devices 0,1,2,3,4,5,6,7 --ffn-devices 8,9,10,11 --ffn-max-num-batched-tokens 8192 --execution-mode eager --u-batches 1 --enable-mtp --mtp-num-speculative-tokens 2 --mtp-draft-execution eager)
+    a4f2_eager_u1_n2)
+      CASE_ARGS+=(--attention-devices 0,1,2,3 --ffn-devices 4,5 --ffn-max-num-batched-tokens 8192 --execution-mode eager --u-batches 1 --enable-mtp --mtp-num-speculative-tokens 2 --mtp-draft-execution eager)
       ;;
-    a8f4_graph_u2_n3)
-      CASE_ARGS+=(--attention-devices 0,1,2,3,4,5,6,7 --ffn-devices 8,9,10,11 --ffn-max-num-batched-tokens 8192 --execution-mode full-decode-only --u-batches 2 --enable-mtp --mtp-num-speculative-tokens 3 --mtp-draft-execution graph)
+    a4f2_graph_u2_n3)
+      CASE_ARGS+=(--attention-devices 0,1,2,3 --ffn-devices 4,5 --ffn-max-num-batched-tokens 8192 --execution-mode full-decode-only --u-batches 2 --enable-mtp --mtp-num-speculative-tokens 3 --mtp-draft-execution graph)
       ;;
     *) die "Unknown case: ${case_name}" ;;
   esac

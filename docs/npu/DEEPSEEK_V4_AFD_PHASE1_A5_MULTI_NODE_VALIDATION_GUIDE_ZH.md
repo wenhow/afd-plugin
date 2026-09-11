@@ -34,6 +34,10 @@ A8F8 N3、A4F8 N3 三个 AFD 点；A8F4 的 TP1/EP4 专家权重超过该容量�
 不属于这两台 A3 的必跑项，详见第 6.4 节。脚本能生成某个拓扑的配置，不代表
 该拓扑能在当前硬件上装下真实模型。
 
+现场 A5 为单机 8 卡，不能执行需要 16 卡的 A8F8，也不能执行需要 12 卡的
+A8F4/A4F8。A5 standalone 矩阵按相同比例缩放为 A4F4、A4F2、A2F4，所有 device
+ordinal 均在 0-7；其中 A4F2 的 FFN EP2 仍需先通过现场 HBM 容量预检。
+
 A5 和双 A3 没有验证产物依赖。以下 prompt/control 关系只供后续逐 token 阶段使用，
 当前一期功能 smoke 不读取该 prompt 清单，也不生成或消费 golden：
 
@@ -122,7 +126,8 @@ bash bin/install_all.sh
 `HCCL_IF_IP`、安装/源码目录和实际可访问的 Git/pip 镜像。A5 profile 的
 `EXPECTED_CANN_VERSION` 保持为空：安装器只要求 `CANN_ROOT/set_env.sh` 存在并从
 该绝对路径激活，不检查 CANN 目录名或版本输出。不要把双 A3 的 9.0.0 路径复制到
-A5，也不得先 source 另一套 CANN 再继续。
+A5，也不得先 source 另一套 CANN 再继续。包内默认拓扑已经设置为 A4F4：Attention
+使用 NPU 0-3，FFN 使用 NPU 4-7；`00_print_config.sh` 不得显示 A8F8。
 
 ### 2.3 两条轨道共同要求
 
@@ -214,7 +219,10 @@ bash tools/dsv4/run_phase1_native_controls.sh run
 bash tools/dsv4/run_phase1_native_controls.sh run eager_mtp_n2
 ```
 
-每个 `golden_results.json` 必须是 `passed=true`、`rounds=3`、`prompt_count=10`、空 mismatch；metadata 中的 control key、target/draft、MTP N、CANN 和两个上游 commit 必须与表格及第 1 节一致。矩阵 preflight 会再次校验这些字段。
+每个 `golden_results.json` 必须是 `passed=true`、`rounds=3`、`prompt_count=10`、空
+mismatch；metadata 中的 control key、target/draft、MTP N、解析后的 `cann_root` 和
+两个上游 commit 必须与当前 A5 环境及第 1 节一致。矩阵 preflight 只按同一 CANN
+路径匹配，不比较版本字符串，并会再次校验这些字段。
 
 本节完成后，A5 留存全部 5 份 control，供第 5 节 standalone 验证使用。双 A3 不
 复制这些文件；它直接使用仓库中的 `tools/dsv4/phase1_prompts.json`。
@@ -228,19 +236,22 @@ bash tools/dsv4/run_phase1_native_controls.sh run eager_mtp_n2
 
 | 点 | 目的 |
 |---|---|
-| `a8f8_eager_u1_mtp_off` | A5 基础回归 |
-| `a8f8_eager_u1_n1` | N1 兼容性 |
-| `a8f8_eager_u2_n2` | eager U2、多 token |
-| `a8f8_graph_u1_n2` | target Graph、draft eager |
-| `a8f8_graph_u2_n3` | A8F8 最大一期组合、full draft Graph |
-| `a4f8_eager_u1_n2` | `F=2A` fan-out 基础路径 |
-| `a4f8_graph_u2_n3` | `F=2A` 最大一期组合 |
-| `a8f4_eager_u1_n2` | `A=2F` 高 HBM 基础路径 |
-| `a8f4_graph_u2_n3` | `A=2F` 最大一期组合 |
+| `a4f4_eager_u1_mtp_off` | 单 A5 基础回归 |
+| `a4f4_eager_u1_n1` | N1 兼容性 |
+| `a4f4_eager_u2_n2` | eager U2、多 token |
+| `a4f4_graph_u1_n2` | target Graph、draft eager |
+| `a4f4_graph_u2_n3` | 单 A5 最大等量组合、full draft Graph |
+| `a2f4_eager_u1_n2` | `F=2A` fan-out 基础路径 |
+| `a2f4_graph_u2_n3` | `F=2A` 最大一期组合 |
+| `a4f2_eager_u1_n2` | `A=2F` 容量预检与基础路径 |
+| `a4f2_graph_u2_n3` | `A=2F` 最大一期组合 |
 
-A8F4 使用高 HBM A5。当前 W8A8 模型在 FFN TP1/EP4 下，仅主模型 routed
-expert 权重就需要每卡 64.5 GiB；还需另计 MTP、shared expert、量化参数、通信
-和运行缓冲。不能将这两个点直接搬到单 NPU 可用约 61 GiB 的 A3 上执行。
+上述点最多使用 NPU 0-7。A4F2 的 FFN 为 TP1/EP2，按现有 256 routed experts
+估算，仅主模型 routed expert 权重每 FFN rank 约 129 GiB，还需另计 MTP、shared
+expert、量化参数、通信和运行缓冲。卡数满足不等于 HBM 满足；如果容量预检失败，
+保留原始日志并将 A4F2 记为硬件容量阻塞，不能用缩小 batch 或降低
+`gpu_memory_utilization` 伪装为通过。完整 A8F4 需要至少 12 张可用 NPU，必须另行
+安排多节点 A5 或其他容量足够的平台。
 
 先执行 F0。F0 每点一次冷启动、1 轮、batch 1/8/32，不等待 30 分钟 idle：
 
@@ -265,7 +276,7 @@ bash tools/dsv4/run_phase1_a5_matrix.sh f1
 
 ```bash
 export PHASE1_OUTPUT_BASE="/data/validation/dsv4-phase1-a5-retry-$(date +%Y%m%d_%H%M%S)"
-bash tools/dsv4/run_phase1_a5_matrix.sh f0 a8f4_graph_u2_n3
+bash tools/dsv4/run_phase1_a5_matrix.sh f0 a4f2_graph_u2_n3
 ```
 
 每个 `validation_summary.json` 必须满足：`passed=true`；`golden` 指向该点对应的路径匹配 control；serial mismatch 为空；batch 1/8/32 的 `valid=true` 并保留各自 `token_exact_count`；topology/rank/capacity 与点名一致；U2 点观察到真实双 stage；两个 role return code 为 0；fatal marker 为空；每轮停止后 NPU cleanup 通过。batch exact 若仍复现 `UPSTREAM-DSV4-BI-001`，保留原始记录并单独分析；只有路径匹配 control 稳定而 AFD serial 新增分叉才阻塞插件门禁。不得使用 `ALLOW_NPU_PROCESSES` 绕过清理门禁。
@@ -404,8 +415,8 @@ reserved 与 allocated 接近，日志中的通用碎片化提示也不应作为
 当前双 A3 保留 A8F8 N2/N3 和 A4F8 N3 三个功能验证点。对
 `afd_graph_u2_split_a8f4_mtp3` 记录“受 FFN HBM 容量限制，未通过/未验收”，
 保留本次失败日志，不把它标为功能通过，也不阻塞其余三个点的一期功能验收。
-高 HBM A5 的 standalone A8F4 按第 4、5 节在后续阶段独立验证；A8F4 PD 另行安排
-容量足够的双机环境。
+单台 8 卡 A5 不能执行 standalone A8F4；第 5 节只执行缩放后的 A4F4/A4F2/A2F4。
+完整 A8F4 standalone/PD 另行安排至少 12 张可用 NPU 且容量足够的环境。
 
 ## 7. 延期：双 A3 生成路径匹配 PD control
 

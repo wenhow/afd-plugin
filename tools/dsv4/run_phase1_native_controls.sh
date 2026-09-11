@@ -127,7 +127,8 @@ run_controls() {
       || die "Control output already exists: ${output_root}/${control_key}"
   done
 
-  local control_root native_pid ready deadline forced_stop
+  local control_root native_pid ready deadline forced_stop cann_root
+  cann_root="$(readlink -f "${DSV4_CANN_ROOT}")"
   native_pid=
   cleanup_native() {
     if [[ -z "${native_pid}" ]]; then
@@ -205,7 +206,7 @@ run_controls() {
       --rounds 3 \
       --metadata baseline_kind=native_path_control \
       --metadata "control_key=${control_key}" \
-      --metadata cann_version=9.0.0 \
+      --metadata "cann_root=${cann_root}" \
       --metadata vllm_commit=0fc695fc6d1d82e9a5ac6835ac8e4e1c83703665 \
       --metadata vllm_ascend_commit=3da28f9414583d2d0b672a8f06d1fae142404bda \
       --metadata "target_execution_mode=${CONTROL_EXECUTION_MODE}" \

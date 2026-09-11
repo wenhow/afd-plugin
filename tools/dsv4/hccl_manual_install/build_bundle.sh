@@ -86,6 +86,10 @@ case "${CONFIG_PROFILE}" in
       -e 's|^EXPECTED_CANN_VERSION=.*|EXPECTED_CANN_VERSION=""|' \
       -e 's|^SOC_VERSION=.*|SOC_VERSION="CHANGE_ME"|' \
       -e 's|^NIC_NAME=.*|NIC_NAME="CHANGE_ME"|' \
+      -e 's|^ATTENTION_RANKS=.*|ATTENTION_RANKS="4"|' \
+      -e 's|^FFN_RANKS=.*|FFN_RANKS="4"|' \
+      -e 's|^ATTENTION_DEVICES=.*|ATTENTION_DEVICES="0,1,2,3"|' \
+      -e 's|^FFN_DEVICES=.*|FFN_DEVICES="4,5,6,7"|' \
       "${payload_root}/config.env.example"
     ;;
   dual-a3-reuse)
