@@ -2,7 +2,11 @@
 
 ## 1. 目标与固定口径
 
-本文只关闭第一阶段功能门禁，不用于发布 U3 或性能结论。固定栈如下：
+本文只关闭第一阶段功能门禁，不用于发布 U3、逐 token 精度或性能结论。第一期
+不生成 golden，不执行逐 token exact 比对。文中的 F1 是“完整功能验收”层级，除
+逐 token 比对外还包含第二次冷启动、生命周期和清理等项目；但现有 F1 命令把这些
+项目与 golden 硬门禁绑定，因此第一期统一不执行 F1，只执行下文明确列出的功能
+smoke 流程。固定栈如下：
 
 | 组件 | 固定值 |
 |---|---|
@@ -21,16 +25,17 @@
 
 | 当前环境 | 必须执行 | 不在本机执行 | 能得到的结论 |
 |---|---|---|---|
-| A5 | 第 2、3、4、5、9 节的 A5 部分 | 第 6、7、8 节 | A5 native control 和 standalone AFD 门禁 |
-| 双 A3，仅验证启动/F0 | 第 2、3、6、8.2、9 节的双 A3 部分 | 第 4、5、7、8.3 节 | 双机服务启动、health、smoke、取消后恢复；不含 token-exact |
-| 双 A3，完整 F1 | 第 2、3、6、7、8、9 节的双 A3 部分 | 第 4、5 节 | 双机路径匹配 control、AFD 30/30 token-exact 和生命周期门禁 |
+| A5 后续逐 token 验收 | 第 2、3、4、5、9 节的 A5 部分 | 第 6、7、8 节 | 不属于当前一期功能 smoke；保留供后续执行 |
+| 双 A3，一期功能验收 | 第 2、3、6、8.2、9.2 节 | 第 4、5、7、8.3、9.1 节 | 双机服务启动、health、batch smoke、取消后恢复、停止与清理；不含 token-exact |
+| 双 A3，后续完整 F1 | 第 2、3、6、7、8、9 节的双 A3 部分 | 第 4、5 节 | 不属于当前一期；增加路径匹配 control 和 30/30 token-exact |
 
 本文现场 A3 的单个 NPU 可用容量约 61.27 GiB。双 A3 只执行 A8F8 N2、
 A8F8 N3、A4F8 N3 三个 AFD 点；A8F4 的 TP1/EP4 专家权重超过该容量，
 不属于这两台 A3 的必跑项，详见第 6.4 节。脚本能生成某个拓扑的配置，不代表
 该拓扑能在当前硬件上装下真实模型。
 
-A5 和双 A3 没有验证产物依赖。两条轨道只共享仓库中版本固定的 10 条 prompt 清单：
+A5 和双 A3 没有验证产物依赖。以下 prompt/control 关系只供后续逐 token 阶段使用，
+当前一期功能 smoke 不读取该 prompt 清单，也不生成或消费 golden：
 
 ```text
 tools/dsv4/phase1_prompts.json
@@ -45,17 +50,20 @@ A5 native token 不会进入双 A3 流程；双 A3 的 exact golden 必须由第
 
 ### 1.2 总体验收范围
 
-第一阶段仍需完成的外部硬门禁：
+第一期当前需要完成的外部硬门禁：
 
-1. A5 平台审计、独立安装和 5 份同栈、路径匹配 native control。
-2. A5 standalone A8F8、A4F8、A8F4 的 eager/Graph、U1/U2、MTP N=1/2/3 代表矩阵。
-3. A8F4 在高 HBM A5 上的真实模型加载和端到端请求。
-4. 双 A3 PD Graph/U2 下的 A8F8 N2/N3、A4F8 N3。A8F4 N3 的 PD 验证留待
+1. 固定栈、安装结果、模型路径、网络和 NPU 状态审计。
+2. 双 A3 PD Graph/U2 下的 A8F8 N2/N3、A4F8 N3。A8F4 N3 的 PD 验证留待
    FFN 单卡容量足够的独立双机环境，不由当前双 A3 承担。
-5. 每个 PD 点的真实双 stage、FFN Graph 动态路由、取消后恢复、优雅退出、NPU 清理和第二次冷启动。
-6. 路径匹配的 PD no-AFD control，以及每次冷启动 10 条 prompt x 3 轮的 30/30 token exact。
+3. 每个适用点成功启动，Prefill、Attention、FFN connector loop 和 Proxy 均 ready。
+4. 每个适用点的 batch 1/8/32 功能请求、取消后恢复、Graph/双 stage 日志、优雅退出、
+   NPU 清理和第二次冷启动。
 
-不属于第一阶段：U3、正式 P2 性能收益、A5 参数调优、非整数 A/F、TP/SP/CP/DCP/PP、TP3、非等量 TP2 和 TP2 full-draft Graph/U2/MTP 最大组合。
+当前一期明确不验收输出 token 是否与 control 一致。路径匹配 native/PD control、
+`record-control`、`validate`、30/30 serial exact 和 batch token-exact 全部延期。
+
+其他不属于第一期的项目：U3、正式 P2 性能收益、A5 参数调优、非整数 A/F、
+TP/SP/CP/DCP/PP、TP3、非等量 TP2 和 TP2 full-draft Graph/U2/MTP 最大组合。
 
 ## 2. 补丁包安装（按平台选择）
 
@@ -153,10 +161,11 @@ npu-smi info
 
 通过条件：两个上游 commit 与第 1 节完全一致；三个 `status --short` 均为空；CANN 只有 9.0.0；NPU 健康；开始验证前没有其他 NPU 进程。把输出保存为文本，后续随证据包回传。
 
-## 4. A5 专属：同栈路径匹配 native control
+## 4. 延期：A5 同栈路径匹配 native control
 
-**执行位置：A5。双 A3 操作者不要在 A3 上运行本节脚本。** 本节的 5 份 control
-只供 A5 第 5 节使用，不向双 A3 交付任何文件。
+**当前一期不执行本节。** 后续进入逐 token 精度阶段时，只在 A5 执行；双 A3
+操作者不要在 A3 上运行。本节的 5 份 control 只供 A5 第 5 节使用，不向双 A3
+交付任何文件。
 
 不能把 MTP-off 的 token 文件跨路径用作 N2/N3 的 exact golden。speculative decoding 会改变 target 校验的执行 shape；即使 native 自身稳定，近似并列 logits 也可能在 MTP-off 和 N2 间选择不同 token。必须按 target/draft 执行模式与 MTP N 生成以下 5 份 no-AFD control：
 
@@ -192,10 +201,10 @@ bash tools/dsv4/run_phase1_native_controls.sh run eager_mtp_n2
 本节完成后，A5 留存全部 5 份 control，供第 5 节 standalone 验证使用。双 A3 不
 复制这些文件；它直接使用仓库中的 `tools/dsv4/phase1_prompts.json`。
 
-## 5. A5 专属：standalone AFD 门禁
+## 5. 延期：A5 standalone AFD 逐 token 门禁
 
-**执行位置：A5。双 A3 完全跳过本节。** 本节读取第 4 节的 5 份 control，但不会
-向第 6、7、8 节输出任何依赖文件。
+**当前一期不执行本节。** 后续只在 A5 执行；双 A3 完全跳过。本节读取第 4 节的
+5 份 control，但不会向第 6、7、8 节输出任何依赖文件。
 
 矩阵脚本固定了 9 个代表点：
 
@@ -249,14 +258,14 @@ bash tools/dsv4/run_phase1_a5_matrix.sh f0 a8f4_graph_u2_n3
 Attention 机记为 A；Proxy 放在 P/F。两台机器必须安装同一个补丁包，并使用相同的
 模型、CANN、两个上游 commit 和 afd-plugin 交付 commit。
 
-### 6.1 先确认要做 F0 还是 F1
+### 6.1 一期只做功能 smoke
 
 | 目标 | 仓库 prompt 清单 | 第 7 节 PD control | 第 8 节允许动作 |
 |---|---|---|---|
-| 启动定位/F0 | 包内已有，不读取 | 跳过 | `check`、`start`、`status`、`smoke`、`stop`、`collect` |
-| 正式 F1 | 包内已有，直接读取 | 必须先生成 3 份 | F0 全部动作，加 `validate`、`evidence` |
+| 一期功能验收 | 不读取 | 跳过 | `check`、`start`、`status`、`smoke`、`benchmark p1`、`evidence`、`stop`、`collect` |
+| 后续完整 F1 | 直接读取 | 必须先生成 3 份 | 功能动作，加 `validate` 和逐 token 门禁 |
 
-正式 F1 的 prompt 来源随 afd-plugin 一起安装，默认路径为：
+后续 F1 的 prompt 来源随 afd-plugin 一起安装，默认路径为：
 
 ```text
 ${AFD_PLUGIN_ROOT}/tools/dsv4/phase1_prompts.json
@@ -317,7 +326,7 @@ bash "$MATRIX" list "$CFG"
 export MATRIX_RUN_BASE="/data/run/dsv4-phase1-pd-r1"
 ```
 
-### 6.3 control、AFD 点和物理角色映射
+### 6.3 AFD 点、后续 control 和物理角色映射
 
 | PD control | AFD 点 | P/F 机角色 | A 机角色 |
 |---|---|---|---|
@@ -325,7 +334,8 @@ export MATRIX_RUN_BASE="/data/run/dsv4-phase1-pd-r1"
 | `control_graph_u2_mtp3_a8` | `afd_graph_u2_mtp3` | `prefill` | `decode`（A8F8 共置） |
 | `control_graph_u2_mtp3_a4` | `afd_graph_u2_split_a4f8_mtp3` | `prefill_ffn`（P8F8） | `attention`（A4） |
 
-这里的“写到”是指：在 Proxy 所在的 P/F 机执行 `record-control` 后，脚本自动生成
+下述 golden 路径只供后续逐 token 阶段参考，当前一期不用创建。后续在 Proxy
+所在的 P/F 机执行 `record-control` 后，脚本会自动生成
 `golden_results.json`；**不需要手工创建或填写 JSON**。`<路径键>` 就是对应的 PD
 control 点名。若第 6.2 节设置：
 
@@ -373,15 +383,15 @@ export MATRIX_RUN_BASE="/data/run/dsv4-phase1-pd-r1"
 `gpu_memory_utilization`、关闭 Graph 或关闭/迁移 MTP 都不能解决这一容量缺口。
 reserved 与 allocated 接近，日志中的通用碎片化提示也不应作为本次主因。
 
-当前双 A3 保留 A8F8 N2/N3 和 A4F8 N3 三个验证点。对
+当前双 A3 保留 A8F8 N2/N3 和 A4F8 N3 三个功能验证点。对
 `afd_graph_u2_split_a8f4_mtp3` 记录“受 FFN HBM 容量限制，未通过/未验收”，
-保留本次失败日志，不把它标为功能通过，也不阻塞其余三个点的 F1。高 HBM A5 的
-standalone A8F4 按第 4、5 节独立验证；A8F4 PD 另行安排容量足够的双机环境，
-并在该环境重新生成路径匹配 control，不能沿用当前 A3 的 token golden。
+保留本次失败日志，不把它标为功能通过，也不阻塞其余三个点的一期功能验收。
+高 HBM A5 的 standalone A8F4 按第 4、5 节在后续阶段独立验证；A8F4 PD 另行安排
+容量足够的双机环境。
 
-## 7. 双 A3 专属：生成路径匹配 PD control
+## 7. 延期：双 A3 生成路径匹配 PD control
 
-**仅正式 F1 执行本节；只做启动/F0 时跳过。** 开始前必须满足：两台机器第 3、6 节
+**当前一期不执行本节。仅后续正式 F1 执行。** 开始前必须满足：两台机器第 3、6 节
 已通过；Proxy 所在机的 `NATIVE_GOLDEN_PATH` 指向仓库 prompt 清单；本轮使用新的
 `MATRIX_RUN_BASE`；两台 NPU 机器没有上一点残留进程。
 
@@ -428,7 +438,10 @@ bash "$MATRIX" collect "$CFG" control_graph_u2_mtp2_a8 prefill
 `control_graph_u2_mtp3_a4`，各执行一遍完整流程。每份 control 必须自身 30/30 稳定。
 后续 AFD 必须与对应的 PD control token-exact 一致；本流程不读取或比较 A5 token。
 
-## 8. 双 A3 专属：AFD F0/F1
+一期误执行 `record-control` 时，即使输出 `passed=False`，也只记录为后续逐 token
+阶段的待定位项；它不阻塞第 8.2 节。停止并收集当前 control 角色后，换用 AFD 点继续。
+
+## 8. 双 A3 专属：一期功能 smoke 与后续 F1
 
 ### 8.1 当前双 A3 的三个验证点
 
@@ -438,10 +451,10 @@ bash "$MATRIX" collect "$CFG" control_graph_u2_mtp2_a8 prefill
 再由 A 机的 `attention` 拉起 Attention。FFN 没有 HTTP 端口，必须以 `status` 输出的
 connector loop 数量判断是否 ready。
 
-### 8.2 F0：可跳过第 4、5、7 节的启动与请求验证
+### 8.2 一期必跑：不依赖 golden 的功能 smoke
 
-F0 不读取任何 golden，适合先定位安装、模型加载、Graph capture、HCCL、Mooncake 和
-服务生命周期。不得在 F0 执行 `validate`，也不得把 F0 结果标记为 token-exact。
+本流程不读取任何 golden，用于验收安装、模型加载、Graph capture、HCCL、Mooncake 和
+服务生命周期。不得执行 `validate`，也不得把结果标记为 token-exact。
 
 图捕获和 health 成功后仍需执行 smoke。PD 首轮只有 1 个 Decode token，曾触发
 编译后的 FFN 分片为空、空闲 DP 的 FFN 错用缓存图；该入口与完整 prompt 的
@@ -455,7 +468,7 @@ F0 不读取任何 golden，适合先定位安装、模型加载、Graph capture
 MTP 1 的编译路径；不需要改为 graph draft 或重新下载权重。修复和验证范围见
 `docs/npu/DEEPSEEK_V4_MTP_EAGER_COMPILE_FIX_VALIDATION_ZH.md`。
 
-以下是当前 A4F8 点的完整 F0 顺序：
+以下是当前 A4F8 点的一期完整操作顺序：
 
 ```bash
 # 1. 三个角色分别预检。
@@ -486,7 +499,13 @@ bash "$MATRIX" status "$CFG" afd_graph_u2_split_a4f8_mtp3 proxy
 # 4. Proxy 执行不依赖 golden 的 smoke 和取消后恢复。
 bash "$MATRIX" smoke "$CFG" afd_graph_u2_split_a4f8_mtp3 proxy
 
-# 5. 按 Proxy -> Attention -> Prefill/FFN 逆序停止并收集。
+# 5. 用一次并发负载生成在线 U2 证据；p1 结果只作负载，不作性能验收。
+# Proxy 所在 P/F 机
+bash "$MATRIX" benchmark "$CFG" afd_graph_u2_split_a4f8_mtp3 p1
+# A 机
+bash "$MATRIX" evidence "$CFG" afd_graph_u2_split_a4f8_mtp3 attention
+
+# 6. 按 Proxy -> Attention -> Prefill/FFN 逆序停止并收集。
 bash "$MATRIX" stop "$CFG" afd_graph_u2_split_a4f8_mtp3 proxy
 bash "$MATRIX" collect "$CFG" afd_graph_u2_split_a4f8_mtp3 proxy
 # A 机
@@ -500,9 +519,42 @@ bash "$MATRIX" collect "$CFG" afd_graph_u2_split_a4f8_mtp3 prefill_ffn
 当前双 A3 跳过 `afd_graph_u2_split_a8f4_mtp3`。验证两个共置 A8F8 点时，
 P/F 机角色改为 `prefill`，A 机角色改为 `decode`；点名分别为
 `afd_graph_u2_mtp2` 和 `afd_graph_u2_mtp3`。每个点必须重新执行 check、冷启动、
-status、smoke、逆序停止和 collect，不能在运行中切换点名。
+status、smoke、一次 `benchmark p1`、`evidence`、逆序停止和 collect，不能在运行中
+切换点名。两个共置点的在线 U2 证据命令分别是：
 
-### 8.3 F1：依赖第 7 节的正式 token-exact 验收
+```bash
+# Proxy 所在 P/F 机执行负载；A 机随后取证。
+bash "$MATRIX" benchmark "$CFG" afd_graph_u2_mtp2 p1
+bash "$MATRIX" evidence "$CFG" afd_graph_u2_mtp2 decode
+
+bash "$MATRIX" benchmark "$CFG" afd_graph_u2_mtp3 p1
+bash "$MATRIX" evidence "$CFG" afd_graph_u2_mtp3 decode
+```
+
+这里运行 `benchmark p1` 只是为了让在线并发请求覆盖全部 Attention rank，并给
+`evidence` 生成 `is_graph_capturing=False`、`is_warmup=False` 的真实双 stage 记录；
+一期不比较吞吐、延迟或收益，也不据此下性能结论。单独的短 `smoke` 可能只留下
+Graph warmup/capture 阶段的 U2 记录，不能替代在线 `evidence`。
+
+每个适用点完成一轮后，使用新的 `MATRIX_RUN_BASE` 再执行一轮，验证第二次冷启动。
+两轮均执行本节的功能动作和在线 U2 取证，不要插入 `record-control` 或 `validate`。
+一期通过条件为：
+
+1. 所有角色 ready，HTTP health 和 Proxy health 正常。
+2. `smoke` 返回成功，输出中的 `golden_checked=false`，batch 1/8/32 均返回完整结果。
+3. 取消请求后 health 和 batch 1 恢复请求成功。
+4. `evidence` 覆盖全部 Attention rank，存在在线 `stage_count=2`；日志同时存在目标
+   Graph、MTP 配置和 FFN connector 证据。
+5. 启动和请求期间没有 OOM、timeout、`Communication_Error`、`507015`、Python
+   traceback 或 EngineCore fatal。
+6. 逆序停止成功，停止阶段没有新增异常 traceback，端口和 NPU 进程无残留；第二次
+   冷启动结果一致。
+
+这里的“一致”只指功能状态和生命周期均通过，不比较两轮输出 token。
+
+### 8.3 延期：依赖第 7 节的正式 token-exact 验收
+
+**当前一期不执行本节。** 以下命令留待后续逐 token 精度阶段。
 
 先确认当前 `MATRIX_RUN_BASE` 下已经有第 7 节的三份 PD control。每个 AFD 点按 8.2
 的角色映射重新冷启动；`smoke` 通过后，在停止服务之前执行该点对应的
@@ -547,6 +599,9 @@ export MATRIX_RUN_BASE="/data/run/dsv4-phase1-pd-r2"
 
 ### 9.1 A5 操作者
 
+当前一期不执行第 4、5 节，因此不要求回传本节的 control、golden 或 F1 evidence。
+本节命令留待后续 A5 逐 token 阶段。
+
 Standalone 验证使用统一收集器；它保留 JSON、环境、NPU 快照和截断日志，不包含 profiler 原始目录：
 
 ```bash
@@ -568,14 +623,17 @@ A5 只回传以下内容，不需要收集双 A3 的 PD 角色日志：
 ### 9.2 双 A3 操作者
 
 PD 每个 `collect` 会打印一个小型归档及 `.sha256`。双 A3 不需要生成或回传 A5
-standalone evidence；回传以下内容：
+standalone evidence，也不回传 control golden；回传以下内容：
 
-1. 两轮全部 3 个 control、3 个适用 AFD 点各角色的 `collect` 归档和 `.sha256`；
-   A8F4 另附容量受限说明和已有失败日志。
+1. 两轮 3 个适用 AFD 点各角色的 `collect` 归档和 `.sha256`；A8F4 另附容量受限
+   说明和已有失败日志。
 2. 两台机器 H0 审计文本。
-3. 每轮 3 份路径匹配 PD control golden，共 6 份，路径中保留 `r1/r2` 标识。
-4. 仓库 `tools/dsv4/phase1_prompts.json` 的 SHA256 和 afd-plugin commit。
-5. 任何失败点的完整 `validation_summary.json`、role 日志尾部、首次 fatal 前后至少
+3. 每个点 `smoke` 生成的 `batches.json`、`recovery.json` 和 `summary.env`；其中
+   `golden_checked=0` 是一期预期值。
+4. afd-plugin commit，以及两个上游 commit。
+5. 任何失败点的 role 日志尾部、首次 fatal 前后至少
    200 行，以及当时的 `npu-smi info`。
 
-不要只回传成功截图，也不要在失败后覆盖原 `RUN_ROOT`。收到上述材料后，可按 stack、启动、数据面、Graph 动态路由、token exact、生命周期和清理六类门禁逐项分析。
+不要只回传成功截图，也不要在失败后覆盖原 `RUN_ROOT`。收到上述材料后，按 stack、
+启动、数据面、Graph 动态路由、生命周期和清理五类门禁逐项分析；一期不下逐 token
+精度结论。

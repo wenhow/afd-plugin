@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 import re
 import shutil
@@ -678,6 +679,88 @@ def test_performance_http_checks_use_no_proxy_opener(monkeypatch):
     ]
 
 
+@pytest.mark.parametrize(
+    ("point", "mtp_tokens", "decode_npus", "attention_npus", "total_npus"),
+    [
+        ("afd_graph_u2_mtp2", 2, 16, 8, 24),
+        ("afd_graph_u2_mtp3", 3, 16, 8, 24),
+        ("afd_graph_u2_split_a4f8_mtp3", 3, 12, 4, 20),
+    ],
+)
+def test_phase1_mtp_points_reach_benchmark_healthcheck(
+    tmp_path,
+    monkeypatch,
+    point,
+    mtp_tokens,
+    decode_npus,
+    attention_npus,
+    total_npus,
+):
+    output_dir = tmp_path / point
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "run_pd_performance.py",
+            "run",
+            "--output-dir",
+            str(output_dir),
+            "--point",
+            point,
+            "--phase",
+            "p1",
+            "--python-bin",
+            sys.executable,
+            "--metrics-url",
+            "http://127.0.0.1:8910/metrics",
+            "--tokenizer",
+            "/model",
+            "--u-batches",
+            "2",
+            "--mtp",
+            "1",
+            "--mtp-num-speculative-tokens",
+            str(mtp_tokens),
+            "--repeats",
+            "1",
+            "--prefill-npus",
+            "8",
+            "--decode-npus",
+            str(decode_npus),
+            "--attention-npus",
+            str(attention_npus),
+            "--ffn-npus",
+            "8",
+            "--total-npus",
+            str(total_npus),
+            "--control-total-npus",
+            "16",
+            "--cann-version",
+            "9.0.0",
+            "--vllm-commit",
+            "vllm",
+            "--vllm-ascend-commit",
+            "vllm-ascend",
+            "--afd-commit",
+            "afd",
+        ],
+    )
+    args = run_pd_performance._parse_args()
+
+    def stop_after_validation(_url, _timeout):
+        raise RuntimeError("healthcheck reached")
+
+    monkeypatch.setattr(run_pd_performance, "_healthcheck", stop_after_validation)
+    with pytest.raises(RuntimeError, match="healthcheck reached"):
+        run_pd_performance._run(args)
+
+    summary = json.loads(
+        (output_dir / "performance_summary.json").read_text(encoding="utf-8")
+    )
+    assert summary["point"] == point
+    assert summary["execution"]["mtp_num_speculative_tokens"] == mtp_tokens
+
+
 def test_step_by_step_guide_uses_generated_point_role_contracts(tmp_path):
     subprocess.run(["bash", str(MATRIX), "init", str(tmp_path)], check=True)
     guide = GUIDE.read_text(encoding="utf-8")
@@ -717,8 +800,10 @@ def test_phase1_guide_separates_platforms_and_uses_valid_matrix_roles(tmp_path):
     guide = PHASE1_GUIDE.read_text(encoding="utf-8")
 
     assert "A5 和双 A3 没有验证产物依赖" in guide
-    assert "F0：可跳过第 4、5、7 节" in guide
-    assert "F1：依赖第 7 节" in guide
+    assert "一期必跑：不依赖 golden 的功能 smoke" in guide
+    assert "延期：依赖第 7 节的正式 token-exact 验收" in guide
+    assert "不要插入 `record-control` 或 `validate`" in guide
+    assert "一期不下逐 token\n精度结论" in guide
     assert "${AFD_PLUGIN_ROOT}/tools/dsv4/phase1_prompts.json" in guide
 
     command_pattern = re.compile(
@@ -730,6 +815,15 @@ def test_phase1_guide_separates_platforms_and_uses_valid_matrix_roles(tmp_path):
     assert commands
     for _action, point, role in commands:
         assert (tmp_path / f"{point}-{role}.env").is_file(), (point, role)
+
+    benchmark_pattern = re.compile(
+        r'bash "\$MATRIX" benchmark "\$CFG" ([a-z0-9_]+) p1'
+    )
+    benchmark_points = benchmark_pattern.findall(guide)
+    assert set(benchmark_points) == set(run_pd_performance.PHASE1_MTP_POINT_ORDER)
+    for point in benchmark_points:
+        assert (tmp_path / f"{point}-proxy.env").is_file(), point
+        assert point in run_pd_performance.RUN_POINT_ORDER
 
 
 def _summary(point: str, *, output_throughput: float, active_npus: int) -> dict:

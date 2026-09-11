@@ -36,7 +36,12 @@ RATIO_POINT_ORDER = (
     "afd_graph_u2_split_a8f8",
     "afd_graph_u2_split_a16f8",
 )
-RUN_POINT_ORDER = (*POINT_ORDER, *RATIO_POINT_ORDER[1:])
+PHASE1_MTP_POINT_ORDER = (
+    "afd_graph_u2_mtp2",
+    "afd_graph_u2_mtp3",
+    "afd_graph_u2_split_a4f8_mtp3",
+)
+RUN_POINT_ORDER = (*POINT_ORDER, *RATIO_POINT_ORDER[1:], *PHASE1_MTP_POINT_ORDER)
 EXPECTED_EXECUTION = {
     "control_graph_u1": {
         "mode": "full-decode-only",
@@ -83,6 +88,30 @@ EXPECTED_EXECUTION = {
         "u_batches": 2,
         "mtp": 0,
         "mtp_num_speculative_tokens": 1,
+        "batch_invariant": False,
+        "golden_checked": False,
+    },
+    "afd_graph_u2_mtp2": {
+        "mode": "full-decode-only",
+        "u_batches": 2,
+        "mtp": 1,
+        "mtp_num_speculative_tokens": 2,
+        "batch_invariant": False,
+        "golden_checked": False,
+    },
+    "afd_graph_u2_mtp3": {
+        "mode": "full-decode-only",
+        "u_batches": 2,
+        "mtp": 1,
+        "mtp_num_speculative_tokens": 3,
+        "batch_invariant": False,
+        "golden_checked": False,
+    },
+    "afd_graph_u2_split_a4f8_mtp3": {
+        "mode": "full-decode-only",
+        "u_batches": 2,
+        "mtp": 1,
+        "mtp_num_speculative_tokens": 3,
         "batch_invariant": False,
         "golden_checked": False,
     },
