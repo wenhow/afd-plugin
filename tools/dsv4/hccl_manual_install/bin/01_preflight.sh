@@ -28,20 +28,23 @@ fi
 
 require_file "${CANN_ROOT}/set_env.sh"
 resolved_cann="$(readlink -f "${CANN_ROOT}")"
-cann_version_text="${resolved_cann}"
-if [[ -x "${CANN_ROOT}/query_pkg_version.sh" ]]; then
-  cann_version_text+=$'\n'"$("${CANN_ROOT}/query_pkg_version.sh" 2>&1 || true)"
-fi
-if [[ "${cann_version_text}" != *"9.0.0"* ]] \
-  && ! is_true "${ALLOW_CANN_VERSION_MISMATCH}"; then
-  die "CANN 9.0.0 not detected at ${resolved_cann}"
+if [[ -n "${EXPECTED_CANN_VERSION}" ]]; then
+  cann_version_text="${resolved_cann}"
+  if [[ -x "${CANN_ROOT}/query_pkg_version.sh" ]]; then
+    cann_version_text+=$'\n'"$("${CANN_ROOT}/query_pkg_version.sh" 2>&1 || true)"
+  fi
+  if [[ "${cann_version_text}" != *"${EXPECTED_CANN_VERSION}"* ]] \
+    && ! is_true "${ALLOW_CANN_VERSION_MISMATCH}"; then
+    die "CANN ${EXPECTED_CANN_VERSION} not detected at ${resolved_cann}"
+  fi
 fi
 
 if [[ "${CANN_ROOT}" == *"/home/develp/"* ]]; then
   die "CANN_ROOT contains the known /home/develp typo"
 fi
 
-if [[ "${PATH}:${LD_LIBRARY_PATH:-}:${PYTHONPATH:-}:${CMAKE_PREFIX_PATH:-}" == *"cann-9.1"* ]]; then
+if [[ "${EXPECTED_CANN_VERSION}" == "9.0.0" \
+  && "${PATH}:${LD_LIBRARY_PATH:-}:${PYTHONPATH:-}:${CMAKE_PREFIX_PATH:-}" == *"cann-9.1"* ]]; then
   die "Current shell contains CANN 9.1 paths. Open a clean shell before continuing."
 fi
 
@@ -115,4 +118,6 @@ if [[ "${preflight_scope}" == "install" ]] && is_true "${OFFLINE}"; then
   require_dir "${WHEELHOUSE}"
 fi
 
-log "${preflight_scope^} preflight passed: ${architecture}, CANN=${resolved_cann}, NPU chips=${npu_chip_count}, HCCL IP=${resolved_ip}"
+log "${preflight_scope^} preflight passed: ${architecture}, CANN=${resolved_cann}, "\
+"expected-version=${EXPECTED_CANN_VERSION:-not-enforced}, NPU chips=${npu_chip_count}, "\
+"HCCL IP=${resolved_ip}"

@@ -1,4 +1,4 @@
-# DeepSeek-V4 AFD 第一期 CANN 9.0.0 手工安装包
+# DeepSeek-V4 AFD 第一期手工安装包
 
 该目录用于生成可复制到 A5 或双机/多机环境的安装脚本包。默认生成轻量包，
 包内包含安装脚本、一期验证指导书、固定版本清单和 afd-plugin 一期补丁，不包含
@@ -16,16 +16,16 @@ SHA256 和包内文件 SHA256 均记录在 `manifest/` 中。完整硬件矩阵�
 ## 0. 从交付 ZIP 开始
 
 如果收到的是 `dsv4-afd-hccl-install-delivery-*.zip`，ZIP 只是指导书和安装包的
-外层容器；其中的 `dsv4-afd-hccl-manual-install-slim-*.tar.gz` 才是需要在
-目标机解开的实际安装脚本包。按以下顺序操作：
+外层容器。A5 只选择文件名包含 `slim-a5-new-install` 的包；已安装双 A3 只选择
+`slim-dual-a3-reuse`。不要使用不带 profile 名的 2026-09-08 旧包。A5 按以下顺序：
 
 ```bash
 unzip dsv4-afd-hccl-install-delivery-*.zip
 cd dsv4-afd-hccl-install-delivery-*
 sha256sum -c SHA256SUMS
-sha256sum -c dsv4-afd-hccl-manual-install-slim-*.tar.gz.sha256
-tar -xzf dsv4-afd-hccl-manual-install-slim-*.tar.gz
-cd dsv4-afd-hccl-manual-install-slim-*
+sha256sum -c dsv4-afd-hccl-manual-install-slim-a5-new-install-*.tar.gz.sha256
+tar -xzf dsv4-afd-hccl-manual-install-slim-a5-new-install-*.tar.gz
+cd dsv4-afd-hccl-manual-install-slim-a5-new-install-*
 vi config.env
 bash bin/install_all.sh
 ```
@@ -35,17 +35,18 @@ wheel；`bin/02_prepare_sources.sh` 会在目标机下载并校验固定源码�
 
 ## 1. 生成轻量包
 
-在开发仓库根目录执行：
+在开发仓库根目录为 A5 生成新装包：
 
 ```bash
-bash tools/dsv4/hccl_manual_install/build_bundle.sh /mnt/workspace/artifacts
+CONFIG_PROFILE=a5-new-install \
+  bash tools/dsv4/hccl_manual_install/build_bundle.sh /mnt/workspace/delivery
 ```
 
 生成物名称为：
 
 ```text
-dsv4-afd-hccl-manual-install-slim-YYYYmmdd_HHMMSS.tar.gz
-dsv4-afd-hccl-manual-install-slim-YYYYmmdd_HHMMSS.tar.gz.sha256
+dsv4-afd-hccl-manual-install-slim-a5-new-install-YYYYmmdd_HHMMSS.tar.gz
+dsv4-afd-hccl-manual-install-slim-a5-new-install-YYYYmmdd_HHMMSS.tar.gz.sha256
 ```
 
 已经按 `/mnt/workspace/delivery/config.env.example` 安装过的两台 A3，使用复用
@@ -74,7 +75,7 @@ CONFIG_PROFILE=dual-a3-reuse \
 ## 2. 目标机前提
 
 - AArch64、满足所选 A/F 拓扑数量的可用 Ascend NPU；
-- CANN 9.0.0 和 Python 3.12 已安装；
+- 目标平台适用的 CANN 和 Python 3.12 已安装；双 A3 reuse profile 仍固定 CANN 9.0.0；
 - DeepSeek-V4-Flash W8A8 模型已放到目标机；
 - 可访问配置中的三个 Git 地址、vLLM-Ascend submodule 地址和 Python 包源；
 - 已安装 `git`、`tar`、`curl` 等基础工具。容器没有 `ss` 时会依次使用
@@ -88,15 +89,15 @@ CONFIG_PROFILE=dual-a3-reuse \
 先校验并解包：
 
 ```bash
-sha256sum -c dsv4-afd-hccl-manual-install-slim-*.tar.gz.sha256
-tar -xzf dsv4-afd-hccl-manual-install-slim-*.tar.gz
-cd dsv4-afd-hccl-manual-install-slim-*
+sha256sum -c dsv4-afd-hccl-manual-install-slim-a5-new-install-*.tar.gz.sha256
+tar -xzf dsv4-afd-hccl-manual-install-slim-a5-new-install-*.tar.gz
+cd dsv4-afd-hccl-manual-install-slim-a5-new-install-*
 vi config.env
 ```
 
 必须修改：
 
-- `CANN_ROOT`：目标机唯一使用的 CANN 9.0.0；
+- `CANN_ROOT`：A5 目标机实际使用的唯一 CANN 根目录；
 - `MODEL_PATH`：DeepSeek-V4-Flash W8A8 模型路径；
 - `PYTHON_BIN`：Python 3.12；
 - `SOC_VERSION`：目标机真实 SoC；
@@ -106,6 +107,9 @@ vi config.env
 
 轻量包保持 `USE_BUNDLED_SOURCES="0"`。不要把验证机 IP 复制到其他机器，
 也不要在已经 source 其他 CANN 版本的 shell 中继续安装。
+
+A5 包保持 `EXPECTED_CANN_VERSION=""`，只校验并加载上述路径，不强校验 CANN
+版本。双 A3 reuse 包将该值固定为 `9.0.0`。
 
 ## 4. 校验和安装
 

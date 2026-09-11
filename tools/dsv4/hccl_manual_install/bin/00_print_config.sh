@@ -11,6 +11,7 @@ print_version_contract
 cat <<EOF
 [hccl-install] install root: ${INSTALL_ROOT}
 [hccl-install] CANN root: ${CANN_ROOT}
+[hccl-install] expected CANN version: ${EXPECTED_CANN_VERSION:-<not enforced>}
 [hccl-install] Python: ${PYTHON_BIN}
 [hccl-install] venv: ${VENV_ROOT}
 [hccl-install] model: ${MODEL_PATH}

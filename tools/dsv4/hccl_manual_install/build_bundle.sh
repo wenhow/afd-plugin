@@ -47,6 +47,13 @@ case "${CONFIG_PROFILE}" in
     INCLUDE_AFD_SEED_BUNDLE="${INCLUDE_AFD_SEED_BUNDLE:-0}"
     profile_suffix=""
     ;;
+  a5-new-install)
+    INCLUDE_AFD_SEED_BUNDLE="${INCLUDE_AFD_SEED_BUNDLE:-0}"
+    profile_suffix="-${CONFIG_PROFILE}"
+    if [[ "${AFD_SNAPSHOT_ID}" == "dsv4-afd-v023-cann900-phase1-external-v1" ]]; then
+      AFD_SNAPSHOT_ID="dsv4-afd-v023-phase1-a5-external-v1"
+    fi
+    ;;
   dual-a3-reuse)
     INCLUDE_AFD_SEED_BUNDLE="${INCLUDE_AFD_SEED_BUNDLE:-1}"
     AFD_SEED_COMMIT="${AFD_SEED_COMMIT:-2164240b31efc8605bf84cc45afc628996669554}"
@@ -73,6 +80,14 @@ cp -a "${BUNDLE_SOURCE_DIR}/." "${payload_root}/"
 case "${CONFIG_PROFILE}" in
   generic)
     ;;
+  a5-new-install)
+    sed -i \
+      -e 's|^CANN_ROOT=.*|CANN_ROOT="/CHANGE_ME/CANN_ROOT"|' \
+      -e 's|^EXPECTED_CANN_VERSION=.*|EXPECTED_CANN_VERSION=""|' \
+      -e 's|^SOC_VERSION=.*|SOC_VERSION="CHANGE_ME"|' \
+      -e 's|^NIC_NAME=.*|NIC_NAME="CHANGE_ME"|' \
+      "${payload_root}/config.env.example"
+    ;;
   dual-a3-reuse)
     sed -i \
       -e 's|^INSTALL_ROOT=.*|INSTALL_ROOT="/data/z00569729/run/dsv4-afd-phase1-install"|' \
@@ -82,6 +97,7 @@ case "${CONFIG_PROFILE}" in
       -e 's|^LOG_ROOT=.*|LOG_ROOT="${INSTALL_ROOT}/logs"|' \
       -e 's|^AFD_PLUGIN_ROOT=.*|AFD_PLUGIN_ROOT="${CODE_ROOT}/afd-plugin-phase1-a5"|' \
       -e 's|^CANN_ROOT=.*|CANN_ROOT="/usr/local/Ascend/cann-9.0.0"|' \
+      -e 's|^EXPECTED_CANN_VERSION=.*|EXPECTED_CANN_VERSION="9.0.0"|' \
       -e 's|^MODEL_PATH=.*|MODEL_PATH="/data/models/DeepSeek-V4-Flash-w8a8-mtp"|' \
       -e 's|^PYTHON_BIN=.*|PYTHON_BIN="${VENV_ROOT}/bin/python"|' \
       -e 's|^NIC_NAME=.*|NIC_NAME="enp23s0f3"|' \

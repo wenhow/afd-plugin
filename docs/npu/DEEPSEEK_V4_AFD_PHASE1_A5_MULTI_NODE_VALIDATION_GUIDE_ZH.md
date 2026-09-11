@@ -10,7 +10,7 @@ smoke 流程。固定栈如下：
 
 | 组件 | 固定值 |
 |---|---|
-| CANN | `9.0.0`，整个 shell 只能加载一个绝对 toolkit root |
+| CANN | 双 A3 固定 `9.0.0`；A5 只固定现场 `CANN_ROOT` 绝对路径，不强校验版本 |
 | vLLM | `releases/v0.23.0`，`0fc695fc6d1d82e9a5ac6835ac8e4e1c83703665` |
 | vLLM-Ascend | `rfc/vllm_cann`，`3da28f9414583d2d0b672a8f06d1fae142404bda` |
 | afd-plugin | 补丁包 `manifest/versions.env` 中的 `AFD_TARGET_COMMIT`/`AFD_TARGET_TREE` |
@@ -103,10 +103,26 @@ bash bin/install_all.sh
 
 ### 2.2 A5 或其他新节点使用通用包
 
-A5 或其他新节点不使用该双机专用 profile，使用通用 `slim` 包，并填写
+A5 或其他新节点不使用该双机专用 profile，也不得继续使用存在 `ss` 等旧脚本问题的
+`dsv4-afd-hccl-manual-install-slim-20260908_150102.tar.gz`。只使用文件名包含
+`slim-a5-new-install` 的新版包：
+
+```bash
+sha256sum -c dsv4-afd-hccl-manual-install-slim-a5-new-install-*.tar.gz.sha256
+tar -xzf dsv4-afd-hccl-manual-install-slim-a5-new-install-*.tar.gz
+cd dsv4-afd-hccl-manual-install-slim-a5-new-install-*
+sha256sum -c manifest/SHA256SUMS
+vi config.env
+bash bin/00_print_config.sh
+bash bin/install_all.sh
+```
+
+填写
 `CANN_ROOT`、`MODEL_PATH`、`PYTHON_BIN`、`SOC_VERSION`、`NIC_NAME`、必要时的
-`HCCL_IF_IP`、安装/源码目录和实际可访问的 Git/pip 镜像。`CANN_ROOT` 必须指向
-CANN 9.0.0 的唯一真实根目录；不得先 source 其他版本再继续。
+`HCCL_IF_IP`、安装/源码目录和实际可访问的 Git/pip 镜像。A5 profile 的
+`EXPECTED_CANN_VERSION` 保持为空：安装器只要求 `CANN_ROOT/set_env.sh` 存在并从
+该绝对路径激活，不检查 CANN 目录名或版本输出。不要把双 A3 的 9.0.0 路径复制到
+A5，也不得先 source 另一套 CANN 再继续。
 
 ### 2.3 两条轨道共同要求
 
@@ -159,7 +175,9 @@ readlink -f "$CANN_ROOT"
 npu-smi info
 ```
 
-通过条件：两个上游 commit 与第 1 节完全一致；三个 `status --short` 均为空；CANN 只有 9.0.0；NPU 健康；开始验证前没有其他 NPU 进程。把输出保存为文本，后续随证据包回传。
+通过条件：两个上游 commit 与第 1 节完全一致；三个 `status --short` 均为空；双 A3
+解析到 CANN 9.0.0，A5 解析到 `config.env` 指定的唯一 `CANN_ROOT`；NPU 健康；开始
+验证前没有其他 NPU 进程。把输出保存为文本，后续随证据包回传。
 
 ## 4. 延期：A5 同栈路径匹配 native control
 

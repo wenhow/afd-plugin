@@ -65,13 +65,14 @@ def test_runtime_preflight_does_not_require_install_tools(tmp_path):
     npu_smi.write_text("#!/bin/sh\nprintf 'Chip Count : 2\\n'\n")
     npu_smi.chmod(0o755)
 
-    cann_root = tmp_path / "cann-9.0.0"
+    cann_root = tmp_path / "site-cann-a5"
     cann_root.mkdir()
     (cann_root / "set_env.sh").touch()
     config = tmp_path / "config.env"
     config.write_text(
         f'''SYSTEM_PATH="{bin_dir}"
 CANN_ROOT="{cann_root}"
+EXPECTED_CANN_VERSION=""
 NIC_NAME="lo"
 HCCL_IF_IP="127.0.0.1"
 PYTHON_BIN="missing-install-python"
@@ -106,6 +107,7 @@ ALLOW_CANN_VERSION_MISMATCH="0"
 
     assert result.returncode == 0, result.stderr
     assert "Runtime preflight passed" in result.stdout
+    assert "expected-version=not-enforced" in result.stdout
 
 
 def test_dirty_afd_seed_is_preserved_and_audited():
@@ -181,3 +183,14 @@ def test_runtime_uses_vendor_env_wrapper_for_all_environment_scripts():
     assert 'source "${CANN_ROOT}/set_env.sh"' not in runtime
     assert 'source "${CANN_ROOT}/nnal/atb/set_env.sh"' not in runtime
     assert 'source "${ops_env}"' not in runtime
+
+
+def test_a5_profile_uses_path_only_cann_validation():
+    builder = (INSTALLER / "build_bundle.sh").read_text()
+    preflight = (INSTALLER / "bin/01_preflight.sh").read_text()
+    runtime = (INSTALLER / "bin/activate_runtime.sh").read_text()
+    assert "a5-new-install)" in builder
+    assert 'EXPECTED_CANN_VERSION=""' in builder
+    assert '[[ -n "${EXPECTED_CANN_VERSION}" ]]' in preflight
+    assert '[[ "${EXPECTED_CANN_VERSION}" == "9.0.0"' in preflight
+    assert 'if [[ "${EXPECTED_CANN_VERSION}" == "9.0.0" ]]' in runtime

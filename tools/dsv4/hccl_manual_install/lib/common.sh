@@ -46,6 +46,8 @@ export PATH="${SYSTEM_PATH}:${PATH:-}"
 : "${AFD_SEED_COMMIT:=}"
 : "${INSTALL_PYTHON_DEPS:=1}"
 : "${INSTALL_UPSTREAM_STACK:=1}"
+: "${EXPECTED_CANN_VERSION:=}"
+: "${ALLOW_CANN_VERSION_MISMATCH:=0}"
 
 log() {
   printf '[hccl-install] %s\n' "$*"
@@ -205,4 +207,5 @@ print_version_contract() {
   log "afd-plugin download base: ${AFD_SOURCE_COMMIT}"
   log "afd-plugin target: ${AFD_TARGET_COMMIT} (${AFD_SNAPSHOT_ID})"
   log "bundle config profile: ${BUNDLE_CONFIG_PROFILE}"
+  log "expected CANN version: ${EXPECTED_CANN_VERSION:-<not enforced>}"
 }

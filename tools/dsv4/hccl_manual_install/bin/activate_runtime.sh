@@ -39,11 +39,13 @@ export DSV4_VLLM_VENV="${VENV_ROOT}"
 export SOC_VERSION
 export VLLM_PLUGINS=ascend,ascend_model,ascend_model_loader,ascend_kv_connector,afd
 
-case "${PATH}:${LD_LIBRARY_PATH:-}:${PYTHONPATH:-}:${ASCEND_HOME_PATH:-}" in
-  *cann-9.1*)
-    die "CANN 9.1 leaked into the fixed 9.0.0 runtime"
-    ;;
-esac
+if [[ "${EXPECTED_CANN_VERSION}" == "9.0.0" ]]; then
+  case "${PATH}:${LD_LIBRARY_PATH:-}:${PYTHONPATH:-}:${ASCEND_HOME_PATH:-}" in
+    *cann-9.1*)
+      die "CANN 9.1 leaked into the fixed 9.0.0 runtime"
+      ;;
+  esac
+fi
 
 if is_true "${LOAD_VLLM_ASCEND_OPS:-0}"; then
   ops_env="${VLLM_ASCEND_ROOT}/vllm_ascend/_cann_ops_custom/vendors/custom_transformer/bin/set_env.bash"
