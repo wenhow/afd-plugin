@@ -125,6 +125,9 @@ bash bin/05_install_stack.sh
 bash bin/06_verify_install.sh
 ```
 
+预检卡数同时兼容旧版 `npu-smi info -l` 的 `Chip Count` 输出和 25.6
+版本 `npu-smi info` 的 Ascend950DT 设备表格。
+
 也可以一次执行安装阶段：
 
 ```bash

@@ -90,8 +90,7 @@ fi
 (( FFN_MAX_NUM_BATCHED_TOKENS >= required_ffn_tokens )) \
   || die "FFN_MAX_NUM_BATCHED_TOKENS must be at least ${required_ffn_tokens}"
 
-npu_list="$(npu-smi info -l)"
-npu_chip_count="$(awk -F: '/Chip Count/ {gsub(/[[:space:]]/, "", $2); sum += $2} END {print sum + 0}' <<<"${npu_list}")"
+npu_chip_count="$(detect_npu_chip_count)"
 required_npu_count=$((ATTENTION_RANKS + FFN_RANKS))
 if (( npu_chip_count < required_npu_count )); then
   die "A${ATTENTION_RANKS}F${FFN_RANKS} requires ${required_npu_count} NPU chips, detected ${npu_chip_count}"

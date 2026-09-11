@@ -133,6 +133,52 @@ resolve_hccl_ip() {
     | awk 'NR == 1 {split($4, parts, "/"); print parts[1]}'
 }
 
+parse_npu_chip_count() {
+  awk -F'|' '
+    function trim(value) {
+      gsub(/^[[:space:]]+|[[:space:]]+$/, "", value)
+      return value
+    }
+    /Chip Count[[:space:]]*:/ {
+      value = $0
+      sub(/^.*Chip Count[[:space:]]*:[[:space:]]*/, "", value)
+      sub(/[^0-9].*$/, "", value)
+      if (value ~ /^[0-9]+$/) {
+        legacy_count += value + 0
+        legacy_found = 1
+      }
+    }
+    /^[[:space:]]*[|]/ {
+      device_id = trim($2)
+      product_name = trim($3)
+      if (device_id ~ /^[0-9]+$/ && product_name ~ /[[:alpha:]]/) {
+        table_devices[device_id] = 1
+      }
+    }
+    END {
+      if (legacy_found) {
+        print legacy_count
+        exit
+      }
+      for (device_id in table_devices) table_count++
+      print table_count + 0
+    }
+  '
+}
+
+detect_npu_chip_count() {
+  local npu_output count
+  npu_output="$(npu-smi info 2>/dev/null || true)"
+  count="$(parse_npu_chip_count <<<"${npu_output}")"
+  if (( count > 0 )); then
+    printf '%s\n' "${count}"
+    return 0
+  fi
+
+  npu_output="$(npu-smi info -l 2>/dev/null || true)"
+  parse_npu_chip_count <<<"${npu_output}"
+}
+
 device_list_count() {
   awk -F, '{print NF}' <<<"$1"
 }

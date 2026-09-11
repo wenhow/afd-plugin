@@ -40,6 +40,40 @@ def test_preflight_does_not_require_ss():
     assert "find ss curl" not in preflight
 
 
+def test_npu_chip_count_supports_ascend_950_table():
+    npu_smi_output = """\
++--------+------------------+---------------+------------------+
+| NPU ID | Name             | Health        | Power(W)         |
++========+==================+===============+==================+
+| 0      | Ascend950DT      | OK            | 409.7            |
+|        |                  | NA            | 0                |
+| 1      | Ascend950DT      | OK            | 411.0            |
+|        |                  | NA            | 0                |
+| 2      | Ascend950DT      | OK            | 402.2            |
+| 3      | Ascend950DT      | OK            | 412.3            |
+| 4      | Ascend950DT      | OK            | 401.0            |
+| 5      | Ascend950DT      | OK            | 409.6            |
+| 6      | Ascend950DT      | OK            | 405.8            |
+| 7      | Ascend950DT      | OK            | 401.7            |
++========+==================+===============+==================+
+"""
+    script = f"""
+CONFIG_FILE={INSTALLER / 'config.env.example'}
+source {INSTALLER / 'lib/common.sh'}
+parse_npu_chip_count
+"""
+    result = subprocess.run(
+        ["bash", "-c", script],
+        env={**os.environ, "PATH": "/usr/local/bin:/usr/bin:/bin"},
+        input=npu_smi_output,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == "8"
+
+
 def test_start_uses_runtime_preflight_scope():
     start = (INSTALLER / "bin/07_start.sh").read_text()
     assert 'bash "${SCRIPT_DIR}/01_preflight.sh" runtime' in start
