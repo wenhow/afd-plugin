@@ -333,7 +333,7 @@ validate_afd_worktree() {
     -C "${AFD_PLUGIN_ROOT}" status --short --untracked-files=all)"
   if [[ -n "${status}" ]]; then
     printf '%s\n' "${status}" >&2
-    die "afd-plugin worktree must be clean; commit the exact validation code first"
+    die "afd-plugin worktree must be clean; install a committed delivery or restore local edits before validation"
   fi
   return 0
 }
