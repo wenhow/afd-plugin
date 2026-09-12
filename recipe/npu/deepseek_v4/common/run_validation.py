@@ -22,6 +22,9 @@ REPO_ROOT = COMMON_RECIPE_DIR.parents[3]
 DEFAULT_GOLDEN = Path(
     "/mnt/workspace/validation/dsv4_v023_vllm_cann_native_baseline/golden_results.json"
 )
+FUNCTIONAL_SMOKE_TOOL = REPO_ROOT / "tools/dsv4/run_pd_functional_smoke.py"
+CANCELLATION_MAX_TIME_SECONDS = 1
+CANCELLATION_MAX_TOKENS = 512
 FATAL_LOG_MARKERS = (
     "AFD NPU FFN worker loop failed",
     "EngineCore encountered a fatal error",
@@ -210,6 +213,76 @@ def _run_validator(
     if prompt_indices is not None:
         command.extend(["--prompt-indices", *(str(index) for index in prompt_indices)])
     subprocess.run(command, cwd=REPO_ROOT, check=True)
+
+
+def _run_functional_validator(
+    *,
+    api_port: int,
+    output: Path,
+    batch_sizes: list[int],
+) -> None:
+    subprocess.run(
+        [
+            sys.executable,
+            str(FUNCTIONAL_SMOKE_TOOL),
+            "--endpoint",
+            f"http://127.0.0.1:{api_port}/v1/completions",
+            "--model",
+            "dsv4-afd",
+            "--batch-sizes",
+            " ".join(str(size) for size in batch_sizes),
+            "--output",
+            str(output),
+        ],
+        cwd=REPO_ROOT,
+        check=True,
+    )
+
+
+def _run_cancellation_gate(*, api_port: int, output_dir: Path) -> dict[str, Any]:
+    payload = json.dumps(
+        {
+            "model": "dsv4-afd",
+            "prompt": "Write a detailed deterministic systems validation checklist.",
+            "temperature": 0,
+            "seed": 1024,
+            "max_tokens": CANCELLATION_MAX_TOKENS,
+            "stream": False,
+        }
+    )
+    result = subprocess.run(
+        [
+            "curl",
+            "-fsS",
+            "--max-time",
+            str(CANCELLATION_MAX_TIME_SECONDS),
+            f"http://127.0.0.1:{api_port}/v1/completions",
+            "-H",
+            "Content-Type: application/json",
+            "-d",
+            payload,
+        ],
+        cwd=REPO_ROOT,
+        capture_output=True,
+        check=False,
+    )
+    (output_dir / "cancellation-response.json").write_bytes(result.stdout)
+    (output_dir / "cancellation.stderr").write_bytes(result.stderr)
+    (output_dir / "cancellation.exitcode").write_text(
+        f"{result.returncode}\n",
+        encoding="utf-8",
+    )
+    gate = {
+        "passed": result.returncode == 28,
+        "expected_exitcode": 28,
+        "actual_exitcode": result.returncode,
+        "max_time_seconds": CANCELLATION_MAX_TIME_SECONDS,
+    }
+    (output_dir / "cancellation_gate.json").write_text(
+        json.dumps(gate, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    return gate
 
 
 def _signal_group(process: subprocess.Popen[bytes], sig: signal.Signals) -> None:
@@ -527,7 +600,10 @@ def _runtime_manifest(
         "cann": str(Path(cann_root).resolve()),
         "cann_version": cann_version,
         "venv": venv_path,
-        "model": "/mnt/workspace/models/DeepSeek-V4-Flash-w8a8-mtp",
+        "model": os.environ.get(
+            "MODEL_PATH",
+            "/mnt/workspace/models/DeepSeek-V4-Flash-w8a8-mtp",
+        ),
         "connector": connector,
         "execution_mode": execution_mode,
         "u_batches": u_batches,
@@ -741,6 +817,11 @@ def main() -> None:
     parser.add_argument("--batch-sizes", type=int, nargs="*", default=[1, 8, 32])
     parser.add_argument("--prompt-indices", type=int, nargs="*")
     parser.add_argument(
+        "--functional-smoke",
+        action="store_true",
+        help="Check HTTP batches and cancellation recovery without golden tokens.",
+    )
+    parser.add_argument(
         "--execution-mode",
         choices=("eager", "full-decode-only"),
         default="eager",
@@ -907,25 +988,46 @@ def main() -> None:
                     time.monotonic() - startup_started, 3
                 )
                 _capture_command(["npu-smi", "info"], cycle_dir / "npu_ready.txt")
-                _run_validator(
-                    api_port=args.attention_port,
-                    golden=args.golden,
-                    output=cycle_dir / "golden.json",
-                    rounds=args.rounds,
-                    batch_sizes=args.batch_sizes,
-                    prompt_indices=args.prompt_indices,
-                )
-                if cycle_idx == 1 and args.idle_seconds > 0:
-                    cycle_result["idle_seconds"] = args.idle_seconds
-                    time.sleep(args.idle_seconds)
+                if args.functional_smoke:
+                    _run_functional_validator(
+                        api_port=args.attention_port,
+                        output=cycle_dir / "functional_smoke.json",
+                        batch_sizes=args.batch_sizes,
+                    )
+                    cancellation_gate = _run_cancellation_gate(
+                        api_port=args.attention_port,
+                        output_dir=cycle_dir,
+                    )
+                    cycle_result["cancellation_gate"] = cancellation_gate
+                    if not cancellation_gate["passed"]:
+                        raise RuntimeError(
+                            "cancellation request did not time out with curl exit 28"
+                        )
+                    _run_functional_validator(
+                        api_port=args.attention_port,
+                        output=cycle_dir / "recovery.json",
+                        batch_sizes=[1],
+                    )
+                else:
                     _run_validator(
                         api_port=args.attention_port,
                         golden=args.golden,
-                        output=cycle_dir / "idle_resume.json",
-                        rounds=1,
-                        batch_sizes=[1],
+                        output=cycle_dir / "golden.json",
+                        rounds=args.rounds,
+                        batch_sizes=args.batch_sizes,
                         prompt_indices=args.prompt_indices,
                     )
+                    if cycle_idx == 1 and args.idle_seconds > 0:
+                        cycle_result["idle_seconds"] = args.idle_seconds
+                        time.sleep(args.idle_seconds)
+                        _run_validator(
+                            api_port=args.attention_port,
+                            golden=args.golden,
+                            output=cycle_dir / "idle_resume.json",
+                            rounds=1,
+                            batch_sizes=[1],
+                            prompt_indices=args.prompt_indices,
+                        )
                 cycle_result["passed"] = True
             finally:
                 cycle_result["shutdown"] = _shutdown_roles(processes)
@@ -968,7 +1070,11 @@ def main() -> None:
         summary = {
             "passed": overall_passed,
             "cycles": cycles,
-            "golden": str(args.golden),
+            "validation_mode": (
+                "functional_smoke" if args.functional_smoke else "golden_exact"
+            ),
+            "golden_checked": not args.functional_smoke,
+            "golden": None if args.functional_smoke else str(args.golden),
             "execution_mode": args.execution_mode,
             "connector": args.connector,
             "u_batches": args.u_batches,

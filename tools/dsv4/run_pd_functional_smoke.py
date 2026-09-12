@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run Mooncake PD functional requests without a golden comparison."""
+"""Run DeepSeek-V4 functional requests without a golden comparison."""
 
 from __future__ import annotations
 
@@ -20,7 +20,7 @@ def _request_batch(
     timeout: float,
 ) -> dict[str, Any]:
     prompts = [
-        f"Mooncake PD functional smoke batch {batch_size}, request {index}."
+        f"DeepSeek-V4 functional smoke batch {batch_size}, request {index}."
         for index in range(batch_size)
     ]
     payload = {

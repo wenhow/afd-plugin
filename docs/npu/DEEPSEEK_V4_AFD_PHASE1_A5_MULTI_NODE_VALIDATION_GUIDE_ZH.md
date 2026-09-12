@@ -1,5 +1,10 @@
 # DeepSeek-V4 AFD 第一期 A5 与双机验证指导书
 
+> [!IMPORTANT]
+> 当前单机 8 卡 A5 不再执行本文第 4、5 节的 control/F0/F1。A5 从已完成的安装和 H0
+> 继续时，统一使用 `DEEPSEEK_V4_AFD_PHASE1_A5_VALIDATION_GUIDE_ZH.md` 的无 golden
+> 功能 smoke；本文继续保留双 A3 操作和历史精度流程。
+
 ## 1. 目标与固定口径
 
 本文记录已冻结的第一阶段 A3 功能门禁，以及 A5 独立硬件闭环。A3 结果不用于发布

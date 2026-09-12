@@ -152,8 +152,16 @@ case "${CONFIG_PROFILE}" in
     ;;
 esac
 cp "${payload_root}/config.env.example" "${payload_root}/config.env"
-cp "${AFD_REPO_ROOT}/docs/npu/DEEPSEEK_V4_AFD_PHASE1_A5_MULTI_NODE_VALIDATION_GUIDE_ZH.md" \
-  "${payload_root}/PHASE1_A5_MULTI_NODE_VALIDATION_GUIDE_ZH.md"
+case "${CONFIG_PROFILE}" in
+  a5-new-install|a5-reuse)
+    cp "${AFD_REPO_ROOT}/docs/npu/DEEPSEEK_V4_AFD_PHASE1_A5_VALIDATION_GUIDE_ZH.md" \
+      "${payload_root}/PHASE1_A5_VALIDATION_GUIDE_ZH.md"
+    ;;
+  *)
+    cp "${AFD_REPO_ROOT}/docs/npu/DEEPSEEK_V4_AFD_PHASE1_A5_MULTI_NODE_VALIDATION_GUIDE_ZH.md" \
+      "${payload_root}/PHASE1_A5_MULTI_NODE_VALIDATION_GUIDE_ZH.md"
+    ;;
+esac
 
 if [[ "${CONFIG_PROFILE}" == "dual-a3-reuse" ]]; then
   cp "${AFD_REPO_ROOT}/tools/dsv4/mooncake_pd_manual/config.env.example" \
@@ -197,6 +205,10 @@ patch_file="${payload_root}/manifest/afd-plugin-phase1.patch"
 git -C "${AFD_REPO_ROOT}" diff --binary \
   "${AFD_SOURCE_COMMIT}..${AFD_TARGET_COMMIT}" >"${patch_file}"
 AFD_PATCH_SHA256="$(sha256sum "${patch_file}" | awk '{print $1}')"
+release_bundle="${payload_root}/manifest/afd-plugin-release.bundle"
+git -C "${AFD_REPO_ROOT}" bundle create \
+  "${release_bundle}" "${AFD_RELEASE_REF}" "^${AFD_SOURCE_COMMIT}"
+AFD_RELEASE_BUNDLE_SHA256="$(sha256sum "${release_bundle}" | awk '{print $1}')"
 
 # Prove that the portable patch reconstructs the exact release tree.
 verify_stage="${temp_root}/verify-afd-patch"
@@ -217,6 +229,7 @@ AFD_SOURCE_TREE="${AFD_SOURCE_TREE}"
 AFD_TARGET_COMMIT="${AFD_TARGET_COMMIT}"
 AFD_TARGET_TREE="${AFD_TARGET_TREE}"
 AFD_PATCH_SHA256="${AFD_PATCH_SHA256}"
+AFD_RELEASE_BUNDLE_SHA256="${AFD_RELEASE_BUNDLE_SHA256}"
 AFD_SNAPSHOT_ID="${AFD_SNAPSHOT_ID}"
 BUNDLE_INCLUDES_SOURCES="${include_sources}"
 BUNDLE_CONFIG_PROFILE="${CONFIG_PROFILE}"

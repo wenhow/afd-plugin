@@ -9,7 +9,7 @@ if (( $# > 0 )); then
   shift
 fi
 
-CASES=(
+EXACT_CASES=(
   a4f4_eager_u1_mtp_off
   a4f4_eager_u1_n1
   a4f4_eager_u2_n2
@@ -20,20 +20,34 @@ CASES=(
   a4f2_eager_u1_n2
   a4f2_graph_u2_n3
 )
+SMOKE_CASES=(
+  a4f4_eager_u1_mtp_off
+  a4f4_graph_u2_n2
+  a4f4_graph_u2_n3
+  a2f4_graph_u2_n3
+  a4f2_graph_u2_n3
+)
 
 usage() {
   cat <<'EOF'
 Usage:
   bash tools/dsv4/run_phase1_a5_matrix.sh list
+  bash tools/dsv4/run_phase1_a5_matrix.sh list-smoke
   bash tools/dsv4/run_phase1_a5_matrix.sh preflight-native
   bash tools/dsv4/run_phase1_a5_matrix.sh preflight
+  bash tools/dsv4/run_phase1_a5_matrix.sh preflight-smoke [case ...]
+  bash tools/dsv4/run_phase1_a5_matrix.sh smoke [case ...]
   bash tools/dsv4/run_phase1_a5_matrix.sh f0 [case ...]
   bash tools/dsv4/run_phase1_a5_matrix.sh f1 [case ...]
 
-Required environment:
+Required environment for f0/f1 only:
   PHASE1_GOLDEN_ROOT  Five same-stack, path-matched native controls
+
+Required environment for smoke/f0/f1:
   PHASE1_OUTPUT_BASE  Fresh output root (default includes a timestamp)
 
+Smoke is the A5 phase-one functional gate. It runs two cold cycles, batch
+1/8/32, cancellation recovery, U2/log/cleanup gates, and no golden comparison.
 F0 runs one cold cycle, one validation round, and no idle-resume wait.
 F1 runs two cold cycles, three rounds, batch 1/8/32, and a 30-minute
 idle-resume gate by default. Override PHASE1_F1_IDLE_SECONDS only for diagnosis.
@@ -45,9 +59,17 @@ die() {
   exit 2
 }
 
-contains_case() {
+contains_exact_case() {
   local requested="$1" candidate
-  for candidate in "${CASES[@]}"; do
+  for candidate in "${EXACT_CASES[@]}"; do
+    [[ "${candidate}" == "${requested}" ]] && return 0
+  done
+  return 1
+}
+
+contains_smoke_case() {
+  local requested="$1" candidate
+  for candidate in "${SMOKE_CASES[@]}"; do
     [[ "${candidate}" == "${requested}" ]] && return 0
   done
   return 1
@@ -205,11 +227,24 @@ activate_and_audit() {
     || die "PHASE1_GOLDEN_ROOT is invalid"
   local requested_cases=("$@") case_name
   if (( ${#requested_cases[@]} == 0 )); then
-    requested_cases=("${CASES[@]}")
+    requested_cases=("${EXACT_CASES[@]}")
   fi
   for case_name in "${requested_cases[@]}"; do
-    contains_case "${case_name}" || die "Unknown case: ${case_name}"
+    contains_exact_case "${case_name}" \
+      || die "Case is not in the exact matrix: ${case_name}"
     validate_golden_for_case "${case_name}"
+  done
+}
+
+activate_and_audit_smoke() {
+  audit_stack
+  local requested_cases=("$@") case_name
+  if (( ${#requested_cases[@]} == 0 )); then
+    requested_cases=("${SMOKE_CASES[@]}")
+  fi
+  for case_name in "${requested_cases[@]}"; do
+    contains_smoke_case "${case_name}" \
+      || die "Case is not in the A5 phase-one smoke matrix: ${case_name}"
   done
 }
 
@@ -231,6 +266,9 @@ case_arguments() {
       ;;
     a4f4_graph_u1_n2)
       CASE_ARGS+=(--attention-devices 0,1,2,3 --ffn-devices 4,5,6,7 --ffn-max-num-batched-tokens 4096 --execution-mode full-decode-only --u-batches 1 --enable-mtp --mtp-num-speculative-tokens 2 --mtp-draft-execution eager)
+      ;;
+    a4f4_graph_u2_n2)
+      CASE_ARGS+=(--attention-devices 0,1,2,3 --ffn-devices 4,5,6,7 --ffn-max-num-batched-tokens 4096 --execution-mode full-decode-only --u-batches 2 --enable-mtp --mtp-num-speculative-tokens 2 --mtp-draft-execution graph)
       ;;
     a4f4_graph_u2_n3)
       CASE_ARGS+=(--attention-devices 0,1,2,3 --ffn-devices 4,5,6,7 --ffn-max-num-batched-tokens 4096 --execution-mode full-decode-only --u-batches 2 --enable-mtp --mtp-num-speculative-tokens 3 --mtp-draft-execution graph)
@@ -254,16 +292,25 @@ case_arguments() {
 run_matrix() {
   local phase="$1"
   shift
-  local cycles rounds idle_seconds output_root case_name golden_path
-  if [[ "${phase}" == "f0" ]]; then
-    cycles=1
-    rounds=1
-    idle_seconds=0
-  else
-    cycles=2
-    rounds=3
-    idle_seconds="${PHASE1_F1_IDLE_SECONDS:-1800}"
-  fi
+  local cycles rounds idle_seconds output_root case_name golden_path case_rc matrix_rc
+  case "${phase}" in
+    smoke)
+      cycles=2
+      rounds=1
+      idle_seconds=0
+      ;;
+    f0)
+      cycles=1
+      rounds=1
+      idle_seconds=0
+      ;;
+    f1)
+      cycles=2
+      rounds=3
+      idle_seconds="${PHASE1_F1_IDLE_SECONDS:-1800}"
+      ;;
+    *) die "Unknown matrix phase: ${phase}" ;;
+  esac
   output_root="${PHASE1_OUTPUT_BASE:-/data/validation/dsv4-phase1-a5-$(date +%Y%m%d_%H%M%S)}/${phase}"
   [[ ! -e "${output_root}" ]] || die "Output root already exists: ${output_root}"
   mkdir -p "${output_root}"
@@ -272,35 +319,77 @@ run_matrix() {
     printf 'started_at=%s\n' "$(date --iso-8601=seconds)"
     printf 'afd_commit=%s\n' "$(git -C "${REPO_ROOT}" rev-parse HEAD)"
     printf 'cann_root=%s\n' "$(readlink -f "${DSV4_CANN_ROOT}")"
-    printf 'golden_root=%s\n' "$(readlink -f "${PHASE1_GOLDEN_ROOT}")"
+    printf 'golden_checked=%s\n' "$([[ "${phase}" == "smoke" ]] && printf 0 || printf 1)"
+    if [[ "${phase}" != "smoke" ]]; then
+      printf 'golden_root=%s\n' "$(readlink -f "${PHASE1_GOLDEN_ROOT}")"
+    fi
   } >"${output_root}/matrix.env"
   npu-smi info >"${output_root}/npu-before.txt"
 
   if (( $# == 0 )); then
-    set -- "${CASES[@]}"
+    if [[ "${phase}" == "smoke" ]]; then
+      set -- "${SMOKE_CASES[@]}"
+    else
+      set -- "${EXACT_CASES[@]}"
+    fi
   fi
+  matrix_rc=0
   for case_name in "$@"; do
-    contains_case "${case_name}" || die "Unknown case: ${case_name}"
+    if [[ "${phase}" == "smoke" ]]; then
+      contains_smoke_case "${case_name}" \
+        || die "Case is not in the A5 phase-one smoke matrix: ${case_name}"
+    else
+      contains_exact_case "${case_name}" \
+        || die "Case is not in the exact matrix: ${case_name}"
+    fi
     case_arguments "${case_name}"
-    golden_path="$(golden_for_case "${case_name}")"
-    "${DSV4_RUNTIME_VENV}/bin/python" "${RUNNER}" \
+    runner_args=(
       --output-dir "${output_root}/${case_name}" \
-      --golden "${golden_path}" \
       --cycles "${cycles}" \
       --idle-seconds "${idle_seconds}" \
       --rounds "${rounds}" \
       --batch-sizes 1 8 32 \
       "${CASE_ARGS[@]}"
+    )
+    if [[ "${phase}" == "smoke" ]]; then
+      runner_args+=(--functional-smoke)
+    else
+      golden_path="$(golden_for_case "${case_name}")"
+      runner_args+=(--golden "${golden_path}")
+    fi
+    set +e
+    "${DSV4_RUNTIME_VENV}/bin/python" "${RUNNER}" "${runner_args[@]}"
+    case_rc=$?
+    set -e
+    printf '%s\n' "${case_rc}" >"${output_root}/${case_name}.exitcode"
+    if (( case_rc != 0 )); then
+      matrix_rc="${case_rc}"
+      printf '[phase1-a5] case failed: %s (exit %s)\n' \
+        "${case_name}" "${case_rc}" >&2
+      break
+    fi
   done
   npu-smi info >"${output_root}/npu-after.txt"
-  printf '[phase1-a5] completed: %s\n' "${output_root}"
+  {
+    printf 'finished_at=%s\n' "$(date --iso-8601=seconds)"
+    printf 'exitcode=%s\n' "${matrix_rc}"
+  } >>"${output_root}/matrix.env"
+  if (( matrix_rc == 0 )); then
+    printf '[phase1-a5] completed: %s\n' "${output_root}"
+  else
+    printf '[phase1-a5] evidence retained: %s\n' "${output_root}" >&2
+  fi
+  return "${matrix_rc}"
 }
 
 case "${ACTION}" in
   help|-h|--help) usage ;;
-  list) printf '%s\n' "${CASES[@]}" ;;
+  list) printf '%s\n' "${EXACT_CASES[@]}" ;;
+  list-smoke) printf '%s\n' "${SMOKE_CASES[@]}" ;;
   preflight-native) audit_stack; printf '[phase1-a5] native preflight passed\n' ;;
   preflight) activate_and_audit "$@"; printf '[phase1-a5] preflight passed\n' ;;
+  preflight-smoke) activate_and_audit_smoke "$@"; printf '[phase1-a5] smoke preflight passed\n' ;;
+  smoke) activate_and_audit_smoke "$@"; run_matrix "${ACTION}" "$@" ;;
   f0|f1) activate_and_audit "$@"; run_matrix "${ACTION}" "$@" ;;
   *) usage; die "Unknown action: ${ACTION}" ;;
 esac

@@ -21,6 +21,7 @@ GUIDE = (
 PHASE1_GUIDE = (
     ROOT / "docs/npu/DEEPSEEK_V4_AFD_PHASE1_A5_MULTI_NODE_VALIDATION_GUIDE_ZH.md"
 )
+A5_GUIDE = ROOT / "docs/npu/DEEPSEEK_V4_AFD_PHASE1_A5_VALIDATION_GUIDE_ZH.md"
 A5_MATRIX = ROOT / "tools/dsv4/run_phase1_a5_matrix.sh"
 
 
@@ -399,6 +400,7 @@ def test_a5_matrix_lists_the_blocking_phase1_cases():
     ("case_name", "attention_devices", "ffn_devices", "ffn_capacity"),
     [
         ("a4f4_eager_u1_mtp_off", "0,1,2,3", "4,5,6,7", "4096"),
+        ("a4f4_graph_u2_n2", "0,1,2,3", "4,5,6,7", "4096"),
         ("a4f4_graph_u2_n3", "0,1,2,3", "4,5,6,7", "4096"),
         ("a2f4_eager_u1_n2", "0,1", "2,3,4,5", "2048"),
         ("a2f4_graph_u2_n3", "0,1", "2,3,4,5", "2048"),
@@ -434,6 +436,42 @@ printf '%s\\0' "${CASE_ARGS[@]}"
         for device in devices.split(",")
     }
     assert selected_devices <= set(range(8))
+
+
+def test_a5_phase1_smoke_matrix_is_functional_only():
+    script = A5_MATRIX.read_text(encoding="utf-8")
+    output = subprocess.check_output(
+        ["bash", str(A5_MATRIX), "list-smoke"],
+        text=True,
+    )
+
+    assert output.splitlines() == [
+        "a4f4_eager_u1_mtp_off",
+        "a4f4_graph_u2_n2",
+        "a4f4_graph_u2_n3",
+        "a2f4_graph_u2_n3",
+        "a4f2_graph_u2_n3",
+    ]
+    assert "smoke) activate_and_audit_smoke" in script
+    assert "runner_args+=(--functional-smoke)" in script
+    assert "golden_checked=%s" in script
+
+
+def test_a5_native_smoke_and_guide_do_not_require_golden():
+    native = (ROOT / "tools/dsv4/run_phase1_a5_native_smoke.sh").read_text(
+        encoding="utf-8"
+    )
+    guide = A5_GUIDE.read_text(encoding="utf-8")
+
+    assert "ASCEND_RT_VISIBLE_DEVICES=\"${devices}\"" in native
+    assert "MTP_NUM_SPECULATIVE_TOKENS=1" in native
+    assert "--batch-sizes \"1\"" in native
+    assert "GOLDEN_GENERATOR" not in native
+    assert "trap - EXIT TERM INT" in native
+    assert "finalize 0" in native
+    assert "2.2 节安装和第 3 节" in guide
+    assert "不生成 golden" in guide
+    assert "run_phase1_a5_matrix.sh smoke" in guide
 
 
 def test_phase1_native_control_generator_lists_path_matched_controls():

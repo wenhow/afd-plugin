@@ -117,12 +117,18 @@ prepare_afd_from_seed_bundle() {
 
 apply_afd_patch() {
   local patch_file="${BUNDLE_ROOT}/manifest/afd-plugin-phase1.patch"
-  local actual_patch_sha current_tree unexpected_untracked
+  local release_bundle="${BUNDLE_ROOT}/manifest/afd-plugin-release.bundle"
+  local actual_patch_sha actual_bundle_sha current_tree unexpected_untracked
+  local candidate candidate_tree matched_commit
 
   require_file "${patch_file}"
+  require_file "${release_bundle}"
   actual_patch_sha="$(sha256sum "${patch_file}" | awk '{print $1}')"
   [[ "${actual_patch_sha}" == "${AFD_PATCH_SHA256}" ]] \
     || die "afd-plugin patch checksum mismatch"
+  actual_bundle_sha="$(sha256sum "${release_bundle}" | awk '{print $1}')"
+  [[ "${actual_bundle_sha}" == "${AFD_RELEASE_BUNDLE_SHA256}" ]] \
+    || die "afd-plugin release bundle checksum mismatch"
 
   current_tree="$(git -C "${AFD_PLUGIN_ROOT}" write-tree)"
   git -C "${AFD_PLUGIN_ROOT}" diff --quiet \
@@ -138,6 +144,25 @@ apply_afd_patch() {
 
   if [[ "${current_tree}" == "${AFD_TARGET_TREE}" ]]; then
     log "Reusing patched afd-plugin release tree: ${AFD_SNAPSHOT_ID}"
+    return
+  fi
+  git -C "${AFD_PLUGIN_ROOT}" fetch -q "${release_bundle}" HEAD
+  matched_commit=
+  while IFS= read -r candidate; do
+    candidate_tree="$(git -C "${AFD_PLUGIN_ROOT}" show -s --format=%T "${candidate}")"
+    if [[ "${candidate_tree}" == "${current_tree}" ]]; then
+      matched_commit="${candidate}"
+      break
+    fi
+  done < <(
+    git -C "${AFD_PLUGIN_ROOT}" rev-list \
+      "${AFD_TARGET_COMMIT}" "^${AFD_SOURCE_COMMIT}"
+  )
+  if [[ -n "${matched_commit}" ]]; then
+    log "Upgrading clean afd-plugin release tree: ${matched_commit} -> ${AFD_TARGET_COMMIT}"
+    git -C "${AFD_PLUGIN_ROOT}" checkout -q --detach "${AFD_TARGET_COMMIT}"
+    [[ "$(git -C "${AFD_PLUGIN_ROOT}" write-tree)" == "${AFD_TARGET_TREE}" ]] \
+      || die "upgraded afd-plugin tree does not match ${AFD_TARGET_COMMIT}"
     return
   fi
   verify_git_head "${AFD_PLUGIN_ROOT}" "${AFD_SOURCE_COMMIT}" "afd-plugin base"

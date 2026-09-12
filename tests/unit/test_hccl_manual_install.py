@@ -180,6 +180,26 @@ def test_reused_afd_target_only_allows_clean_lineage_upgrade():
     assert 'checkout --detach "${AFD_TARGET_COMMIT}"' in seed_section
 
 
+def test_release_bundle_allows_clean_a5_tree_upgrade():
+    builder = (INSTALLER / "build_bundle.sh").read_text(encoding="utf-8")
+    prepare_sources = (INSTALLER / "bin/02_prepare_sources.sh").read_text(
+        encoding="utf-8"
+    )
+
+    assert "afd-plugin-release.bundle" in builder
+    assert "AFD_RELEASE_BUNDLE_SHA256" in builder
+    assert "afd-plugin-release.bundle" in prepare_sources
+    assert '"${candidate_tree}" == "${current_tree}"' in prepare_sources
+    assert "Upgrading clean afd-plugin release tree" in prepare_sources
+    assert 'checkout -q --detach "${AFD_TARGET_COMMIT}"' in prepare_sources
+
+
+def test_a5_bundle_uses_dedicated_validation_guide():
+    builder = (INSTALLER / "build_bundle.sh").read_text(encoding="utf-8")
+    assert "DEEPSEEK_V4_AFD_PHASE1_A5_VALIDATION_GUIDE_ZH.md" in builder
+    assert "PHASE1_A5_VALIDATION_GUIDE_ZH.md" in builder
+
+
 def test_reused_vllm_ascend_accepts_scm_prefix_with_pinned_commit():
     install_deps = (INSTALLER / "bin/04_install_python_deps.sh").read_text()
     verify_install = (INSTALLER / "bin/06_verify_install.sh").read_text()

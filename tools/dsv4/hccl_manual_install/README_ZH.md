@@ -10,8 +10,9 @@
 
 脚本随后校验并应用包内补丁，将 afd-plugin 恢复为
 `manifest/versions.env` 记录的精确目标源码树。下载提交、目标 commit/tree、补丁
-SHA256 和包内文件 SHA256 均记录在 `manifest/` 中。完整硬件矩阵和证据回传步骤见
-包根目录 `PHASE1_A5_MULTI_NODE_VALIDATION_GUIDE_ZH.md`。
+SHA256 和包内文件 SHA256 均记录在 `manifest/` 中。A5 profile 的当前功能门禁和证据
+回传步骤见包根目录 `PHASE1_A5_VALIDATION_GUIDE_ZH.md`；双 A3 profile 继续使用
+`PHASE1_A5_MULTI_NODE_VALIDATION_GUIDE_ZH.md`。
 
 ## 0. 从交付 ZIP 开始
 

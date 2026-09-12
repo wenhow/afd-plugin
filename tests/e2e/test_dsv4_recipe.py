@@ -101,6 +101,47 @@ def test_dsv4_validation_defaults_to_pinned_v023_native_golden():
     )
 
 
+def test_dsv4_functional_validator_does_not_pass_golden(monkeypatch, tmp_path):
+    runner = _load_runner()
+    captured = {}
+
+    def fake_run(command, **kwargs):
+        captured["command"] = command
+        captured["kwargs"] = kwargs
+        return SimpleNamespace(returncode=0)
+
+    monkeypatch.setattr(runner.subprocess, "run", fake_run)
+    runner._run_functional_validator(
+        api_port=8910,
+        output=tmp_path / "functional.json",
+        batch_sizes=[1, 8, 32],
+    )
+
+    assert "--golden" not in captured["command"]
+    batch_index = captured["command"].index("--batch-sizes")
+    assert captured["command"][batch_index + 1] == "1 8 32"
+    assert captured["kwargs"]["check"] is True
+
+
+def test_dsv4_cancellation_gate_records_expected_timeout(monkeypatch, tmp_path):
+    runner = _load_runner()
+    monkeypatch.setattr(
+        runner.subprocess,
+        "run",
+        lambda *_args, **_kwargs: SimpleNamespace(
+            returncode=28,
+            stdout=b"",
+            stderr=b"curl: (28) timeout\n",
+        ),
+    )
+
+    gate = runner._run_cancellation_gate(api_port=8910, output_dir=tmp_path)
+
+    assert gate["passed"] is True
+    assert (tmp_path / "cancellation.exitcode").read_text() == "28\n"
+    assert json.loads((tmp_path / "cancellation_gate.json").read_text()) == gate
+
+
 def test_dsv4_camp_role_scripts_are_connector_isolated():
     for role in ("attention", "ffn"):
         script = (CAMP_RECIPE_DIR / f"afd_{role}.sh").read_text(encoding="utf-8")
