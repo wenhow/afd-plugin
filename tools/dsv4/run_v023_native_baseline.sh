@@ -3,6 +3,7 @@ set -eo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 source "${ROOT_DIR}/tools/dsv4/activate_v023_vllm_cann_runtime.sh"
+set +u
 source "${DSV4_VLLM_ASCEND_ROOT}/vllm_ascend/_cann_ops_custom/vendors/custom_transformer/bin/set_env.bash"
 set -u
 
@@ -23,12 +24,38 @@ EXECUTION_MODE="${EXECUTION_MODE:-eager}"
 MAX_CUDAGRAPH_CAPTURE_SIZE="${MAX_CUDAGRAPH_CAPTURE_SIZE:-8}"
 CUDAGRAPH_CAPTURE_SIZES="${CUDAGRAPH_CAPTURE_SIZES:-1 2 4 8}"
 TENSOR_PARALLEL_SIZE="${TENSOR_PARALLEL_SIZE:-1}"
+MODEL_QUANTIZATION="${MODEL_QUANTIZATION:-auto}"
+MODEL_BLOCK_SIZE="${MODEL_BLOCK_SIZE:-auto}"
+MODEL_SAFETENSORS_LOAD_STRATEGY="${MODEL_SAFETENSORS_LOAD_STRATEGY:-auto}"
+KV_CACHE_DTYPE="${KV_CACHE_DTYPE:-auto}"
+MODEL_SPECULATIVE_METHOD="${MODEL_SPECULATIVE_METHOD:-auto}"
+
+export ASCEND_RT_VISIBLE_DEVICES="${ASCEND_RT_VISIBLE_DEVICES:-0,1,2,3,4,5,6,7}"
 
 if [[ ! "${TENSOR_PARALLEL_SIZE}" =~ ^[12]$ ]]; then
   echo "TENSOR_PARALLEL_SIZE must be 1 or 2" >&2
   exit 2
 fi
-DATA_PARALLEL_SIZE=$((8 / TENSOR_PARALLEL_SIZE))
+IFS=',' read -r -a visible_devices <<<"${ASCEND_RT_VISIBLE_DEVICES}"
+device_count="${#visible_devices[@]}"
+if (( device_count == 0 || device_count % TENSOR_PARALLEL_SIZE != 0 )); then
+  echo "Visible NPU count must be divisible by TENSOR_PARALLEL_SIZE" >&2
+  exit 2
+fi
+DATA_PARALLEL_SIZE=$((device_count / TENSOR_PARALLEL_SIZE))
+
+if [[ "${MODEL_SPECULATIVE_METHOD}" == auto ]]; then
+  MODEL_SPECULATIVE_METHOD="$(
+    "${DSV4_RUNTIME_VENV}/bin/python" \
+      "${ROOT_DIR}/tools/dsv4/hccl_manual_install/bin/model_launch_args.py" \
+      --model-path "${MODEL_PATH}" \
+      --quantization "${MODEL_QUANTIZATION}" \
+      --block-size "${MODEL_BLOCK_SIZE}" \
+      --safetensors-load-strategy "${MODEL_SAFETENSORS_LOAD_STRATEGY}" \
+      --kv-cache-dtype "${KV_CACHE_DTYPE}" \
+      --get speculative_method
+  )"
+fi
 
 MTP_ARGS=()
 case "${ENABLE_MTP}" in
@@ -53,7 +80,7 @@ case "${ENABLE_MTP}" in
     esac
     MTP_ARGS=(
       --speculative-config
-      "{\"method\":\"mtp\",\"num_speculative_tokens\":${MTP_NUM_SPECULATIVE_TOKENS},\"enforce_eager\":${mtp_draft_enforce_eager}}"
+      "{\"method\":\"${MODEL_SPECULATIVE_METHOD}\",\"num_speculative_tokens\":${MTP_NUM_SPECULATIVE_TOKENS},\"enforce_eager\":${mtp_draft_enforce_eager}}"
     )
     ;;
   *)
@@ -80,7 +107,6 @@ case "${EXECUTION_MODE}" in
     ;;
 esac
 
-export ASCEND_RT_VISIBLE_DEVICES="${ASCEND_RT_VISIBLE_DEVICES:-0,1,2,3,4,5,6,7}"
 export HCCL_IF_IP="${HCCL_IF_IP:-192.169.91.106}"
 export HCCL_IF_BASE_PORT="${HCCL_IF_BASE_PORT:-53000}"
 export GLOO_SOCKET_IFNAME="${GLOO_SOCKET_IFNAME:-eth0}"
@@ -91,10 +117,21 @@ export PYTORCH_NPU_ALLOC_CONF="${PYTORCH_NPU_ALLOC_CONF:-expandable_segments:Tru
 export HCCL_BUFFSIZE="${HCCL_BUFFSIZE:-1024}"
 export HCCL_OP_EXPANSION_MODE=AIV
 export TASK_QUEUE_ENABLE=1
-export SOC_VERSION=ascend910_9362
+export SOC_VERSION="${SOC_VERSION:-ascend910_9362}"
 export VLLM_ENGINE_READY_TIMEOUT_S="${VLLM_ENGINE_READY_TIMEOUT_S:-18000}"
 # This is the native control: the AFD plugin must not register or patch vLLM.
 export VLLM_PLUGINS=ascend,ascend_model,ascend_model_loader,ascend_kv_connector
+
+MODEL_ARGS_OUTPUT="$(
+  "${DSV4_RUNTIME_VENV}/bin/python" \
+    "${ROOT_DIR}/tools/dsv4/hccl_manual_install/bin/model_launch_args.py" \
+    --model-path "${MODEL_PATH}" \
+    --quantization "${MODEL_QUANTIZATION}" \
+    --block-size "${MODEL_BLOCK_SIZE}" \
+    --safetensors-load-strategy "${MODEL_SAFETENSORS_LOAD_STRATEGY}" \
+    --kv-cache-dtype "${KV_CACHE_DTYPE}"
+)"
+mapfile -t MODEL_ARGS <<<"${MODEL_ARGS_OUTPUT}"
 
 exec vllm serve "${MODEL_PATH}" \
   --host "${API_HOST}" \
@@ -113,8 +150,6 @@ exec vllm serve "${MODEL_PATH}" \
   --gpu-memory-utilization "${GPU_MEMORY_UTILIZATION}" \
   --tokenizer-mode deepseek_v4 \
   --no-enable-prefix-caching \
-  --safetensors-load-strategy lazy \
-  --quantization ascend \
-  --block-size 128 \
+  "${MODEL_ARGS[@]}" \
   "${MTP_ARGS[@]}" \
   "${EXECUTION_ARGS[@]}"

@@ -16,17 +16,19 @@ SHA256 和包内文件 SHA256 均记录在 `manifest/` 中。完整硬件矩阵�
 ## 0. 从交付 ZIP 开始
 
 如果收到的是 `dsv4-afd-hccl-install-delivery-*.zip`，ZIP 只是指导书和安装包的
-外层容器。A5 只选择文件名包含 `slim-a5-new-install` 的包；已安装双 A3 只选择
-`slim-dual-a3-reuse`。不要使用不带 profile 名的 2026-09-08 旧包。A5 按以下顺序：
+外层容器。全新 A5 选择 `slim-a5-new-install`；已经完成安装的当前 A5 选择
+`slim-a5-reuse`；已安装双 A3 选择 `slim-dual-a3-reuse`。不要使用不带 profile 名的
+2026-09-08 旧包。当前 A5 按以下顺序：
 
 ```bash
 unzip dsv4-afd-hccl-install-delivery-*.zip
 cd dsv4-afd-hccl-install-delivery-*
 sha256sum -c SHA256SUMS
-sha256sum -c dsv4-afd-hccl-manual-install-slim-a5-new-install-*.tar.gz.sha256
-tar -xzf dsv4-afd-hccl-manual-install-slim-a5-new-install-*.tar.gz
-cd dsv4-afd-hccl-manual-install-slim-a5-new-install-*
+sha256sum -c dsv4-afd-hccl-manual-install-slim-a5-reuse-*.tar.gz.sha256
+tar -xzf dsv4-afd-hccl-manual-install-slim-a5-reuse-*.tar.gz
+cd dsv4-afd-hccl-manual-install-slim-a5-reuse-*
 vi config.env
+bash bin/install_a5_model_config.sh
 bash bin/install_all.sh
 ```
 
@@ -72,11 +74,24 @@ CONFIG_PROFILE=dual-a3-reuse \
 其固定 HEAD objects，并把 seed 的 `status` 和 tracked diff 备份到 `STATE_ROOT`，不会
 把改动带入新目标。
 
+当前已完成安装的 A5 使用复用 profile：
+
+```bash
+CONFIG_PROFILE=a5-reuse \
+  bash tools/dsv4/hccl_manual_install/build_bundle.sh /mnt/workspace/delivery
+```
+
+它复用 `/root/dsv4-afd-hccl/venv`、固定 vLLM/vLLM-Ascend 源码和现场 CANN，不重装
+依赖或上游栈；新版 afd-plugin 使用独立源码目录。只需核对 `NIC_NAME`，路径变化时再
+修改对应配置。
+
 ## 2. 目标机前提
 
 - AArch64、满足所选 A/F 拓扑数量的可用 Ascend NPU；
-- 目标平台适用的 CANN 和 Python 3.12 已安装；双 A3 reuse profile 仍固定 CANN 9.0.0；
-- DeepSeek-V4-Flash W8A8 模型已放到目标机；
+- 目标平台适用的 CANN 和 Python 已安装；当前 A5 reuse 复用既有 Python 3.11 venv，
+  双 A3 reuse 仍固定 CANN 9.0.0；
+- A3 使用 DeepSeek-V4-Flash W8A8；Ascend 950DT 使用原始 DeepSeek-V4-Flash
+  MXFP8/MXFP4 权重；
 - 可访问配置中的三个 Git 地址、vLLM-Ascend submodule 地址和 Python 包源；
 - 已安装 `git`、`tar`、`curl` 等基础工具。容器没有 `ss` 时会依次使用
   `netstat`、`/proc/net/tcp*` 检查监听端口，不需要为此重装环境。
@@ -98,8 +113,8 @@ vi config.env
 必须修改：
 
 - `CANN_ROOT`：A5 目标机实际使用的唯一 CANN 根目录；
-- `MODEL_PATH`：DeepSeek-V4-Flash W8A8 模型路径；
-- `PYTHON_BIN`：Python 3.12；
+- `MODEL_PATH`：A3 的 W8A8 或 A5 的原始 DeepSeek-V4-Flash 权重路径；
+- `PYTHON_BIN`：用于新建 venv 的现场 Python；复用 profile 指向既有 venv Python；
 - `SOC_VERSION`：目标机真实 SoC；
 - `NIC_NAME` 和 `HCCL_IF_IP`；
 - 安装、源码、日志目录；
@@ -112,11 +127,21 @@ A5 包保持 `EXPECTED_CANN_VERSION=""`，只校验并加载上述路径，不�
 版本。A5 profile 同时固定单机 8 卡默认拓扑为 A4F4：Attention 使用 NPU 0-3，
 FFN 使用 NPU 4-7。双 A3 reuse 包仍固定 A8F8 和 CANN `9.0.0`。
 
+A5 原始权重的官方配置使用 `quant_method=fp8` 和
+`weight_block_size=[128,128]`。执行 `bin/install_a5_model_config.sh` 会先把现场
+`config.json` 备份到 `STATE_ROOT/model-config-backup`，再恢复包内官方文件；该动作
+不会改 safetensors。A5 启动不传 `--quantization ascend`，固定 `block-size=32` 和
+`safetensors-load-strategy=prefetch`，MTP 使用 `deepseek_mtp`；A3 W8A8 仍走
+`--quantization ascend`、block 128 和 `mtp`。原始权重与参数口径见
+[vLLM-Ascend v0.23.0 官方指导](https://docs.vllm.ai/projects/ascend/en/v0.23.0/tutorials/models/DeepSeek-V4-Flash.html#single-node-online-deployment)。
+
 ## 4. 校验和安装
 
 ```bash
 sha256sum -c manifest/SHA256SUMS
 bash bin/00_print_config.sh
+# 仅 A5 原始权重执行；会先备份现场 config.json。
+bash bin/install_a5_model_config.sh
 bash bin/01_preflight.sh
 bash bin/02_prepare_sources.sh
 bash bin/03_create_venv.sh
@@ -140,7 +165,7 @@ afd-plugin 补丁并比对最终 Git tree。任一版本不匹配都会停止。
 这些脚本默认拒绝复用非空源码目录或已有 venv。确认目录内容正确后，分别设置
 `REUSE_SOURCES=1` 或 `REUSE_VENV=1`。
 
-`dual-a3-reuse` 包已设置 `REUSE_SOURCES=1`、`REUSE_VENV=1`、
+`a5-reuse` 和 `dual-a3-reuse` 包已设置 `REUSE_SOURCES=1`、`REUSE_VENV=1`、
 `INSTALL_PYTHON_DEPS=0` 和 `INSTALL_UPSTREAM_STACK=0`。已按上述双机配置执行过的
 节点无需重新安装 env；只安装新版 afd-plugin editable 路径。
 
@@ -182,8 +207,8 @@ INCLUDE_SOURCES=1 \
 
 ## 6. 启动和停止
 
-A5 profile 默认启动单机 8 卡 A4F4 Graph/U2、graph draft MTP N=3；双 A3 reuse
-profile 仍启动 A8F8：
+A5 profile 默认启动单机 8 卡 A4F4 Graph/U2、graph draft MTP N=3；A5 的 no-AFD
+路径 control 按官方基线只使用 NPU 0-3 做 DP4。双 A3 reuse profile 仍启动 A8F8：
 
 ```bash
 bash bin/07_start.sh

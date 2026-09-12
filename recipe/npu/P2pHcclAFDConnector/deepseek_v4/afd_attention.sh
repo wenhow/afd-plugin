@@ -27,6 +27,11 @@ CUDAGRAPH_CAPTURE_SIZES="${CUDAGRAPH_CAPTURE_SIZES:-1 2 4 8}"
 ENABLE_MTP="${ENABLE_MTP:-0}"
 MTP_NUM_SPECULATIVE_TOKENS="${MTP_NUM_SPECULATIVE_TOKENS:-1}"
 MTP_DRAFT_EXECUTION="${MTP_DRAFT_EXECUTION:-eager}"
+MODEL_QUANTIZATION="${MODEL_QUANTIZATION:-auto}"
+MODEL_BLOCK_SIZE="${MODEL_BLOCK_SIZE:-auto}"
+MODEL_SAFETENSORS_LOAD_STRATEGY="${MODEL_SAFETENSORS_LOAD_STRATEGY:-auto}"
+KV_CACHE_DTYPE="${KV_CACHE_DTYPE:-auto}"
+MODEL_SPECULATIVE_METHOD="${MODEL_SPECULATIVE_METHOD:-auto}"
 AFD_ASYNC_SCHEDULING="${AFD_ASYNC_SCHEDULING:-auto}"
 VLLM_SHUTDOWN_TIMEOUT_SECONDS="${VLLM_SHUTDOWN_TIMEOUT_SECONDS:-0}"
 AFD_NPU_ATTENTION_PROFILER_ENABLE="${AFD_NPU_ATTENTION_PROFILER_ENABLE:-0}"
@@ -79,6 +84,19 @@ if ((TENSOR_PARALLEL_SIZE > 1)); then
 fi
 ATTENTION_DP_SIZE=$((ATTENTION_RANKS / TENSOR_PARALLEL_SIZE))
 
+if [[ "${MODEL_SPECULATIVE_METHOD}" == auto ]]; then
+  MODEL_SPECULATIVE_METHOD="$(
+    "${DSV4_VLLM_VENV}/bin/python" \
+      "${ROOT_DIR}/tools/dsv4/hccl_manual_install/bin/model_launch_args.py" \
+      --model-path "${MODEL_PATH}" \
+      --quantization "${MODEL_QUANTIZATION}" \
+      --block-size "${MODEL_BLOCK_SIZE}" \
+      --safetensors-load-strategy "${MODEL_SAFETENSORS_LOAD_STRATEGY}" \
+      --kv-cache-dtype "${KV_CACHE_DTYPE}" \
+      --get speculative_method
+  )"
+fi
+
 case "$ENABLE_MTP" in
   0)
     MTP_ARGS=()
@@ -111,7 +129,7 @@ case "$ENABLE_MTP" in
         exit 2
         ;;
     esac
-    MTP_CONFIG="$(printf '{"method":"mtp","num_speculative_tokens":%s,"enforce_eager":%s}' "$MTP_NUM_SPECULATIVE_TOKENS" "$MTP_DRAFT_ENFORCE_EAGER")"
+    MTP_CONFIG="$(printf '{"method":"%s","num_speculative_tokens":%s,"enforce_eager":%s}' "$MODEL_SPECULATIVE_METHOD" "$MTP_NUM_SPECULATIVE_TOKENS" "$MTP_DRAFT_ENFORCE_EAGER")"
     MTP_ARGS=(
       --speculative-config
       "$MTP_CONFIG"
@@ -199,6 +217,17 @@ case "$ENABLE_PD" in
     ;;
 esac
 
+MODEL_ARGS_OUTPUT="$(
+  "${DSV4_VLLM_VENV}/bin/python" \
+    "${ROOT_DIR}/tools/dsv4/hccl_manual_install/bin/model_launch_args.py" \
+    --model-path "${MODEL_PATH}" \
+    --quantization "${MODEL_QUANTIZATION}" \
+    --block-size "${MODEL_BLOCK_SIZE}" \
+    --safetensors-load-strategy "${MODEL_SAFETENSORS_LOAD_STRATEGY}" \
+    --kv-cache-dtype "${KV_CACHE_DTYPE}"
+)"
+mapfile -t MODEL_ARGS <<<"${MODEL_ARGS_OUTPUT}"
+
 exec vllm serve "$MODEL_PATH" \
   --host "$API_HOST" \
   --port "$API_PORT" \
@@ -216,9 +245,7 @@ exec vllm serve "$MODEL_PATH" \
   --shutdown-timeout "$VLLM_SHUTDOWN_TIMEOUT_SECONDS" \
   --tokenizer-mode deepseek_v4 \
   --no-enable-prefix-caching \
-  --safetensors-load-strategy lazy \
-  --quantization ascend \
-  --block-size 128 \
+  "${MODEL_ARGS[@]}" \
   --additional-config "$ADDITIONAL_CONFIG" \
   "${KV_TRANSFER_ARGS[@]}" \
   "${SCHEDULING_ARGS[@]}" \

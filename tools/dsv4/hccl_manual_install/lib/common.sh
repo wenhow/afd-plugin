@@ -48,6 +48,11 @@ export PATH="${SYSTEM_PATH}:${PATH:-}"
 : "${INSTALL_UPSTREAM_STACK:=1}"
 : "${EXPECTED_CANN_VERSION:=}"
 : "${ALLOW_CANN_VERSION_MISMATCH:=0}"
+: "${MODEL_QUANTIZATION:=auto}"
+: "${MODEL_BLOCK_SIZE:=auto}"
+: "${MODEL_SAFETENSORS_LOAD_STRATEGY:=auto}"
+: "${KV_CACHE_DTYPE:=auto}"
+: "${MODEL_SPECULATIVE_METHOD:=auto}"
 
 log() {
   printf '[hccl-install] %s\n' "$*"

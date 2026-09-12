@@ -107,6 +107,19 @@ case "${U_BATCHES}" in
     ;;
 esac
 
+model_speculative_method="${MODEL_SPECULATIVE_METHOD}"
+if [[ "${model_speculative_method}" == auto ]]; then
+  model_speculative_method="$(
+    "${VENV_ROOT}/bin/python" "${SCRIPT_DIR}/model_launch_args.py" \
+      --model-path "${MODEL_PATH}" \
+      --quantization "${MODEL_QUANTIZATION}" \
+      --block-size "${MODEL_BLOCK_SIZE}" \
+      --safetensors-load-strategy "${MODEL_SAFETENSORS_LOAD_STRATEGY}" \
+      --kv-cache-dtype "${KV_CACHE_DTYPE}" \
+      --get speculative_method
+  )"
+fi
+
 mtp_args=()
 case "${ENABLE_MTP}" in
   0) ;;
@@ -120,13 +133,23 @@ case "${ENABLE_MTP}" in
     esac
     mtp_args=(
       --speculative-config
-      "{\"method\":\"mtp\",\"num_speculative_tokens\":${MTP_NUM_SPECULATIVE_TOKENS},\"enforce_eager\":${mtp_enforce_eager}}"
+      "{\"method\":\"${model_speculative_method}\",\"num_speculative_tokens\":${MTP_NUM_SPECULATIVE_TOKENS},\"enforce_eager\":${mtp_enforce_eager}}"
     )
     ;;
   *)
     die "ENABLE_MTP must be 0 or 1"
     ;;
 esac
+
+model_args_output="$(
+  "${VENV_ROOT}/bin/python" "${SCRIPT_DIR}/model_launch_args.py" \
+    --model-path "${MODEL_PATH}" \
+    --quantization "${MODEL_QUANTIZATION}" \
+    --block-size "${MODEL_BLOCK_SIZE}" \
+    --safetensors-load-strategy "${MODEL_SAFETENSORS_LOAD_STRATEGY}" \
+    --kv-cache-dtype "${KV_CACHE_DTYPE}"
+)"
+mapfile -t model_args <<<"${model_args_output}"
 
 command=(
   vllm serve "${MODEL_PATH}"
@@ -144,9 +167,7 @@ command=(
   --gpu-memory-utilization "${GPU_MEMORY_UTILIZATION}"
   --tokenizer-mode deepseek_v4
   --no-enable-prefix-caching
-  --safetensors-load-strategy lazy
-  --quantization ascend
-  --block-size 128
+  "${model_args[@]}"
   --additional-config "${additional_config}"
   "${mtp_args[@]}"
   "${ubatch_args[@]}"

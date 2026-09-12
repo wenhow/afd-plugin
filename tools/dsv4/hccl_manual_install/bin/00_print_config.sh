@@ -15,6 +15,11 @@ cat <<EOF
 [hccl-install] Python: ${PYTHON_BIN}
 [hccl-install] venv: ${VENV_ROOT}
 [hccl-install] model: ${MODEL_PATH}
+[hccl-install] model quantization: ${MODEL_QUANTIZATION}
+[hccl-install] model block size: ${MODEL_BLOCK_SIZE}
+[hccl-install] safetensors load strategy: ${MODEL_SAFETENSORS_LOAD_STRATEGY}
+[hccl-install] KV cache dtype: ${KV_CACHE_DTYPE}
+[hccl-install] speculative method: ${MODEL_SPECULATIVE_METHOD}
 [hccl-install] SoC: ${SOC_VERSION}
 [hccl-install] NIC: ${NIC_NAME}
 [hccl-install] HCCL IP: ${resolved_ip:-<unresolved>}

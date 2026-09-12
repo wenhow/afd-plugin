@@ -47,7 +47,7 @@ case "${CONFIG_PROFILE}" in
     INCLUDE_AFD_SEED_BUNDLE="${INCLUDE_AFD_SEED_BUNDLE:-0}"
     profile_suffix=""
     ;;
-  a5-new-install)
+  a5-new-install|a5-reuse)
     INCLUDE_AFD_SEED_BUNDLE="${INCLUDE_AFD_SEED_BUNDLE:-0}"
     profile_suffix="-${CONFIG_PROFILE}"
     if [[ "${AFD_SNAPSHOT_ID}" == "dsv4-afd-v023-cann900-phase1-external-v1" ]]; then
@@ -77,6 +77,8 @@ trap cleanup EXIT
 payload_root="${temp_root}/${package_name}"
 mkdir -p "${payload_root}/manifest"
 cp -a "${BUNDLE_SOURCE_DIR}/." "${payload_root}/"
+find "${payload_root}" -type f \( -name '*.pyc' -o -name '*.pyo' \) -delete
+find "${payload_root}" -type d -name __pycache__ -empty -delete
 case "${CONFIG_PROFILE}" in
   generic)
     ;;
@@ -84,12 +86,41 @@ case "${CONFIG_PROFILE}" in
     sed -i \
       -e 's|^CANN_ROOT=.*|CANN_ROOT="/CHANGE_ME/CANN_ROOT"|' \
       -e 's|^EXPECTED_CANN_VERSION=.*|EXPECTED_CANN_VERSION=""|' \
+      -e 's|^MODEL_PATH=.*|MODEL_PATH="/CHANGE_ME/DeepSeek-V4-Flash-MXFP8"|' \
+      -e 's|^MODEL_QUANTIZATION=.*|MODEL_QUANTIZATION="deepseek-v4-native"|' \
+      -e 's|^MODEL_BLOCK_SIZE=.*|MODEL_BLOCK_SIZE="32"|' \
+      -e 's|^MODEL_SAFETENSORS_LOAD_STRATEGY=.*|MODEL_SAFETENSORS_LOAD_STRATEGY="prefetch"|' \
       -e 's|^SOC_VERSION=.*|SOC_VERSION="CHANGE_ME"|' \
       -e 's|^NIC_NAME=.*|NIC_NAME="CHANGE_ME"|' \
       -e 's|^ATTENTION_RANKS=.*|ATTENTION_RANKS="4"|' \
       -e 's|^FFN_RANKS=.*|FFN_RANKS="4"|' \
       -e 's|^ATTENTION_DEVICES=.*|ATTENTION_DEVICES="0,1,2,3"|' \
       -e 's|^FFN_DEVICES=.*|FFN_DEVICES="4,5,6,7"|' \
+      "${payload_root}/config.env.example"
+    ;;
+  a5-reuse)
+    sed -i \
+      -e 's|^INSTALL_ROOT=.*|INSTALL_ROOT="/root/dsv4-afd-hccl"|' \
+      -e 's|^CODE_ROOT=.*|CODE_ROOT="${INSTALL_ROOT}/src"|' \
+      -e 's|^VENV_ROOT=.*|VENV_ROOT="${INSTALL_ROOT}/venv"|' \
+      -e 's|^AFD_PLUGIN_ROOT=.*|AFD_PLUGIN_ROOT="${CODE_ROOT}/afd-plugin-phase1-a5-native"|' \
+      -e 's|^CANN_ROOT=.*|CANN_ROOT="/usr/local/Ascend/cann-9.2.0"|' \
+      -e 's|^EXPECTED_CANN_VERSION=.*|EXPECTED_CANN_VERSION=""|' \
+      -e 's|^MODEL_PATH=.*|MODEL_PATH="/home/models/DeepSeek-V4-Flash-MXFP8"|' \
+      -e 's|^PYTHON_BIN=.*|PYTHON_BIN="${VENV_ROOT}/bin/python"|' \
+      -e 's|^SOC_VERSION=.*|SOC_VERSION="Ascend950DT_9582"|' \
+      -e 's|^MODEL_QUANTIZATION=.*|MODEL_QUANTIZATION="deepseek-v4-native"|' \
+      -e 's|^MODEL_BLOCK_SIZE=.*|MODEL_BLOCK_SIZE="32"|' \
+      -e 's|^MODEL_SAFETENSORS_LOAD_STRATEGY=.*|MODEL_SAFETENSORS_LOAD_STRATEGY="prefetch"|' \
+      -e 's|^NIC_NAME=.*|NIC_NAME="CHANGE_ME"|' \
+      -e 's|^ATTENTION_RANKS=.*|ATTENTION_RANKS="4"|' \
+      -e 's|^FFN_RANKS=.*|FFN_RANKS="4"|' \
+      -e 's|^ATTENTION_DEVICES=.*|ATTENTION_DEVICES="0,1,2,3"|' \
+      -e 's|^FFN_DEVICES=.*|FFN_DEVICES="4,5,6,7"|' \
+      -e 's|^REUSE_SOURCES=.*|REUSE_SOURCES="1"|' \
+      -e 's|^REUSE_VENV=.*|REUSE_VENV="1"|' \
+      -e 's|^INSTALL_PYTHON_DEPS=.*|INSTALL_PYTHON_DEPS="0"|' \
+      -e 's|^INSTALL_UPSTREAM_STACK=.*|INSTALL_UPSTREAM_STACK="0"|' \
       "${payload_root}/config.env.example"
     ;;
   dual-a3-reuse)
@@ -104,6 +135,9 @@ case "${CONFIG_PROFILE}" in
       -e 's|^EXPECTED_CANN_VERSION=.*|EXPECTED_CANN_VERSION="9.0.0"|' \
       -e 's|^MODEL_PATH=.*|MODEL_PATH="/data/models/DeepSeek-V4-Flash-w8a8-mtp"|' \
       -e 's|^PYTHON_BIN=.*|PYTHON_BIN="${VENV_ROOT}/bin/python"|' \
+      -e 's|^MODEL_QUANTIZATION=.*|MODEL_QUANTIZATION="ascend"|' \
+      -e 's|^MODEL_BLOCK_SIZE=.*|MODEL_BLOCK_SIZE="128"|' \
+      -e 's|^MODEL_SAFETENSORS_LOAD_STRATEGY=.*|MODEL_SAFETENSORS_LOAD_STRATEGY="lazy"|' \
       -e 's|^NIC_NAME=.*|NIC_NAME="enp23s0f3"|' \
       -e 's|^MAX_NUM_BATCHED_TOKENS=.*|MAX_NUM_BATCHED_TOKENS="4096"|' \
       -e 's|^MAX_NUM_SEQS=.*|MAX_NUM_SEQS="16"|' \

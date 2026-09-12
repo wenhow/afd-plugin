@@ -17,7 +17,19 @@ export EXPECTED_VLLM_ROOT="${VLLM_ROOT}"
 export EXPECTED_ASCEND_ROOT="${VLLM_ASCEND_ROOT}"
 export EXPECTED_AFD_ROOT="${AFD_PLUGIN_ROOT}"
 
+ensure_dir "${STATE_ROOT}"
+model_launch_description="${STATE_ROOT}/model-launch.json"
+python "${SCRIPT_DIR}/model_launch_args.py" \
+  --model-path "${MODEL_PATH}" \
+  --quantization "${MODEL_QUANTIZATION}" \
+  --block-size "${MODEL_BLOCK_SIZE}" \
+  --safetensors-load-strategy "${MODEL_SAFETENSORS_LOAD_STRATEGY}" \
+  --kv-cache-dtype "${KV_CACHE_DTYPE}" \
+  --describe >"${model_launch_description}"
+export MODEL_LAUNCH_DESCRIPTION="${model_launch_description}"
+
 python - <<'PY'
+import json
 from importlib.metadata import version
 import os
 from pathlib import Path
@@ -53,6 +65,16 @@ assert torch.npu.device_count() >= expected_npus, (
     torch.npu.device_count(),
     expected_npus,
 )
+model_launch = json.loads(Path(os.environ["MODEL_LAUNCH_DESCRIPTION"]).read_text())
+if model_launch["profile"] == "deepseek-v4-native":
+    for owner, symbol in (
+        (torch, "float8_e8m0fnu"),
+        (torch_npu, "float4_e2m1fn_x2"),
+        (torch_npu, "npu_dynamic_mx_quant"),
+        (torch_npu, "npu_quant_matmul"),
+        (torch_npu, "npu_grouped_matmul_swiglu_quant_v2"),
+    ):
+        assert hasattr(owner, symbol), f"native MXFP runtime is missing {symbol}"
 
 print("DSV4_AFD_HCCL_RUNTIME_OK")
 print("torch", torch.__version__)
@@ -66,7 +88,6 @@ print("vllm_ascend_root", Path(vllm_ascend.__file__).resolve())
 print("afd_plugin_root", Path(afd_plugin.__file__).resolve())
 PY
 
-ensure_dir "${STATE_ROOT}"
 help_file="${STATE_ROOT}/vllm-help-all.txt"
 vllm serve --help=all >"${help_file}"
 for required_flag in \

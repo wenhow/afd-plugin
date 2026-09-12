@@ -56,6 +56,21 @@ if [[ "${preflight_scope}" == "install" ]]; then
   fi
 fi
 
+require_file "${MODEL_PATH}/config.json"
+if [[ "${preflight_scope}" == "runtime" ]]; then
+  model_python="${VENV_ROOT}/bin/python"
+  require_file "${model_python}"
+else
+  model_python="${PYTHON_BIN}"
+fi
+"${model_python}" "${SCRIPT_DIR}/model_launch_args.py" \
+  --model-path "${MODEL_PATH}" \
+  --quantization "${MODEL_QUANTIZATION}" \
+  --block-size "${MODEL_BLOCK_SIZE}" \
+  --safetensors-load-strategy "${MODEL_SAFETENSORS_LOAD_STRATEGY}" \
+  --kv-cache-dtype "${KV_CACHE_DTYPE}" \
+  --describe >/dev/null
+
 if command -v ip >/dev/null 2>&1; then
   ip link show dev "${NIC_NAME}" >/dev/null 2>&1 \
     || die "Network interface does not exist: ${NIC_NAME}"

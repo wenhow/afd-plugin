@@ -2,11 +2,10 @@
 
 ## 1. 目标与固定口径
 
-本文只关闭第一阶段 A3 功能门禁，不用于发布 U3、逐 token 精度或性能结论。第一期
-不生成 golden，不执行逐 token exact 比对，也不把启停辅助脚本自身的退出码、显式
-停服后的 traceback 或自动清理质量作为交付目标。文中的 F1 是后续完整验收层级，
-包含逐 token、生命周期和清理等项目；但现有 F1 命令把这些项目与 golden 硬门禁
-绑定，因此第一期统一不执行 F1，只执行下文明确列出的功能 smoke 流程。固定栈如下：
+本文记录已冻结的第一阶段 A3 功能门禁，以及 A5 独立硬件闭环。A3 结果不用于发布
+U3、逐 token 精度或性能结论，也不把启停辅助脚本自身的退出码、显式停服后的
+traceback 或自动清理质量作为交付目标。A5 从 2026-09-12 起执行路径匹配 native
+control、F0 和 F1，形成不复用 A3 权重或结论的独立证据。固定栈如下：
 
 | 组件 | 固定值 |
 |---|---|
@@ -14,7 +13,7 @@
 | vLLM | `releases/v0.23.0`，`0fc695fc6d1d82e9a5ac6835ac8e4e1c83703665` |
 | vLLM-Ascend | `rfc/vllm_cann`，`3da28f9414583d2d0b672a8f06d1fae142404bda` |
 | afd-plugin | 补丁包 `manifest/versions.env` 中的 `AFD_TARGET_COMMIT`/`AFD_TARGET_TREE` |
-| 模型 | 同一份 DeepSeek-V4-Flash W8A8，`num_nextn_predict_layers=1` |
+| 模型 | 双 A3 使用 `DeepSeek-V4-Flash-w8a8-mtp`；A5/Ascend 950DT 使用原始 `DeepSeek-V4-Flash` MXFP8/MXFP4 权重；均为 `num_nextn_predict_layers=1` |
 | 并行 | TP1；A/F 只验收 `A=kF`、`A=F`、`F=kA` 的整数比例 |
 | MTP | `num_speculative_tokens=1/2/3`，最大值 3 |
 
@@ -25,7 +24,7 @@
 
 | 当前环境 | 必须执行 | 不在本机执行 | 能得到的结论 |
 |---|---|---|---|
-| A5 后续逐 token 验收 | 第 2、3、4、5、9 节的 A5 部分 | 第 6、7、8 节 | 不属于当前一期功能 smoke；保留供后续执行 |
+| A5 当前独立验收 | 第 2、3、4、5、9 节的 A5 部分 | 第 6、7、8 节 | 原始权重的 DP4 native control，以及 8 卡 standalone AFD F0/F1；不复用 A3 结果 |
 | 双 A3，一期功能验收 | 第 2、3、6、8.2、9.2 节 | 第 4、5、7、8.3、9.1 节 | 双机角色 ready、health、batch smoke、取消后恢复和在线 U2；不含 token-exact，启停脚本问题不阻塞 |
 | 双 A3，后续完整 F1 | 第 2、3、6、7、8、9 节的双 A3 部分 | 第 4、5 节 | 不属于当前一期；增加路径匹配 control 和 30/30 token-exact |
 
@@ -38,8 +37,8 @@ A8F8 N3、A4F8 N3 三个 AFD 点；A8F4 的 TP1/EP4 专家权重超过该容量�
 A8F4/A4F8。A5 standalone 矩阵按相同比例缩放为 A4F4、A4F2、A2F4，所有 device
 ordinal 均在 0-7；其中 A4F2 的 FFN EP2 仍需先通过现场 HBM 容量预检。
 
-A5 和双 A3 没有验证产物依赖。以下 prompt/control 关系只供后续逐 token 阶段使用，
-当前一期功能 smoke 不读取该 prompt 清单，也不生成或消费 golden：
+A5 和双 A3 没有验证产物依赖。A5 当前轨道使用以下 native control；已冻结的 A3
+一期功能 smoke 不读取该 prompt 清单，也不生成或消费 golden：
 
 ```text
 tools/dsv4/phase1_prompts.json
@@ -54,7 +53,7 @@ A5 native token 不会进入双 A3 流程；双 A3 的 exact golden 必须由第
 
 ### 1.2 总体验收范围
 
-第一期当前需要完成的外部硬门禁：
+第一阶段 A3 功能标签已经完成以下外部硬门禁：
 
 1. 固定栈、安装结果、模型路径、网络和 NPU 状态审计。
 2. 双 A3 PD Graph/U2 下的 A8F8 N2/N3、A4F8 N3。A8F4 N3 的 PD 验证留待
@@ -63,8 +62,13 @@ A5 native token 不会进入双 A3 流程；双 A3 的 exact golden 必须由第
 4. 每个适用点的 batch 1/8/32 功能请求、取消后恢复、Graph/双 stage 日志和第二轮
    独立启动结果。停止、收集和清理仍作为操作步骤执行并留档，但脚本质量不是本期门禁。
 
-当前一期明确不验收输出 token 是否与 control 一致。路径匹配 native/PD control、
-`record-control`、`validate`、30/30 serial exact 和 batch token-exact 全部延期。
+上述 A3 标签明确不验收输出 token 是否与 control 一致。A3 的路径匹配 PD control、
+`record-control`、`validate`、30/30 serial exact 和 batch token-exact 继续延期。
+
+A5 当前独立轨道必须完成：官方模型配置和 MXFP 算子审计；4 卡 DP4 的 5 份
+路径匹配 native control；8 卡 A4F4/A4F2/A2F4 standalone F0/F1；每点的冷启动、
+token exact、batch 1/8/32、idle-resume、停服、fatal 和 NPU cleanup。A4F2 若在
+模型加载阶段证明 FFN EP2 超过单卡 HBM，可记录为容量阻塞，不得改权重或超卖伪造通过。
 
 其他不属于第一期的项目：U3、正式 P2 性能收益、A5 参数调优、非整数 A/F、
 TP/SP/CP/DCP/PP、TP3、非等量 TP2 和 TP2 full-draft Graph/U2/MTP 最大组合。
@@ -105,29 +109,49 @@ bash bin/install_all.sh
 本来就以 overlay 方式修改 `profiler.py`，因此该文件显示 `M` 是已知现场状态。新版
 目标已包含 R14 profiler 能力及后续修复，不要把旧 overlay 再应用一次。
 
-### 2.2 A5 或其他新节点使用通用包
+### 2.2 A5 使用原始 DeepSeek-V4-Flash 权重
 
-A5 或其他新节点不使用该双机专用 profile，也不得继续使用存在 `ss` 等旧脚本问题的
-`dsv4-afd-hccl-manual-install-slim-20260908_150102.tar.gz`。只使用文件名包含
-`slim-a5-new-install` 的新版包：
+A5 不使用双机专用 profile，也不得继续使用存在 `ss` 等旧脚本问题的
+`dsv4-afd-hccl-manual-install-slim-20260908_150102.tar.gz`。官方 v0.23.0 文档明确要求
+Ascend 950DT 使用原始 `DeepSeek-V4-Flash` 权重：Attention 为 MXFP8、MoE 为
+MXFP4/W4A8，不做 Ascend 权重转换，也不传 `--quantization ascend`。其官方
+`config.json` 的关键字段为 `quant_method=fp8`、`activation_scheme=dynamic`、
+`fmt=e4m3`、`scale_fmt=ue8m0` 和 `weight_block_size=[128,128]`。参数基线见
+[vLLM-Ascend v0.23.0 DeepSeek-V4-Flash 官方指导](https://docs.vllm.ai/projects/ascend/en/v0.23.0/tutorials/models/DeepSeek-V4-Flash.html#single-node-online-deployment)。
+
+当前 A5 已完成环境安装，优先使用文件名包含 `slim-a5-reuse` 的包。该 profile 复用
+`/root/dsv4-afd-hccl/venv` 和两个固定上游源码，不重新安装 Python 依赖、不重建
+vLLM/vLLM-Ascend；新版 afd-plugin 安装到独立的
+`/root/dsv4-afd-hccl/src/afd-plugin-phase1-a5-native`：
 
 ```bash
-sha256sum -c dsv4-afd-hccl-manual-install-slim-a5-new-install-*.tar.gz.sha256
-tar -xzf dsv4-afd-hccl-manual-install-slim-a5-new-install-*.tar.gz
-cd dsv4-afd-hccl-manual-install-slim-a5-new-install-*
+sha256sum -c dsv4-afd-hccl-manual-install-slim-a5-reuse-*.tar.gz.sha256
+tar -xzf dsv4-afd-hccl-manual-install-slim-a5-reuse-*.tar.gz
+cd dsv4-afd-hccl-manual-install-slim-a5-reuse-*
 sha256sum -c manifest/SHA256SUMS
 vi config.env
 bash bin/00_print_config.sh
+bash bin/install_a5_model_config.sh
 bash bin/install_all.sh
 ```
 
-填写
-`CANN_ROOT`、`MODEL_PATH`、`PYTHON_BIN`、`SOC_VERSION`、`NIC_NAME`、必要时的
-`HCCL_IF_IP`、安装/源码目录和实际可访问的 Git/pip 镜像。A5 profile 的
-`EXPECTED_CANN_VERSION` 保持为空：安装器只要求 `CANN_ROOT/set_env.sh` 存在并从
-该绝对路径激活，不检查 CANN 目录名或版本输出。不要把双 A3 的 9.0.0 路径复制到
-A5，也不得先 source 另一套 CANN 再继续。包内默认拓扑已经设置为 A4F4：Attention
-使用 NPU 0-3，FFN 使用 NPU 4-7；`00_print_config.sh` 不得显示 A8F8。
+该复用 profile 已按现场信息填写 CANN、模型、venv、SoC 和 A4F4，仅必须核对并填写
+`NIC_NAME`，自动取址失败时再填写 `HCCL_IF_IP`；如果现场路径变化则修改对应项。
+`EXPECTED_CANN_VERSION` 保持为空，只加载 `CANN_ROOT=/usr/local/Ascend/cann-9.2.0`，
+不强校验版本。`00_print_config.sh` 必须显示 A4F4：Attention 使用 NPU 0-3，FFN
+使用 NPU 4-7，不能显示 A8F8。
+
+现场先前收集的模型配置包含 `quant_method=mxfp8`、缺少
+`weight_block_size=[128,128]`，与官方 v0.23.0 配置不一致。显式执行
+`install_a5_model_config.sh` 才会恢复包内官方配置；脚本先把原文件备份到
+`$STATE_ROOT/model-config-backup/`，不会修改 safetensors 权重。未执行时预检会直接停止，
+不得用 `--hf-overrides` 隐藏差异。包内官方配置 SHA256 为
+`52b5a1aa87606cb5be4f3158d706594edb1c4ce97ce6b1cd6079f15df075d7f5`。
+
+全新 A5 节点使用 `slim-a5-new-install`，填写 `CANN_ROOT`、`MODEL_PATH`、
+`PYTHON_BIN`、`SOC_VERSION`、`NIC_NAME`、必要时的 `HCCL_IF_IP` 以及安装/源码目录，
+同样先显式执行 `install_a5_model_config.sh` 再执行 `install_all.sh`。不要把双 A3 的
+9.0.0 路径复制到 A5，也不得先 source 另一套 CANN 再继续。
 
 ### 2.3 两条轨道共同要求
 
@@ -184,11 +208,13 @@ npu-smi info
 解析到 CANN 9.0.0，A5 解析到 `config.env` 指定的唯一 `CANN_ROOT`；NPU 健康；开始
 验证前没有其他 NPU 进程。把输出保存为文本，后续随证据包回传。
 
-## 4. 延期：A5 同栈路径匹配 native control
+## 4. A5 同栈路径匹配 native control
 
-**当前一期不执行本节。** 后续进入逐 token 精度阶段时，只在 A5 执行；双 A3
-操作者不要在 A3 上运行。本节的 5 份 control 只供 A5 第 5 节使用，不向双 A3
-交付任何文件。
+**当前 A5 执行本节；双 A3 不执行。** 本节的 5 份 control 只供 A5 第 5 节使用，
+不向双 A3 交付任何文件。启动器会验证官方 `fp8` 模型配置，保留现场
+`SOC_VERSION`，使用 `block-size=32`、`safetensors-load-strategy=prefetch` 和
+`kv-cache-dtype=auto`，MTP 命令使用官方 `deepseek_mtp`（vLLM 初始化后归一化为
+插件内部的 `mtp`），且不传 `--quantization ascend`。
 
 不能把 MTP-off 的 token 文件跨路径用作 N2/N3 的 exact golden。speculative decoding 会改变 target 校验的执行 shape；即使 native 自身稳定，近似并列 logits 也可能在 MTP-off 和 N2 间选择不同 token。必须按 target/draft 执行模式与 MTP N 生成以下 5 份 no-AFD control：
 
@@ -200,12 +226,17 @@ npu-smi info
 | `graph_target_draft_eager_mtp_n2` | FULL_DECODE_ONLY | eager | N2 |
 | `graph_target_draft_graph_mtp_n3` | FULL_DECODE_ONLY | Graph | N3 |
 
-生成器逐点使用 8 卡冷启动、执行 10 条 prompt x 3 轮、正常停止并检查 NPU 清理。开始前本机不得存在任何其他 NPU 进程：
+生成器逐点使用 NPU 0-3 做 4 卡 DP4 冷启动，与官方单机基线和 A4F4 的 Attention
+侧并行度一致；它执行 10 条 prompt x 3 轮、正常停止并检查 NPU 清理。NPU 4-7 在
+本节保持空闲，开始前整机不得存在任何其他 NPU 进程：
 
 ```bash
 source "$BUNDLE_ROOT/bin/activate_runtime.sh"
 cd "$AFD_PLUGIN_ROOT"
-export MODEL_PATH HCCL_IF_IP GLOO_SOCKET_IFNAME HCCL_SOCKET_IFNAME
+export MODEL_PATH MODEL_QUANTIZATION MODEL_BLOCK_SIZE
+export MODEL_SAFETENSORS_LOAD_STRATEGY KV_CACHE_DTYPE MODEL_SPECULATIVE_METHOD
+export SOC_VERSION ATTENTION_DEVICES
+export HCCL_IF_IP GLOO_SOCKET_IFNAME HCCL_SOCKET_IFNAME
 export PHASE1_GOLDEN_ROOT="/data/validation/dsv4-phase1-a5-native-controls"
 
 bash tools/dsv4/run_phase1_native_controls.sh list
@@ -227,9 +258,9 @@ mismatch；metadata 中的 control key、target/draft、MTP N、解析后的 `ca
 本节完成后，A5 留存全部 5 份 control，供第 5 节 standalone 验证使用。双 A3 不
 复制这些文件；它直接使用仓库中的 `tools/dsv4/phase1_prompts.json`。
 
-## 5. 延期：A5 standalone AFD 逐 token 门禁
+## 5. A5 standalone AFD 逐 token 门禁
 
-**当前一期不执行本节。** 后续只在 A5 执行；双 A3 完全跳过。本节读取第 4 节的
+**第 4 节 5 份 control 全部通过后在 A5 执行；双 A3 完全跳过。** 本节读取第 4 节的
 5 份 control，但不会向第 6、7、8 节输出任何依赖文件。
 
 矩阵脚本固定了 9 个代表点：
@@ -635,8 +666,7 @@ export MATRIX_RUN_BASE="/data/run/dsv4-phase1-pd-r2"
 
 ### 9.1 A5 操作者
 
-当前一期不执行第 4、5 节，因此不要求回传本节的 control、golden 或 F1 evidence。
-本节命令留待后续 A5 逐 token 阶段。
+当前 A5 轨道执行第 4、5 节，并必须回传本节的 control、golden 和 F0/F1 evidence。
 
 Standalone 验证使用统一收集器；它保留 JSON、环境、NPU 快照和截断日志，不包含 profiler 原始目录：
 

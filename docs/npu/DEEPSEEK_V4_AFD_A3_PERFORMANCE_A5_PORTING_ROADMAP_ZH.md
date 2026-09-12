@@ -4,7 +4,7 @@
 
 本文用于固化 DeepSeek-V4 AFD 在完成 CAMP2P eager/U1、Graph/U1，以及标准 HCCL P2P eager/U1、U2、Graph/U1 和 Graph/U2 正确性基线后的目标、开发顺序和验收门禁，供后续开发、验证、性能分析和 A5 迁移时直接使用。
 
-文档状态：`2026-09-11`。CAMP2P eager/U2 已冻结为 `dsv4-afd-a3-eager-u2-v1`；标准 HCCL send/recv connector 已在提交 `9578dd2cb70f9f8db54673a70e8f45fde6479245` 完成 A3 A8F8 eager/U1、U2 正确性闭环。A3-P4 的 A8F8 未调优性能参照与 U1/U2 双侧 profile 已完成：三轮重复性通过，但 U2 在 C32 比 U1 回退 37.570%，因此当前只冻结参照协议，不冻结 U2 性能基线。
+文档状态：`2026-09-12`。CAMP2P eager/U2 已冻结为 `dsv4-afd-a3-eager-u2-v1`；标准 HCCL send/recv connector 已在提交 `9578dd2cb70f9f8db54673a70e8f45fde6479245` 完成 A3 A8F8 eager/U1、U2 正确性闭环。A3-P4 的 A8F8 未调优性能参照与 U1/U2 双侧 profile 已完成：三轮重复性通过，但 U2 在 C32 比 U1 回退 37.570%，因此当前只冻结参照协议，不冻结 U2 性能基线。
 
 A3-P5 的 `A = k x F` 非等量协议和 A2F1/A4F2 NPU 组件验证已经完成。A3-P6 的 A8F4 实模加载在 64 GiB A3 上因 FFN EP4 专家权重峰值 HBM 不足而停止；A10F5 容量代理又被固定 vLLM-Ascend 的 256 experts/EP5 非均匀放置检查拒绝。该结论是当前硬件与固定栈组合的 E2E 门禁，不否定 connector 的非等量语义。现场单台 A5 已确认为 8 卡，不能承载 12 卡 A8F4；A5 单机改测 A4F4/A4F2/A2F4，完整 A8F4 另行安排至少 12 张可用 NPU。A3 保留现有 A8F8 同步 HCCL 性能参照，完成 MTP 功能门禁后再恢复新的调优和公平对照。
 
@@ -40,6 +40,17 @@ A4F8 Graph/U2/MTP N3 三个适用点各执行两轮，6/6 smoke、取消恢复�
 全 Attention rank 在线双 stage 均通过，功能目标 3/3 关闭。第一阶段不做逐 token
 比对；启停辅助脚本自身的退出码、显式停服后的 traceback 和自动清理质量也不作为
 交付目标。该范围冻结为 `dsv4-afd-v023-phase1-a3-functional-v1`，不代表性能基线。
+
+2026-09-12 A5 已完成固定源码和 Python/NPU 运行时安装，现场 CANN 从指定的
+`/usr/local/Ascend/cann-9.2.0` 激活且不做 9.0.0 强校验，8 张 Ascend950DT 均可见；
+torch-npu 的 MXFP dtype 与动态量化、量化矩阵乘和 grouped MoE 算子检查通过。首次执行
+native control 在 ModelConfig 阶段停止，原因是现场 `config.json` 写成
+`quant_method=mxfp8` 且缺少 `weight_block_size`，同时旧启动器仍传
+`--quantization ascend`。官方 v0.23.0 的原始 `DeepSeek-V4-Flash` 配置实际为
+`quant_method=fp8`、`weight_block_size=[128,128]`；本次已将 A5 启动口径改为严格校验
+该配置、不传 `--quantization ascend`、使用 block 32/prefetch，并保留现场 SoC。A5
+尚未完成任何 native control 或 AFD case，不能把环境与配置门禁通过写成实模通过。
+权重和单机参数以 [vLLM-Ascend v0.23.0 官方指导](https://docs.vllm.ai/projects/ascend/en/v0.23.0/tutorials/models/DeepSeek-V4-Flash.html#single-node-online-deployment) 为准。
 
 M9 在 2026-09-04 完成双 A3 的 TP1、MTP off、Graph/U2 数据面与性能/Profile 测量：
 共置 A8F8、split A8F8、split A16F8 三点均完成三轮 C32 请求，所有 Attention rank
@@ -102,7 +113,7 @@ A3 当前阶段
   -> Graph 非等量组件闭环（M6 已完成，A8F4 实模转至少 12 卡环境）
   -> full draft ACL Graph U1/U2（M7 已完成，30/30 golden）
   -> TP2（M8 已完成，证据保留但不作为第一阶段门禁）
-  -> Mooncake PD（M9，第一阶段进行中）
+  -> Mooncake PD（M9，第一阶段 A3 功能标签已冻结）
   -> 多 speculative token（M10 本机门禁已完成，单 MTP layer，最大 N=3）
   -> HCCL P2P F=kA 反向非等量拓扑（M11 本机门禁已完成）
   -> 锁定 A8F8 U1/U2 性能参照和请求矩阵
@@ -111,11 +122,10 @@ A3 当前阶段
   -> A8F8 阻塞式 HCCL profiling、同步调度优化和公平性能验收
   -> 冻结 A3 性能基线
 
-A5 硬件到位后
-  平台审计和独立运行栈
-  -> 标准 HCCL send/recv 组件验证
-  -> A=F、A=kF 与 F=kA 的 U1/U2 eager 回归
-  -> 等量 A/F 的 eager U1/U2 与 target Graph/U1/U2 + MTP 回归
+A5 当前独立 bring-up
+  平台审计和独立运行栈（环境已安装；官方模型配置恢复待现场执行）
+  -> 4 卡 DP4 的 5 份路径匹配 native control
+  -> 8 卡 A4F4/A4F2/A2F4 的 eager/Graph、U1/U2、MTP F0/F1
   -> 重新选择 A/F 比例并完成独立性能验收
 ```
 
@@ -152,13 +162,14 @@ A3 验收通过只说明实现语义和 A3 性能成立，不等于 A5 已支持
 `F=kA` 已冻结为 scatter/gather 语义：一个 Attention rank 将连续 token 均衡切给连续的`k` 个 FFN rank，各 FFN 均参与计算，Attention 按相同 slice 顺序 gather output。若本地token 数小于 `k`，传输层补零使每个 FFN 至少收到一个 token，gather 后仅保留真实 token。
 控制面从该 Attention source 向全部 FFN peer 发送同一 stage metadata；MTP header、FFN count 投影与 Graph key/cache 使用同一 per-peer layout。非整数比例继续 fail-fast。
 
-2026-09-08 已补齐外部验证交付物；2026-09-11 双 A3 的一期功能硬件证据已完成，A5 和逐 token 工具继续保留为后续能力：
+2026-09-08 已补齐外部验证交付物；2026-09-11 双 A3 的一期功能硬件证据已完成；2026-09-12 A5 已进入独立 bring-up：
 
-- A5 先生成 eager MTP-off/N1/N2、target Graph + draft eager N2、target/draft Graph N3 共 5 个路径匹配 native control；单机 8 卡 standalone 固定 9 个代表点，覆盖 A4F4 基础/N1、eager U2 N2、Graph U1 N2、Graph U2 N3，以及 A2F4/A4F2 的 eager U1 N2 和 Graph U2 N3；F1 固定两次冷启动、batch 1/8/32、serial 30/30 token exact、1800 秒 idle-resume、shutdown/fatal/NPU cleanup。A4F2 先做 HBM 容量预检。
+- A5 先按官方单机口径用 NPU 0-3、DP4 生成 eager MTP-off/N1/N2、target Graph + draft eager N2、target/draft Graph N3 共 5 个路径匹配 native control；单机 8 卡 standalone 固定 9 个代表点，覆盖 A4F4 基础/N1、eager U2 N2、Graph U1 N2、Graph U2 N3，以及 A2F4/A4F2 的 eager U1 N2 和 Graph U2 N3；F1 固定两次冷启动、batch 1/8/32、serial 30/30 token exact、1800 秒 idle-resume、shutdown/fatal/NPU cleanup。A4F2 先做 HBM 容量预检。
 - 双机 PD 一期实际验收 A8F8 N2/N3、A4F8 N3 三个适用点，均完成两轮功能验证；A8F4 N3 受 A3 HBM 限制排除。3 个路径匹配 no-AFD control 和逐 token F1 延期，control golden 仍须按 Attention DP、target/draft execution、U 数和 MTP N 隔离，不能跨路径复用。
 - `pd.sh` 的部署约束已同步为双向整数 A/F 和 N1-N3，矩阵按拓扑动态生成 device list 与 FFN capacity；外部执行和证据回传步骤见 `DEEPSEEK_V4_AFD_PHASE1_A5_MULTI_NODE_VALIDATION_GUIDE_ZH.md`。
 - 已按双 A3 历史实跑配置提供 `dual-a3-reuse` 安装 profile：复用 CANN 9.0.0、固定 venv 和两个上游源码，不重装依赖或重建上游；从旧 `2164240` 仓库通过包内增量 Git bundle 创建独立的一期 afd-plugin 路径，并附带双机 PD common 模板。旧 seed 仓库保持不动，本地 tracked diff 自动留档且不会进入新目标；seed HEAD、目标/上游工作树、custom ops 和 Python 导入根不一致时 fail-fast。
-- 双 A3 原始证据分析已经关闭第一阶段 A3 功能范围并创建 `dsv4-afd-v023-phase1-a3-functional-v1`；A5、路径匹配 F1、启停脚本和正式性能保持独立后续项。
+- A5 新增 `a5-reuse` profile，复用已经安装完成的 venv 和固定上游源码，只创建新的 afd-plugin 路径。包内附官方 `DeepSeek-V4-Flash` 配置和显式恢复脚本；恢复前先备份现场 config，预检严格拒绝 `mxfp8` 别名，不通过修改上游或 `hf-overrides` 隐藏权重契约差异。
+- 双 A3 原始证据分析已经关闭第一阶段 A3 功能范围并创建 `dsv4-afd-v023-phase1-a3-functional-v1`；A5 当前独立执行路径匹配 F1，启停脚本和正式性能保持后续项。
 
 ## 3. 已冻结基线
 
@@ -1694,8 +1705,9 @@ NPU、吞吐、token/s/NPU、TPOT、CV、HBM、FFN `Free/wall`、`Bubble/wall`�
     10/10 exact，A4F8 eager/U1/N2 实模 smoke 通过。组件证据位于
     `/mnt/workspace/validation/phase1_cann900_exact_3e88ad2`；恢复时不得退回单 token、
     `A>=F` 或跨 target/draft/MTP 路径复用 golden 的假设；
-19. A5 到位后从硬件审计和独立工具链开始，不复用 A3 二进制；先无并发生成 5 份路径
-    匹配 native control，再执行 9 点 standalone F0/F1；
+19. A5 环境安装已完成，但尚未通过实模 case；先显式备份并恢复官方 `config.json`，
+    再用 NPU 0-3、DP4 无并发生成 5 份路径匹配 native control，最后执行 8 卡 9 点
+    standalone F0/F1；不复用 A3 权重、量化参数或验证结论；
 20. 每次阶段完成都保存日志、原始数据、解析结果和清理证据。
 
 ## 13. 一句话路线
@@ -1706,7 +1718,7 @@ Graph/U1/U2、单 token MTP M0-M7、双向整数比例组件与 TP2/M8 历史基
 的 U1/U2 输出均与路径匹配 native N2 达到 10/10 exact，A4F8 eager/U1/N2 实模 smoke
 通过。M9 的
 TP1/MTP off/Graph U2 已完成双 A3 三拓扑运行和 Profile 观测，但动态路由、优雅退出和
-路径匹配 F1 未冻结。第一阶段下一步在 A5 生成 5 类 native control，完成 9 点 standalone、
-高 HBM A8F4、双机 PD 组合和 F1；第一阶段
-功能 tag 完成后，第二阶段再做 U3 和正式性能
+路径匹配 F1 未冻结。第一阶段 A3 功能标签已经完成；A5 当前下一步是恢复官方原始
+权重配置，生成 5 类 DP4 native control，并完成 8 卡 9 点 standalone F0/F1。完整
+A8F4 留给至少 12 张可用 NPU 且容量足够的环境。A5 功能闭环后，第二阶段再做 U3 和正式性能
 收益；TP/SP/CP/DCP/PP、TP3、非等量 TP2 和 TP2 最大 Graph+MTP 不作为第一阶段门禁。

@@ -31,6 +31,8 @@ Required for run:
 
 Optional:
   PHASE1_NATIVE_DEVICES=0,1,2,3,4,5,6,7
+    Defaults to ATTENTION_DEVICES when config.env exports it. The A5 bundle
+    therefore uses 0,1,2,3 (DP4), matching the official single-node baseline.
   PHASE1_NATIVE_API_PORT=8900
   PHASE1_NATIVE_READY_TIMEOUT_SECONDS=1800
 EOF
@@ -107,7 +109,11 @@ run_controls() {
   export PYTHONPATH="${REPO_ROOT}:${DSV4_VLLM_ROOT}:${DSV4_VLLM_ASCEND_ROOT}${PYTHONPATH:+:${PYTHONPATH}}"
 
   local api_port="${PHASE1_NATIVE_API_PORT:-8900}"
-  local devices="${PHASE1_NATIVE_DEVICES:-0,1,2,3,4,5,6,7}"
+  local devices="${PHASE1_NATIVE_DEVICES:-${ATTENTION_DEVICES:-0,1,2,3,4,5,6,7}}"
+  local device_count
+  local -a native_devices
+  IFS=',' read -r -a native_devices <<<"${devices}"
+  device_count="${#native_devices[@]}"
   local ready_timeout="${PHASE1_NATIVE_READY_TIMEOUT_SECONDS:-1800}"
   [[ "${api_port}" =~ ^[0-9]+$ ]] || die "PHASE1_NATIVE_API_PORT must be an integer"
   [[ "${ready_timeout}" =~ ^[1-9][0-9]*$ ]] \
@@ -165,6 +171,8 @@ run_controls() {
       printf 'mtp_draft_execution=%s\n' "${CONTROL_DRAFT_EXECUTION}"
       printf 'enable_mtp=%s\n' "${CONTROL_ENABLE_MTP}"
       printf 'mtp_num_speculative_tokens=%s\n' "${CONTROL_MTP_TOKENS}"
+      printf 'visible_devices=%s\n' "${devices}"
+      printf 'data_parallel_size=%s\n' "${device_count}"
     } >"${control_root}/control.env"
 
     setsid env \
@@ -212,7 +220,9 @@ run_controls() {
       --metadata "target_execution_mode=${CONTROL_EXECUTION_MODE}" \
       --metadata "mtp_draft_execution=${CONTROL_DRAFT_EXECUTION}" \
       --metadata "enable_mtp=${CONTROL_ENABLE_MTP}" \
-      --metadata "mtp_num_speculative_tokens=${CONTROL_MTP_TOKENS}"
+      --metadata "mtp_num_speculative_tokens=${CONTROL_MTP_TOKENS}" \
+      --metadata "visible_devices=${devices}" \
+      --metadata "data_parallel_size=${device_count}"
 
     forced_stop=0
     cleanup_native

@@ -159,7 +159,8 @@ def test_dsv4_hccl_recipe_owns_connector_specific_launchers():
             script
         )
         assert 'MTP_DRAFT_EXECUTION="${MTP_DRAFT_EXECUTION:-eager}"' in script
-        assert '"method":"mtp"' in script
+        assert '"method":"%s"' in script
+        assert '"$MODEL_SPECULATIVE_METHOD"' in script
         assert '"num_speculative_tokens":%s' in script
         assert '"${MTP_ARGS[@]}"' in script
         assert '--tensor-parallel-size "$TENSOR_PARALLEL_SIZE"' in script
@@ -208,7 +209,7 @@ def test_dsv4_v023_native_baseline_has_explicit_mtp_switch():
     assert 'MTP_NUM_SPECULATIVE_TOKENS="${MTP_NUM_SPECULATIVE_TOKENS:-1}"' in script
     assert 'MTP_DRAFT_EXECUTION="${MTP_DRAFT_EXECUTION:-eager}"' in script
     assert 'EXECUTION_MODE="${EXECUTION_MODE:-eager}"' in script
-    assert '\\"method\\":\\"mtp\\"' in script
+    assert '\\"method\\":\\"${MODEL_SPECULATIVE_METHOD}\\"' in script
     assert '\\"num_speculative_tokens\\":${MTP_NUM_SPECULATIVE_TOKENS}' in script
     assert '\\"enforce_eager\\":${mtp_draft_enforce_eager}' in script
     assert "--speculative-config" in script
@@ -222,6 +223,11 @@ def test_dsv4_v023_native_baseline_has_explicit_mtp_switch():
     assert 'TENSOR_PARALLEL_SIZE="${TENSOR_PARALLEL_SIZE:-1}"' in script
     assert '--data-parallel-size "${DATA_PARALLEL_SIZE}"' in script
     assert '--tensor-parallel-size "${TENSOR_PARALLEL_SIZE}"' in script
+    assert 'device_count="${#visible_devices[@]}"' in script
+    assert "8 / TENSOR_PARALLEL_SIZE" not in script
+    assert "model_launch_args.py" in script
+    assert "--quantization ascend" not in script
+    assert 'export SOC_VERSION="${SOC_VERSION:-ascend910_9362}"' in script
 
 
 @pytest.mark.parametrize(
