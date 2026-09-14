@@ -1441,6 +1441,37 @@ def test_p2p_hccl_graph_compute_pipeline_can_be_disabled_for_comparison(
     assert connector.attention_graph_compute_pipeline_active() is False
 
 
+def test_p2p_hccl_eager_u2_stream_overlap_can_be_disabled_for_comparison(
+    monkeypatch,
+):
+    monkeypatch.setenv("AFD_HCCL_EAGER_U2_STREAM_OVERLAP", "0")
+    connector = _connector(role="attention", num_ubatches=2)
+    connector.a2f_send_stream = object()
+    connector.f2a_recv_stream = object()
+    connector.attention_pipeline_events = {(1, 0): object()}
+    monkeypatch.setattr(
+        hccl_module,
+        "get_forward_context",
+        lambda: SimpleNamespace(
+            afd_graph_ubatching=False,
+            dbo_enabled=True,
+            num_ubatches=2,
+        ),
+    )
+
+    assert connector.stream_overlap_enabled is True
+    assert connector.eager_u2_stream_overlap_enabled is False
+    assert connector._attention_stream_pipeline_active() is False
+
+
+def test_p2p_hccl_stage_diagnostics_default_off(monkeypatch):
+    monkeypatch.delenv("AFD_HCCL_STAGE_DIAGNOSTICS", raising=False)
+
+    connector = _connector(role="attention", num_ubatches=2)
+
+    assert connector.stage_diagnostics_enabled is False
+
+
 def test_p2p_hccl_rejects_invalid_graph_compute_overlap_value(monkeypatch):
     monkeypatch.setenv("AFD_HCCL_GRAPH_U2_COMPUTE_OVERLAP", "invalid")
 
@@ -1472,6 +1503,8 @@ def test_p2p_hccl_rejects_invalid_graph_hybrid_dag_value(monkeypatch):
 @pytest.mark.parametrize(
     "name",
     [
+        "AFD_HCCL_EAGER_U2_STREAM_OVERLAP",
+        "AFD_HCCL_STAGE_DIAGNOSTICS",
         "AFD_HCCL_GRAPH_U2_ATTENTION_THREE_STREAM",
         "AFD_HCCL_GRAPH_U2_FFN_RECV_STREAM",
         "AFD_HCCL_GRAPH_U2_FFN_CROSS_LAYER",

@@ -59,7 +59,14 @@ off。当前 matrix 对所有 Graph/U2 显式传 `--async-scheduling off`，runn
 约 9 分钟后四个 FFN rank 报 `aclnnGroupedMatmulWeightNz`/`aclnnQuantMatmulV5` 的
 `507014`/`507034`，因此 off 只是固定变量，不是充分修复。`507014`、`507034` 均纳入
 fatal marker。本机 A3 A8F8 因 CANN、SoC、权重量化和拓扑均不等价，只保留为通用代码
-回归。A5 先执行 A4F4 Graph/U1 与 eager/U2 单轮隔离，正式 Graph/U2 和容量项暂停重复。
+回归。随后 A5 A4F4 Graph/U1 单轮完整通过；streamed eager/U2 的 batch 1 通过，batch 8
+全部 Attention rank 进入双 stage 后约 300 秒无输出并由 EngineCore timeout 终止。超时前
+无设备首错，`507035` 只出现在 API 500 后的 teardown，因此故障收敛到 A5 U2 数据面，
+不是 Graph 必现问题。下一步保持同一 layer-major U2，仅分别关闭 eager 通信流重叠和
+Graph 计算流重叠做 serial 对照；正式 Graph/U2 和容量项暂停重复。交付前已在精确
+vLLM `0fc695fc`、vLLM-Ascend `3da28f941`、CANN 9.0.0 的本机 A3 A8F8 上验证两个
+serial 控制项：功能、取消恢复、真实 U2、退出和清理均通过；该结果只证明控制项可执行，
+不能替代 A5 A4F4 的现场结论。
 权重和单机参数以 [vLLM-Ascend v0.23.0 官方指导](https://docs.vllm.ai/projects/ascend/en/v0.23.0/tutorials/models/DeepSeek-V4-Flash.html#single-node-online-deployment) 为准。
 
 M9 在 2026-09-04 完成双 A3 的 TP1、MTP off、Graph/U2 数据面与性能/Profile 测量：
@@ -1384,6 +1391,17 @@ AFD 执行 A4F4 eager/U1、A4F4 Graph/U2、A2F4 Graph/U2，以及 A4F2 Graph/U2
 证据并登记容量阻塞。操作见
 `DEEPSEEK_V4_AFD_PHASE1_A5_VALIDATION_GUIDE_ZH.md`。
 
+当前现场隔离顺序是 A4F4 Graph/U1、streamed eager/U2、eager/U2 serial、Graph/U2
+serial。前两项已经分别得到“通过/超时”；后两项不属于新增功能门禁，而是只改变物理
+stream/event 调度的对照。若两个 serial 均通过，先按 A5 多流兼容问题处理；若 eager
+serial 仍失败，则继续定位不依赖多流的 U2 消息/算子路径。收到对照结果前不扩大到
+A2F4 或 A4F2。
+
+两个 serial 对照已在精确目标源码栈的本机 A3 A8F8 上先行通过。eager 对照的 8/8
+shutdown receipt 用时 15.756 秒，Graph 对照为 0.403 秒；runner 因此将 handoff 预算从
+固定 15 秒改为 `max(15, drain+15)`，在当前 20 秒 drain 下为 35 秒。A3 的 SoC、权重、
+拓扑和 CANN 与 A5 不同，该证据不用于关闭 A5 故障，A5 仍须执行两个 A4F4 对照。
+
 全部计划功能完成后才进入最终精度阶段。届时 A5 必须先生成同平台非 AFD golden，
 不能只拿 A3 token 文件代替 A5 基线，并依次验证：
 
@@ -1736,13 +1754,13 @@ NPU、吞吐、token/s/NPU、TPOT、CV、HBM、FFN `Free/wall`、`Bubble/wall`�
     10/10 exact，A4F8 eager/U1/N2 实模 smoke 通过。组件证据位于
     `/mnt/workspace/validation/phase1_cann900_exact_3e88ad2`；恢复时不得退回单 token、
     `A>=F` 或跨 target/draft/MTP 路径复用 golden 的假设；
-19. A5 环境安装、官方 `config.json` 恢复和 no-AFD DP4/MTP-off 已完成。A4F4
-    eager/U1 的请求、取消恢复与两次请求归零均通过；20 秒串行停机证据命中 FFN
-    `507035`，提交 `8325c18` 的同时停机证据则使 FFN 干净但 Attention 最后一次 dummy
-    batch 命中已关闭的 Gloo peer。当前改为先请求 Attention、等待全部 FFN rank 收到
-    shutdown payload、再请求 FFN 的显式交接门禁，待 A5 单点复跑。其后继续另外两个
-    必须 AFD MTP-off 点和 A4F2 容量项，全部不生成或比较
-    golden；MTP N1/N2/N3 后移到 dSpark 组合阶段；
+19. A5 环境安装、官方 `config.json` 恢复、no-AFD DP4/MTP-off、A4F4 eager/U1 两轮和
+    A4F4 Graph/U1 单轮已完成。streamed eager/U2 的 batch 8 在全 rank 进入双 stage 后
+    约 300 秒超时，`507035` 为 teardown 次生错误。精确目标栈的本机 A3 已验证两个 serial
+    控制项可执行；A5 当前只执行保持 layer-major U2 的 eager/U2 serial 与 Graph/U2 serial；
+    根据 A5 结果决定多流修复或 U2 协议定位，再恢复
+    另外两个必须 AFD MTP-off 点和 A4F2 容量项。全部不生成或比较 golden；MTP N1/N2/N3
+    后移到 dSpark 组合阶段；
 20. 每次阶段完成都保存日志、原始数据、解析结果和清理证据。
 
 ## 13. 一句话路线
@@ -1754,9 +1772,11 @@ Graph/U1/U2、单 token MTP M0-M7、双向整数比例组件与 TP2/M8 历史基
 通过。M9 的
 TP1/MTP off/Graph U2 已完成双 A3 三拓扑运行和 Profile 观测，但动态路由、优雅退出和
   路径匹配 F1 未冻结。第一阶段 A3 功能标签已经完成；A5 的官方原始权重 DP4
-  no-AFD/MTP-off 功能 smoke 已通过，当前下一步是用 shutdown payload 显式交接与请求归零门禁复跑 A4F4
-  eager/U1，再执行 A4F4 Graph/U2、A2F4 Graph/U2 和 A4F2 Graph/U2 容量项，均关闭
-  MTP 且不做逐 token 比对。MTP
+  no-AFD/MTP-off、A4F4 eager/U1 和 Graph/U1 已通过；streamed eager/U2 在 batch 8
+  全 rank 双 stage 后超时。两个 serial 控制项已在精确目标栈的本机 A3 A8F8 通过；
+  当前下一步是在 A5 执行 eager/U2 serial 和 Graph/U2 serial 对照，
+  再恢复 A4F4 Graph/U2、A2F4 Graph/U2 和 A4F2 Graph/U2 容量项，均关闭 MTP 且不做
+  逐 token 比对。MTP
 N1/N2/N3 后移到 dSpark 组合阶段。完整 A8F4
 留给至少 12 张可用 NPU 且容量足够的环境。A5 功能闭环后，第二阶段再做 U3 和正式性能
 收益；TP/SP/CP/DCP/PP、TP3、非等量 TP2 和 TP2 最大 Graph+MTP 不作为第一阶段门禁。

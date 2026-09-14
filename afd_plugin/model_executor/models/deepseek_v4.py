@@ -12,6 +12,7 @@ import torch
 import torch.nn as nn
 from vllm.config import VllmConfig
 from vllm.forward_context import get_forward_context, override_forward_context
+from vllm.logger import init_logger
 from vllm_ascend.models import deepseek_v4 as native
 from vllm_ascend.models import deepseek_v4_mtp as native_mtp
 
@@ -24,6 +25,8 @@ from afd_plugin.model_executor.models.deepseek_v2 import (
 _ATTENTION_ROLE = frozenset(("attention",))
 _FFN_ROLE = frozenset(("ffn",))
 _NO_ROLE = frozenset()
+
+logger = init_logger(__name__)
 
 
 def _checkpoint_weight_roles(name: str) -> frozenset[str]:
@@ -637,6 +640,7 @@ class AFDDeepseekV4Model(native.DeepseekV4Model):
                 self._forward_ubatches_eager_pipeline(
                     ubatch_metadata=ubatch_metadata,
                     stage_contexts=stage_contexts,
+                    connector=connector,
                     wait_for_receive=wait_for_receive,
                     hidden_ubatches=hidden_ubatches,
                     pending_layers=pending_layers,
@@ -687,6 +691,7 @@ class AFDDeepseekV4Model(native.DeepseekV4Model):
         *,
         ubatch_metadata: list[Any],
         stage_contexts: list[Any],
+        connector: Any,
         wait_for_receive: Any,
         hidden_ubatches: list[torch.Tensor],
         pending_layers: list[AFDDeepseekV4DecoderLayer | None],
@@ -696,9 +701,19 @@ class AFDDeepseekV4Model(native.DeepseekV4Model):
         aux_hidden_ubatches: list[list[torch.Tensor]],
     ) -> None:
         llama_4_scaling = None
-        for layer_offset, layer in enumerate(
-            islice(self.layers, self.start_layer, self.end_layer)
-        ):
+        layers = list(islice(self.layers, self.start_layer, self.end_layer))
+        stage_diagnostics = bool(getattr(connector, "stage_diagnostics_enabled", False))
+
+        def pipeline_mode() -> str:
+            is_active = getattr(
+                connector,
+                "_attention_stream_pipeline_active",
+                None,
+            )
+            return "streamed" if callable(is_active) and is_active() else "serial"
+
+        diagnostic_layers = {layers[0].layer_idx, layers[-1].layer_idx}
+        for layer_offset, layer in enumerate(layers):
             for stage_idx, (item, forward_context) in enumerate(
                 zip(ubatch_metadata, stage_contexts, strict=True)
             ):
@@ -715,6 +730,14 @@ class AFDDeepseekV4Model(native.DeepseekV4Model):
                             pending_continuations,
                             aux_hidden_ubatches,
                         )
+                    if stage_diagnostics and layer.layer_idx in diagnostic_layers:
+                        logger.warning(
+                            "AFD NPU Attention U2 stage progress: "
+                            "event=exchange_begin mode=%s layer=%s stage=%s",
+                            pipeline_mode(),
+                            layer.layer_idx,
+                            stage_idx,
+                        )
                     hidden_states, continuation = layer.forward_attention_to_remote_ffn(
                         item.positions,
                         hidden_ubatches[stage_idx],
@@ -724,9 +747,24 @@ class AFDDeepseekV4Model(native.DeepseekV4Model):
                     hidden_ubatches[stage_idx] = hidden_states
                     pending_layers[stage_idx] = layer
                     pending_continuations[stage_idx] = continuation
+                    if stage_diagnostics and layer.layer_idx in diagnostic_layers:
+                        logger.warning(
+                            "AFD NPU Attention U2 stage progress: "
+                            "event=exchange_returned mode=%s layer=%s stage=%s",
+                            pipeline_mode(),
+                            layer.layer_idx,
+                            stage_idx,
+                        )
 
         for stage_idx, forward_context in enumerate(stage_contexts):
             with override_forward_context(forward_context):
+                if stage_diagnostics:
+                    logger.warning(
+                        "AFD NPU Attention U2 stage progress: "
+                        "event=finalize_begin mode=%s stage=%s",
+                        pipeline_mode(),
+                        stage_idx,
+                    )
                 wait_for_receive(
                     stage_idx=stage_idx,
                     tensor=hidden_ubatches[stage_idx],
@@ -739,6 +777,13 @@ class AFDDeepseekV4Model(native.DeepseekV4Model):
                     aux_hidden_ubatches,
                     final=True,
                 )
+                if stage_diagnostics:
+                    logger.warning(
+                        "AFD NPU Attention U2 stage progress: "
+                        "event=finalize_complete mode=%s stage=%s",
+                        pipeline_mode(),
+                        stage_idx,
+                    )
 
     def _forward_ubatches_graph_compute_pipeline(
         self,

@@ -1195,10 +1195,12 @@ def test_npu_attention_runner_installs_mla_graph_wrapper(
 
 @pytest.mark.parametrize("has_full_cudagraphs", [False, True])
 @pytest.mark.parametrize("requires_mtp", [False, True])
+@pytest.mark.parametrize("eager_stream_overlap", [False, True])
 def test_npu_attention_runner_enables_p2p_layer_major_eager_u2_warmup(
     monkeypatch,
     has_full_cudagraphs,
     requires_mtp,
+    eager_stream_overlap,
 ):
     _require_npu_runtime()
     from afd_plugin.v1.worker.npu import attention_model_runner
@@ -1221,6 +1223,7 @@ def test_npu_attention_runner_enables_p2p_layer_major_eager_u2_warmup(
     )
     connector = object.__new__(attention_model_runner.P2pHcclAFDConnector)
     connector.stream_overlap_enabled = True
+    connector.eager_u2_stream_overlap_enabled = eager_stream_overlap
     connector.requires_mtp = requires_mtp
     runner = object.__new__(attention_model_runner.AFDNPUAttentionModelRunner)
     runner.model = LayerMajorModel()
@@ -2707,16 +2710,19 @@ def test_npu_ffn_runner_computes_stage_token_layout_once_per_step(monkeypatch):
         "graph_overlap_enabled",
         "graph_recv_enabled",
         "graph_cross_layer_enabled",
+        "eager_overlap_enabled",
     ),
     [
-        (False, False, True, True, True),
-        (True, True, True, True, True),
-        (True, True, True, True, False),
-        (True, True, True, False, False),
-        (True, True, False, True, True),
+        (False, False, True, True, True, True),
+        (False, False, True, True, True, False),
+        (True, True, True, True, True, True),
+        (True, True, True, True, False, True),
+        (True, True, True, False, False, True),
+        (True, True, False, True, True, True),
     ],
     ids=[
-        "eager",
+        "eager-streamed",
+        "eager-serial",
         "graph-full-pipeline",
         "graph-recv-layer-barrier",
         "graph-parent-recv-layer-barrier",
@@ -2730,6 +2736,7 @@ def test_npu_ffn_runner_stream_pipeline_orders_each_layer_and_stage(
     graph_overlap_enabled,
     graph_recv_enabled,
     graph_cross_layer_enabled,
+    eager_overlap_enabled,
 ):
     _require_npu_runtime()
     from vllm.config import CUDAGraphMode
@@ -2767,7 +2774,7 @@ def test_npu_ffn_runner_stream_pipeline_orders_each_layer_and_stage(
         stream_overlap_enabled = True
 
         def recv_attn_output(self, *, ubatch_idx, **kwargs):
-            if is_graph_capturing and active_stream[0] is not recv_stream:
+            if active_stream[0] is not recv_stream:
                 calls.append(
                     (
                         "recv",
@@ -2779,7 +2786,7 @@ def test_npu_ffn_runner_stream_pipeline_orders_each_layer_and_stage(
             return super().recv_attn_output(ubatch_idx=ubatch_idx, **kwargs)
 
         def send_ffn_output(self, ffn_output, context, *, ubatch_idx, **kwargs):
-            if is_graph_capturing:
+            if active_stream[0] is not send_stream:
                 calls.append(
                     (
                         "send",
@@ -2824,10 +2831,9 @@ def test_npu_ffn_runner_stream_pipeline_orders_each_layer_and_stage(
         ):
             with use_stream(send_stream):
                 wait_event.wait(send_stream)
-                if not is_graph_capturing:
-                    calls.append(
-                        ("send", context.metadata.layer_idx, ubatch_idx, send_stream),
-                    )
+                calls.append(
+                    ("send", context.metadata.layer_idx, ubatch_idx, send_stream),
+                )
                 self.send_ffn_output(
                     ffn_output,
                     context,
@@ -2859,6 +2865,7 @@ def test_npu_ffn_runner_stream_pipeline_orders_each_layer_and_stage(
         num_ubatches=2,
     )
     runner.connector = StreamConnector(attn_size=2, ffn_size=2)
+    runner.connector.eager_u2_stream_overlap_enabled = eager_overlap_enabled
     runner.connector.graph_u2_compute_overlap_enabled = graph_overlap_enabled
     runner.connector.graph_u2_ffn_recv_stream_enabled = graph_recv_enabled
     runner.connector.graph_u2_ffn_cross_layer_enabled = graph_cross_layer_enabled
@@ -2905,6 +2912,7 @@ def test_npu_ffn_runner_stream_pipeline_orders_each_layer_and_stage(
         aclgraph_runtime_mode=CUDAGraphMode.FULL if graph_runtime else None,
     )
 
+    eager_stream_overlap = not is_graph_capturing and eager_overlap_enabled
     for layer_idx in range(2):
         for stage_idx in range(2):
             recv_marker = (
@@ -2913,14 +2921,19 @@ def test_npu_ffn_runner_stream_pipeline_orders_each_layer_and_stage(
                 stage_idx,
                 (
                     recv_stream
-                    if not is_graph_capturing
-                    or (graph_overlap_enabled and graph_recv_enabled)
+                    if eager_stream_overlap
+                    or (
+                        is_graph_capturing
+                        and graph_overlap_enabled
+                        and graph_recv_enabled
+                    )
                     else default_stream
                 ),
             )
             expected_compute_stream = (
                 compute_stream
-                if not is_graph_capturing or graph_overlap_enabled
+                if eager_stream_overlap
+                or (is_graph_capturing and graph_overlap_enabled)
                 else None
             )
             compute_marker = (
@@ -2933,12 +2946,18 @@ def test_npu_ffn_runner_stream_pipeline_orders_each_layer_and_stage(
                 "send",
                 layer_idx,
                 stage_idx,
-                send_stream if graph_overlap_enabled else default_stream,
+                (
+                    send_stream
+                    if eager_stream_overlap
+                    or (is_graph_capturing and graph_overlap_enabled)
+                    else default_stream
+                ),
             )
             assert calls.index(recv_marker) < calls.index(compute_marker)
             assert calls.index(compute_marker) < calls.index(send_marker)
             if layer_idx > 0 and (
-                not is_graph_capturing or (graph_overlap_enabled and graph_recv_enabled)
+                eager_stream_overlap
+                or (is_graph_capturing and graph_overlap_enabled and graph_recv_enabled)
             ):
                 previous_send_wait = (
                     f"send-{layer_idx - 1}-{stage_idx}",
@@ -3014,8 +3033,12 @@ def test_npu_ffn_runner_stream_pipeline_orders_each_layer_and_stage(
                         ("recv", layer_idx, 1, recv_stream_for_layer)
                     ) < calls.index((f"send-{layer_idx}-0", "wait", default_stream))
     else:
-        assert ("send-1-0", "wait", default_stream) in calls
-        assert ("send-1-1", "wait", default_stream) in calls
+        if eager_overlap_enabled:
+            assert ("send-1-0", "wait", default_stream) in calls
+            assert ("send-1-1", "wait", default_stream) in calls
+        else:
+            assert ("send-1-0", "wait", default_stream) not in calls
+            assert ("send-1-1", "wait", default_stream) not in calls
 
 
 def test_dsv4_ffn_eager_receives_ids_and_hidden_stage_by_stage(monkeypatch):

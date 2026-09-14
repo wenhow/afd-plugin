@@ -99,8 +99,14 @@ bash tools/dsv4/run_phase1_a5_matrix.sh list-diagnostic
 ```
 
 `git status --short` 必须为空；`list-smoke` 必须输出 4 个一期 MTP-off AFD case；
-`list-diagnostic` 必须只输出 `a4f4_graph_u1_mtp_off` 和
-`a4f4_eager_u2_mtp_off`，两项不进入正式 smoke 清单。
+`list-diagnostic` 必须输出以下 4 项，且都不进入正式 smoke 清单：
+
+```text
+a4f4_graph_u1_mtp_off
+a4f4_eager_u2_mtp_off
+a4f4_eager_u2_serial_mtp_off
+a4f4_graph_u2_serial_mtp_off
+```
 
 ## 4. 运行前预检
 
@@ -167,7 +173,7 @@ bash tools/dsv4/run_phase1_a5_matrix.sh smoke \
 
 矩阵固定 `VLLM_SHUTDOWN_TIMEOUT_SECONDS=20`。`0` 在当前 vLLM 中表示立即 abort；但 20 秒本身不能修复角色串行停机：若脚本等待 Attention 完全退出后才通知 FFN，Attention 超时强杀 peer 时，仍在 `torch.npu.synchronize()` 的 FFN 会报 `507035`。提交 `8325c18` 改为同时请求两侧停机后，FFN 的错误已消失，但两轮 Attention 都在进入 drain 时执行了最后一次 DP dummy batch；此时 FFN 已关闭 Gloo，Attention 因 `Connection closed by peer` 进入 EngineCore fatal，并在 connector close 时出现 `507035`。两次请求归零门禁均通过，因此该结果不是取消请求残留。
 
-新脚本使用 Attention shutdown payload 作为显式交接：先只请求 Attention 优雅停机，保持 FFN 存活；等 `ffn.log` 中全部 FFN DP rank 都出现 `AFD NPU FFN received Attention shutdown payload` 后，再请求 FFN 停机并等待两侧退出。A4F4 的预期 receipt 数为 4；15 秒内未收齐时仍会停止 FFN 做清理，但 `ffn_handoff_gate.passed=false`，本轮失败。connector 释放保持幂等，`507035` 也直接列入 fatal marker，不做日志白名单。
+新脚本使用 Attention shutdown payload 作为显式交接：先只请求 Attention 优雅停机，保持 FFN 存活；等 `ffn.log` 中全部 FFN DP rank 都出现 `AFD NPU FFN received Attention shutdown payload` 后，再请求 FFN 停机并等待两侧退出。A4F4 的预期 receipt 数为 4。handoff 等待预算为 `max(15, VLLM_SHUTDOWN_TIMEOUT_SECONDS + 15)` 秒；本矩阵固定 drain 20 秒，因此实际等待上限为 35 秒。此前固定 15 秒短于 Attention 的 drain 契约，会在最后一次 DP dummy batch 前误停 FFN。预算内未收齐时仍会停止 FFN 做清理，但 `ffn_handoff_gate.passed=false`，本轮失败。connector 释放保持幂等，`507035` 也直接列入 fatal marker，不做日志白名单。
 
 取消请求改为流式请求。`curl=28` 后脚本立即从 `/metrics` 检查`vllm:num_requests_running` 和 `vllm:num_requests_waiting`，两项连续两次为 0 才执行恢复请求；恢复请求完成后再执行一次相同检查，然后才开始停服。这能区分“客户端已超时”与“服务端请求确实已取消并归零”。`507035` 仍保留为 fatal，不做日志白名单。
 
@@ -195,40 +201,69 @@ npu_after_cleanup.txt
 
 `cancellation.exitcode` 的预期值为 28，两个 quiescence gate 必须分别为`passed=true`、`running=0`、`waiting=0`、`stable_samples=2`，随后 `recovery.json`必须通过。`cycle_summary.json` 中 `shutdown.coordinated` 和`shutdown.ffn_handoff_gate.passed` 必须为 `true`，handoff 的 `observed` 必须等于`expected`；`order` 必须为`attention_request, ffn_handoff_wait, ffn_request, attention_wait, ffn_wait`。Graph/U2 case 的`ubatch_gate.observed_two_stages` 必须为 `true`。
 
-失败证据目录不会被覆盖。已经通过的 no-AFD 和 A4F4 eager/U1 不需要重跑。当前先暂停重复 Graph/U2 正式门禁，升级新包后执行两个单轮隔离点：
+失败证据目录不会被覆盖。已经通过的 no-AFD 和 A4F4 eager/U1 不需要重跑。
+2026-09-14 的 A5 隔离结果已经证明：
+
+- A4F4 Graph/U1 的请求、恢复、日志、停机交接和 NPU 清理通过；
+- A4F4 eager/U2 的 batch 1（U1 fallback）通过，batch 8 的全部 Attention rank 均观测到
+  `stage_count=2`，但请求约 300 秒无输出后由 EngineCore worker response timeout 终止；
+- eager/U2 超时前没有 `507014`、`507034`、`507035` 或 Python 首异常；FFN 的
+  `507035` 出现在 API 500 和 teardown 之后，是终止仍在执行的 HCCL/算子产生的次生错误。
+
+因此故障已经从“Graph 与 U2 组合”进一步收敛为 **A5 U2 数据面**，但尚不能区分 U2
+消息协议与多 stream/event 执行。正式 Graph/U2 门禁继续暂停；升级新包后只执行两个
+serial 单轮对照：
 
 ```bash
 bash tools/dsv4/run_phase1_a5_matrix.sh list-diagnostic
 bash tools/dsv4/run_phase1_a5_matrix.sh preflight-diagnostic
 
-export PHASE1_OUTPUT_BASE="$A5_VALIDATION_ROOT/afd-isolation-r1"
+export PHASE1_OUTPUT_BASE="$A5_VALIDATION_ROOT/afd-isolation-r3"
 set +e
 bash tools/dsv4/run_phase1_a5_matrix.sh diagnostic \
-  a4f4_graph_u1_mtp_off \
-  a4f4_eager_u2_mtp_off \
-  2>&1 | tee "$A5_VALIDATION_ROOT/afd-isolation-r1.console.log"
+  a4f4_eager_u2_serial_mtp_off \
+  a4f4_graph_u2_serial_mtp_off \
+  2>&1 | tee "$A5_VALIDATION_ROOT/afd-isolation-r3.console.log"
 export A5_DIAGNOSTIC_EXITCODE=${PIPESTATUS[0]}
 set -e
 printf 'A5_DIAGNOSTIC_EXITCODE=%s\n' "$A5_DIAGNOSTIC_EXITCODE" \
-  | tee "$A5_VALIDATION_ROOT/afd-isolation-r1.exitcode"
+  | tee "$A5_VALIDATION_ROOT/afd-isolation-r3.exitcode"
 ```
 
-`diagnostic` 不属于一期正式门禁，固定一轮、MTP-off、batch 1/8/32；第一个失败后仍继续第二个。CANN 进程日志自动定向到`afd-isolation-r1/diagnostic/ascend-process-log`。两个 runtime 均必须为`async_scheduling=off`。按下列方式判读：
+`diagnostic` 不属于一期正式门禁，固定一轮、MTP-off、batch 1/8/32；第一个失败后仍继续第二个。CANN 进程日志自动定向到`afd-isolation-r3/diagnostic/ascend-process-log`。两个 case 都保留 U2 和同一个 layer-major 调度，只分别关闭 eager 通信流重叠或 Graph 计算流重叠；不会退回旧的双线程 U2。两个 `runtime.json` 均必须为`async_scheduling=off`、`stage_diagnostics=on`，并分别满足：
 
-| Graph/U1 | eager/U2 | 结论 |
+| case | 必须记录的开关 |
+|---|---|
+| `a4f4_eager_u2_serial_mtp_off` | `eager_u2_stream_overlap=off` |
+| `a4f4_graph_u2_serial_mtp_off` | `graph_u2_compute_overlap=off` |
+
+逐 stage 日志只在这两个诊断点启用，记录 Attention 首层/末层 exchange 和 FFN
+recv/send/device sync 的开始与返回。按下列方式判读：
+
+| eager/U2 serial | Graph/U2 serial | 结论 |
 |---|---|---|
-| 失败 | 任意 | A5 官方 FP8 的 AFD Graph capture 路径有问题 |
-| 通过 | 失败 | A5 AFD U2 数据面有问题 |
-| 通过 | 通过 | 单项均可用，故障收敛到 A5 AFD Graph 与 U2 的组合 |
+| 失败 | 不执行或失败 | 不依赖多流的 U2 协议/算子路径仍有问题；根据最后一条 stage marker 继续定位 |
+| 通过 | 失败 | eager U2 协议可用，问题收敛到 A5 Graph/U2 capture/replay 基线 |
+| 通过 | 通过 | U2 协议可用，故障收敛到 A5 的 HCCL/计算多 stream-event 执行 |
+| 失败 | 通过 | 结果矛盾，先核对两个 runtime 开关和日志，不能恢复正式门禁 |
+
+交付前已在本机 A3 用指定源码栈 vLLM `0fc695fc`、vLLM-Ascend `3da28f941`、
+CANN 9.0.0 做 A8F8/MTP-off/batch 1、8 单轮控制验证：eager/U2 serial 与
+Graph/U2 serial 的功能、取消恢复、真实 two-stage、fatal、shutdown receipt 和 NPU
+清理均通过。eager 轮 8/8 receipt 用时 15.756 秒，验证了 handoff 上限必须覆盖 20 秒
+drain；Graph 轮 8/8 receipt 用时 0.403 秒。两个 `validation_summary.json` 的 SHA256
+分别为 `cce13a5aa77d255f4a7c8e8607a4174966c6c1f8eae1bc126f7e745e7fd1f2ba` 和
+`a23ec4f4e53646f1e73ff39f1ce00a9d760347b2c584e25f74a777b342ad5c4a`。这只证明
+诊断开关、U2 串行路径和验证工具在精确开发栈可执行，不能替代 A5 的 A4F4 结论。
 
 无论命令返回 0 或 1，都回传整个诊断目录和 console log：
 
 ```bash
-tar -czf "$A5_VALIDATION_ROOT/afd-isolation-r1.tar.gz" \
+tar -czf "$A5_VALIDATION_ROOT/afd-isolation-r3.tar.gz" \
   -C "$A5_VALIDATION_ROOT" \
-  afd-isolation-r1 afd-isolation-r1.console.log afd-isolation-r1.exitcode
-sha256sum "$A5_VALIDATION_ROOT/afd-isolation-r1.tar.gz" \
-  >"$A5_VALIDATION_ROOT/afd-isolation-r1.tar.gz.sha256"
+  afd-isolation-r3 afd-isolation-r3.console.log afd-isolation-r3.exitcode
+sha256sum "$A5_VALIDATION_ROOT/afd-isolation-r3.tar.gz" \
+  >"$A5_VALIDATION_ROOT/afd-isolation-r3.tar.gz.sha256"
 ```
 
 收到诊断证据并完成对应修复前，不要继续 A2F4 Graph/U2 或 A4F2 容量项。

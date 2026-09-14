@@ -28,7 +28,8 @@ CANCELLATION_MAX_TOKENS = 512
 REQUEST_QUIESCENCE_TIMEOUT_SECONDS = 30
 REQUEST_QUIESCENCE_POLL_SECONDS = 0.5
 REQUEST_QUIESCENCE_STABLE_SAMPLES = 2
-SHUTDOWN_HANDOFF_TIMEOUT_SECONDS = 15
+SHUTDOWN_HANDOFF_MIN_TIMEOUT_SECONDS = 15
+SHUTDOWN_HANDOFF_GRACE_SECONDS = 15
 SHUTDOWN_HANDOFF_POLL_SECONDS = 0.1
 FFN_SHUTDOWN_RECEIPT_MARKER = "AFD NPU FFN received Attention shutdown payload"
 FATAL_LOG_MARKERS = (
@@ -445,6 +446,19 @@ def _wait_for_log_occurrences(
     }
 
 
+def _shutdown_handoff_timeout_seconds() -> int:
+    """Keep FFN alive for Attention's configured drain plus teardown."""
+    raw_timeout = os.environ.get("VLLM_SHUTDOWN_TIMEOUT_SECONDS", "0")
+    try:
+        drain_timeout = max(int(raw_timeout), 0)
+    except ValueError:
+        drain_timeout = 0
+    return max(
+        SHUTDOWN_HANDOFF_MIN_TIMEOUT_SECONDS,
+        drain_timeout + SHUTDOWN_HANDOFF_GRACE_SECONDS,
+    )
+
+
 def _shutdown_roles(
     processes: dict[str, subprocess.Popen[bytes]],
     *,
@@ -473,7 +487,7 @@ def _shutdown_roles(
             log_path=ffn_log_path,
             marker=FFN_SHUTDOWN_RECEIPT_MARKER,
             expected=expected_ffn_shutdown_receipts,
-            timeout=SHUTDOWN_HANDOFF_TIMEOUT_SECONDS,
+            timeout=_shutdown_handoff_timeout_seconds(),
         )
     if ffn is not None:
         _request_process_stop(ffn, signal_group=False)
@@ -687,6 +701,9 @@ def _runtime_manifest(
     dbo_prefill_token_threshold: int,
     profile: bool,
     async_scheduling: str = "auto",
+    eager_u2_stream_overlap: str = "on",
+    graph_u2_compute_overlap: str = "on",
+    stage_diagnostics: str = "off",
     enable_mtp: bool = False,
     mtp_num_speculative_tokens: int = 1,
     mtp_draft_execution: str = "eager",
@@ -758,6 +775,9 @@ def _runtime_manifest(
         "dbo_decode_token_threshold": dbo_decode_token_threshold,
         "dbo_prefill_token_threshold": dbo_prefill_token_threshold,
         "async_scheduling": async_scheduling,
+        "eager_u2_stream_overlap": eager_u2_stream_overlap,
+        "graph_u2_compute_overlap": graph_u2_compute_overlap,
+        "stage_diagnostics": stage_diagnostics,
         "enable_mtp": enable_mtp,
         "mtp_num_speculative_tokens": mtp_num_speculative_tokens,
         "mtp_draft_execution": mtp_draft_execution if enable_mtp else None,
@@ -904,8 +924,25 @@ def _set_mtp_environment(
     )
 
 
-def _set_execution_environment(*, async_scheduling: str) -> None:
-    os.environ["AFD_ASYNC_SCHEDULING"] = async_scheduling
+def _set_execution_environment(
+    *,
+    async_scheduling: str,
+    eager_u2_stream_overlap: str = "on",
+    graph_u2_compute_overlap: str = "on",
+    stage_diagnostics: str = "off",
+) -> None:
+    os.environ.update(
+        {
+            "AFD_ASYNC_SCHEDULING": async_scheduling,
+            "AFD_HCCL_EAGER_U2_STREAM_OVERLAP": (
+                "1" if eager_u2_stream_overlap == "on" else "0"
+            ),
+            "AFD_HCCL_GRAPH_U2_COMPUTE_OVERLAP": (
+                "1" if graph_u2_compute_overlap == "on" else "0"
+            ),
+            "AFD_HCCL_STAGE_DIAGNOSTICS": ("1" if stage_diagnostics == "on" else "0"),
+        }
+    )
 
 
 def _validate_execution_topology(
@@ -994,6 +1031,24 @@ def main() -> None:
         choices=("auto", "on", "off"),
         default=os.environ.get("AFD_ASYNC_SCHEDULING", "auto"),
     )
+    parser.add_argument(
+        "--eager-u2-stream-overlap",
+        choices=("on", "off"),
+        default="on",
+        help="Toggle eager U2 HCCL communication streams without disabling U2.",
+    )
+    parser.add_argument(
+        "--graph-u2-compute-overlap",
+        choices=("on", "off"),
+        default="on",
+        help="Toggle Graph U2 side-compute streams without disabling U2.",
+    )
+    parser.add_argument(
+        "--stage-diagnostics",
+        choices=("on", "off"),
+        default="off",
+        help="Emit first/last-layer U2 stage progress markers.",
+    )
     parser.add_argument("--dbo-decode-token-threshold", type=int, default=2)
     parser.add_argument("--dbo-prefill-token-threshold", type=int, default=12)
     parser.add_argument(
@@ -1062,7 +1117,12 @@ def main() -> None:
     except ValueError as exc:
         parser.error(str(exc))
     _set_topology_environment(topology)
-    _set_execution_environment(async_scheduling=args.async_scheduling)
+    _set_execution_environment(
+        async_scheduling=args.async_scheduling,
+        eager_u2_stream_overlap=args.eager_u2_stream_overlap,
+        graph_u2_compute_overlap=args.graph_u2_compute_overlap,
+        stage_diagnostics=args.stage_diagnostics,
+    )
     _set_mtp_environment(
         enable_mtp=args.enable_mtp,
         mtp_num_speculative_tokens=args.mtp_num_speculative_tokens,
@@ -1083,6 +1143,9 @@ def main() -> None:
                 dbo_prefill_token_threshold=args.dbo_prefill_token_threshold,
                 profile=args.profile,
                 async_scheduling=args.async_scheduling,
+                eager_u2_stream_overlap=args.eager_u2_stream_overlap,
+                graph_u2_compute_overlap=args.graph_u2_compute_overlap,
+                stage_diagnostics=args.stage_diagnostics,
                 enable_mtp=args.enable_mtp,
                 mtp_num_speculative_tokens=args.mtp_num_speculative_tokens,
                 mtp_draft_execution=args.mtp_draft_execution,
@@ -1284,6 +1347,9 @@ def main() -> None:
             "dbo_decode_token_threshold": args.dbo_decode_token_threshold,
             "dbo_prefill_token_threshold": args.dbo_prefill_token_threshold,
             "async_scheduling": args.async_scheduling,
+            "eager_u2_stream_overlap": args.eager_u2_stream_overlap,
+            "graph_u2_compute_overlap": args.graph_u2_compute_overlap,
+            "stage_diagnostics": args.stage_diagnostics,
             "profile": args.profile,
             "enable_mtp": args.enable_mtp,
             "mtp_num_speculative_tokens": args.mtp_num_speculative_tokens,

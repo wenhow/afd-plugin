@@ -521,9 +521,17 @@ def test_dsv4_execution_environment_pins_scheduler(monkeypatch):
     runner = _load_runner()
     monkeypatch.setenv("AFD_ASYNC_SCHEDULING", "auto")
 
-    runner._set_execution_environment(async_scheduling="off")
+    runner._set_execution_environment(
+        async_scheduling="off",
+        eager_u2_stream_overlap="off",
+        graph_u2_compute_overlap="off",
+        stage_diagnostics="on",
+    )
 
     assert runner.os.environ["AFD_ASYNC_SCHEDULING"] == "off"
+    assert runner.os.environ["AFD_HCCL_EAGER_U2_STREAM_OVERLAP"] == "0"
+    assert runner.os.environ["AFD_HCCL_GRAPH_U2_COMPUTE_OVERLAP"] == "0"
+    assert runner.os.environ["AFD_HCCL_STAGE_DIAGNOSTICS"] == "1"
 
 
 def test_dsv4_hccl_tp2_topology_and_environment(monkeypatch):
@@ -1255,6 +1263,9 @@ def test_dsv4_runtime_manifest_records_eager_u2(monkeypatch):
         dbo_decode_token_threshold=2,
         dbo_prefill_token_threshold=12,
         profile=False,
+        eager_u2_stream_overlap="off",
+        graph_u2_compute_overlap="off",
+        stage_diagnostics="on",
     )
 
     assert manifest["execution_mode"] == "eager"
@@ -1263,6 +1274,9 @@ def test_dsv4_runtime_manifest_records_eager_u2(monkeypatch):
     assert manifest["dbo_decode_token_threshold"] == 2
     assert manifest["dbo_prefill_token_threshold"] == 12
     assert manifest["async_scheduling"] == "auto"
+    assert manifest["eager_u2_stream_overlap"] == "off"
+    assert manifest["graph_u2_compute_overlap"] == "off"
+    assert manifest["stage_diagnostics"] == "on"
     assert manifest["afd_plugin_worktree"]["tracked_dirty"] is False
 
 
@@ -1334,7 +1348,7 @@ def test_dsv4_shutdown_gate_requires_both_roles_to_exit_cleanly(monkeypatch):
                 "log_path": Path("ffn.log"),
                 "marker": runner.FFN_SHUTDOWN_RECEIPT_MARKER,
                 "expected": 4,
-                "timeout": runner.SHUTDOWN_HANDOFF_TIMEOUT_SECONDS,
+                "timeout": runner.SHUTDOWN_HANDOFF_MIN_TIMEOUT_SECONDS,
             },
         ),
         ("request", "ffn", {"signal_group": False}),
@@ -1347,13 +1361,26 @@ def test_dsv4_shutdown_gate_requires_both_roles_to_exit_cleanly(monkeypatch):
                 "log_path": Path("ffn.log"),
                 "marker": runner.FFN_SHUTDOWN_RECEIPT_MARKER,
                 "expected": 4,
-                "timeout": runner.SHUTDOWN_HANDOFF_TIMEOUT_SECONDS,
+                "timeout": runner.SHUTDOWN_HANDOFF_MIN_TIMEOUT_SECONDS,
             },
         ),
         ("request", "ffn", {"signal_group": False}),
         ("wait", "attention", {}),
         ("wait", "ffn", {}),
     ]
+
+
+def test_dsv4_shutdown_handoff_covers_attention_drain(monkeypatch):
+    runner = _load_runner()
+
+    monkeypatch.setenv("VLLM_SHUTDOWN_TIMEOUT_SECONDS", "20")
+    assert runner._shutdown_handoff_timeout_seconds() == 35
+
+    monkeypatch.setenv("VLLM_SHUTDOWN_TIMEOUT_SECONDS", "0")
+    assert runner._shutdown_handoff_timeout_seconds() == 15
+
+    monkeypatch.setenv("VLLM_SHUTDOWN_TIMEOUT_SECONDS", "invalid")
+    assert runner._shutdown_handoff_timeout_seconds() == 15
 
 
 def test_dsv4_shutdown_handoff_counts_all_ffn_receipts(tmp_path):

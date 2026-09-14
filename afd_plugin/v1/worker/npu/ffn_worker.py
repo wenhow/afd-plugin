@@ -186,6 +186,22 @@ class AFDNPUFFNWorker(NPUWorker):
             dp_metadata_list = payload.dp_metadata_list
             is_attn_graph_capturing = payload.is_graph_capturing
             is_warmup = payload.is_warmup
+            stage_diagnostics = bool(
+                len(dp_metadata_list) > 1
+                and getattr(
+                    self.model_runner.connector,
+                    "stage_diagnostics_enabled",
+                    False,
+                )
+            )
+            if stage_diagnostics:
+                logger.warning(
+                    "AFD NPU FFN U2 step progress: event=execute_begin "
+                    "stages=%s graph_capture=%s warmup=%s",
+                    tuple(sorted(dp_metadata_list)),
+                    is_attn_graph_capturing,
+                    is_warmup,
+                )
 
             self.model_runner.execute_ffn_step(
                 dp_metadata_list=dp_metadata_list,
@@ -193,7 +209,13 @@ class AFDNPUFFNWorker(NPUWorker):
                 is_warmup=is_warmup,
                 connector_state_prepared=True,
             )
+            if stage_diagnostics:
+                logger.warning("AFD NPU FFN U2 step progress: event=device_sync_begin")
             torch.npu.synchronize()
+            if stage_diagnostics:
+                logger.warning(
+                    "AFD NPU FFN U2 step progress: event=device_sync_complete"
+                )
 
     def profile(self, is_start: bool = True, profile_prefix: str | None = None):
         del profile_prefix

@@ -562,6 +562,11 @@ class AFDNPUFFNModelRunner(NPUModelRunner):
         )
         eager_stream_overlap = bool(
             getattr(self, "ffn_stream_overlap_enabled", False)
+            and getattr(
+                self.connector,
+                "eager_u2_stream_overlap_enabled",
+                True,
+            )
             and len(stage_ids) > 1
             and not graph_stream_overlap
             and aclgraph_runtime_mode in (None, CUDAGraphMode.NONE)
@@ -594,10 +599,32 @@ class AFDNPUFFNModelRunner(NPUModelRunner):
             graph_recv_ready_event = self.ffn_graph_recv_ready_event
             assert graph_recv_ready_event is not None
             graph_recv_ready_event.record(torch.npu.current_stream())
+        stage_diagnostics = bool(
+            len(stage_ids) > 1
+            and getattr(self.connector, "stage_diagnostics_enabled", False)
+        )
+        diagnostic_layers = (
+            {layer_indices[0], layer_indices[-1]} if layer_indices else set()
+        )
+        pipeline_mode = (
+            "graph-streamed"
+            if graph_stream_overlap
+            else "eager-streamed"
+            if eager_stream_overlap
+            else "serial"
+        )
         try:
             for layer_idx in layer_indices:
                 graph_pending_send_events: list[Any] = []
                 for stage_idx in stage_ids:
+                    if stage_diagnostics and layer_idx in diagnostic_layers:
+                        logger.warning(
+                            "AFD NPU FFN U2 stage progress: event=recv_begin "
+                            "mode=%s layer=%s stage=%s",
+                            pipeline_mode,
+                            layer_idx,
+                            stage_idx,
+                        )
                     stage_input_ids = (
                         input_ids_by_stage.get(stage_idx)
                         if input_ids_by_stage is not None and layer_idx == 0
@@ -630,6 +657,14 @@ class AFDNPUFFNModelRunner(NPUModelRunner):
                         if graph_stream_overlap:
                             recv_event = self.ffn_recv_events[(layer_idx, stage_idx)]
                             recv_event.record(torch.npu.current_stream())
+                    if stage_diagnostics and layer_idx in diagnostic_layers:
+                        logger.warning(
+                            "AFD NPU FFN U2 stage progress: event=recv_returned "
+                            "mode=%s layer=%s stage=%s",
+                            pipeline_mode,
+                            layer_idx,
+                            stage_idx,
+                        )
                     if layer_idx == 0 and num_hash_layers > 0:
                         if payload.input_ids is None:
                             raise RuntimeError(
@@ -704,6 +739,14 @@ class AFDNPUFFNModelRunner(NPUModelRunner):
                                 context,
                                 stage_idx=stage_idx,
                             )
+                    if stage_diagnostics and layer_idx in diagnostic_layers:
+                        logger.warning(
+                            "AFD NPU FFN U2 stage progress: event=send_returned "
+                            "mode=%s layer=%s stage=%s",
+                            pipeline_mode,
+                            layer_idx,
+                            stage_idx,
+                        )
                 if graph_pending_send_events and not graph_cross_layer_overlap:
                     current_stream = torch.npu.current_stream()
                     for send_event in graph_pending_send_events:

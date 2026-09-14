@@ -404,6 +404,8 @@ def test_a5_matrix_lists_the_deferred_exact_cases_explicitly():
         ("a4f4_eager_u1_mtp_off", "0,1,2,3", "4,5,6,7", "4096"),
         ("a4f4_graph_u1_mtp_off", "0,1,2,3", "4,5,6,7", "4096"),
         ("a4f4_eager_u2_mtp_off", "0,1,2,3", "4,5,6,7", "4096"),
+        ("a4f4_eager_u2_serial_mtp_off", "0,1,2,3", "4,5,6,7", "4096"),
+        ("a4f4_graph_u2_serial_mtp_off", "0,1,2,3", "4,5,6,7", "4096"),
         ("a4f4_graph_u2_mtp_off", "0,1,2,3", "4,5,6,7", "4096"),
         ("a4f4_graph_u2_n2", "0,1,2,3", "4,5,6,7", "4096"),
         ("a4f4_graph_u2_n3", "0,1,2,3", "4,5,6,7", "4096"),
@@ -495,17 +497,26 @@ def test_a5_diagnostic_matrix_is_mtp_off_and_kept_out_of_smoke():
     assert diagnostic_cases == [
         "a4f4_graph_u1_mtp_off",
         "a4f4_eager_u2_mtp_off",
+        "a4f4_eager_u2_serial_mtp_off",
+        "a4f4_graph_u2_serial_mtp_off",
     ]
     assert set(diagnostic_cases).isdisjoint(smoke_cases)
     assert "preflight-diagnostic)" in script
     assert '[[ "${phase}" == "diagnostic" ]] || break' in script
-    assert 'PHASE1_ASCEND_PROCESS_LOG_PATH:-${output_root}/ascend-process-log' in script
+    assert "PHASE1_ASCEND_PROCESS_LOG_PATH:-${output_root}/ascend-process-log" in script
     assert 'export ASCEND_PROCESS_LOG_PATH="${diagnostic_ascend_log_root}"' in script
     assert "ascend_process_log_path=%s" in script
 
     expected_modes = {
-        "a4f4_graph_u1_mtp_off": ("full-decode-only", "1"),
-        "a4f4_eager_u2_mtp_off": ("eager", "2"),
+        "a4f4_graph_u1_mtp_off": ("full-decode-only", "1", None, None),
+        "a4f4_eager_u2_mtp_off": ("eager", "2", "on", None),
+        "a4f4_eager_u2_serial_mtp_off": ("eager", "2", "off", None),
+        "a4f4_graph_u2_serial_mtp_off": (
+            "full-decode-only",
+            "2",
+            None,
+            "off",
+        ),
     }
     for case_name in diagnostic_cases:
         command = """
@@ -524,11 +535,19 @@ printf '%s\\0' "${CASE_ARGS[@]}"
             .rstrip("\0")
             .split("\0")
         )
-        execution_mode, u_batches = expected_modes[case_name]
+        execution_mode, u_batches, eager_overlap, graph_overlap = expected_modes[
+            case_name
+        ]
         assert args[args.index("--execution-mode") + 1] == execution_mode
         assert args[args.index("--u-batches") + 1] == u_batches
         assert args[args.index("--async-scheduling") + 1] == "off"
         assert "--enable-mtp" not in args
+        if eager_overlap is not None:
+            assert args[args.index("--eager-u2-stream-overlap") + 1] == eager_overlap
+        if graph_overlap is not None:
+            assert args[args.index("--graph-u2-compute-overlap") + 1] == graph_overlap
+        if u_batches == "2":
+            assert args[args.index("--stage-diagnostics") + 1] == "on"
 
 
 def test_a5_diagnostic_matrix_continues_after_first_failure(tmp_path):
@@ -597,10 +616,18 @@ printf '%s\n' "$status"
     assert captured_cases.read_text().splitlines() == [
         "a4f4_graph_u1_mtp_off",
         "a4f4_eager_u2_mtp_off",
+        "a4f4_eager_u2_serial_mtp_off",
+        "a4f4_graph_u2_serial_mtp_off",
     ]
     diagnostic_root = output_root / "diagnostic"
     assert (diagnostic_root / "a4f4_graph_u1_mtp_off.exitcode").read_text() == "1\n"
     assert (diagnostic_root / "a4f4_eager_u2_mtp_off.exitcode").read_text() == "0\n"
+    assert (
+        diagnostic_root / "a4f4_eager_u2_serial_mtp_off.exitcode"
+    ).read_text() == "0\n"
+    assert (
+        diagnostic_root / "a4f4_graph_u2_serial_mtp_off.exitcode"
+    ).read_text() == "0\n"
     assert (diagnostic_root / "ascend-process-log").is_dir()
     matrix_env = (diagnostic_root / "matrix.env").read_text()
     assert "golden_checked=0" in matrix_env

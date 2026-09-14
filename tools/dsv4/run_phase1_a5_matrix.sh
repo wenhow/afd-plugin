@@ -30,6 +30,8 @@ SMOKE_CASES=(
 DIAGNOSTIC_CASES=(
   a4f4_graph_u1_mtp_off
   a4f4_eager_u2_mtp_off
+  a4f4_eager_u2_serial_mtp_off
+  a4f4_graph_u2_serial_mtp_off
 )
 
 usage() {
@@ -60,8 +62,9 @@ Smoke is the MTP-off A5 phase-one functional gate. It runs two cold cycles,
 batch 1/8/32, cancellation recovery, U2/log/cleanup gates, and no golden
 comparison. F0/F1 retain the deferred standalone exact matrix, but are not
 part of the current A5 gate; MTP validation resumes only with dSpark.
-Diagnostic runs one cold cycle for the MTP-off A4F4 Graph/U1 and eager/U2
-isolation points. It is evidence for fault localization, not a phase-one gate.
+Diagnostic runs one cold cycle for the MTP-off A4F4 Graph/U1, streamed U2,
+and serial U2 isolation points. It is evidence for fault localization, not a
+phase-one gate.
 EOF
 }
 
@@ -296,7 +299,13 @@ case_arguments() {
       CASE_ARGS+=(--attention-devices 0,1,2,3 --ffn-devices 4,5,6,7 --ffn-max-num-batched-tokens 4096 --execution-mode full-decode-only --u-batches 1 --async-scheduling off)
       ;;
     a4f4_eager_u2_mtp_off)
-      CASE_ARGS+=(--attention-devices 0,1,2,3 --ffn-devices 4,5,6,7 --ffn-max-num-batched-tokens 4096 --execution-mode eager --u-batches 2 --async-scheduling off)
+      CASE_ARGS+=(--attention-devices 0,1,2,3 --ffn-devices 4,5,6,7 --ffn-max-num-batched-tokens 4096 --execution-mode eager --u-batches 2 --async-scheduling off --eager-u2-stream-overlap on --stage-diagnostics on)
+      ;;
+    a4f4_eager_u2_serial_mtp_off)
+      CASE_ARGS+=(--attention-devices 0,1,2,3 --ffn-devices 4,5,6,7 --ffn-max-num-batched-tokens 4096 --execution-mode eager --u-batches 2 --async-scheduling off --eager-u2-stream-overlap off --stage-diagnostics on)
+      ;;
+    a4f4_graph_u2_serial_mtp_off)
+      CASE_ARGS+=(--attention-devices 0,1,2,3 --ffn-devices 4,5,6,7 --ffn-max-num-batched-tokens 4096 --execution-mode full-decode-only --u-batches 2 --async-scheduling off --graph-u2-compute-overlap off --stage-diagnostics on)
       ;;
     a2f4_graph_u2_mtp_off)
       CASE_ARGS+=(--attention-devices 0,1 --ffn-devices 2,3,4,5 --ffn-max-num-batched-tokens 2048 --execution-mode full-decode-only --u-batches 2 --async-scheduling off)

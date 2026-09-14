@@ -232,6 +232,8 @@ class HCCLAttentionReceiveDependency:
 
 _MTP_HEADER_MAGIC = 0x4D545031
 _MTP_HEADER_PREFIX_SIZE = 4
+_EAGER_U2_STREAM_OVERLAP_ENV = "AFD_HCCL_EAGER_U2_STREAM_OVERLAP"
+_STAGE_DIAGNOSTICS_ENV = "AFD_HCCL_STAGE_DIAGNOSTICS"
 _GRAPH_U2_COMPUTE_OVERLAP_ENV = "AFD_HCCL_GRAPH_U2_COMPUTE_OVERLAP"
 _GRAPH_U2_HYBRID_DAG_ENV = "AFD_HCCL_GRAPH_U2_HYBRID_DAG"
 _GRAPH_U2_ATTENTION_THREE_STREAM_ENV = "AFD_HCCL_GRAPH_U2_ATTENTION_THREE_STREAM"
@@ -248,6 +250,14 @@ def _strict_binary_env_enabled(name: str, *, default: str = "1") -> bool:
 
 def _graph_u2_compute_overlap_enabled() -> bool:
     return _strict_binary_env_enabled(_GRAPH_U2_COMPUTE_OVERLAP_ENV)
+
+
+def _eager_u2_stream_overlap_enabled() -> bool:
+    return _strict_binary_env_enabled(_EAGER_U2_STREAM_OVERLAP_ENV)
+
+
+def _stage_diagnostics_enabled() -> bool:
+    return _strict_binary_env_enabled(_STAGE_DIAGNOSTICS_ENV, default="0")
 
 
 def _graph_u2_hybrid_dag_enabled() -> bool:
@@ -351,6 +361,10 @@ class P2pHcclAFDConnector(AFDConnectorBase):
             int(vllm_config.parallel_config.num_ubatches),
         )
         self.stream_overlap_enabled = self.num_stages > 1
+        self.eager_u2_stream_overlap_enabled = bool(
+            self.stream_overlap_enabled and _eager_u2_stream_overlap_enabled()
+        )
+        self.stage_diagnostics_enabled = _stage_diagnostics_enabled()
         self.graph_u2_compute_overlap_enabled = _graph_u2_compute_overlap_enabled()
         self.graph_u2_hybrid_dag_enabled = _graph_u2_hybrid_dag_enabled()
         self.graph_u2_attention_three_stream_enabled = (
@@ -548,6 +562,8 @@ class P2pHcclAFDConnector(AFDConnectorBase):
         if torch.compiler.is_compiling():
             return False
         if not self.attention_stream_pipeline_ready:
+            return False
+        if not self.eager_u2_stream_overlap_enabled:
             return False
         try:
             forward_context = get_forward_context()
