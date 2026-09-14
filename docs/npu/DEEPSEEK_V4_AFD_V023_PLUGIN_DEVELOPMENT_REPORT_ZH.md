@@ -9,7 +9,7 @@
 
 | 项目 | 固定口径 |
 |---|---|
-| 报告截止日期 | 主功能基线 2026-08-25；第一阶段 M10/M11 本机验证更新 2026-09-08；双 A3 PD + Graph/U2/MTP 两轮验证更新 2026-09-11；A5 原始权重 bring-up 更新 2026-09-12 |
+| 报告截止日期 | 主功能基线 2026-08-25；第一阶段 M10/M11 本机验证更新 2026-09-08；双 A3 PD + Graph/U2/MTP 两轮验证更新 2026-09-11；A5 原始权重 bring-up 与验证工具更新 2026-09-14 |
 | vLLM | `releases/v0.23.0`，`0fc695fc6d1d82e9a5ac6835ac8e4e1c83703665` |
 | vLLM-Ascend | `rfc/vllm_cann`，`3da28f9414583d2d0b672a8f06d1fae142404bda` |
 | afd-plugin | `feat/dsv4-afd-graph-u2-multistream-all-on-v1`；第一阶段 A3 功能基线 tag 为 `dsv4-afd-v023-phase1-a3-functional-v1`。2026-09-11 双 A3 两轮中，A8F8 N2/N3 两轮及 A4F8 N3 第 2 轮使用 clean `6386f18`；A4F8 N3 第 1 轮为 dirty `a695ff2`，但两者运行时代码一致，差异仅在验证/文档工具，作为功能轮次接受并保留元数据说明 |
@@ -82,10 +82,10 @@ DeepSeek-V4 的拆分边界放在远端 MoE，而不是把整个 FFN 子层搬�
 | TP2 | 已冻结功能基线 | 等量 A8F8、DP4/TP2、eager/U1 | CAMP2P TP2、非等量 TP2、TP3、最大 Graph+MTP 组合 |
 | PD 分离 | 第一期 A3 功能基线已冻结，目标点 3/3 | Mooncake contract/runtime；双 A3 TP1、Graph/U2、A8F8 N2/N3 与 A4F8 N3 各两轮；smoke、取消恢复、P1 完整请求和全 rank 在线 U2 通过 | 逐 token 精度、其他并行组合、U3 和正式性能；启停脚本质量不属于本期交付 |
 | v0.23/plugin 工程底座 | 已冻结功能基线 | 同栈 golden、兼容层、部署和验证工具 | 旧栈性能数字不能作为 v0.23 基线 |
-| A5 原始权重适配 | 进行中 | 官方 `fp8`/`weight_block_size=[128,128]` 配置门禁、无 `--quantization ascend`、block 32/prefetch、`deepseek_mtp`、DP4 native 与 A4F4/A4F2/A2F4 功能 smoke 工具 | 尚无 no-AFD 或 AFD 实模 case 通过，不能创建功能 tag |
+| A5 原始权重适配 | 进行中 | 官方 `fp8`/`weight_block_size=[128,128]` 配置门禁、无 `--quantization ascend`、block 32/prefetch、`deepseek_mtp`；现场 DP4 no-AFD 已通过，A4F4/A4F2/A2F4 功能 smoke 工具已就绪 | 尚无 AFD 实模 case 通过，不能创建功能 tag |
 | 正式性能验收 | 未完成 | 已有 standalone 对照；PD Graph/U2 三拓扑三轮测量及 A8F8/A16F8 双侧 profile | split A8F8 CV 超限；缺路径匹配 PD control、MTP on/off、跨负载及固定收益阈值，尚无可发布性能 tag |
 
-### 2.2.1 两阶段交付口径与第一阶段完成度（2026-09-12）
+### 2.2.1 两阶段交付口径与第一阶段完成度（2026-09-14）
 
 第一阶段 A3 功能标签已经冻结，第二阶段仍交付 U3 和正式性能收益。A3 标签不生成 golden、不执行逐 token exact，也不要求路径匹配 native/PD control；启停辅助脚本自身的退出码、显式停服后的 traceback 和自动清理质量也不作为 A3 标签目标。A5 当前作为第一阶段的独立平台适配轨道执行原始权重的无 golden 功能 smoke：no-AFD DP4 一次、4 个必须 AFD 点各两轮，以及 A4F2 容量项。路径匹配 control、token exact 和 idle-resume 后移到最终精度阶段。第一阶段固定 TP1，并明确不包含 TP/SP/CP/DCP/PP、TP3、非等量 TP2 和 TP2 最大 Graph+MTP 组合；仓库中已经冻结的等量 DP4/TP2 eager/U1 证据继续保留，但不作为本次 A5 交付门禁。
 
@@ -132,7 +132,7 @@ SHA256、截断日志且排除 profiler raw 的证据包。A5 当前操作见独
 | A8F8 路径匹配 F0 | `/mnt/workspace/validation/phase1_formal_exact_3b869ae_a8f8_u2_n2`；eager/U2/N2 serial 10/10，batch 1/8/32 均有效且 exact 为 1/1、8/8、8/32，真实双 stage、双 role rc=0、fatal 和 NPU cleanup 通过；batch 32 差异保留为 `UPSTREAM-DSV4-BI-001`，不误判为路径金标错误 |
 | 2026-09-10 双 A3 一期 smoke | 3 个适用点单轮 batch 1/8/32 和取消恢复通过；原始明细见上述两个 2026-09-10 证据包 |
 | 2026-09-11 双 A3 两轮验证 | 6/6 次 smoke batch 1/8/32、取消恢复、P1 128/128 和在线 U2 均通过；A8F8 N2/N3、A4F8 N3 三点各两轮，第一阶段 A3 功能目标 3/3 完成；显式停服后的脚本 traceback 单列为非阻塞遗留项 |
-| 2026-09-12 A5 bring-up | 固定上游安装和 8 张 Ascend950DT 可见性已通过；旧 `mxfp8` 配置在 ModelConfig 阶段失败。已提供官方 config 的显式备份/恢复、MXFP 算子审计、DP4 no-AFD 和 5 个八卡内 AFD 功能/容量点；实模结果仍为 0，待现场执行 |
+| 2026-09-12 A5 bring-up | 固定上游安装和 8 张 Ascend950DT 可见性已通过；官方原始权重 DP4 no-AFD 的模型加载、health 和请求已通过。AFD 首个 MTP-off case 暴露矩阵继承 `config.env` MTP 默认值的问题，runner 尚未启动；现已隔离 case 环境，4 个必过点和 1 个容量项待现场续跑 |
 | A5 一期工具覆盖 | no-AFD DP4；A4F4 eager/U1/MTP-off；A4F4 Graph/U2/N2/N3；A2F4 Graph/U2/N3；A4F2 Graph/U2/N3 容量项；不做逐 token 比对 |
 
 A5 原始权重和单机 DP4 参数以

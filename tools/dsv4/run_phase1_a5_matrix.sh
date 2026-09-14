@@ -358,7 +358,12 @@ run_matrix() {
       runner_args+=(--golden "${golden_path}")
     fi
     set +e
-    "${DSV4_RUNTIME_VENV}/bin/python" "${RUNNER}" "${runner_args[@]}"
+    # Case arguments are authoritative; do not inherit MTP defaults from config.env.
+    env \
+      ENABLE_MTP=0 \
+      MTP_NUM_SPECULATIVE_TOKENS=1 \
+      MTP_DRAFT_EXECUTION=eager \
+      "${DSV4_RUNTIME_VENV}/bin/python" "${RUNNER}" "${runner_args[@]}"
     case_rc=$?
     set -e
     printf '%s\n' "${case_rc}" >"${output_root}/${case_name}.exitcode"

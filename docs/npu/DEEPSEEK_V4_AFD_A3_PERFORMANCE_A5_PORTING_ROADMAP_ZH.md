@@ -165,7 +165,7 @@ A3 验收通过只说明实现语义和 A3 性能成立，不等于 A5 已支持
 
 2026-09-08 已补齐外部验证交付物；2026-09-11 双 A3 的一期功能硬件证据已完成；2026-09-12 A5 已进入独立 bring-up：
 
-- A5 第一期按官方单机口径用 NPU 0-3、DP4 启动一次 no-AFD 功能服务；AFD 执行 A4F4 eager/U1/MTP-off、A4F4 Graph/U2/N2/N3、A2F4 Graph/U2/N3 和 A4F2 Graph/U2/N3 容量项。AFD 每点两次冷启动并检查 batch 1/8/32、取消恢复、真实 U2、fatal 和 cleanup，不生成或比较 golden。路径匹配 control、9 点 exact F1 和 idle-resume 后移到最终精度阶段。
+- A5 第一期按官方单机口径用 NPU 0-3、DP4 启动一次 no-AFD 功能服务，现场模型加载、health 和请求已通过；AFD 执行 A4F4 eager/U1/MTP-off、A4F4 Graph/U2/N2/N3、A2F4 Graph/U2/N3 和 A4F2 Graph/U2/N3 容量项。AFD 每点两次冷启动并检查 batch 1/8/32、取消恢复、真实 U2、fatal 和 cleanup，不生成或比较 golden。矩阵已隔离外层 MTP 默认值，4 个必过点和 1 个容量项待续跑。路径匹配 control、9 点 exact F1 和 idle-resume 后移到最终精度阶段。
 - 双机 PD 一期实际验收 A8F8 N2/N3、A4F8 N3 三个适用点，均完成两轮功能验证；A8F4 N3 受 A3 HBM 限制排除。3 个路径匹配 no-AFD control 和逐 token F1 延期，control golden 仍须按 Attention DP、target/draft execution、U 数和 MTP N 隔离，不能跨路径复用。
 - `pd.sh` 的部署约束已同步为双向整数 A/F 和 N1-N3，矩阵按拓扑动态生成 device list 与 FFN capacity；A5 当前执行和证据回传步骤见 `DEEPSEEK_V4_AFD_PHASE1_A5_VALIDATION_GUIDE_ZH.md`。
 - 已按双 A3 历史实跑配置提供 `dual-a3-reuse` 安装 profile：复用 CANN 9.0.0、固定 venv 和两个上游源码，不重装依赖或重建上游；从旧 `2164240` 仓库通过包内增量 Git bundle 创建独立的一期 afd-plugin 路径，并附带双机 PD common 模板。旧 seed 仓库保持不动，本地 tracked diff 自动留档且不会进入新目标；seed HEAD、目标/上游工作树、custom ops 和 Python 导入根不一致时 fail-fast。

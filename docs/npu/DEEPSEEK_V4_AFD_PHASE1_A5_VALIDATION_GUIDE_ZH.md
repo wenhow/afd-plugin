@@ -102,8 +102,7 @@ bash tools/dsv4/run_phase1_a5_matrix.sh preflight-smoke \
   a4f2_graph_u2_n3
 ```
 
-预检会核对两个固定上游提交、三个源码导入根、干净工作树、模型路径、custom ops、
-唯一 CANN 路径和空闲 NPU。它不依赖 `ss`，也不校验 A5 的 CANN 版本字符串。
+预检会核对两个固定上游提交、三个源码导入根、干净工作树、模型路径、custom ops、唯一 CANN 路径和空闲 NPU。它不依赖 `ss`，也不校验 A5 的 CANN 版本字符串。
 
 任一预检失败都不要继续启动模型。保存完整终端输出并回传。
 
@@ -119,8 +118,7 @@ bash tools/dsv4/run_phase1_a5_native_smoke.sh run \
   2>&1 | tee "$A5_VALIDATION_ROOT/native-dp4.console.log"
 ```
 
-脚本使用 NPU 0-3、DP4/TP1，按官方风格启动 no-AFD Graph/MTP N1 服务一次。它检查
-`/health`、`/v1/models` 和一个 completion，然后停服并检查 NPU 清理。通过时应出现：
+脚本使用 NPU 0-3、DP4/TP1，按官方风格启动 no-AFD Graph/MTP N1 服务一次。它检查`/health`、`/v1/models` 和一个 completion，然后停服并检查 NPU 清理。通过时应出现：
 
 ```text
 [phase1-a5-native] completed: .../native-dp4
@@ -151,6 +149,10 @@ bash tools/dsv4/run_phase1_a5_matrix.sh smoke \
   2>&1 | tee "$A5_VALIDATION_ROOT/afd-required.console.log"
 ```
 
+矩阵脚本会先清除外层 `config.env` 的 MTP 默认值，再按 case 参数设置 MTP。这样
+`a4f4_eager_u1_mtp_off` 不会被 `ENABLE_MTP=1` 或
+`MTP_DRAFT_EXECUTION=graph` 误改成 eager + MTP draft Graph。
+
 四项必须全部返回 0。每个 case 目录必须包含 `cycle_1`、`cycle_2` 和
 `validation_summary.json`；每轮必须包含：
 
@@ -168,6 +170,22 @@ npu_after_cleanup.txt
 
 `cancellation.exitcode` 的预期值为 28，随后 `recovery.json` 必须通过。Graph/U2 case
 的 `cycle_summary.json` 中 `ubatch_gate.observed_two_stages` 必须为 `true`。
+
+失败证据目录不会被覆盖。修复后续跑第 6 节时应保留原来的
+`A5_VALIDATION_ROOT`，只换一个新的输出目录，例如：
+
+```bash
+export PHASE1_OUTPUT_BASE="$A5_VALIDATION_ROOT/afd-required-r2"
+bash tools/dsv4/run_phase1_a5_matrix.sh smoke \
+  a4f4_eager_u1_mtp_off \
+  a4f4_graph_u2_n2 \
+  a4f4_graph_u2_n3 \
+  a2f4_graph_u2_n3 \
+  2>&1 | tee "$A5_VALIDATION_ROOT/afd-required-r2.console.log"
+```
+
+第 5 节已经通过时不需要重跑。收集证据时将第 9 节的
+`afd-required/smoke` 替换为实际成功目录，例如 `afd-required-r2/smoke`。
 
 ## 7. 单独运行 A4F2 容量项
 

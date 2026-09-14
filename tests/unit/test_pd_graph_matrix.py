@@ -457,6 +457,69 @@ def test_a5_phase1_smoke_matrix_is_functional_only():
     assert "golden_checked=%s" in script
 
 
+def test_a5_matrix_does_not_inherit_mtp_defaults(tmp_path):
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir()
+    fake_npu_smi = fake_bin / "npu-smi"
+    fake_npu_smi.write_text("#!/usr/bin/env bash\nprintf 'no processes\\n'\n")
+    fake_npu_smi.chmod(0o755)
+
+    venv = tmp_path / "venv"
+    (venv / "bin").mkdir(parents=True)
+    fake_python = venv / "bin/python"
+    fake_python.write_text(
+        "#!/usr/bin/env bash\n"
+        "printf 'ENABLE_MTP=%s\\n' \"${ENABLE_MTP-}\" >\"$CAPTURE_ENV\"\n"
+        "printf 'MTP_NUM_SPECULATIVE_TOKENS=%s\\n' "
+        "\"${MTP_NUM_SPECULATIVE_TOKENS-}\" >>\"$CAPTURE_ENV\"\n"
+        "printf 'MTP_DRAFT_EXECUTION=%s\\n' "
+        "\"${MTP_DRAFT_EXECUTION-}\" >>\"$CAPTURE_ENV\"\n"
+    )
+    fake_python.chmod(0o755)
+    capture = tmp_path / "runner.env"
+    command = """
+matrix_path="$1"
+runner_path="$2"
+venv_path="$3"
+output_path="$4"
+set -- help
+source "$matrix_path" >/dev/null
+RUNNER="$runner_path"
+DSV4_RUNTIME_VENV="$venv_path"
+PHASE1_OUTPUT_BASE="$output_path"
+run_matrix smoke a4f4_eager_u1_mtp_off
+"""
+    result = subprocess.run(
+        [
+            "bash",
+            "-c",
+            command,
+            "bash",
+            str(A5_MATRIX),
+            str(tmp_path / "runner.py"),
+            str(venv),
+            str(tmp_path / "validation"),
+        ],
+        env=os.environ
+        | {
+            "PATH": f"{fake_bin}:{os.environ['PATH']}",
+            "CAPTURE_ENV": str(capture),
+            "ENABLE_MTP": "1",
+            "MTP_NUM_SPECULATIVE_TOKENS": "3",
+            "MTP_DRAFT_EXECUTION": "graph",
+        },
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert capture.read_text().splitlines() == [
+        "ENABLE_MTP=0",
+        "MTP_NUM_SPECULATIVE_TOKENS=1",
+        "MTP_DRAFT_EXECUTION=eager",
+    ]
+
+
 def test_a5_native_smoke_and_guide_do_not_require_golden():
     native = (ROOT / "tools/dsv4/run_phase1_a5_native_smoke.sh").read_text(
         encoding="utf-8"
