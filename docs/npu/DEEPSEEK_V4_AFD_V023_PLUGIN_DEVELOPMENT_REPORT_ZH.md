@@ -82,7 +82,7 @@ DeepSeek-V4 的拆分边界放在远端 MoE，而不是把整个 FFN 子层搬�
 | TP2 | 已冻结功能基线 | 等量 A8F8、DP4/TP2、eager/U1 | CAMP2P TP2、非等量 TP2、TP3、最大 Graph+MTP 组合 |
 | PD 分离 | 第一期 A3 功能基线已冻结，目标点 3/3 | Mooncake contract/runtime；双 A3 TP1、Graph/U2、A8F8 N2/N3 与 A4F8 N3 各两轮；smoke、取消恢复、P1 完整请求和全 rank 在线 U2 通过 | 逐 token 精度、其他并行组合、U3 和正式性能；启停脚本质量不属于本期交付 |
 | v0.23/plugin 工程底座 | 已冻结功能基线 | 同栈 golden、兼容层、部署和验证工具 | 旧栈性能数字不能作为 v0.23 基线 |
-| A5 原始权重适配 | 进行中 | 官方 `fp8`/`weight_block_size=[128,128]` 配置门禁、无 `--quantization ascend`、block 32/prefetch；旧 DP4 Graph/MTP N1 已通过，MTP-off 的 A4F4/A4F2/A2F4 功能 smoke 工具已就绪 | 当前 MTP-off no-AFD 和 AFD 实模门禁尚未完成，MTP 后移到 dSpark，不能创建 A5 功能 tag |
+| A5 原始权重适配 | 进行中 | 官方 `fp8`/`weight_block_size=[128,128]` 配置门禁、无 `--quantization ascend`、block 32/prefetch；DP4 no-AFD/MTP-off 已通过；A4F4 eager/U1 两轮业务均通过，但旧脚本 cycle 1 在强制退出时触发 `507035` fatal gate | AFD 三个必过点和 A4F2 容量项尚未完成；MTP 后移到 dSpark，不能创建 A5 功能 tag |
 | 正式性能验收 | 未完成 | 已有 standalone 对照；PD Graph/U2 三拓扑三轮测量及 A8F8/A16F8 双侧 profile | split A8F8 CV 超限；缺路径匹配 PD control、MTP on/off、跨负载及固定收益阈值，尚无可发布性能 tag |
 
 ### 2.2.1 两阶段交付口径与第一阶段完成度（2026-09-14）
@@ -132,8 +132,9 @@ SHA256、截断日志且排除 profiler raw 的证据包。A5 当前操作见独
 | A8F8 路径匹配 F0 | `/mnt/workspace/validation/phase1_formal_exact_3b869ae_a8f8_u2_n2`；eager/U2/N2 serial 10/10，batch 1/8/32 均有效且 exact 为 1/1、8/8、8/32，真实双 stage、双 role rc=0、fatal 和 NPU cleanup 通过；batch 32 差异保留为 `UPSTREAM-DSV4-BI-001`，不误判为路径金标错误 |
 | 2026-09-10 双 A3 一期 smoke | 3 个适用点单轮 batch 1/8/32 和取消恢复通过；原始明细见上述两个 2026-09-10 证据包 |
 | 2026-09-11 双 A3 两轮验证 | 6/6 次 smoke batch 1/8/32、取消恢复、P1 128/128 和在线 U2 均通过；A8F8 N2/N3、A4F8 N3 三点各两轮，第一阶段 A3 功能目标 3/3 完成；显式停服后的脚本 traceback 单列为非阻塞遗留项 |
-| 2026-09-12 A5 bring-up | 固定上游安装和 8 张 Ascend950DT 可见性已通过；官方原始权重 DP4 no-AFD Graph/MTP N1 的模型加载、health 和请求已通过，保留为附加证据。当前门禁改为 MTP-off，因此 no-AFD 基线需重跑；AFD 首个 case 尚未启动 |
+| 2026-09-12 至 09-14 A5 bring-up | 固定上游安装和 8 张 Ascend950DT 可见性已通过；官方原始权重 DP4 no-AFD/MTP-off 的加载、health 和请求已通过。A4F4 eager/U1/MTP-off 两轮 smoke 与取消恢复均通过，但旧脚本固定 `shutdown-timeout=0`，cycle 1 FFN 在退出同步时出现 `507035`，因此该 case 尚未通过完整 fatal gate；cycle 2 clean 不能覆盖 cycle 1 |
 | A5 一期工具覆盖 | no-AFD DP4/MTP-off；A4F4 eager/U1/MTP-off；A4F4 Graph/U2/MTP-off；A2F4 Graph/U2/MTP-off；A4F2 Graph/U2/MTP-off 容量项；不做逐 token 比对；MTP 后移到 dSpark |
+| A5 退出门禁修正 | A5 matrix 固定 `VLLM_SHUTDOWN_TIMEOUT_SECONDS=20`，不再使用 vLLM 的立即 abort/force-kill 退出；实际值写入 `matrix.env`。`507035` 继续视为 fatal，升级后先单独复跑 A4F4 eager/U1 两轮 |
 
 A5 原始权重和单机 DP4 参数以
 [vLLM-Ascend v0.23.0 官方指导](https://docs.vllm.ai/projects/ascend/en/v0.23.0/tutorials/models/DeepSeek-V4-Flash.html#single-node-online-deployment)
@@ -1354,8 +1355,11 @@ standalone 修正为 5 份路径匹配 native control，禁止跨 target/draft/M
 serial 10/10、batch 1/8/32 均有效、真实双 stage、双 role rc=0、无 fatal 且 NPU cleanup
 通过；batch 32 exact 为 8/32，继续按 `UPSTREAM-DSV4-BI-001` 记录。该证据关闭 M10
 本机开发门禁。A5 已补齐官方原始权重的严格配置解析、DP4 no-AFD 功能 smoke 和
-八卡内 A4F4/A4F2/A2F4 启动参数；当前 4 个 AFD/MTP-off 功能/容量点仍需现场独立
-执行，control/exact 后移到最终精度阶段，MTP N1/N2/N3 后移到 dSpark 组合阶段。
+八卡内 A4F4/A4F2/A2F4 启动参数；现场 DP4 no-AFD/MTP-off 已通过。A4F4 eager/U1
+两轮请求及恢复通过，但旧矩阵以 `shutdown-timeout=0` 强制退出，cycle 1 FFN 在
+`torch.npu.synchronize()` 报 `507035`，完整门禁仍为失败。矩阵现固定 20 秒优雅退出，
+保留该错误为 fatal，待 A5 单点复跑后再继续另外两个必过 Graph/U2 点和 A4F2 容量项。
+control/exact 后移到最终精度阶段，MTP N1/N2/N3 后移到 dSpark 组合阶段。
 
 `2026-09-08` 的 A3 交付复核显式固定 CANN 9.0.0、vLLM `0fc695fc6d1d82e9a5ac6835ac8e4e1c83703665`
 和 vLLM-Ascend `3da28f9414583d2d0b672a8f06d1fae142404bda` 的实际导入路径；精确组合下

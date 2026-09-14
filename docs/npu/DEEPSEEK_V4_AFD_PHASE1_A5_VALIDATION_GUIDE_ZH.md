@@ -156,6 +156,11 @@ bash tools/dsv4/run_phase1_a5_matrix.sh smoke \
 `--enable-mtp`。这样旧配置中的 `ENABLE_MTP=1` 或 `MTP_DRAFT_EXECUTION=graph`
 也不能把当前 A5 门禁改成 MTP 路径。
 
+矩阵同时固定 `VLLM_SHUTDOWN_TIMEOUT_SECONDS=20`。`0` 在当前 vLLM 中表示立即
+abort；DP4 进程管理器会直接 force kill 仍在退出的 EngineCore，FFN 线程可能在
+`torch.npu.synchronize()` 处产生停机期 `507035`。20 秒用于让已完成请求的 worker
+按顺序释放；`507035` 仍保留为 fatal，不做日志白名单。
+
 三项必须全部返回 0。每个 case 目录必须包含 `cycle_1`、`cycle_2` 和
 `validation_summary.json`；每轮必须包含：
 
@@ -188,6 +193,21 @@ bash tools/dsv4/run_phase1_a5_matrix.sh smoke \
 
 第 5 节已经通过时不需要重跑。收集证据时将第 9 节的
 `afd-required/smoke` 替换为实际成功目录，例如 `afd-required-r2/smoke`。
+
+若旧包仅在 `a4f4_eager_u1_mtp_off` 的退出阶段出现下列组合：业务 smoke、取消恢复、
+进程返回码和 NPU 清理均通过，但 FFN 日志同时出现 `shutdown timeout=0`、
+`force killing remaining processes` 和 `507035`，升级后先只重跑该点：
+
+```bash
+export PHASE1_OUTPUT_BASE="$A5_VALIDATION_ROOT/afd-eager-r2"
+bash tools/dsv4/run_phase1_a5_matrix.sh smoke \
+  a4f4_eager_u1_mtp_off \
+  2>&1 | tee "$A5_VALIDATION_ROOT/afd-eager-r2.console.log"
+```
+
+两轮通过后，再用新的输出目录执行本节另外两个 Graph/U2 必过点。旧失败目录不得删除；
+若新脚本仍出现 `507035`，按真实 NPU Vector Core 异常处理并回传 FFN 完整日志及 A5
+设备侧 plog/slog，不能以第二轮偶然通过覆盖第一轮失败。
 
 ## 7. 单独运行 A4F2 容量项
 

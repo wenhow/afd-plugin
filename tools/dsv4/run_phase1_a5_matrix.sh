@@ -4,6 +4,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 RUNNER="${REPO_ROOT}/recipe/npu/deepseek_v4/common/run_validation.py"
+readonly PHASE1_VLLM_SHUTDOWN_TIMEOUT_SECONDS=20
 ACTION="${1:-help}"
 if (( $# > 0 )); then
   shift
@@ -330,6 +331,8 @@ run_matrix() {
     printf 'afd_commit=%s\n' "$(git -C "${REPO_ROOT}" rev-parse HEAD)"
     printf 'cann_root=%s\n' "$(readlink -f "${DSV4_CANN_ROOT}")"
     printf 'golden_checked=%s\n' "$([[ "${phase}" == "smoke" ]] && printf 0 || printf 1)"
+    printf 'vllm_shutdown_timeout_seconds=%s\n' \
+      "${PHASE1_VLLM_SHUTDOWN_TIMEOUT_SECONDS}"
     if [[ "${phase}" != "smoke" ]]; then
       printf 'golden_root=%s\n' "$(readlink -f "${PHASE1_GOLDEN_ROOT}")"
     fi
@@ -373,6 +376,7 @@ run_matrix() {
       ENABLE_MTP=0 \
       MTP_NUM_SPECULATIVE_TOKENS=1 \
       MTP_DRAFT_EXECUTION=eager \
+      VLLM_SHUTDOWN_TIMEOUT_SECONDS="${PHASE1_VLLM_SHUTDOWN_TIMEOUT_SECONDS}" \
       "${DSV4_RUNTIME_VENV}/bin/python" "${RUNNER}" "${runner_args[@]}"
     case_rc=$?
     set -e

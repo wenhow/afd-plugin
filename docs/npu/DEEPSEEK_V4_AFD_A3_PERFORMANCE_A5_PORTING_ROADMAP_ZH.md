@@ -167,7 +167,16 @@ A3 验收通过只说明实现语义和 A3 性能成立，不等于 A5 已支持
 
 2026-09-08 已补齐外部验证交付物；2026-09-11 双 A3 的一期功能硬件证据已完成；2026-09-12 A5 已进入独立 bring-up：
 
-- A5 第一期固定 MTP-off：用 NPU 0-3、DP4 启动一次 no-AFD 服务；此前 Graph/MTP N1 的模型加载、health 和请求已通过，只作为附加证据，MTP-off 基线仍需重跑。AFD 执行 A4F4 eager/U1、A4F4 Graph/U2、A2F4 Graph/U2 和 A4F2 Graph/U2 容量项，均显式关闭 MTP。AFD 每点两次冷启动并检查 batch 1/8/32、取消恢复、真实 U2、fatal 和 cleanup，不生成或比较 golden。3 个必过点和 1 个容量项待续跑；MTP N1/N2/N3 后移到 dSpark 组合阶段。
+- A5 第一期固定 MTP-off：用 NPU 0-3、DP4 启动一次 no-AFD 服务；该基线已完成，
+  此前 Graph/MTP N1 的成功结果只作附加证据。AFD 执行 A4F4 eager/U1、A4F4
+  Graph/U2、A2F4 Graph/U2 和 A4F2 Graph/U2 容量项，均显式关闭 MTP。AFD 每点
+  两次冷启动并检查 batch 1/8/32、取消恢复、真实 U2、fatal 和 cleanup，不生成或比较
+  golden。3 个必过点和 1 个容量项待续跑；MTP N1/N2/N3 后移到 dSpark 组合阶段。
+- 2026-09-14 现场 DP4 no-AFD/MTP-off 已通过。A4F4 eager/U1 两轮 smoke、取消恢复、
+  进程返回码和 NPU 清理均通过，但旧矩阵使用 `shutdown-timeout=0`，cycle 1 FFN 在
+  `torch.npu.synchronize()` 报 `507035`，完整 fatal gate 因此仍失败。A5 matrix 已改为
+  固定 20 秒优雅退出且记录到 `matrix.env`；错误 marker 不加白名单，升级后先复跑该
+  单点，再执行两个必过 Graph/U2 点和 A4F2 容量项。
 - 双机 PD 一期实际验收 A8F8 N2/N3、A4F8 N3 三个适用点，均完成两轮功能验证；A8F4 N3 受 A3 HBM 限制排除。3 个路径匹配 no-AFD control 和逐 token F1 延期，control golden 仍须按 Attention DP、target/draft execution、U 数和 MTP N 隔离，不能跨路径复用。
 - `pd.sh` 的部署约束已同步为双向整数 A/F 和 N1-N3，矩阵按拓扑动态生成 device list 与 FFN capacity；A5 当前执行和证据回传步骤见 `DEEPSEEK_V4_AFD_PHASE1_A5_VALIDATION_GUIDE_ZH.md`。
 - 已按双 A3 历史实跑配置提供 `dual-a3-reuse` 安装 profile：复用 CANN 9.0.0、固定 venv 和两个上游源码，不重装依赖或重建上游；从旧 `2164240` 仓库通过包内增量 Git bundle 创建独立的一期 afd-plugin 路径，并附带双机 PD common 模板。旧 seed 仓库保持不动，本地 tracked diff 自动留档且不会进入新目标；seed HEAD、目标/上游工作树、custom ops 和 Python 导入根不一致时 fail-fast。
@@ -1716,10 +1725,11 @@ NPU、吞吐、token/s/NPU、TPOT、CV、HBM、FFN `Free/wall`、`Bubble/wall`�
     10/10 exact，A4F8 eager/U1/N2 实模 smoke 通过。组件证据位于
     `/mnt/workspace/validation/phase1_cann900_exact_3e88ad2`；恢复时不得退回单 token、
     `A>=F` 或跨 target/draft/MTP 路径复用 golden 的假设；
-19. A5 环境安装和官方 `config.json` 恢复已完成；此前 no-AFD DP4 Graph/MTP N1
-    已通过但不作为当前 MTP-off 门禁。当前执行 no-AFD DP4/MTP-off、3 个必须 AFD
-    MTP-off 点和 A4F2 容量项，全部不生成或比较 golden；MTP N1/N2/N3 后移到 dSpark
-    组合阶段；
+19. A5 环境安装、官方 `config.json` 恢复和 no-AFD DP4/MTP-off 已完成。A4F4
+    eager/U1 的请求与恢复通过，但旧脚本 cycle 1 在 `shutdown-timeout=0` 强制退出时
+    命中 `507035` fatal gate；已改为 20 秒优雅退出，待单点复跑。其后继续另外两个
+    必须 AFD MTP-off 点和 A4F2 容量项，全部不生成或比较 golden；MTP N1/N2/N3
+    后移到 dSpark 组合阶段；
 20. 每次阶段完成都保存日志、原始数据、解析结果和清理证据。
 
 ## 13. 一句话路线
@@ -1730,9 +1740,10 @@ Graph/U1/U2、单 token MTP M0-M7、双向整数比例组件与 TP2/M8 历史基
 的 U1/U2 输出均与路径匹配 native N2 达到 10/10 exact，A4F8 eager/U1/N2 实模 smoke
 通过。M9 的
 TP1/MTP off/Graph U2 已完成双 A3 三拓扑运行和 Profile 观测，但动态路由、优雅退出和
-路径匹配 F1 未冻结。第一阶段 A3 功能标签已经完成；A5 当前下一步是执行官方原始
-权重的 DP4 no-AFD/MTP-off 功能 smoke，以及 A4F4 eager/U1、A4F4 Graph/U2、
-A2F4 Graph/U2 和 A4F2 Graph/U2 容量项，均关闭 MTP 且不做逐 token 比对。MTP
+  路径匹配 F1 未冻结。第一阶段 A3 功能标签已经完成；A5 的官方原始权重 DP4
+  no-AFD/MTP-off 功能 smoke 已通过，当前下一步是用 20 秒优雅退出配置复跑 A4F4
+  eager/U1，再执行 A4F4 Graph/U2、A2F4 Graph/U2 和 A4F2 Graph/U2 容量项，均关闭
+  MTP 且不做逐 token 比对。MTP
 N1/N2/N3 后移到 dSpark 组合阶段。完整 A8F4
 留给至少 12 张可用 NPU 且容量足够的环境。A5 功能闭环后，第二阶段再做 U3 和正式性能
 收益；TP/SP/CP/DCP/PP、TP3、非等量 TP2 和 TP2 最大 Graph+MTP 不作为第一阶段门禁。

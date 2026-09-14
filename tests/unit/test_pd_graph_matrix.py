@@ -507,6 +507,8 @@ def test_a5_matrix_does_not_inherit_mtp_defaults(tmp_path):
         "\"${MTP_NUM_SPECULATIVE_TOKENS-}\" >>\"$CAPTURE_ENV\"\n"
         "printf 'MTP_DRAFT_EXECUTION=%s\\n' "
         "\"${MTP_DRAFT_EXECUTION-}\" >>\"$CAPTURE_ENV\"\n"
+        "printf 'VLLM_SHUTDOWN_TIMEOUT_SECONDS=%s\\n' "
+        "\"${VLLM_SHUTDOWN_TIMEOUT_SECONDS-}\" >>\"$CAPTURE_ENV\"\n"
     )
     fake_python.chmod(0o755)
     capture = tmp_path / "runner.env"
@@ -540,6 +542,7 @@ run_matrix smoke a4f4_eager_u1_mtp_off
             "ENABLE_MTP": "1",
             "MTP_NUM_SPECULATIVE_TOKENS": "3",
             "MTP_DRAFT_EXECUTION": "graph",
+            "VLLM_SHUTDOWN_TIMEOUT_SECONDS": "0",
         },
         capture_output=True,
         text=True,
@@ -550,6 +553,7 @@ run_matrix smoke a4f4_eager_u1_mtp_off
         "ENABLE_MTP=0",
         "MTP_NUM_SPECULATIVE_TOKENS=1",
         "MTP_DRAFT_EXECUTION=eager",
+        "VLLM_SHUTDOWN_TIMEOUT_SECONDS=20",
     ]
 
 
