@@ -27,18 +27,25 @@ SMOKE_CASES=(
   a2f4_graph_u2_mtp_off
   a4f2_graph_u2_mtp_off
 )
+DIAGNOSTIC_CASES=(
+  a4f4_graph_u1_mtp_off
+  a4f4_eager_u2_mtp_off
+)
 
 usage() {
   cat <<'EOF'
 Usage:
   bash tools/dsv4/run_phase1_a5_matrix.sh list
   bash tools/dsv4/run_phase1_a5_matrix.sh list-smoke
+  bash tools/dsv4/run_phase1_a5_matrix.sh list-diagnostic
   bash tools/dsv4/run_phase1_a5_matrix.sh list-deferred-exact
   bash tools/dsv4/run_phase1_a5_matrix.sh preflight-native
   bash tools/dsv4/run_phase1_a5_matrix.sh preflight [case ...]
   bash tools/dsv4/run_phase1_a5_matrix.sh preflight-smoke [case ...]
+  bash tools/dsv4/run_phase1_a5_matrix.sh preflight-diagnostic [case ...]
   bash tools/dsv4/run_phase1_a5_matrix.sh preflight-deferred-exact [case ...]
   bash tools/dsv4/run_phase1_a5_matrix.sh smoke [case ...]
+  bash tools/dsv4/run_phase1_a5_matrix.sh diagnostic [case ...]
   bash tools/dsv4/run_phase1_a5_matrix.sh f0 [case ...]
   bash tools/dsv4/run_phase1_a5_matrix.sh f1 [case ...]
 
@@ -53,6 +60,8 @@ Smoke is the MTP-off A5 phase-one functional gate. It runs two cold cycles,
 batch 1/8/32, cancellation recovery, U2/log/cleanup gates, and no golden
 comparison. F0/F1 retain the deferred standalone exact matrix, but are not
 part of the current A5 gate; MTP validation resumes only with dSpark.
+Diagnostic runs one cold cycle for the MTP-off A4F4 Graph/U1 and eager/U2
+isolation points. It is evidence for fault localization, not a phase-one gate.
 EOF
 }
 
@@ -72,6 +81,14 @@ contains_exact_case() {
 contains_smoke_case() {
   local requested="$1" candidate
   for candidate in "${SMOKE_CASES[@]}"; do
+    [[ "${candidate}" == "${requested}" ]] && return 0
+  done
+  return 1
+}
+
+contains_diagnostic_case() {
+  local requested="$1" candidate
+  for candidate in "${DIAGNOSTIC_CASES[@]}"; do
     [[ "${candidate}" == "${requested}" ]] && return 0
   done
   return 1
@@ -250,6 +267,18 @@ activate_and_audit_smoke() {
   done
 }
 
+activate_and_audit_diagnostic() {
+  audit_stack
+  local requested_cases=("$@") case_name
+  if (( ${#requested_cases[@]} == 0 )); then
+    requested_cases=("${DIAGNOSTIC_CASES[@]}")
+  fi
+  for case_name in "${requested_cases[@]}"; do
+    contains_diagnostic_case "${case_name}" \
+      || die "Case is not in the A5 diagnostic matrix: ${case_name}"
+  done
+}
+
 case_arguments() {
   local case_name="$1"
   CASE_ARGS=(
@@ -262,6 +291,12 @@ case_arguments() {
       ;;
     a4f4_graph_u2_mtp_off)
       CASE_ARGS+=(--attention-devices 0,1,2,3 --ffn-devices 4,5,6,7 --ffn-max-num-batched-tokens 4096 --execution-mode full-decode-only --u-batches 2 --async-scheduling off)
+      ;;
+    a4f4_graph_u1_mtp_off)
+      CASE_ARGS+=(--attention-devices 0,1,2,3 --ffn-devices 4,5,6,7 --ffn-max-num-batched-tokens 4096 --execution-mode full-decode-only --u-batches 1 --async-scheduling off)
+      ;;
+    a4f4_eager_u2_mtp_off)
+      CASE_ARGS+=(--attention-devices 0,1,2,3 --ffn-devices 4,5,6,7 --ffn-max-num-batched-tokens 4096 --execution-mode eager --u-batches 2 --async-scheduling off)
       ;;
     a2f4_graph_u2_mtp_off)
       CASE_ARGS+=(--attention-devices 0,1 --ffn-devices 2,3,4,5 --ffn-max-num-batched-tokens 2048 --execution-mode full-decode-only --u-batches 2 --async-scheduling off)
@@ -304,9 +339,15 @@ run_matrix() {
   local phase="$1"
   shift
   local cycles rounds idle_seconds output_root case_name golden_path case_rc matrix_rc
+  local diagnostic_ascend_log_root=""
   case "${phase}" in
     smoke)
       cycles=2
+      rounds=1
+      idle_seconds=0
+      ;;
+    diagnostic)
+      cycles=1
       rounds=1
       idle_seconds=0
       ;;
@@ -325,15 +366,25 @@ run_matrix() {
   output_root="${PHASE1_OUTPUT_BASE:-/data/validation/dsv4-phase1-a5-$(date +%Y%m%d_%H%M%S)}/${phase}"
   [[ ! -e "${output_root}" ]] || die "Output root already exists: ${output_root}"
   mkdir -p "${output_root}"
+  if [[ "${phase}" == "diagnostic" ]]; then
+    diagnostic_ascend_log_root="${PHASE1_ASCEND_PROCESS_LOG_PATH:-${output_root}/ascend-process-log}"
+    mkdir -p "${diagnostic_ascend_log_root}"
+    export ASCEND_PROCESS_LOG_PATH="${diagnostic_ascend_log_root}"
+  fi
   {
     printf 'phase=%s\n' "${phase}"
     printf 'started_at=%s\n' "$(date --iso-8601=seconds)"
     printf 'afd_commit=%s\n' "$(git -C "${REPO_ROOT}" rev-parse HEAD)"
     printf 'cann_root=%s\n' "$(readlink -f "${DSV4_CANN_ROOT}")"
-    printf 'golden_checked=%s\n' "$([[ "${phase}" == "smoke" ]] && printf 0 || printf 1)"
+    printf 'golden_checked=%s\n' \
+      "$([[ "${phase}" == "smoke" || "${phase}" == "diagnostic" ]] && printf 0 || printf 1)"
     printf 'vllm_shutdown_timeout_seconds=%s\n' \
       "${PHASE1_VLLM_SHUTDOWN_TIMEOUT_SECONDS}"
-    if [[ "${phase}" != "smoke" ]]; then
+    if [[ "${phase}" == "diagnostic" ]]; then
+      printf 'ascend_process_log_path=%s\n' \
+        "$(readlink -f "${diagnostic_ascend_log_root}")"
+    fi
+    if [[ "${phase}" != "smoke" && "${phase}" != "diagnostic" ]]; then
       printf 'golden_root=%s\n' "$(readlink -f "${PHASE1_GOLDEN_ROOT}")"
     fi
   } >"${output_root}/matrix.env"
@@ -342,6 +393,8 @@ run_matrix() {
   if (( $# == 0 )); then
     if [[ "${phase}" == "smoke" ]]; then
       set -- "${SMOKE_CASES[@]}"
+    elif [[ "${phase}" == "diagnostic" ]]; then
+      set -- "${DIAGNOSTIC_CASES[@]}"
     else
       set -- "${EXACT_CASES[@]}"
     fi
@@ -351,6 +404,9 @@ run_matrix() {
     if [[ "${phase}" == "smoke" ]]; then
       contains_smoke_case "${case_name}" \
         || die "Case is not in the A5 phase-one smoke matrix: ${case_name}"
+    elif [[ "${phase}" == "diagnostic" ]]; then
+      contains_diagnostic_case "${case_name}" \
+        || die "Case is not in the A5 diagnostic matrix: ${case_name}"
     else
       contains_exact_case "${case_name}" \
         || die "Case is not in the exact matrix: ${case_name}"
@@ -364,7 +420,7 @@ run_matrix() {
       --batch-sizes 1 8 32 \
       "${CASE_ARGS[@]}"
     )
-    if [[ "${phase}" == "smoke" ]]; then
+    if [[ "${phase}" == "smoke" || "${phase}" == "diagnostic" ]]; then
       runner_args+=(--functional-smoke)
     else
       golden_path="$(golden_for_case "${case_name}")"
@@ -385,7 +441,7 @@ run_matrix() {
       matrix_rc="${case_rc}"
       printf '[phase1-a5] case failed: %s (exit %s)\n' \
         "${case_name}" "${case_rc}" >&2
-      break
+      [[ "${phase}" == "diagnostic" ]] || break
     fi
   done
   npu-smi info >"${output_root}/npu-after.txt"
@@ -404,11 +460,16 @@ run_matrix() {
 case "${ACTION}" in
   help|-h|--help) usage ;;
   list|list-smoke) printf '%s\n' "${SMOKE_CASES[@]}" ;;
+  list-diagnostic) printf '%s\n' "${DIAGNOSTIC_CASES[@]}" ;;
   list-deferred-exact) printf '%s\n' "${EXACT_CASES[@]}" ;;
   preflight-native) audit_stack; printf '[phase1-a5] native preflight passed\n' ;;
   preflight|preflight-smoke)
     activate_and_audit_smoke "$@"
     printf '[phase1-a5] MTP-off smoke preflight passed\n'
+    ;;
+  preflight-diagnostic)
+    activate_and_audit_diagnostic "$@"
+    printf '[phase1-a5] diagnostic preflight passed\n'
     ;;
   preflight-deferred-exact)
     [[ "${PHASE1_ENABLE_DEFERRED_EXACT:-0}" == "1" ]] \
@@ -417,6 +478,10 @@ case "${ACTION}" in
     printf '[phase1-a5] deferred exact preflight passed\n'
     ;;
   smoke) activate_and_audit_smoke "$@"; run_matrix "${ACTION}" "$@" ;;
+  diagnostic)
+    activate_and_audit_diagnostic "$@"
+    run_matrix "${ACTION}" "$@"
+    ;;
   f0|f1)
     [[ "${PHASE1_ENABLE_DEFERRED_EXACT:-0}" == "1" ]] \
       || die "f0/f1 are deferred; MTP validation resumes with dSpark"

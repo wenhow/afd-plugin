@@ -402,6 +402,8 @@ def test_a5_matrix_lists_the_deferred_exact_cases_explicitly():
     ("case_name", "attention_devices", "ffn_devices", "ffn_capacity"),
     [
         ("a4f4_eager_u1_mtp_off", "0,1,2,3", "4,5,6,7", "4096"),
+        ("a4f4_graph_u1_mtp_off", "0,1,2,3", "4,5,6,7", "4096"),
+        ("a4f4_eager_u2_mtp_off", "0,1,2,3", "4,5,6,7", "4096"),
         ("a4f4_graph_u2_mtp_off", "0,1,2,3", "4,5,6,7", "4096"),
         ("a4f4_graph_u2_n2", "0,1,2,3", "4,5,6,7", "4096"),
         ("a4f4_graph_u2_n3", "0,1,2,3", "4,5,6,7", "4096"),
@@ -479,6 +481,131 @@ printf '%s\\0' "${CASE_ARGS[@]}"
         assert "--enable-mtp" not in args
         if "graph_u2" in case_name:
             assert args[args.index("--async-scheduling") + 1] == "off"
+
+
+def test_a5_diagnostic_matrix_is_mtp_off_and_kept_out_of_smoke():
+    script = A5_MATRIX.read_text(encoding="utf-8")
+    diagnostic_cases = subprocess.check_output(
+        ["bash", str(A5_MATRIX), "list-diagnostic"], text=True
+    ).splitlines()
+    smoke_cases = subprocess.check_output(
+        ["bash", str(A5_MATRIX), "list-smoke"], text=True
+    ).splitlines()
+
+    assert diagnostic_cases == [
+        "a4f4_graph_u1_mtp_off",
+        "a4f4_eager_u2_mtp_off",
+    ]
+    assert set(diagnostic_cases).isdisjoint(smoke_cases)
+    assert "preflight-diagnostic)" in script
+    assert '[[ "${phase}" == "diagnostic" ]] || break' in script
+    assert 'PHASE1_ASCEND_PROCESS_LOG_PATH:-${output_root}/ascend-process-log' in script
+    assert 'export ASCEND_PROCESS_LOG_PATH="${diagnostic_ascend_log_root}"' in script
+    assert "ascend_process_log_path=%s" in script
+
+    expected_modes = {
+        "a4f4_graph_u1_mtp_off": ("full-decode-only", "1"),
+        "a4f4_eager_u2_mtp_off": ("eager", "2"),
+    }
+    for case_name in diagnostic_cases:
+        command = """
+matrix_path="$1"
+case_name="$2"
+set -- help
+source "$matrix_path" >/dev/null
+case_arguments "$case_name"
+printf '%s\\0' "${CASE_ARGS[@]}"
+"""
+        args = (
+            subprocess.check_output(
+                ["bash", "-c", command, "bash", str(A5_MATRIX), case_name]
+            )
+            .decode()
+            .rstrip("\0")
+            .split("\0")
+        )
+        execution_mode, u_batches = expected_modes[case_name]
+        assert args[args.index("--execution-mode") + 1] == execution_mode
+        assert args[args.index("--u-batches") + 1] == u_batches
+        assert args[args.index("--async-scheduling") + 1] == "off"
+        assert "--enable-mtp" not in args
+
+
+def test_a5_diagnostic_matrix_continues_after_first_failure(tmp_path):
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir()
+    fake_npu_smi = fake_bin / "npu-smi"
+    fake_npu_smi.write_text("#!/usr/bin/env bash\nprintf 'no processes\\n'\n")
+    fake_npu_smi.chmod(0o755)
+
+    venv = tmp_path / "venv"
+    (venv / "bin").mkdir(parents=True)
+    fake_python = venv / "bin/python"
+    fake_python.write_text(
+        "#!/usr/bin/env bash\n"
+        "output_dir=\n"
+        "previous=\n"
+        "for arg in \"$@\"; do\n"
+        "  if [[ \"$previous\" == --output-dir ]]; then output_dir=\"$arg\"; fi\n"
+        "  previous=\"$arg\"\n"
+        "done\n"
+        "mkdir -p \"$output_dir\"\n"
+        "basename \"$output_dir\" >>\"$CAPTURE_CASES\"\n"
+        "[[ \"$(basename \"$output_dir\")\" != a4f4_graph_u1_mtp_off ]]\n"
+    )
+    fake_python.chmod(0o755)
+
+    output_root = tmp_path / "diagnostic-output"
+    captured_cases = tmp_path / "cases.txt"
+    command = """
+matrix_path="$1"
+runner_path="$2"
+venv_path="$3"
+output_path="$4"
+set -- help
+source "$matrix_path" >/dev/null
+RUNNER="$runner_path"
+DSV4_RUNTIME_VENV="$venv_path"
+PHASE1_OUTPUT_BASE="$output_path"
+unset ASCEND_PROCESS_LOG_PATH
+status=0
+run_matrix diagnostic || status=$?
+printf '%s\n' "$status"
+"""
+    result = subprocess.run(
+        [
+            "bash",
+            "-c",
+            command,
+            "bash",
+            str(A5_MATRIX),
+            str(tmp_path / "runner.py"),
+            str(venv),
+            str(output_root),
+        ],
+        env=os.environ
+        | {
+            "PATH": f"{fake_bin}:{os.environ['PATH']}",
+            "CAPTURE_CASES": str(captured_cases),
+        },
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.splitlines()[-1] == "1"
+    assert captured_cases.read_text().splitlines() == [
+        "a4f4_graph_u1_mtp_off",
+        "a4f4_eager_u2_mtp_off",
+    ]
+    diagnostic_root = output_root / "diagnostic"
+    assert (diagnostic_root / "a4f4_graph_u1_mtp_off.exitcode").read_text() == "1\n"
+    assert (diagnostic_root / "a4f4_eager_u2_mtp_off.exitcode").read_text() == "0\n"
+    assert (diagnostic_root / "ascend-process-log").is_dir()
+    matrix_env = (diagnostic_root / "matrix.env").read_text()
+    assert "golden_checked=0" in matrix_env
+    assert "ascend_process_log_path=" in matrix_env
+    assert "exitcode=1" in matrix_env
 
 
 def test_a5_deferred_exact_requires_explicit_opt_in():

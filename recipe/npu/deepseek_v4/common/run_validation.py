@@ -39,6 +39,7 @@ FATAL_LOG_MARKERS = (
     "Communication_Error_Bind_IP_Port",
     "error code is 507014",
     "error code is 507015",
+    "error code is 507034",
     "error code is 507035",
 )
 

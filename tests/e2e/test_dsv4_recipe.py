@@ -1511,6 +1511,7 @@ def test_dsv4_stop_process_drains_owned_group_after_clean_exit(monkeypatch):
         "AFD NPU FFN worker loop failed",
         "Exception in thread",
         "error code is 507014",
+        "error code is 507034",
         "error code is 507035",
     ],
 )

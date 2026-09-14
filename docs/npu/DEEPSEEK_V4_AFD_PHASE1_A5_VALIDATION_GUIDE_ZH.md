@@ -95,9 +95,12 @@ source "$BUNDLE_ROOT/bin/activate_runtime.sh"
 cd "$AFD_PLUGIN_ROOT"
 git status --short
 bash tools/dsv4/run_phase1_a5_matrix.sh list-smoke
+bash tools/dsv4/run_phase1_a5_matrix.sh list-diagnostic
 ```
 
-`git status --short` 必须为空；`list-smoke` 必须输出 4 个 MTP-off AFD case。
+`git status --short` 必须为空；`list-smoke` 必须输出 4 个一期 MTP-off AFD case；
+`list-diagnostic` 必须只输出 `a4f4_graph_u1_mtp_off` 和
+`a4f4_eager_u2_mtp_off`，两项不进入正式 smoke 清单。
 
 ## 4. 运行前预检
 
@@ -168,7 +171,9 @@ bash tools/dsv4/run_phase1_a5_matrix.sh smoke \
 
 取消请求改为流式请求。`curl=28` 后脚本立即从 `/metrics` 检查`vllm:num_requests_running` 和 `vllm:num_requests_waiting`，两项连续两次为 0 才执行恢复请求；恢复请求完成后再执行一次相同检查，然后才开始停服。这能区分“客户端已超时”与“服务端请求确实已取消并归零”。`507035` 仍保留为 fatal，不做日志白名单。
 
-2026-09-14 的 A4F4 Graph/U2 失败包中，两侧实际日志均为`Asynchronous scheduling is enabled`。U1 capture 完成后，四个 FFN rank 在 U2 capture 同时停止推进；约 9 分钟后 grouped matmul/AIVEC 首报 `507014`，随后才出现 HCCL 和 connector close 的级联错误。该失败发生在 API ready 前，与业务取消和停机交接无关。`507014` 现已加入 fatal marker；新 `runtime.json` 和`validation_summary.json` 均记录 `async_scheduling`，Graph/U2 必须为 `off`。
+2026-09-14 的首次 A4F4 Graph/U2 失败包中，两侧日志均为`Asynchronous scheduling is enabled`。U1 capture 完成后，四个 FFN rank 在 U2 capture 同时停止推进；约 9 分钟后 grouped matmul/AIVEC 首报 `507014`，随后才出现 HCCL 和 connector close 的级联错误。该失败发生在 API ready 前，与业务取消和停机交接无关。`507014` 已加入 fatal marker；`runtime.json` 和`validation_summary.json` 均记录 `async_scheduling`。
+
+提交 `2cda995` 关闭 async scheduling 后，A5 在相同 U2 capture 点再次停止，约 9 分钟后四个 FFN rank 报 `aclnnGroupedMatmulWeightNz`/`aclnnQuantMatmulV5` 的`507014`/`507034`。这证明同步调度是需要固定的实验变量，但不是充分修复。`507034` 也已加入 fatal marker。A3 的 CANN 9.0.0、Ascend 量化权重、A8F8 回归只证明通用插件路径，不能代替 A5 官方 FP8、CANN 9.2.0、A4F4 的硬件结论。
 
 三项必须全部返回 0。每个 case 目录必须包含 `cycle_1`、`cycle_2` 和`validation_summary.json`；每轮必须包含：
 
@@ -190,17 +195,43 @@ npu_after_cleanup.txt
 
 `cancellation.exitcode` 的预期值为 28，两个 quiescence gate 必须分别为`passed=true`、`running=0`、`waiting=0`、`stable_samples=2`，随后 `recovery.json`必须通过。`cycle_summary.json` 中 `shutdown.coordinated` 和`shutdown.ffn_handoff_gate.passed` 必须为 `true`，handoff 的 `observed` 必须等于`expected`；`order` 必须为`attention_request, ffn_handoff_wait, ffn_request, attention_wait, ffn_wait`。Graph/U2 case 的`ubatch_gate.observed_two_stages` 必须为 `true`。
 
-失败证据目录不会被覆盖。已经通过的 no-AFD 和 A4F4 eager/U1 不需要重跑。升级新包后，为两个 Graph/U2 必过点使用新的输出目录：
+失败证据目录不会被覆盖。已经通过的 no-AFD 和 A4F4 eager/U1 不需要重跑。当前先暂停重复 Graph/U2 正式门禁，升级新包后执行两个单轮隔离点：
 
 ```bash
-export PHASE1_OUTPUT_BASE="$A5_VALIDATION_ROOT/afd-graph-sync-r1"
-bash tools/dsv4/run_phase1_a5_matrix.sh smoke \
-  a4f4_graph_u2_mtp_off \
-  a2f4_graph_u2_mtp_off \
-  2>&1 | tee "$A5_VALIDATION_ROOT/afd-graph-sync-r1.console.log"
+bash tools/dsv4/run_phase1_a5_matrix.sh list-diagnostic
+bash tools/dsv4/run_phase1_a5_matrix.sh preflight-diagnostic
+
+export PHASE1_OUTPUT_BASE="$A5_VALIDATION_ROOT/afd-isolation-r1"
+set +e
+bash tools/dsv4/run_phase1_a5_matrix.sh diagnostic \
+  a4f4_graph_u1_mtp_off \
+  a4f4_eager_u2_mtp_off \
+  2>&1 | tee "$A5_VALIDATION_ROOT/afd-isolation-r1.console.log"
+export A5_DIAGNOSTIC_EXITCODE=${PIPESTATUS[0]}
+set -e
+printf 'A5_DIAGNOSTIC_EXITCODE=%s\n' "$A5_DIAGNOSTIC_EXITCODE" \
+  | tee "$A5_VALIDATION_ROOT/afd-isolation-r1.exitcode"
 ```
 
-第 5 节已经通过时也不需要重跑。两个 Graph 点必须分别完成两轮；A4F4 失败时矩阵会停止，A2F4 不会被执行。每个新 Graph case 的 `runtime.json` 与`validation_summary.json` 都必须显示 `async_scheduling=off`，日志必须出现`Asynchronous scheduling is disabled`。收集证据时同时传入此前成功的 eager 目录和本次成功的 Graph 目录。
+`diagnostic` 不属于一期正式门禁，固定一轮、MTP-off、batch 1/8/32；第一个失败后仍继续第二个。CANN 进程日志自动定向到`afd-isolation-r1/diagnostic/ascend-process-log`。两个 runtime 均必须为`async_scheduling=off`。按下列方式判读：
+
+| Graph/U1 | eager/U2 | 结论 |
+|---|---|---|
+| 失败 | 任意 | A5 官方 FP8 的 AFD Graph capture 路径有问题 |
+| 通过 | 失败 | A5 AFD U2 数据面有问题 |
+| 通过 | 通过 | 单项均可用，故障收敛到 A5 AFD Graph 与 U2 的组合 |
+
+无论命令返回 0 或 1，都回传整个诊断目录和 console log：
+
+```bash
+tar -czf "$A5_VALIDATION_ROOT/afd-isolation-r1.tar.gz" \
+  -C "$A5_VALIDATION_ROOT" \
+  afd-isolation-r1 afd-isolation-r1.console.log afd-isolation-r1.exitcode
+sha256sum "$A5_VALIDATION_ROOT/afd-isolation-r1.tar.gz" \
+  >"$A5_VALIDATION_ROOT/afd-isolation-r1.tar.gz.sha256"
+```
+
+收到诊断证据并完成对应修复前，不要继续 A2F4 Graph/U2 或 A4F2 容量项。
 
 若旧包仅在 `a4f4_eager_u1_mtp_off` 的退出阶段出现下列任一组合，升级后先只重跑该点：一是 Attention 等待 20 秒后强杀 peer，随后 FFN 报 `507035`；二是两侧同时停机后 FFN 日志干净，但 Attention 的 dummy batch 报 `Connection closed by peer`、EngineCore fatal 或 `507035`。这两种情况都不得用业务 smoke、进程返回码或 NPU 清理通过代替完整 fatal gate：
 
@@ -211,9 +242,12 @@ bash tools/dsv4/run_phase1_a5_matrix.sh smoke \
   2>&1 | tee "$A5_VALIDATION_ROOT/afd-eager-r2.console.log"
 ```
 
-若新脚本在任一 quiescence gate 失败，先回传两个 gate JSON、metrics 和 Attention 日志；这表示请求生命周期未归零。若 Graph capture 不推进或出现 `507014`，回传`runtime.json`、两侧完整日志及 A5 设备侧 plog/slog；若`ffn_handoff_gate` 失败，同样回传 `cycle_summary.json` 和两侧完整日志。不能以第二轮偶然通过覆盖第一轮失败。
+若新脚本在任一 quiescence gate 失败，先回传两个 gate JSON、metrics 和 Attention 日志；这表示请求生命周期未归零。若 Graph capture 不推进或出现 `507014`/`507034`，回传`runtime.json`、两侧完整日志及 A5 设备侧 plog/slog；若`ffn_handoff_gate` 失败，同样回传 `cycle_summary.json` 和两侧完整日志。不能以第二轮偶然通过覆盖第一轮失败。
 
 ## 7. 单独运行 A4F2 容量项
+
+本节保留为故障修复后的正式步骤。当前 Graph/U2 启动问题尚未关闭，本轮隔离诊断不要执行
+A4F2；否则算子超时不能判为容量阻塞。
 
 ```bash
 export PHASE1_OUTPUT_BASE="$A5_VALIDATION_ROOT/afd-capacity"

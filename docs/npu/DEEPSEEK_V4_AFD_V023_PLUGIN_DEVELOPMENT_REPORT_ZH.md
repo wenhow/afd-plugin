@@ -82,7 +82,7 @@ DeepSeek-V4 的拆分边界放在远端 MoE，而不是把整个 FFN 子层搬�
 | TP2 | 已冻结功能基线 | 等量 A8F8、DP4/TP2、eager/U1 | CAMP2P TP2、非等量 TP2、TP3、最大 Graph+MTP 组合 |
 | PD 分离 | 第一期 A3 功能基线已冻结，目标点 3/3 | Mooncake contract/runtime；双 A3 TP1、Graph/U2、A8F8 N2/N3 与 A4F8 N3 各两轮；smoke、取消恢复、P1 完整请求和全 rank 在线 U2 通过 | 逐 token 精度、其他并行组合、U3 和正式性能；启停脚本质量不属于本期交付 |
 | v0.23/plugin 工程底座 | 已冻结功能基线 | 同栈 golden、兼容层、部署和验证工具 | 旧栈性能数字不能作为 v0.23 基线 |
-| A5 原始权重适配 | 进行中 | 官方 `fp8`/`weight_block_size=[128,128]` 配置门禁、无 `--quantization ascend`、block 32/prefetch；DP4 no-AFD/MTP-off 和 A4F4 eager/U1 两轮完整门禁已通过。A4F4 Graph/U2 在 vLLM async scheduling 自动开启时卡在启动 capture 并以 `507014` 超时；已将固定栈 Graph/U2 约束为 `async_scheduling=off`，A3 A8F8 一轮实模回归完整通过 | A5 尚需复跑 A4F4/A2F4 Graph/U2 两轮及 A4F2 容量项；MTP 后移到 dSpark，不能创建 A5 功能 tag |
+| A5 原始权重适配 | 进行中 | 官方 `fp8`/`weight_block_size=[128,128]` 配置门禁、无 `--quantization ascend`、block 32/prefetch；DP4 no-AFD/MTP-off 和 A4F4 eager/U1 两轮完整门禁已通过。A4F4 Graph/U2 在 async scheduling on/off 下均卡在 U2 capture，约 9 分钟后四个 FFN rank 报 grouped/quant matmul `507014`/`507034` | 先完成 A4F4 Graph/U1 与 eager/U2 单轮隔离；A4F4/A2F4 Graph/U2 和 A4F2 容量项暂停重复；MTP 后移到 dSpark，不能创建 A5 功能 tag |
 | 正式性能验收 | 未完成 | 已有 standalone 对照；PD Graph/U2 三拓扑三轮测量及 A8F8/A16F8 双侧 profile | split A8F8 CV 超限；缺路径匹配 PD control、MTP on/off、跨负载及固定收益阈值，尚无可发布性能 tag |
 
 ### 2.2.1 两阶段交付口径与第一阶段完成度（2026-09-14）
@@ -132,11 +132,12 @@ SHA256、截断日志且排除 profiler raw 的证据包。A5 当前操作见独
 | A8F8 路径匹配 F0 | `/mnt/workspace/validation/phase1_formal_exact_3b869ae_a8f8_u2_n2`；eager/U2/N2 serial 10/10，batch 1/8/32 均有效且 exact 为 1/1、8/8、8/32，真实双 stage、双 role rc=0、fatal 和 NPU cleanup 通过；batch 32 差异保留为 `UPSTREAM-DSV4-BI-001`，不误判为路径金标错误 |
 | 2026-09-10 双 A3 一期 smoke | 3 个适用点单轮 batch 1/8/32 和取消恢复通过；原始明细见上述两个 2026-09-10 证据包 |
 | 2026-09-11 双 A3 两轮验证 | 6/6 次 smoke batch 1/8/32、取消恢复、P1 128/128 和在线 U2 均通过；A8F8 N2/N3、A4F8 N3 三点各两轮，第一阶段 A3 功能目标 3/3 完成；显式停服后的脚本 traceback 单列为非阻塞遗留项 |
-| 2026-09-12 至 09-14 A5 bring-up | 固定上游安装和 8 张 Ascend950DT 可见性已通过；官方原始权重 DP4 no-AFD/MTP-off 已通过。A4F4 eager/U1/MTP-off 升级 shutdown payload 交接后两轮完整门禁通过。随后 A4F4 Graph/U2 在 API ready 前卡住：四个 FFN rank 同时停在 U2 capture，约 9 分钟后 grouped matmul/AIVEC 报 `507014`；runtime 和两侧日志确认 vLLM async scheduling 为 auto/enabled |
+| 2026-09-12 至 09-14 A5 bring-up | 固定上游安装和 8 张 Ascend950DT 可见性已通过；官方原始权重 DP4 no-AFD/MTP-off 已通过。A4F4 eager/U1/MTP-off 升级 shutdown payload 交接后两轮完整门禁通过。A4F4 Graph/U2 在 API ready 前卡住；async scheduling 从 auto/on 改为 off 后故障点和约 9 分钟超时窗口不变，排除其为充分根因 |
 | A5 一期工具覆盖 | no-AFD DP4/MTP-off；A4F4 eager/U1/MTP-off；A4F4 Graph/U2/MTP-off；A2F4 Graph/U2/MTP-off；A4F2 Graph/U2/MTP-off 容量项；不做逐 token 比对；MTP 后移到 dSpark |
 | A5 退出门禁修正 | 串行等待会使 Attention/FFN 相互等待，同时请求又会使 FFN 早于 Attention 的最后一次 DP dummy batch 关闭。新 runner 先 TERM Attention，等待全部 FFN DP rank 记录收到 Attention shutdown payload，再 TERM FFN 并等待两侧退出；15 秒未收齐仍执行清理但 handoff gate 失败。流式取消后、恢复后仍要求 `/metrics` 连续两次 running/waiting 为 0；HCCL connector close 保持幂等，`507035` 直接列入 fatal marker；A4F4 eager/U1 两轮已通过 |
-| A5 Graph/U2 调度修正 | A5 matrix 的 Graph/U2 case 显式传 `--async-scheduling off`；共享 runner 将该值传给角色脚本并写入 runtime/summary，固定栈 Graph/U2 的 `auto/on` 启动前 fail-fast；`507014` 纳入 fatal marker。这只关闭 vLLM async scheduler，不关闭 Graph 多 stream 或标准同步 HCCL send/recv |
-| 本机 A3 修正回归 | 固定 vLLM `0fc695fc`、vLLM-Ascend `3da28f9`、CANN 9.0.0，A8F8 Graph/U2/MTP-off 一轮启动 430.248 秒；capture 4/4、batch 1/8/32、取消归零、恢复、真实双 stage、8/8 handoff、fatal 和 NPU cleanup 全部通过。目录 `/mnt/workspace/validation/dsv4_afd_a5_graph_u2_async_off_fix_20260914_1612`；这是 A3 开发证据，不替代 A5 两轮结论 |
+| A5 Graph/U2 调度控制 | A5 matrix 的 Graph/U2 case 显式传 `--async-scheduling off`；共享 runner 将该值传给角色脚本并写入 runtime/summary，固定栈 Graph/U2 的 `auto/on` 启动前 fail-fast。这只固定实验变量，不再记作 A5 capture 修复；`507014`、`507034` 均纳入 fatal marker |
+| 本机 A3 对照回归 | 固定 vLLM `0fc695fc`、vLLM-Ascend `3da28f9`、CANN 9.0.0，A8F8 Graph/U2/MTP-off 一轮完整通过。该环境使用 Ascend 量化权重、A8F8、block 128/lazy，与 A5 官方 FP8、A4F4、block 32/prefetch、CANN 9.2.0 不等价；只能证明通用插件路径，不能作为 A5 修复证据 |
+| A5 启动隔离工具 | 新增不进入正式 smoke 的 `diagnostic`：A4F4 Graph/U1 与 eager/U2，各一轮 MTP-off、batch 1/8/32；第一个失败后继续第二个，并把 CANN 进程日志定向到证据目录 |
 
 20 秒两轮复跑的原始证据包为 `19a7fb5ecf2946f6a035ebe8245b7c07.gz`，SHA256
 `6b8bf39d3266c9bf0d4b07390e4971cd108521b935b4bd0910dadd74ccde1d36`。包内
@@ -156,6 +157,14 @@ A5 Graph/U2 启动失败证据包为 `0dba93fe5f2c48629edce5249ef5cd8a.gz`，SHA
 15:20:04 开始 capture 后不再推进，15:29:14 四个 FFN rank 同时报告 AIVEC/grouped
 matmul 超时 `507014`，HCCL/close 错误均发生在其后。两侧启动参数明确为
 `async_scheduling=True`，与已验证 Graph/U2 同步调度口径不一致。
+
+同步调度复跑证据包为 `66c534c5daab449c81b9537e3cb78894.gz`，SHA256
+`68c4529e253cfaf37a74c0677f30d5706d5a18d5f97dcb573c8bf46558173934`。runtime 固定
+afd-plugin `2cda99596a6cc1023ff651883455bdedc124be1f`、`async_scheduling=off`、
+CANN `/usr/local/Ascend/cann-9.2.0` 和官方 FP8 模型。17:14:50 四个 rank 进入 U2
+capture 后停止推进，17:23:59 同时出现 `aclnnGroupedMatmulWeightNz`、
+`aclnnQuantMatmulV5` 的 AICore/AIVEC `507014`/`507034`。与 auto/on 样本相同的故障点
+和超时窗口证明 async scheduling 不是充分根因；HCCL、close 和 shutdown 错误均是级联。
 
 A5 原始权重和单机 DP4 参数以
 [vLLM-Ascend v0.23.0 官方指导](https://docs.vllm.ai/projects/ascend/en/v0.23.0/tutorials/models/DeepSeek-V4-Flash.html#single-node-online-deployment)
@@ -1386,10 +1395,10 @@ dummy batch 命中已关闭的 FFN Gloo peer；两次 `/metrics` 归零门禁均
 当前 runner 因此改为显式交接：先请求 Attention 停机，等全部 FFN DP rank 记录收到
 Attention shutdown payload，再请求 FFN 停机并等待两侧退出。connector close 继续幂等，
 `507035` 直接列入 fatal marker。A5 eager/U1 此后已完成两轮完整门禁。A4F4 Graph/U2
-首次运行则因遗漏既有 `async scheduling off` 约束，在 U2 capture 同时挂住四个 FFN rank，
-约 9 分钟后报 `507014`。runner 现显式记录调度模式，固定栈 Graph/U2 对 `auto/on`
-启动前 fail-fast，A5 matrix 固定传 `off`，`507014` 也纳入 fatal marker。本机 A3 A8F8
-Graph/U2/MTP-off 一轮实模已完整通过；仍需 A5 复跑两个必过 Graph/U2 点和 A4F2 容量项。
+在 async scheduling auto/on 与 off 两次运行中均于 U2 capture 挂住四个 FFN rank，并在
+约 9 分钟后报 grouped/quant matmul `507014`/`507034`。runner 继续显式记录并固定同步调度，
+但不再把它记作根因修复。本机 A3 A8F8 结果因 SoC、CANN、权重格式和拓扑均不同，只保留
+为通用代码回归。A5 先运行 Graph/U1 与 eager/U2 诊断点，正式 Graph/U2 和容量项暂停重复。
 control/exact 后移到最终精度阶段，MTP N1/N2/N3 后移到 dSpark 组合阶段。
 
 `2026-09-08` 的 A3 交付复核显式固定 CANN 9.0.0、vLLM `0fc695fc6d1d82e9a5ac6835ac8e4e1c83703665`
@@ -2152,7 +2161,7 @@ DP4/TP2 eager/U1 功能 tag 保留，但不改变本次范围。
 | `2164240` | Graph/U2 三项新增物理流水默认全开；双 A3 R14 采集的代码基线 |
 | `71168312` | 第一阶段 M10/M11：单 MTP layer N1-N3、双向整数 A/F、组件/recipe/部署验证 |
 | `ec106f5b` | 第一期 A5/双机矩阵、路径匹配 control、证据收集器、安装补丁包与执行指导书 |
-| 本次更新 | A5 原始 `DeepSeek-V4-Flash` 配置契约与显式备份/恢复、`fp8`/MXFP 算子审计、四卡 DP4 no-AFD/MTP-off 功能 smoke、4 个 AFD/MTP-off 功能/容量点、无 golden 双冷启动/流式取消与请求归零门禁、shutdown payload 交接、Graph/U2 同步调度约束和 `507014` fatal 检查，以及可升级已安装 A5 环境的交付 profile；MTP 后移到 dSpark |
+| 本次更新 | A5 原始 `DeepSeek-V4-Flash` 配置契约与显式备份/恢复、`fp8`/MXFP 算子审计、四卡 DP4 no-AFD/MTP-off 功能 smoke、4 个 AFD/MTP-off 功能/容量点、无 golden 双冷启动/流式取消与请求归零门禁、shutdown payload 交接、Graph/U2 同步调度控制、`507014`/`507034` fatal 检查及 Graph/U1/eager/U2 隔离动作，以及可升级已安装 A5 环境的交付 profile；MTP 后移到 dSpark |
 
 ### 13.2 冻结 tag
 
@@ -2198,6 +2207,6 @@ M9 的第一阶段 A3 功能范围已由 `dsv4-afd-v023-phase1-a3-functional-v1`
 A8F8 N2/N3、A4F8 N3 三个适用 PD Graph/U2 点各完成两轮，6/6 smoke、取消恢复、P1
 128/128 和全 rank 在线 U2 均通过，并冻结为 `dsv4-afd-v023-phase1-a3-functional-v1`。
 启停脚本问题、逐 token F1、A5、A8F4 容量环境、U3 和可发布性能收益不属于该标签。
-A5 原始权重适配已进入独立现场验证；MTP-off no-AFD 与 A4F4 eager/U1 已通过，
-Graph/U2 的 async scheduling 配置缺口已修正并由本机 A3 A8F8 实模验证。A5 仍需完成
-A4F4/A2F4 Graph/U2 两轮和 A4F2 容量项；MTP N1/N2/N3 后移到 dSpark 组合阶段。
+A5 原始权重适配已进入独立现场验证；MTP-off no-AFD 与 A4F4 eager/U1 已通过。
+Graph/U2 在同步调度下仍复现启动 capture 超时，本机 A3 A8F8 因环境不等价不能关闭该问题。
+A5 先完成 Graph/U1 与 eager/U2 隔离，再决定对应修复；MTP N1/N2/N3 后移到 dSpark 组合阶段。
