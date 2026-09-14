@@ -507,6 +507,24 @@ def test_dsv4_hccl_graph_topology_accepts_integer_multiple_roles():
             topology={"attention_ranks": 8, "ffn_ranks": 8},
         )
 
+    with pytest.raises(ValueError, match="requires async scheduling off"):
+        runner._validate_execution_topology(
+            connector="P2pHcclAFDConnector",
+            execution_mode="full-decode-only",
+            u_batches=2,
+            async_scheduling="auto",
+            topology={"attention_ranks": 8, "ffn_ranks": 8},
+        )
+
+
+def test_dsv4_execution_environment_pins_scheduler(monkeypatch):
+    runner = _load_runner()
+    monkeypatch.setenv("AFD_ASYNC_SCHEDULING", "auto")
+
+    runner._set_execution_environment(async_scheduling="off")
+
+    assert runner.os.environ["AFD_ASYNC_SCHEDULING"] == "off"
+
 
 def test_dsv4_hccl_tp2_topology_and_environment(monkeypatch):
     runner = _load_runner()
@@ -1197,11 +1215,13 @@ def test_dsv4_runtime_manifest_records_graph_u1(monkeypatch):
         dbo_decode_token_threshold=2,
         dbo_prefill_token_threshold=12,
         profile=True,
+        async_scheduling="off",
     )
 
     assert manifest["execution_mode"] == "full-decode-only"
     assert manifest["connector"] == "P2pHcclAFDConnector"
     assert manifest["u_batches"] == 1
+    assert manifest["async_scheduling"] == "off"
     assert manifest["profile"] is True
     assert manifest["profile_role_ranks"] == [0]
     assert manifest["profile_role_rank_selection"] == {
@@ -1242,6 +1262,7 @@ def test_dsv4_runtime_manifest_records_eager_u2(monkeypatch):
     assert manifest["u_batches"] == 2
     assert manifest["dbo_decode_token_threshold"] == 2
     assert manifest["dbo_prefill_token_threshold"] == 12
+    assert manifest["async_scheduling"] == "auto"
     assert manifest["afd_plugin_worktree"]["tracked_dirty"] is False
 
 
@@ -1489,6 +1510,7 @@ def test_dsv4_stop_process_drains_owned_group_after_clean_exit(monkeypatch):
     [
         "AFD NPU FFN worker loop failed",
         "Exception in thread",
+        "error code is 507014",
         "error code is 507035",
     ],
 )

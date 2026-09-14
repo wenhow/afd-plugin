@@ -19,6 +19,7 @@ H0 审计已经完成。不要重复安装 Python、CANN、vLLM 或 vLLM-Ascend�
 | 模型 | `/home/models/DeepSeek-V4-Flash` 的官方原始 `DeepSeek-V4-Flash` 配置 |
 | 硬件 | 单机 8 卡，device ordinal 为 0-7 |
 | AFD | `P2pHcclAFDConnector`、TP1、`ENABLE_MTP=0` |
+| Graph/U2 调度 | vLLM `async_scheduling=off`；不改变 Graph 多 stream 或同步 HCCL P2P 数据面 |
 
 ## 2. 本次要执行的项目
 
@@ -56,6 +57,12 @@ sed -i \
   -e 's/^MTP_NUM_SPECULATIVE_TOKENS=.*/MTP_NUM_SPECULATIVE_TOKENS="1"/' \
   -e 's/^MTP_DRAFT_EXECUTION=.*/MTP_DRAFT_EXECUTION="eager"/' \
   "$BUNDLE_ROOT/config.env"
+if grep -q '^AFD_ASYNC_SCHEDULING=' "$BUNDLE_ROOT/config.env"; then
+  sed -i 's/^AFD_ASYNC_SCHEDULING=.*/AFD_ASYNC_SCHEDULING="off"/' \
+    "$BUNDLE_ROOT/config.env"
+else
+  printf '\nAFD_ASYNC_SCHEDULING="off"\n' >>"$BUNDLE_ROOT/config.env"
+fi
 bash bin/00_print_config.sh
 bash bin/install_all.sh
 ```
@@ -75,6 +82,7 @@ MODEL_PATH=/home/models/DeepSeek-V4-Flash
 SOC_VERSION=Ascend950DT_9582
 ATTENTION_DEVICES=0,1,2,3
 FFN_DEVICES=4,5,6,7
+AFD_ASYNC_SCHEDULING=off
 REUSE_VENV=1
 INSTALL_PYTHON_DEPS=0
 INSTALL_UPSTREAM_STACK=0
@@ -152,13 +160,15 @@ bash tools/dsv4/run_phase1_a5_matrix.sh smoke \
   2>&1 | tee "$A5_VALIDATION_ROOT/afd-required.console.log"
 ```
 
-矩阵脚本会强制清除外层 `config.env` 的 MTP 默认值，三个 case 均不传`--enable-mtp`。这样旧配置中的 `ENABLE_MTP=1` 或 `MTP_DRAFT_EXECUTION=graph`也不能把当前 A5 门禁改成 MTP 路径。
+矩阵脚本会强制清除外层 `config.env` 的 MTP 默认值，三个 case 均不传`--enable-mtp`。这样旧配置中的 `ENABLE_MTP=1` 或 `MTP_DRAFT_EXECUTION=graph`也不能把当前 A5 门禁改成 MTP 路径。所有 Graph/U2 case 还会显式传`--async-scheduling off`；通用 runner 对固定栈中的 Graph/U2 + `auto/on` 直接 fail-fast，避免模型加载后才进入不受支持的捕获组合。
 
 矩阵固定 `VLLM_SHUTDOWN_TIMEOUT_SECONDS=20`。`0` 在当前 vLLM 中表示立即 abort；但 20 秒本身不能修复角色串行停机：若脚本等待 Attention 完全退出后才通知 FFN，Attention 超时强杀 peer 时，仍在 `torch.npu.synchronize()` 的 FFN 会报 `507035`。提交 `8325c18` 改为同时请求两侧停机后，FFN 的错误已消失，但两轮 Attention 都在进入 drain 时执行了最后一次 DP dummy batch；此时 FFN 已关闭 Gloo，Attention 因 `Connection closed by peer` 进入 EngineCore fatal，并在 connector close 时出现 `507035`。两次请求归零门禁均通过，因此该结果不是取消请求残留。
 
 新脚本使用 Attention shutdown payload 作为显式交接：先只请求 Attention 优雅停机，保持 FFN 存活；等 `ffn.log` 中全部 FFN DP rank 都出现 `AFD NPU FFN received Attention shutdown payload` 后，再请求 FFN 停机并等待两侧退出。A4F4 的预期 receipt 数为 4；15 秒内未收齐时仍会停止 FFN 做清理，但 `ffn_handoff_gate.passed=false`，本轮失败。connector 释放保持幂等，`507035` 也直接列入 fatal marker，不做日志白名单。
 
 取消请求改为流式请求。`curl=28` 后脚本立即从 `/metrics` 检查`vllm:num_requests_running` 和 `vllm:num_requests_waiting`，两项连续两次为 0 才执行恢复请求；恢复请求完成后再执行一次相同检查，然后才开始停服。这能区分“客户端已超时”与“服务端请求确实已取消并归零”。`507035` 仍保留为 fatal，不做日志白名单。
+
+2026-09-14 的 A4F4 Graph/U2 失败包中，两侧实际日志均为`Asynchronous scheduling is enabled`。U1 capture 完成后，四个 FFN rank 在 U2 capture 同时停止推进；约 9 分钟后 grouped matmul/AIVEC 首报 `507014`，随后才出现 HCCL 和 connector close 的级联错误。该失败发生在 API ready 前，与业务取消和停机交接无关。`507014` 现已加入 fatal marker；新 `runtime.json` 和`validation_summary.json` 均记录 `async_scheduling`，Graph/U2 必须为 `off`。
 
 三项必须全部返回 0。每个 case 目录必须包含 `cycle_1`、`cycle_2` 和`validation_summary.json`；每轮必须包含：
 
@@ -180,18 +190,17 @@ npu_after_cleanup.txt
 
 `cancellation.exitcode` 的预期值为 28，两个 quiescence gate 必须分别为`passed=true`、`running=0`、`waiting=0`、`stable_samples=2`，随后 `recovery.json`必须通过。`cycle_summary.json` 中 `shutdown.coordinated` 和`shutdown.ffn_handoff_gate.passed` 必须为 `true`，handoff 的 `observed` 必须等于`expected`；`order` 必须为`attention_request, ffn_handoff_wait, ffn_request, attention_wait, ffn_wait`。Graph/U2 case 的`ubatch_gate.observed_two_stages` 必须为 `true`。
 
-失败证据目录不会被覆盖。修复后续跑第 6 节时应保留原来的`A5_VALIDATION_ROOT`，只换一个新的输出目录，例如：
+失败证据目录不会被覆盖。已经通过的 no-AFD 和 A4F4 eager/U1 不需要重跑。升级新包后，为两个 Graph/U2 必过点使用新的输出目录：
 
 ```bash
-export PHASE1_OUTPUT_BASE="$A5_VALIDATION_ROOT/afd-required-r2"
+export PHASE1_OUTPUT_BASE="$A5_VALIDATION_ROOT/afd-graph-sync-r1"
 bash tools/dsv4/run_phase1_a5_matrix.sh smoke \
-  a4f4_eager_u1_mtp_off \
   a4f4_graph_u2_mtp_off \
   a2f4_graph_u2_mtp_off \
-  2>&1 | tee "$A5_VALIDATION_ROOT/afd-required-r2.console.log"
+  2>&1 | tee "$A5_VALIDATION_ROOT/afd-graph-sync-r1.console.log"
 ```
 
-第 5 节已经通过时不需要重跑。收集证据时将第 9 节的`afd-required/smoke` 替换为实际成功目录，例如 `afd-required-r2/smoke`。
+第 5 节已经通过时也不需要重跑。两个 Graph 点必须分别完成两轮；A4F4 失败时矩阵会停止，A2F4 不会被执行。每个新 Graph case 的 `runtime.json` 与`validation_summary.json` 都必须显示 `async_scheduling=off`，日志必须出现`Asynchronous scheduling is disabled`。收集证据时同时传入此前成功的 eager 目录和本次成功的 Graph 目录。
 
 若旧包仅在 `a4f4_eager_u1_mtp_off` 的退出阶段出现下列任一组合，升级后先只重跑该点：一是 Attention 等待 20 秒后强杀 peer，随后 FFN 报 `507035`；二是两侧同时停机后 FFN 日志干净，但 Attention 的 dummy batch 报 `Connection closed by peer`、EngineCore fatal 或 `507035`。这两种情况都不得用业务 smoke、进程返回码或 NPU 清理通过代替完整 fatal gate：
 
@@ -202,7 +211,7 @@ bash tools/dsv4/run_phase1_a5_matrix.sh smoke \
   2>&1 | tee "$A5_VALIDATION_ROOT/afd-eager-r2.console.log"
 ```
 
-两轮通过后，再用新的输出目录执行本节另外两个 Graph/U2 必过点。第 5 节和已通过的安装/预检不需要重跑，旧失败目录不得删除。若新脚本在任一 quiescence gate 失败，先回传两个 gate JSON、metrics 和 Attention 日志；这表示请求生命周期未归零。若 `ffn_handoff_gate` 失败，回传 `cycle_summary.json` 和两侧完整日志；若 handoff 通过后仍出现 `Connection closed by peer`、`507035` 或 EngineCore fatal，再补充 A5 设备侧 plog/slog。不能以第二轮偶然通过覆盖第一轮失败。
+若新脚本在任一 quiescence gate 失败，先回传两个 gate JSON、metrics 和 Attention 日志；这表示请求生命周期未归零。若 Graph capture 不推进或出现 `507014`，回传`runtime.json`、两侧完整日志及 A5 设备侧 plog/slog；若`ffn_handoff_gate` 失败，同样回传 `cycle_summary.json` 和两侧完整日志。不能以第二轮偶然通过覆盖第一轮失败。
 
 ## 7. 单独运行 A4F2 容量项
 
@@ -242,6 +251,7 @@ for path in sorted(root.rglob("validation_summary.json")):
     print("  passed=", data.get("passed"))
     print("  validation_mode=", data.get("validation_mode"))
     print("  golden_checked=", data.get("golden_checked"))
+    print("  async_scheduling=", data.get("async_scheduling"))
     for cycle in data.get("cycles", []):
         print(
             "  cycle=", cycle.get("cycle"),
@@ -261,8 +271,9 @@ PY
 
 原生 `runtime.env` 必须为 `enable_mtp=0`，`summary.env` 必须为 `passed=1`、
 `forced_stop=0`、`npu_cleanup_passed=1`。AFD summary 必须为
-`validation_mode=functional_smoke`、`golden_checked=false`、`enable_mtp=false` 和
-`mtp_draft_execution=null`。每个 AFD cycle 的 handoff 必须为 `passed=true` 且
+`validation_mode=functional_smoke`、`golden_checked=false`、`enable_mtp=false`、
+`mtp_draft_execution=null`；Graph/U2 还必须为 `async_scheduling=off`。每个 AFD cycle 的
+handoff 必须为 `passed=true` 且
 `observed=expected`；A4F4 应为 `4/4`，A2F4 和 A4F2 应分别为 `4/4` 和 `2/2`。
 
 ## 9. 收集并回传证据
@@ -273,7 +284,8 @@ cd "$AFD_PLUGIN_ROOT"
 bash tools/dsv4/collect_phase1_validation.sh \
   "$A5_VALIDATION_ROOT/dsv4-phase1-a5-evidence.tar.gz" \
   "$A5_VALIDATION_ROOT/native-dp4" \
-  "$A5_VALIDATION_ROOT/afd-required/smoke" \
+  "/替换为此前成功的eager目录/smoke" \
+  "$A5_VALIDATION_ROOT/afd-graph-sync-r1/smoke" \
   "$A5_VALIDATION_ROOT/afd-capacity/smoke"
 sha256sum -c "$A5_VALIDATION_ROOT/dsv4-phase1-a5-evidence.tar.gz.sha256"
 ```
@@ -284,7 +296,8 @@ sha256sum -c "$A5_VALIDATION_ROOT/dsv4-phase1-a5-evidence.tar.gz.sha256"
 dsv4-phase1-a5-evidence.tar.gz
 dsv4-phase1-a5-evidence.tar.gz.sha256
 native-dp4.console.log
-afd-required.console.log
+此前成功的 eager console log
+afd-graph-sync-r1.console.log
 afd-capacity.console.log
 a4f2-result.env
 ```
@@ -299,7 +312,7 @@ summary。证据包会包含提交、CANN 路径、环境、Python 包、NPU 快
 
 1. 官方 no-AFD DP4 模型加载、health、models、请求和 NPU 清理通过。
 2. 3 个必须 AFD 点两轮全部通过，batch 1/8/32、取消恢复和 fatal 门禁通过。
-3. 2 个必过 Graph/U2 点都观测到真实 two-stage，而不是只配置了 `U_BATCHES=2`。
+3. 2 个必过 Graph/U2 点都记录 `async_scheduling=off` 并观测到真实 two-stage，而不是只配置了 `U_BATCHES=2`。
 4. A4F2 得到“通过”或有完整 HBM 证据的“容量阻塞”结论。
 5. 所有功能报告均明确 `golden_checked=false`，没有逐 token 精度声明。
 

@@ -54,6 +54,7 @@ export PATH="${SYSTEM_PATH}:${PATH:-}"
 : "${MODEL_SAFETENSORS_LOAD_STRATEGY:=auto}"
 : "${KV_CACHE_DTYPE:=auto}"
 : "${MODEL_SPECULATIVE_METHOD:=auto}"
+: "${AFD_ASYNC_SCHEDULING:=off}"
 
 log() {
   printf '[hccl-install] %s\n' "$*"

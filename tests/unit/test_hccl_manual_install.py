@@ -132,6 +132,7 @@ ATTENTION_MAX_NUM_BATCHED_TOKENS="16"
 FFN_MAX_NUM_BATCHED_TOKENS="16"
 EXECUTION_MODE="eager"
 U_BATCHES="1"
+AFD_ASYNC_SCHEDULING="off"
 ENABLE_MTP="0"
 MTP_NUM_SPECULATIVE_TOKENS="1"
 MTP_DRAFT_EXECUTION="eager"
@@ -409,6 +410,19 @@ def test_launchers_resolve_model_format_and_preserve_soc_version():
     assert 'export SOC_VERSION="${SOC_VERSION:-ascend910_9362}"' in runtime
 
 
+def test_manual_launcher_pins_graph_u2_to_synchronous_scheduling():
+    config = (INSTALLER / "config.env.example").read_text(encoding="utf-8")
+    preflight = (INSTALLER / "bin/01_preflight.sh").read_text(encoding="utf-8")
+    launcher = (INSTALLER / "bin/run_role.sh").read_text(encoding="utf-8")
+    start = (INSTALLER / "bin/07_start.sh").read_text(encoding="utf-8")
+
+    assert 'AFD_ASYNC_SCHEDULING="off"' in config
+    assert "Graph/U2 requires AFD_ASYNC_SCHEDULING=off" in preflight
+    assert "scheduling_args=(--no-async-scheduling)" in launcher
+    assert '"${scheduling_args[@]}"' in launcher
+    assert "async_scheduling=%s" in start
+
+
 def test_a5_reuse_profile_reuses_installed_stack_and_uses_new_plugin_root():
     builder = (INSTALLER / "build_bundle.sh").read_text(encoding="utf-8")
     assert "-name '*.pyc' -o -name '*.pyo'" in builder
@@ -422,6 +436,9 @@ def test_a5_reuse_profile_reuses_installed_stack_and_uses_new_plugin_root():
     assert 'ENABLE_MTP="0"' in section
     assert 'MTP_NUM_SPECULATIVE_TOKENS="1"' in section
     assert 'MTP_DRAFT_EXECUTION="eager"' in section
+    assert 'AFD_ASYNC_SCHEDULING="off"' in (
+        INSTALLER / "config.env.example"
+    ).read_text(encoding="utf-8")
     assert 'REUSE_VENV="1"' in section
     assert 'INSTALL_PYTHON_DEPS="0"' in section
     assert 'INSTALL_UPSTREAM_STACK="0"' in section

@@ -49,15 +49,15 @@ native control 在 ModelConfig 阶段停止，原因是现场 `config.json` 写�
 `--quantization ascend`。官方 v0.23.0 的原始 `DeepSeek-V4-Flash` 配置实际为
 `quant_method=fp8`、`weight_block_size=[128,128]`；本次已将 A5 启动口径改为严格校验
 该配置、不传 `--quantization ascend`、使用 block 32/prefetch，并保留现场 SoC。A5
-随后完成 no-AFD DP4/MTP-off 的模型加载、health 和请求。A4F4 eager/U1/MTP-off 的
-两轮 batch 1/8/32、取消后恢复、角色返回码和 NPU 清理均通过，但完整 fatal gate 仍未
-通过：提交 `40b1fa3ff8b8d58e3380db3d01dad8d84150e398` 已将 shutdown timeout 从 0 改为
-20 秒，Attention 两轮仍分别在 20 秒后强杀 4 个 EngineCore，FFN 在 2～3 秒后于不同
-DP rank 的 `torch.npu.synchronize()` 报 `507035`。该重复证据把根因收敛到验证脚本
-“等待 Attention 退出后才通知 FFN”的串行停机窗口，不能归为业务计算错误或固定卡故障。
-当前修正保持 Attention-first，但连续请求两侧停机后再等待；取消门禁也改为流式断开，并在
-取消后和恢复后各要求 `/metrics` 连续两次观测到 running/waiting 均为 0。A5 尚需先复跑
-A4F4 eager/U1，再继续两个 Graph/U2 必过点和 A4F2 容量项。
+随后完成 no-AFD DP4/MTP-off 的模型加载、health 和请求。A4F4 eager/U1/MTP-off 经
+shutdown payload 显式交接修正后，两轮 batch 1/8/32、取消恢复、角色返回码、fatal 和
+NPU 清理均已通过。A4F4 Graph/U2 首轮在 API ready 前卡住：U1 capture 完成，四个 FFN
+rank 在 U2 capture 同时停止推进，约 9 分钟后 grouped matmul/AIVEC 报 `507014`。runtime
+与两侧日志确认固定栈自动开启了 vLLM async scheduling，而已验证 Graph/U2 基线固定为
+off。当前 matrix 对所有 Graph/U2 显式传 `--async-scheduling off`，runner 在 `auto/on`
+时启动前 fail-fast 并将调度值写入证据，`507014` 也纳入 fatal marker。本机 A3 A8F8
+Graph/U2/MTP-off 一轮实模已通过 capture、请求、双 stage、取消恢复、handoff、fatal 和
+cleanup；A5 尚需复跑 A4F4/A2F4 Graph/U2 两轮和 A4F2 容量项。
 权重和单机参数以 [vLLM-Ascend v0.23.0 官方指导](https://docs.vllm.ai/projects/ascend/en/v0.23.0/tutorials/models/DeepSeek-V4-Flash.html#single-node-online-deployment) 为准。
 
 M9 在 2026-09-04 完成双 A3 的 TP1、MTP off、Graph/U2 数据面与性能/Profile 测量：
@@ -179,13 +179,12 @@ A3 验收通过只说明实现语义和 A3 性能成立，不等于 A5 已支持
   此前 Graph/MTP N1 的成功结果只作附加证据。AFD 执行 A4F4 eager/U1、A4F4
   Graph/U2、A2F4 Graph/U2 和 A4F2 Graph/U2 容量项，均显式关闭 MTP。AFD 每点
   两次冷启动并检查 batch 1/8/32、取消恢复、真实 U2、fatal 和 cleanup，不生成或比较
-  golden。3 个必过点和 1 个容量项待续跑；MTP N1/N2/N3 后移到 dSpark 组合阶段。
-- 2026-09-14 现场 DP4 no-AFD/MTP-off 已通过。A4F4 eager/U1 两轮 smoke、取消恢复、
-  进程返回码和 NPU 清理均通过；但 `shutdown-timeout=0` 的首轮证据和 20 秒的两轮复跑
-  都出现停机期 `507035`。20 秒复跑证明 Attention 超时强杀发生在前，尚未收到停机请求
-  的 FFN 随后在 `torch.npu.synchronize()` 失败。A5 matrix 已改为连续请求两侧优雅停机
-  后再等待，并增加取消后、恢复后的请求归零门禁；错误 marker 不加白名单。升级后先复跑
-  该单点，再执行两个必过 Graph/U2 点和 A4F2 容量项。
+  golden。no-AFD 与 eager 必过点已通过；2 个 Graph/U2 必过点和 1 个容量项待续跑；
+  MTP N1/N2/N3 后移到 dSpark 组合阶段。
+- 2026-09-14 现场 DP4 no-AFD/MTP-off 与 A4F4 eager/U1 两轮完整门禁已通过。A4F4
+  Graph/U2 在 auto/enabled async scheduling 下卡在启动 capture，四个 FFN rank 约 9 分钟
+  后报 `507014`；这不是请求取消或停机问题。A5 matrix 已固定 Graph/U2 为 sync scheduler，
+  本机 A3 A8F8 一轮完整回归通过。升级后复跑 A4F4/A2F4 Graph/U2，再执行 A4F2 容量项。
 - 双机 PD 一期实际验收 A8F8 N2/N3、A4F8 N3 三个适用点，均完成两轮功能验证；A8F4 N3 受 A3 HBM 限制排除。3 个路径匹配 no-AFD control 和逐 token F1 延期，control golden 仍须按 Attention DP、target/draft execution、U 数和 MTP N 隔离，不能跨路径复用。
 - `pd.sh` 的部署约束已同步为双向整数 A/F 和 N1-N3，矩阵按拓扑动态生成 device list 与 FFN capacity；A5 当前执行和证据回传步骤见 `DEEPSEEK_V4_AFD_PHASE1_A5_VALIDATION_GUIDE_ZH.md`。
 - 已按双 A3 历史实跑配置提供 `dual-a3-reuse` 安装 profile：复用 CANN 9.0.0、固定 venv 和两个上游源码，不重装依赖或重建上游；从旧 `2164240` 仓库通过包内增量 Git bundle 创建独立的一期 afd-plugin 路径，并附带双机 PD common 模板。旧 seed 仓库保持不动，本地 tracked diff 自动留档且不会进入新目标；seed HEAD、目标/上游工作树、custom ops 和 Python 导入根不一致时 fail-fast。

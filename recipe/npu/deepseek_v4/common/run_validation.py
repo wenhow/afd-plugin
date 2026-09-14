@@ -37,6 +37,7 @@ FATAL_LOG_MARKERS = (
     "RuntimeError: Worker failed with error",
     "Exception in thread",
     "Communication_Error_Bind_IP_Port",
+    "error code is 507014",
     "error code is 507015",
     "error code is 507035",
 )
@@ -684,6 +685,7 @@ def _runtime_manifest(
     dbo_decode_token_threshold: int,
     dbo_prefill_token_threshold: int,
     profile: bool,
+    async_scheduling: str = "auto",
     enable_mtp: bool = False,
     mtp_num_speculative_tokens: int = 1,
     mtp_draft_execution: str = "eager",
@@ -754,6 +756,7 @@ def _runtime_manifest(
         "u_batches": u_batches,
         "dbo_decode_token_threshold": dbo_decode_token_threshold,
         "dbo_prefill_token_threshold": dbo_prefill_token_threshold,
+        "async_scheduling": async_scheduling,
         "enable_mtp": enable_mtp,
         "mtp_num_speculative_tokens": mtp_num_speculative_tokens,
         "mtp_draft_execution": mtp_draft_execution if enable_mtp else None,
@@ -900,11 +903,16 @@ def _set_mtp_environment(
     )
 
 
+def _set_execution_environment(*, async_scheduling: str) -> None:
+    os.environ["AFD_ASYNC_SCHEDULING"] = async_scheduling
+
+
 def _validate_execution_topology(
     *,
     connector: str,
     execution_mode: str,
     u_batches: int = 1,
+    async_scheduling: str = "off",
     enable_mtp: bool = False,
     mtp_num_speculative_tokens: int = 1,
     mtp_draft_execution: str = "eager",
@@ -924,6 +932,14 @@ def _validate_execution_topology(
     ):
         raise ValueError(
             "DeepSeek-V4 graph U2 requires P2pHcclAFDConnector",
+        )
+    if (
+        u_batches == 2
+        and execution_mode == "full-decode-only"
+        and async_scheduling != "off"
+    ):
+        raise ValueError(
+            "DeepSeek-V4 graph U2 requires async scheduling off on the pinned stack",
         )
     if not enable_mtp:
         return
@@ -972,6 +988,11 @@ def main() -> None:
         default="eager",
     )
     parser.add_argument("--u-batches", type=int, choices=(1, 2), default=1)
+    parser.add_argument(
+        "--async-scheduling",
+        choices=("auto", "on", "off"),
+        default=os.environ.get("AFD_ASYNC_SCHEDULING", "auto"),
+    )
     parser.add_argument("--dbo-decode-token-threshold", type=int, default=2)
     parser.add_argument("--dbo-prefill-token-threshold", type=int, default=12)
     parser.add_argument(
@@ -1031,6 +1052,7 @@ def main() -> None:
             connector=args.connector,
             execution_mode=args.execution_mode,
             u_batches=args.u_batches,
+            async_scheduling=args.async_scheduling,
             enable_mtp=args.enable_mtp,
             mtp_num_speculative_tokens=args.mtp_num_speculative_tokens,
             mtp_draft_execution=args.mtp_draft_execution,
@@ -1039,6 +1061,7 @@ def main() -> None:
     except ValueError as exc:
         parser.error(str(exc))
     _set_topology_environment(topology)
+    _set_execution_environment(async_scheduling=args.async_scheduling)
     _set_mtp_environment(
         enable_mtp=args.enable_mtp,
         mtp_num_speculative_tokens=args.mtp_num_speculative_tokens,
@@ -1058,6 +1081,7 @@ def main() -> None:
                 dbo_decode_token_threshold=args.dbo_decode_token_threshold,
                 dbo_prefill_token_threshold=args.dbo_prefill_token_threshold,
                 profile=args.profile,
+                async_scheduling=args.async_scheduling,
                 enable_mtp=args.enable_mtp,
                 mtp_num_speculative_tokens=args.mtp_num_speculative_tokens,
                 mtp_draft_execution=args.mtp_draft_execution,
@@ -1258,6 +1282,7 @@ def main() -> None:
             "u_batches": args.u_batches,
             "dbo_decode_token_threshold": args.dbo_decode_token_threshold,
             "dbo_prefill_token_threshold": args.dbo_prefill_token_threshold,
+            "async_scheduling": args.async_scheduling,
             "profile": args.profile,
             "enable_mtp": args.enable_mtp,
             "mtp_num_speculative_tokens": args.mtp_num_speculative_tokens,

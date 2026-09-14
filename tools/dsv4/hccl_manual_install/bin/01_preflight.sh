@@ -119,6 +119,14 @@ case "${U_BATCHES}" in
   1|2) ;;
   *) die "U_BATCHES must be 1 or 2" ;;
 esac
+case "${AFD_ASYNC_SCHEDULING}" in
+  auto|on|off) ;;
+  *) die "AFD_ASYNC_SCHEDULING must be auto, on, or off" ;;
+esac
+if [[ "${EXECUTION_MODE}:${U_BATCHES}" == "full-decode-only:2" \
+  && "${AFD_ASYNC_SCHEDULING}" != "off" ]]; then
+  die "DeepSeek-V4 Graph/U2 requires AFD_ASYNC_SCHEDULING=off on the pinned stack"
+fi
 if [[ "${ENABLE_MTP}" == "1" ]]; then
   [[ "${MTP_NUM_SPECULATIVE_TOKENS}" =~ ^[1-3]$ ]] \
     || die "MTP supports num_speculative_tokens in [1, 3]"

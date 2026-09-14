@@ -107,6 +107,18 @@ case "${U_BATCHES}" in
     ;;
 esac
 
+scheduling_args=()
+case "${AFD_ASYNC_SCHEDULING}" in
+  auto) ;;
+  on) scheduling_args=(--async-scheduling) ;;
+  off) scheduling_args=(--no-async-scheduling) ;;
+  *) die "AFD_ASYNC_SCHEDULING must be auto, on, or off" ;;
+esac
+if [[ "${EXECUTION_MODE}:${U_BATCHES}" == "full-decode-only:2" \
+  && "${AFD_ASYNC_SCHEDULING}" != "off" ]]; then
+  die "DeepSeek-V4 Graph/U2 requires AFD_ASYNC_SCHEDULING=off on the pinned stack"
+fi
+
 model_speculative_method="${MODEL_SPECULATIVE_METHOD}"
 if [[ "${model_speculative_method}" == auto ]]; then
   model_speculative_method="$(
@@ -171,6 +183,7 @@ command=(
   --additional-config "${additional_config}"
   "${mtp_args[@]}"
   "${ubatch_args[@]}"
+  "${scheduling_args[@]}"
   "${execution_args[@]}"
 )
 

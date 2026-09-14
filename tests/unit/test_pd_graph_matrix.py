@@ -477,6 +477,8 @@ printf '%s\\0' "${CASE_ARGS[@]}"
             ["bash", "-c", command, "bash", str(A5_MATRIX), case_name]
         ).decode().rstrip("\0").split("\0")
         assert "--enable-mtp" not in args
+        if "graph_u2" in case_name:
+            assert args[args.index("--async-scheduling") + 1] == "off"
 
 
 def test_a5_deferred_exact_requires_explicit_opt_in():

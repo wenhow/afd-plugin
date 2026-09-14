@@ -26,7 +26,7 @@ cat <<EOF
 [hccl-install] topology: A${ATTENTION_RANKS}F${FFN_RANKS}
 [hccl-install] Attention devices: ${ATTENTION_DEVICES}
 [hccl-install] FFN devices: ${FFN_DEVICES}
-[hccl-install] mode: ${EXECUTION_MODE}/U${U_BATCHES}, MTP=${ENABLE_MTP}
+[hccl-install] mode: ${EXECUTION_MODE}/U${U_BATCHES}, async-scheduling=${AFD_ASYNC_SCHEDULING}, MTP=${ENABLE_MTP}
 [hccl-install] bundled sources: ${USE_BUNDLED_SOURCES}
 [hccl-install] AFD seed bundle: ${USE_AFD_SEED_BUNDLE}
 [hccl-install] reuse venv: ${REUSE_VENV}
