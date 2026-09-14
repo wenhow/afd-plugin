@@ -4,7 +4,7 @@
 
 本文用于固化 DeepSeek-V4 AFD 在完成 CAMP2P eager/U1、Graph/U1，以及标准 HCCL P2P eager/U1、U2、Graph/U1 和 Graph/U2 正确性基线后的目标、开发顺序和验收门禁，供后续开发、验证、性能分析和 A5 迁移时直接使用。
 
-文档状态：`2026-09-12`。CAMP2P eager/U2 已冻结为 `dsv4-afd-a3-eager-u2-v1`；标准 HCCL send/recv connector 已在提交 `9578dd2cb70f9f8db54673a70e8f45fde6479245` 完成 A3 A8F8 eager/U1、U2 正确性闭环。A3-P4 的 A8F8 未调优性能参照与 U1/U2 双侧 profile 已完成：三轮重复性通过，但 U2 在 C32 比 U1 回退 37.570%，因此当前只冻结参照协议，不冻结 U2 性能基线。
+文档状态：`2026-09-14`。CAMP2P eager/U2 已冻结为 `dsv4-afd-a3-eager-u2-v1`；标准 HCCL send/recv connector 已在提交 `9578dd2cb70f9f8db54673a70e8f45fde6479245` 完成 A3 A8F8 eager/U1、U2 正确性闭环。A3-P4 的 A8F8 未调优性能参照与 U1/U2 双侧 profile 已完成：三轮重复性通过，但 U2 在 C32 比 U1 回退 37.570%，因此当前只冻结参照协议，不冻结 U2 性能基线。
 
 A3-P5 的 `A = k x F` 非等量协议和 A2F1/A4F2 NPU 组件验证已经完成。A3-P6 的 A8F4 实模加载在 64 GiB A3 上因 FFN EP4 专家权重峰值 HBM 不足而停止；A10F5 容量代理又被固定 vLLM-Ascend 的 256 experts/EP5 非均匀放置检查拒绝。该结论是当前硬件与固定栈组合的 E2E 门禁，不否定 connector 的非等量语义。现场单台 A5 已确认为 8 卡，不能承载 12 卡 A8F4；A5 单机改测 A4F4/A4F2/A2F4，完整 A8F4 另行安排至少 12 张可用 NPU。A3 保留现有 A8F8 同步 HCCL 性能参照，完成 MTP 功能门禁后再恢复新的调优和公平对照。
 
@@ -49,7 +49,15 @@ native control 在 ModelConfig 阶段停止，原因是现场 `config.json` 写�
 `--quantization ascend`。官方 v0.23.0 的原始 `DeepSeek-V4-Flash` 配置实际为
 `quant_method=fp8`、`weight_block_size=[128,128]`；本次已将 A5 启动口径改为严格校验
 该配置、不传 `--quantization ascend`、使用 block 32/prefetch，并保留现场 SoC。A5
-尚未完成任何 no-AFD 或 AFD 实模 case，不能把环境与配置门禁通过写成实模通过。
+随后完成 no-AFD DP4/MTP-off 的模型加载、health 和请求。A4F4 eager/U1/MTP-off 的
+两轮 batch 1/8/32、取消后恢复、角色返回码和 NPU 清理均通过，但完整 fatal gate 仍未
+通过：提交 `40b1fa3ff8b8d58e3380db3d01dad8d84150e398` 已将 shutdown timeout 从 0 改为
+20 秒，Attention 两轮仍分别在 20 秒后强杀 4 个 EngineCore，FFN 在 2～3 秒后于不同
+DP rank 的 `torch.npu.synchronize()` 报 `507035`。该重复证据把根因收敛到验证脚本
+“等待 Attention 退出后才通知 FFN”的串行停机窗口，不能归为业务计算错误或固定卡故障。
+当前修正保持 Attention-first，但连续请求两侧停机后再等待；取消门禁也改为流式断开，并在
+取消后和恢复后各要求 `/metrics` 连续两次观测到 running/waiting 均为 0。A5 尚需先复跑
+A4F4 eager/U1，再继续两个 Graph/U2 必过点和 A4F2 容量项。
 权重和单机参数以 [vLLM-Ascend v0.23.0 官方指导](https://docs.vllm.ai/projects/ascend/en/v0.23.0/tutorials/models/DeepSeek-V4-Flash.html#single-node-online-deployment) 为准。
 
 M9 在 2026-09-04 完成双 A3 的 TP1、MTP off、Graph/U2 数据面与性能/Profile 测量：
@@ -173,10 +181,11 @@ A3 验收通过只说明实现语义和 A3 性能成立，不等于 A5 已支持
   两次冷启动并检查 batch 1/8/32、取消恢复、真实 U2、fatal 和 cleanup，不生成或比较
   golden。3 个必过点和 1 个容量项待续跑；MTP N1/N2/N3 后移到 dSpark 组合阶段。
 - 2026-09-14 现场 DP4 no-AFD/MTP-off 已通过。A4F4 eager/U1 两轮 smoke、取消恢复、
-  进程返回码和 NPU 清理均通过，但旧矩阵使用 `shutdown-timeout=0`，cycle 1 FFN 在
-  `torch.npu.synchronize()` 报 `507035`，完整 fatal gate 因此仍失败。A5 matrix 已改为
-  固定 20 秒优雅退出且记录到 `matrix.env`；错误 marker 不加白名单，升级后先复跑该
-  单点，再执行两个必过 Graph/U2 点和 A4F2 容量项。
+  进程返回码和 NPU 清理均通过；但 `shutdown-timeout=0` 的首轮证据和 20 秒的两轮复跑
+  都出现停机期 `507035`。20 秒复跑证明 Attention 超时强杀发生在前，尚未收到停机请求
+  的 FFN 随后在 `torch.npu.synchronize()` 失败。A5 matrix 已改为连续请求两侧优雅停机
+  后再等待，并增加取消后、恢复后的请求归零门禁；错误 marker 不加白名单。升级后先复跑
+  该单点，再执行两个必过 Graph/U2 点和 A4F2 容量项。
 - 双机 PD 一期实际验收 A8F8 N2/N3、A4F8 N3 三个适用点，均完成两轮功能验证；A8F4 N3 受 A3 HBM 限制排除。3 个路径匹配 no-AFD control 和逐 token F1 延期，control golden 仍须按 Attention DP、target/draft execution、U 数和 MTP N 隔离，不能跨路径复用。
 - `pd.sh` 的部署约束已同步为双向整数 A/F 和 N1-N3，矩阵按拓扑动态生成 device list 与 FFN capacity；A5 当前执行和证据回传步骤见 `DEEPSEEK_V4_AFD_PHASE1_A5_VALIDATION_GUIDE_ZH.md`。
 - 已按双 A3 历史实跑配置提供 `dual-a3-reuse` 安装 profile：复用 CANN 9.0.0、固定 venv 和两个上游源码，不重装依赖或重建上游；从旧 `2164240` 仓库通过包内增量 Git bundle 创建独立的一期 afd-plugin 路径，并附带双机 PD common 模板。旧 seed 仓库保持不动，本地 tracked diff 自动留档且不会进入新目标；seed HEAD、目标/上游工作树、custom ops 和 Python 导入根不一致时 fail-fast。
@@ -1726,10 +1735,10 @@ NPU、吞吐、token/s/NPU、TPOT、CV、HBM、FFN `Free/wall`、`Bubble/wall`�
     `/mnt/workspace/validation/phase1_cann900_exact_3e88ad2`；恢复时不得退回单 token、
     `A>=F` 或跨 target/draft/MTP 路径复用 golden 的假设；
 19. A5 环境安装、官方 `config.json` 恢复和 no-AFD DP4/MTP-off 已完成。A4F4
-    eager/U1 的请求与恢复通过，但旧脚本 cycle 1 在 `shutdown-timeout=0` 强制退出时
-    命中 `507035` fatal gate；已改为 20 秒优雅退出，待单点复跑。其后继续另外两个
-    必须 AFD MTP-off 点和 A4F2 容量项，全部不生成或比较 golden；MTP N1/N2/N3
-    后移到 dSpark 组合阶段；
+    eager/U1 的请求与恢复通过，但 20 秒两轮复跑仍在 Attention 强杀 peer 后命中 FFN
+    `507035` fatal gate；已改为两侧连续请求停机、流式取消和两次请求归零门禁，待单点
+    复跑。其后继续另外两个必须 AFD MTP-off 点和 A4F2 容量项，全部不生成或比较
+    golden；MTP N1/N2/N3 后移到 dSpark 组合阶段；
 20. 每次阶段完成都保存日志、原始数据、解析结果和清理证据。
 
 ## 13. 一句话路线
@@ -1741,7 +1750,7 @@ Graph/U1/U2、单 token MTP M0-M7、双向整数比例组件与 TP2/M8 历史基
 通过。M9 的
 TP1/MTP off/Graph U2 已完成双 A3 三拓扑运行和 Profile 观测，但动态路由、优雅退出和
   路径匹配 F1 未冻结。第一阶段 A3 功能标签已经完成；A5 的官方原始权重 DP4
-  no-AFD/MTP-off 功能 smoke 已通过，当前下一步是用 20 秒优雅退出配置复跑 A4F4
+  no-AFD/MTP-off 功能 smoke 已通过，当前下一步是用协调停机与请求归零门禁复跑 A4F4
   eager/U1，再执行 A4F4 Graph/U2、A2F4 Graph/U2 和 A4F2 Graph/U2 容量项，均关闭
   MTP 且不做逐 token 比对。MTP
 N1/N2/N3 后移到 dSpark 组合阶段。完整 A8F4

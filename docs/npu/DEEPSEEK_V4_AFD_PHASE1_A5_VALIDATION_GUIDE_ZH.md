@@ -156,10 +156,17 @@ bash tools/dsv4/run_phase1_a5_matrix.sh smoke \
 `--enable-mtp`。这样旧配置中的 `ENABLE_MTP=1` 或 `MTP_DRAFT_EXECUTION=graph`
 也不能把当前 A5 门禁改成 MTP 路径。
 
-矩阵同时固定 `VLLM_SHUTDOWN_TIMEOUT_SECONDS=20`。`0` 在当前 vLLM 中表示立即
-abort；DP4 进程管理器会直接 force kill 仍在退出的 EngineCore，FFN 线程可能在
-`torch.npu.synchronize()` 处产生停机期 `507035`。20 秒用于让已完成请求的 worker
-按顺序释放；`507035` 仍保留为 fatal，不做日志白名单。
+矩阵固定 `VLLM_SHUTDOWN_TIMEOUT_SECONDS=20`。`0` 在当前 vLLM 中表示立即 abort；
+但 20 秒本身不能修复角色串行停机：若脚本等待 Attention 完全退出后才通知 FFN，
+Attention 超时强杀 peer 时，仍在 `torch.npu.synchronize()` 的 FFN 会报 `507035`。
+新脚本保持 Attention-first 协议顺序，连续向 Attention 和 FFN 的顶层进程发送优雅停机
+请求，再分别等待；超时后才清理整个进程组。connector 释放同时改为幂等，首个真实
+设备错误仍会上报，但不会在重复 close 时继续产生 `Invalid process group specified`。
+
+取消请求改为流式请求。`curl=28` 后脚本立即从 `/metrics` 检查
+`vllm:num_requests_running` 和 `vllm:num_requests_waiting`，两项连续两次为 0 才执行恢复
+请求；恢复请求完成后再执行一次相同检查，然后才开始停服。这能区分“客户端已超时”
+与“服务端请求确实已取消并归零”。`507035` 仍保留为 fatal，不做日志白名单。
 
 三项必须全部返回 0。每个 case 目录必须包含 `cycle_1`、`cycle_2` 和
 `validation_summary.json`；每轮必须包含：
@@ -168,7 +175,11 @@ abort；DP4 进程管理器会直接 force kill 仍在退出的 EngineCore，FFN
 functional_smoke.json
 cancellation.exitcode
 cancellation_gate.json
+cancellation_quiescence.metrics
+cancellation_quiescence_gate.json
 recovery.json
+request_quiescence.metrics
+request_quiescence_gate.json
 cycle_summary.json
 attention.log
 ffn.log
@@ -176,8 +187,11 @@ npu_ready.txt
 npu_after_cleanup.txt
 ```
 
-`cancellation.exitcode` 的预期值为 28，随后 `recovery.json` 必须通过。Graph/U2 case
-的 `cycle_summary.json` 中 `ubatch_gate.observed_two_stages` 必须为 `true`。
+`cancellation.exitcode` 的预期值为 28，两个 quiescence gate 必须分别为
+`passed=true`、`running=0`、`waiting=0`、`stable_samples=2`，随后 `recovery.json`
+必须通过。`cycle_summary.json` 中 `shutdown.coordinated` 必须为 `true`，`order` 必须为
+`attention_request, ffn_request, attention_wait, ffn_wait`。Graph/U2 case 的
+`ubatch_gate.observed_two_stages` 必须为 `true`。
 
 失败证据目录不会被覆盖。修复后续跑第 6 节时应保留原来的
 `A5_VALIDATION_ROOT`，只换一个新的输出目录，例如：
@@ -195,8 +209,8 @@ bash tools/dsv4/run_phase1_a5_matrix.sh smoke \
 `afd-required/smoke` 替换为实际成功目录，例如 `afd-required-r2/smoke`。
 
 若旧包仅在 `a4f4_eager_u1_mtp_off` 的退出阶段出现下列组合：业务 smoke、取消恢复、
-进程返回码和 NPU 清理均通过，但 FFN 日志同时出现 `shutdown timeout=0`、
-`force killing remaining processes` 和 `507035`，升级后先只重跑该点：
+进程返回码和 NPU 清理均通过，但 Attention 日志在等待 20 秒后出现
+`force killing remaining processes`，随后 FFN 报 `507035`，升级后先只重跑该点：
 
 ```bash
 export PHASE1_OUTPUT_BASE="$A5_VALIDATION_ROOT/afd-eager-r2"
@@ -205,9 +219,11 @@ bash tools/dsv4/run_phase1_a5_matrix.sh smoke \
   2>&1 | tee "$A5_VALIDATION_ROOT/afd-eager-r2.console.log"
 ```
 
-两轮通过后，再用新的输出目录执行本节另外两个 Graph/U2 必过点。旧失败目录不得删除；
-若新脚本仍出现 `507035`，按真实 NPU Vector Core 异常处理并回传 FFN 完整日志及 A5
-设备侧 plog/slog，不能以第二轮偶然通过覆盖第一轮失败。
+两轮通过后，再用新的输出目录执行本节另外两个 Graph/U2 必过点。第 5 节和已通过的
+安装/预检不需要重跑，旧失败目录不得删除。若新脚本在任一 quiescence gate 失败，先
+回传两个 gate JSON、metrics 和 Attention 日志；这表示请求生命周期未归零。若两个
+quiescence gate 均通过后仍出现 `507035`，回传 Attention/FFN 完整日志及 A5 设备侧
+plog/slog，不能以第二轮偶然通过覆盖第一轮失败。
 
 ## 7. 单独运行 A4F2 容量项
 
@@ -252,6 +268,9 @@ for path in sorted(root.rglob("validation_summary.json")):
             "  cycle=", cycle.get("cycle"),
             "passed=", cycle.get("passed"),
             "cancel=", cycle.get("cancellation_gate", {}).get("passed"),
+            "cancel_idle=", cycle.get("cancellation_quiescence_gate", {}).get("passed"),
+            "recovery_idle=", cycle.get("request_quiescence_gate", {}).get("passed"),
+            "coordinated_shutdown=", cycle.get("shutdown", {}).get("coordinated"),
             "u2=", cycle.get("ubatch_gate", {}).get("observed_two_stages"),
             "cleanup=", cycle.get("npu_cleanup_gate", {}).get("passed"),
         )

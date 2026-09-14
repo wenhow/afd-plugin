@@ -2716,6 +2716,34 @@ def test_p2p_hccl_close_destroys_all_groups(monkeypatch):
     assert connector.is_initialized is False
 
 
+def test_p2p_hccl_close_detaches_groups_after_destroy_error(monkeypatch):
+    connector = _connector(role="attention", num_ubatches=2)
+    connector.p2p_pg = object()
+    groups = [
+        connector.p2p_pg,
+        *connector.ids_pg_list,
+        *connector.data_pg_list,
+    ]
+    destroyed = []
+
+    def destroy(group):
+        destroyed.append(group)
+        if group is groups[0]:
+            raise RuntimeError("device teardown failed")
+
+    monkeypatch.setattr(hccl_module.dist, "destroy_process_group", destroy)
+
+    with pytest.raises(RuntimeError, match="device teardown failed"):
+        connector.close()
+    connector.close()
+
+    assert destroyed == groups
+    assert connector.p2p_pg is None
+    assert connector.data_pg_list == []
+    assert connector.ids_pg_list == []
+    assert connector.is_initialized is False
+
+
 def test_p2p_hccl_partial_init_failure_destroys_created_groups(monkeypatch):
     connector = P2pHcclAFDConnector(
         0,

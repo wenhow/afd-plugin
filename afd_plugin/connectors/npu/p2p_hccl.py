@@ -488,16 +488,24 @@ class P2pHcclAFDConnector(AFDConnectorBase):
     def close(self) -> None:
         """Destroy every process group and discard connector-owned buffers."""
         groups = [self.p2p_pg, *self.ids_pg_list, *self.data_pg_list]
+        # Detach owned state before process-group teardown. Worker shutdown can
+        # enter close() again after a first destroy reports a device-side error;
+        # the second entry must not destroy the same group twice.
+        self.p2p_pg = None
+        self.ids_pg_list = []
+        self.data_pg_list = []
         destroyed: set[int] = set()
+        first_error: Exception | None = None
         for group in groups:
             if group is None or id(group) in destroyed:
                 continue
             destroyed.add(id(group))
-            dist.destroy_process_group(group)
+            try:
+                dist.destroy_process_group(group)
+            except Exception as error:
+                if first_error is None:
+                    first_error = error
 
-        self.p2p_pg = None
-        self.ids_pg_list = []
-        self.data_pg_list = []
         self.input_ids_buffers = []
         self.mtp_header_buffers = []
         self.mtp_header_buffers_by_peer = []
@@ -521,6 +529,8 @@ class P2pHcclAFDConnector(AFDConnectorBase):
         self.attention_receive_dependencies = {}
         self.control_plane.reset_pending_payload()
         self._initialized = False
+        if first_error is not None:
+            raise first_error
 
     @property
     def attention_stream_pipeline_ready(self) -> bool:

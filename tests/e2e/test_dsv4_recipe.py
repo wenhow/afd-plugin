@@ -125,21 +125,114 @@ def test_dsv4_functional_validator_does_not_pass_golden(monkeypatch, tmp_path):
 
 def test_dsv4_cancellation_gate_records_expected_timeout(monkeypatch, tmp_path):
     runner = _load_runner()
-    monkeypatch.setattr(
-        runner.subprocess,
-        "run",
-        lambda *_args, **_kwargs: SimpleNamespace(
+    captured = {}
+
+    def fake_run(command, **kwargs):
+        captured["command"] = command
+        captured["kwargs"] = kwargs
+        return SimpleNamespace(
             returncode=28,
             stdout=b"",
             stderr=b"curl: (28) timeout\n",
-        ),
+        )
+
+    monkeypatch.setattr(
+        runner.subprocess,
+        "run",
+        fake_run,
     )
 
     gate = runner._run_cancellation_gate(api_port=8910, output_dir=tmp_path)
 
     assert gate["passed"] is True
+    payload = json.loads(captured["command"][captured["command"].index("-d") + 1])
+    assert payload["stream"] is True
     assert (tmp_path / "cancellation.exitcode").read_text() == "28\n"
     assert json.loads((tmp_path / "cancellation_gate.json").read_text()) == gate
+
+
+def test_dsv4_request_quiescence_requires_stable_zero_metrics(monkeypatch, tmp_path):
+    runner = _load_runner()
+    metrics = iter(
+        [
+            "vllm:num_requests_running{engine=\"0\"} 1\n"
+            "vllm:num_requests_waiting{engine=\"0\"} 0\n",
+            "vllm:num_requests_running{engine=\"0\"} 0\n"
+            "vllm:num_requests_waiting{engine=\"0\"} 0\n",
+            "vllm:num_requests_running{engine=\"0\"} 0\n"
+            "vllm:num_requests_waiting{engine=\"0\"} 0\n",
+        ]
+    )
+
+    class FakeResponse:
+        def __init__(self, text):
+            self.text = text
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def read(self):
+            return self.text.encode()
+
+    monkeypatch.setattr(
+        runner.urllib.request,
+        "urlopen",
+        lambda *_args, **_kwargs: FakeResponse(next(metrics)),
+    )
+    monkeypatch.setattr(runner.time, "sleep", lambda _seconds: None)
+
+    gate = runner._wait_for_request_quiescence(
+        api_port=8910,
+        output_dir=tmp_path,
+        artifact_stem="request_quiescence",
+    )
+
+    assert gate["passed"] is True
+    assert gate["attempts"] == 3
+    assert gate["stable_samples"] == 2
+    assert gate["running"] == 0
+    assert gate["waiting"] == 0
+    assert json.loads((tmp_path / "request_quiescence_gate.json").read_text()) == gate
+
+
+def test_dsv4_request_quiescence_rejects_missing_metrics(monkeypatch, tmp_path):
+    runner = _load_runner()
+    monotonic_values = iter([0, 0, 1, 31, 32])
+
+    class FakeResponse:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def read(self):
+            return b"unrelated_metric 0\n"
+
+    monkeypatch.setattr(
+        runner.urllib.request,
+        "urlopen",
+        lambda *_args, **_kwargs: FakeResponse(),
+    )
+    monkeypatch.setattr(runner.time, "monotonic", lambda: next(monotonic_values))
+    monkeypatch.setattr(runner.time, "sleep", lambda _seconds: None)
+
+    gate = runner._wait_for_request_quiescence(
+        api_port=8910,
+        output_dir=tmp_path,
+        artifact_stem="missing_quiescence",
+    )
+
+    assert gate["passed"] is False
+    assert gate["attempts"] == 1
+    assert gate["running"] is None
+    assert gate["waiting"] is None
+    assert gate["last_error"].startswith("ValueError:")
+    assert (tmp_path / "missing_quiescence.metrics").is_file()
+    assert json.loads((tmp_path / "missing_quiescence_gate.json").read_text()) == gate
 
 
 def test_dsv4_camp_role_scripts_are_connector_isolated():
@@ -1154,11 +1247,13 @@ def test_dsv4_runtime_manifest_records_eager_u2(monkeypatch):
 
 def test_dsv4_shutdown_gate_requires_both_roles_to_exit_cleanly(monkeypatch):
     runner = _load_runner()
-    stop_calls = []
+    calls = []
 
     class FakeProcess:
-        def __init__(self, returncode):
-            self.returncode = returncode
+        def __init__(self, name, final_returncode):
+            self.name = name
+            self.final_returncode = final_returncode
+            self.returncode = None
             self.pid = 1
 
         def poll(self):
@@ -1166,22 +1261,45 @@ def test_dsv4_shutdown_gate_requires_both_roles_to_exit_cleanly(monkeypatch):
 
     monkeypatch.setattr(
         runner,
-        "_stop_process",
-        lambda process, **kwargs: stop_calls.append((process, kwargs)),
+        "_request_process_stop",
+        lambda process, **kwargs: calls.append(("request", process.name, kwargs)),
     )
 
-    clean = runner._shutdown_roles({"attention": FakeProcess(0), "ffn": FakeProcess(0)})
+    def wait_for_process(process, **kwargs):
+        calls.append(("wait", process.name, kwargs))
+        process.returncode = process.final_returncode
+
+    monkeypatch.setattr(
+        runner,
+        "_wait_for_process_stop",
+        wait_for_process,
+    )
+
+    clean = runner._shutdown_roles(
+        {
+            "attention": FakeProcess("attention", 0),
+            "ffn": FakeProcess("ffn", 0),
+        }
+    )
     failed = runner._shutdown_roles(
-        {"attention": FakeProcess(0), "ffn": FakeProcess(1)}
+        {
+            "attention": FakeProcess("attention", 0),
+            "ffn": FakeProcess("ffn", 1),
+        }
     )
 
     assert clean["passed"] is True
+    assert clean["coordinated"] is True
     assert failed["passed"] is False
-    assert [kwargs for _process, kwargs in stop_calls] == [
-        {},
-        {"signal_group": False},
-        {},
-        {"signal_group": False},
+    assert calls == [
+        ("request", "attention", {"signal_group": False}),
+        ("request", "ffn", {"signal_group": False}),
+        ("wait", "attention", {}),
+        ("wait", "ffn", {}),
+        ("request", "attention", {"signal_group": False}),
+        ("request", "ffn", {"signal_group": False}),
+        ("wait", "attention", {}),
+        ("wait", "ffn", {}),
     ]
 
 

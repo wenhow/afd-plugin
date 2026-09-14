@@ -25,6 +25,9 @@ DEFAULT_GOLDEN = Path(
 FUNCTIONAL_SMOKE_TOOL = REPO_ROOT / "tools/dsv4/run_pd_functional_smoke.py"
 CANCELLATION_MAX_TIME_SECONDS = 1
 CANCELLATION_MAX_TOKENS = 512
+REQUEST_QUIESCENCE_TIMEOUT_SECONDS = 30
+REQUEST_QUIESCENCE_POLL_SECONDS = 0.5
+REQUEST_QUIESCENCE_STABLE_SAMPLES = 2
 FATAL_LOG_MARKERS = (
     "AFD NPU FFN worker loop failed",
     "EngineCore encountered a fatal error",
@@ -247,7 +250,7 @@ def _run_cancellation_gate(*, api_port: int, output_dir: Path) -> dict[str, Any]
             "temperature": 0,
             "seed": 1024,
             "max_tokens": CANCELLATION_MAX_TOKENS,
-            "stream": False,
+            "stream": True,
         }
     )
     result = subprocess.run(
@@ -285,6 +288,79 @@ def _run_cancellation_gate(*, api_port: int, output_dir: Path) -> dict[str, Any]
     return gate
 
 
+def _request_counts_from_metrics(text: str) -> tuple[float, float]:
+    counts: dict[str, list[float]] = {"running": [], "waiting": []}
+    pattern = re.compile(
+        r"^vllm:num_requests_(running|waiting)(?:\{[^}]*\})?\s+"
+        r"([-+]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][-+]?\d+)?)\s*$"
+    )
+    for line in text.splitlines():
+        match = pattern.match(line)
+        if match is not None:
+            counts[match.group(1)].append(float(match.group(2)))
+    if not counts["running"] or not counts["waiting"]:
+        raise ValueError("request count metrics are missing")
+    return sum(counts["running"]), sum(counts["waiting"])
+
+
+def _wait_for_request_quiescence(
+    *,
+    api_port: int,
+    output_dir: Path,
+    artifact_stem: str,
+) -> dict[str, Any]:
+    endpoint = f"http://127.0.0.1:{api_port}/metrics"
+    deadline = time.monotonic() + REQUEST_QUIESCENCE_TIMEOUT_SECONDS
+    started = time.monotonic()
+    attempts = 0
+    stable_samples = 0
+    running: float | None = None
+    waiting: float | None = None
+    last_metrics = ""
+    last_error: Exception | None = None
+
+    while time.monotonic() < deadline:
+        attempts += 1
+        try:
+            with urllib.request.urlopen(endpoint, timeout=5) as response:
+                last_metrics = response.read().decode("utf-8", errors="replace")
+            running, waiting = _request_counts_from_metrics(last_metrics)
+            last_error = None
+        except (OSError, ValueError, urllib.error.URLError) as error:
+            stable_samples = 0
+            last_error = error
+        else:
+            if running == 0 and waiting == 0:
+                stable_samples += 1
+                if stable_samples >= REQUEST_QUIESCENCE_STABLE_SAMPLES:
+                    break
+            else:
+                stable_samples = 0
+        time.sleep(REQUEST_QUIESCENCE_POLL_SECONDS)
+
+    (output_dir / f"{artifact_stem}.metrics").write_text(
+        last_metrics,
+        encoding="utf-8",
+    )
+    passed = stable_samples >= REQUEST_QUIESCENCE_STABLE_SAMPLES
+    gate: dict[str, Any] = {
+        "passed": passed,
+        "attempts": attempts,
+        "waited_seconds": round(time.monotonic() - started, 3),
+        "stable_samples": stable_samples,
+        "required_stable_samples": REQUEST_QUIESCENCE_STABLE_SAMPLES,
+        "running": running,
+        "waiting": waiting,
+    }
+    if last_error is not None:
+        gate["last_error"] = f"{type(last_error).__name__}: {last_error}"
+    (output_dir / f"{artifact_stem}_gate.json").write_text(
+        json.dumps(gate, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    return gate
+
+
 def _signal_group(process: subprocess.Popen[bytes], sig: signal.Signals) -> None:
     # The group can outlive its leader when a vLLM worker is reparented to PID 1.
     # Always address the group that this runner created, even if Popen.poll()
@@ -305,10 +381,26 @@ def _stop_process(
     *,
     signal_group: bool = True,
 ) -> None:
+    _request_process_stop(process, signal_group=signal_group)
+    _wait_for_process_stop(process, timeout=timeout)
+
+
+def _request_process_stop(
+    process: subprocess.Popen[bytes],
+    *,
+    signal_group: bool,
+) -> None:
     if signal_group:
         _signal_group(process, signal.SIGTERM)
     else:
         _signal_process(process, signal.SIGTERM)
+
+
+def _wait_for_process_stop(
+    process: subprocess.Popen[bytes],
+    *,
+    timeout: float = 30,
+) -> None:
     try:
         process.wait(timeout=timeout)
     except subprocess.TimeoutExpired:
@@ -321,22 +413,26 @@ def _stop_process(
 
 
 def _shutdown_roles(processes: dict[str, subprocess.Popen[bytes]]) -> dict[str, Any]:
-    result: dict[str, Any] = {"order": ["attention", "ffn"]}
+    result: dict[str, Any] = {
+        "order": ["attention_request", "ffn_request", "attention_wait", "ffn_wait"],
+        "coordinated": True,
+    }
     attention = processes.get("attention")
     ffn = processes.get("ffn")
+    # Preserve Attention-first protocol shutdown, but request both stops before
+    # waiting for either role. A sequential Attention-first wait leaves FFN
+    # blocked on a live receive until the Attention timeout force-kills peers.
     if attention is not None:
-        _stop_process(attention)
+        _request_process_stop(attention, signal_group=False)
+    if ffn is not None:
+        _request_process_stop(ffn, signal_group=False)
+    if attention is not None:
+        _wait_for_process_stop(attention)
         result["attention_returncode"] = attention.returncode
     if ffn is not None:
         ffn_exited_after_attention = ffn.poll() is not None
-        if not ffn_exited_after_attention:
-            time.sleep(2)
-            ffn_exited_after_attention = ffn.poll() is not None
         result["ffn_exited_after_attention"] = ffn_exited_after_attention
-        # FFN uses a supervising shell. Signal only that shell first so its
-        # trap can ask the vLLM parent to shut down descendants in order. The
-        # timeout path in _stop_process still kills the full process group.
-        _stop_process(ffn, signal_group=False)
+        _wait_for_process_stop(ffn)
         result["ffn_returncode"] = ffn.returncode
     result["passed"] = all(
         result.get(f"{role}_returncode") == 0
@@ -1003,11 +1099,34 @@ def main() -> None:
                         raise RuntimeError(
                             "cancellation request did not time out with curl exit 28"
                         )
+                    cancellation_quiescence_gate = _wait_for_request_quiescence(
+                        api_port=args.attention_port,
+                        output_dir=cycle_dir,
+                        artifact_stem="cancellation_quiescence",
+                    )
+                    cycle_result["cancellation_quiescence_gate"] = (
+                        cancellation_quiescence_gate
+                    )
+                    if not cancellation_quiescence_gate["passed"]:
+                        raise RuntimeError(
+                            "request queues did not become stably idle after "
+                            "cancellation"
+                        )
                     _run_functional_validator(
                         api_port=args.attention_port,
                         output=cycle_dir / "recovery.json",
                         batch_sizes=[1],
                     )
+                    quiescence_gate = _wait_for_request_quiescence(
+                        api_port=args.attention_port,
+                        output_dir=cycle_dir,
+                        artifact_stem="request_quiescence",
+                    )
+                    cycle_result["request_quiescence_gate"] = quiescence_gate
+                    if not quiescence_gate["passed"]:
+                        raise RuntimeError(
+                            "request queues did not become stably idle after recovery"
+                        )
                 else:
                     _run_validator(
                         api_port=args.attention_port,
@@ -1051,6 +1170,12 @@ def main() -> None:
                     and cycle_result["shutdown"]["passed"]
                     and cycle_result["log_gate"]["passed"]
                     and cycle_result["ubatch_gate"]["passed"]
+                    and cycle_result.get("request_quiescence_gate", {}).get(
+                        "passed", True
+                    )
+                    and cycle_result.get("cancellation_quiescence_gate", {}).get(
+                        "passed", True
+                    )
                     and profile_passed
                 )
                 cycle_result["npu_cleanup_gate"] = _wait_for_npu_cleanup(
