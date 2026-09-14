@@ -149,7 +149,11 @@ class AFDNPUFFNWorker(NPUWorker):
 
             payload = self.model_runner.connector.control_plane.recv_dp_metadata_list()
             if payload.shutdown:
-                logger.info("AFD NPU FFN received Attention shutdown payload")
+                # The validation supervisor uses this lifecycle marker to keep
+                # the FFN process alive until every FFN worker has consumed the
+                # Attention shutdown payload. Warning level keeps it visible in
+                # the default worker logs used for external validation.
+                logger.warning("AFD NPU FFN received Attention shutdown payload")
                 event.set()
                 return
             if payload.profile_start:

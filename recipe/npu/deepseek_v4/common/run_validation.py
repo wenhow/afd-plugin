@@ -28,6 +28,9 @@ CANCELLATION_MAX_TOKENS = 512
 REQUEST_QUIESCENCE_TIMEOUT_SECONDS = 30
 REQUEST_QUIESCENCE_POLL_SECONDS = 0.5
 REQUEST_QUIESCENCE_STABLE_SAMPLES = 2
+SHUTDOWN_HANDOFF_TIMEOUT_SECONDS = 15
+SHUTDOWN_HANDOFF_POLL_SECONDS = 0.1
+FFN_SHUTDOWN_RECEIPT_MARKER = "AFD NPU FFN received Attention shutdown payload"
 FATAL_LOG_MARKERS = (
     "AFD NPU FFN worker loop failed",
     "EngineCore encountered a fatal error",
@@ -35,6 +38,7 @@ FATAL_LOG_MARKERS = (
     "Exception in thread",
     "Communication_Error_Bind_IP_Port",
     "error code is 507015",
+    "error code is 507035",
 )
 
 CONNECTOR_RECIPE_DIRS = {
@@ -412,18 +416,63 @@ def _wait_for_process_stop(
         _signal_group(process, signal.SIGKILL)
 
 
-def _shutdown_roles(processes: dict[str, subprocess.Popen[bytes]]) -> dict[str, Any]:
+def _wait_for_log_occurrences(
+    *,
+    log_path: Path,
+    marker: str,
+    expected: int,
+    timeout: float,
+) -> dict[str, Any]:
+    deadline = time.monotonic() + timeout
+    started = time.monotonic()
+    observed = 0
+    while time.monotonic() < deadline:
+        if log_path.is_file():
+            text = log_path.read_text(encoding="utf-8", errors="replace")
+            observed = text.count(marker)
+        if observed >= expected:
+            break
+        time.sleep(SHUTDOWN_HANDOFF_POLL_SECONDS)
+    return {
+        "passed": observed >= expected,
+        "marker": marker,
+        "expected": expected,
+        "observed": observed,
+        "waited_seconds": round(time.monotonic() - started, 3),
+        "timeout_seconds": timeout,
+    }
+
+
+def _shutdown_roles(
+    processes: dict[str, subprocess.Popen[bytes]],
+    *,
+    ffn_log_path: Path,
+    expected_ffn_shutdown_receipts: int,
+) -> dict[str, Any]:
     result: dict[str, Any] = {
-        "order": ["attention_request", "ffn_request", "attention_wait", "ffn_wait"],
+        "order": [
+            "attention_request",
+            "ffn_handoff_wait",
+            "ffn_request",
+            "attention_wait",
+            "ffn_wait",
+        ],
         "coordinated": True,
     }
     attention = processes.get("attention")
     ffn = processes.get("ffn")
-    # Preserve Attention-first protocol shutdown, but request both stops before
-    # waiting for either role. A sequential Attention-first wait leaves FFN
-    # blocked on a live receive until the Attention timeout force-kills peers.
+    # Attention may execute one final DP dummy batch while entering drain. Keep
+    # FFN alive until every FFN worker has consumed Attention's explicit
+    # shutdown payload, then let both roles release their process groups.
     if attention is not None:
         _request_process_stop(attention, signal_group=False)
+    if attention is not None and ffn is not None:
+        result["ffn_handoff_gate"] = _wait_for_log_occurrences(
+            log_path=ffn_log_path,
+            marker=FFN_SHUTDOWN_RECEIPT_MARKER,
+            expected=expected_ffn_shutdown_receipts,
+            timeout=SHUTDOWN_HANDOFF_TIMEOUT_SECONDS,
+        )
     if ffn is not None:
         _request_process_stop(ffn, signal_group=False)
     if attention is not None:
@@ -438,7 +487,7 @@ def _shutdown_roles(processes: dict[str, subprocess.Popen[bytes]]) -> dict[str, 
         result.get(f"{role}_returncode") == 0
         for role in ("attention", "ffn")
         if role in processes
-    )
+    ) and result.get("ffn_handoff_gate", {}).get("passed", True)
     return result
 
 
@@ -1149,7 +1198,11 @@ def main() -> None:
                         )
                 cycle_result["passed"] = True
             finally:
-                cycle_result["shutdown"] = _shutdown_roles(processes)
+                cycle_result["shutdown"] = _shutdown_roles(
+                    processes,
+                    ffn_log_path=cycle_dir / "ffn.log",
+                    expected_ffn_shutdown_receipts=topology["ffn_ranks"],
+                )
                 for handle in handles:
                     handle.close()
                 cycle_result["log_gate"] = _role_log_gate(cycle_dir)

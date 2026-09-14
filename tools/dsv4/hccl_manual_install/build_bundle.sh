@@ -86,7 +86,7 @@ case "${CONFIG_PROFILE}" in
     sed -i \
       -e 's|^CANN_ROOT=.*|CANN_ROOT="/CHANGE_ME/CANN_ROOT"|' \
       -e 's|^EXPECTED_CANN_VERSION=.*|EXPECTED_CANN_VERSION=""|' \
-      -e 's|^MODEL_PATH=.*|MODEL_PATH="/CHANGE_ME/DeepSeek-V4-Flash-MXFP8"|' \
+      -e 's|^MODEL_PATH=.*|MODEL_PATH="/CHANGE_ME/DeepSeek-V4-Flash"|' \
       -e 's|^MODEL_QUANTIZATION=.*|MODEL_QUANTIZATION="deepseek-v4-native"|' \
       -e 's|^MODEL_BLOCK_SIZE=.*|MODEL_BLOCK_SIZE="32"|' \
       -e 's|^MODEL_SAFETENSORS_LOAD_STRATEGY=.*|MODEL_SAFETENSORS_LOAD_STRATEGY="prefetch"|' \
@@ -109,7 +109,7 @@ case "${CONFIG_PROFILE}" in
       -e 's|^AFD_PLUGIN_ROOT=.*|AFD_PLUGIN_ROOT="${CODE_ROOT}/afd-plugin-phase1-a5-native"|' \
       -e 's|^CANN_ROOT=.*|CANN_ROOT="/usr/local/Ascend/cann-9.2.0"|' \
       -e 's|^EXPECTED_CANN_VERSION=.*|EXPECTED_CANN_VERSION=""|' \
-      -e 's|^MODEL_PATH=.*|MODEL_PATH="/home/models/DeepSeek-V4-Flash-MXFP8"|' \
+      -e 's|^MODEL_PATH=.*|MODEL_PATH="/home/models/DeepSeek-V4-Flash"|' \
       -e 's|^PYTHON_BIN=.*|PYTHON_BIN="${VENV_ROOT}/bin/python"|' \
       -e 's|^SOC_VERSION=.*|SOC_VERSION="Ascend950DT_9582"|' \
       -e 's|^MODEL_QUANTIZATION=.*|MODEL_QUANTIZATION="deepseek-v4-native"|' \

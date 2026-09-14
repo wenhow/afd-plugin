@@ -16,7 +16,7 @@ H0 审计已经完成。不要重复安装 Python、CANN、vLLM 或 vLLM-Ascend�
 | vLLM-Ascend | `3da28f9414583d2d0b672a8f06d1fae142404bda` |
 | afd-plugin | 新包 `manifest/versions.env` 中的 `AFD_TARGET_COMMIT`/`AFD_TARGET_TREE` |
 | CANN | 只使用 `config.env` 指定的绝对路径；`EXPECTED_CANN_VERSION` 保持为空 |
-| 模型 | `/home/models/DeepSeek-V4-Flash-MXFP8` 的官方原始 `DeepSeek-V4-Flash` 配置 |
+| 模型 | `/home/models/DeepSeek-V4-Flash` 的官方原始 `DeepSeek-V4-Flash` 配置 |
 | 硬件 | 单机 8 卡，device ordinal 为 0-7 |
 | AFD | `P2pHcclAFDConnector`、TP1、`ENABLE_MTP=0` |
 
@@ -71,7 +71,7 @@ afd-plugin 目标目录。安装器只有在当前目标 tree 能匹配固定提
 ```text
 CANN_ROOT=/usr/local/Ascend/cann-9.2.0       # 以现场实际路径为准
 EXPECTED_CANN_VERSION=                       # 必须为空
-MODEL_PATH=/home/models/DeepSeek-V4-Flash-MXFP8
+MODEL_PATH=/home/models/DeepSeek-V4-Flash
 SOC_VERSION=Ascend950DT_9582
 ATTENTION_DEVICES=0,1,2,3
 FFN_DEVICES=4,5,6,7
@@ -152,24 +152,15 @@ bash tools/dsv4/run_phase1_a5_matrix.sh smoke \
   2>&1 | tee "$A5_VALIDATION_ROOT/afd-required.console.log"
 ```
 
-矩阵脚本会强制清除外层 `config.env` 的 MTP 默认值，三个 case 均不传
-`--enable-mtp`。这样旧配置中的 `ENABLE_MTP=1` 或 `MTP_DRAFT_EXECUTION=graph`
-也不能把当前 A5 门禁改成 MTP 路径。
+矩阵脚本会强制清除外层 `config.env` 的 MTP 默认值，三个 case 均不传`--enable-mtp`。这样旧配置中的 `ENABLE_MTP=1` 或 `MTP_DRAFT_EXECUTION=graph`也不能把当前 A5 门禁改成 MTP 路径。
 
-矩阵固定 `VLLM_SHUTDOWN_TIMEOUT_SECONDS=20`。`0` 在当前 vLLM 中表示立即 abort；
-但 20 秒本身不能修复角色串行停机：若脚本等待 Attention 完全退出后才通知 FFN，
-Attention 超时强杀 peer 时，仍在 `torch.npu.synchronize()` 的 FFN 会报 `507035`。
-新脚本保持 Attention-first 协议顺序，连续向 Attention 和 FFN 的顶层进程发送优雅停机
-请求，再分别等待；超时后才清理整个进程组。connector 释放同时改为幂等，首个真实
-设备错误仍会上报，但不会在重复 close 时继续产生 `Invalid process group specified`。
+矩阵固定 `VLLM_SHUTDOWN_TIMEOUT_SECONDS=20`。`0` 在当前 vLLM 中表示立即 abort；但 20 秒本身不能修复角色串行停机：若脚本等待 Attention 完全退出后才通知 FFN，Attention 超时强杀 peer 时，仍在 `torch.npu.synchronize()` 的 FFN 会报 `507035`。提交 `8325c18` 改为同时请求两侧停机后，FFN 的错误已消失，但两轮 Attention 都在进入 drain 时执行了最后一次 DP dummy batch；此时 FFN 已关闭 Gloo，Attention 因 `Connection closed by peer` 进入 EngineCore fatal，并在 connector close 时出现 `507035`。两次请求归零门禁均通过，因此该结果不是取消请求残留。
 
-取消请求改为流式请求。`curl=28` 后脚本立即从 `/metrics` 检查
-`vllm:num_requests_running` 和 `vllm:num_requests_waiting`，两项连续两次为 0 才执行恢复
-请求；恢复请求完成后再执行一次相同检查，然后才开始停服。这能区分“客户端已超时”
-与“服务端请求确实已取消并归零”。`507035` 仍保留为 fatal，不做日志白名单。
+新脚本使用 Attention shutdown payload 作为显式交接：先只请求 Attention 优雅停机，保持 FFN 存活；等 `ffn.log` 中全部 FFN DP rank 都出现 `AFD NPU FFN received Attention shutdown payload` 后，再请求 FFN 停机并等待两侧退出。A4F4 的预期 receipt 数为 4；15 秒内未收齐时仍会停止 FFN 做清理，但 `ffn_handoff_gate.passed=false`，本轮失败。connector 释放保持幂等，`507035` 也直接列入 fatal marker，不做日志白名单。
 
-三项必须全部返回 0。每个 case 目录必须包含 `cycle_1`、`cycle_2` 和
-`validation_summary.json`；每轮必须包含：
+取消请求改为流式请求。`curl=28` 后脚本立即从 `/metrics` 检查`vllm:num_requests_running` 和 `vllm:num_requests_waiting`，两项连续两次为 0 才执行恢复请求；恢复请求完成后再执行一次相同检查，然后才开始停服。这能区分“客户端已超时”与“服务端请求确实已取消并归零”。`507035` 仍保留为 fatal，不做日志白名单。
+
+三项必须全部返回 0。每个 case 目录必须包含 `cycle_1`、`cycle_2` 和`validation_summary.json`；每轮必须包含：
 
 ```text
 functional_smoke.json
@@ -187,14 +178,9 @@ npu_ready.txt
 npu_after_cleanup.txt
 ```
 
-`cancellation.exitcode` 的预期值为 28，两个 quiescence gate 必须分别为
-`passed=true`、`running=0`、`waiting=0`、`stable_samples=2`，随后 `recovery.json`
-必须通过。`cycle_summary.json` 中 `shutdown.coordinated` 必须为 `true`，`order` 必须为
-`attention_request, ffn_request, attention_wait, ffn_wait`。Graph/U2 case 的
-`ubatch_gate.observed_two_stages` 必须为 `true`。
+`cancellation.exitcode` 的预期值为 28，两个 quiescence gate 必须分别为`passed=true`、`running=0`、`waiting=0`、`stable_samples=2`，随后 `recovery.json`必须通过。`cycle_summary.json` 中 `shutdown.coordinated` 和`shutdown.ffn_handoff_gate.passed` 必须为 `true`，handoff 的 `observed` 必须等于`expected`；`order` 必须为`attention_request, ffn_handoff_wait, ffn_request, attention_wait, ffn_wait`。Graph/U2 case 的`ubatch_gate.observed_two_stages` 必须为 `true`。
 
-失败证据目录不会被覆盖。修复后续跑第 6 节时应保留原来的
-`A5_VALIDATION_ROOT`，只换一个新的输出目录，例如：
+失败证据目录不会被覆盖。修复后续跑第 6 节时应保留原来的`A5_VALIDATION_ROOT`，只换一个新的输出目录，例如：
 
 ```bash
 export PHASE1_OUTPUT_BASE="$A5_VALIDATION_ROOT/afd-required-r2"
@@ -205,12 +191,9 @@ bash tools/dsv4/run_phase1_a5_matrix.sh smoke \
   2>&1 | tee "$A5_VALIDATION_ROOT/afd-required-r2.console.log"
 ```
 
-第 5 节已经通过时不需要重跑。收集证据时将第 9 节的
-`afd-required/smoke` 替换为实际成功目录，例如 `afd-required-r2/smoke`。
+第 5 节已经通过时不需要重跑。收集证据时将第 9 节的`afd-required/smoke` 替换为实际成功目录，例如 `afd-required-r2/smoke`。
 
-若旧包仅在 `a4f4_eager_u1_mtp_off` 的退出阶段出现下列组合：业务 smoke、取消恢复、
-进程返回码和 NPU 清理均通过，但 Attention 日志在等待 20 秒后出现
-`force killing remaining processes`，随后 FFN 报 `507035`，升级后先只重跑该点：
+若旧包仅在 `a4f4_eager_u1_mtp_off` 的退出阶段出现下列任一组合，升级后先只重跑该点：一是 Attention 等待 20 秒后强杀 peer，随后 FFN 报 `507035`；二是两侧同时停机后 FFN 日志干净，但 Attention 的 dummy batch 报 `Connection closed by peer`、EngineCore fatal 或 `507035`。这两种情况都不得用业务 smoke、进程返回码或 NPU 清理通过代替完整 fatal gate：
 
 ```bash
 export PHASE1_OUTPUT_BASE="$A5_VALIDATION_ROOT/afd-eager-r2"
@@ -219,11 +202,7 @@ bash tools/dsv4/run_phase1_a5_matrix.sh smoke \
   2>&1 | tee "$A5_VALIDATION_ROOT/afd-eager-r2.console.log"
 ```
 
-两轮通过后，再用新的输出目录执行本节另外两个 Graph/U2 必过点。第 5 节和已通过的
-安装/预检不需要重跑，旧失败目录不得删除。若新脚本在任一 quiescence gate 失败，先
-回传两个 gate JSON、metrics 和 Attention 日志；这表示请求生命周期未归零。若两个
-quiescence gate 均通过后仍出现 `507035`，回传 Attention/FFN 完整日志及 A5 设备侧
-plog/slog，不能以第二轮偶然通过覆盖第一轮失败。
+两轮通过后，再用新的输出目录执行本节另外两个 Graph/U2 必过点。第 5 节和已通过的安装/预检不需要重跑，旧失败目录不得删除。若新脚本在任一 quiescence gate 失败，先回传两个 gate JSON、metrics 和 Attention 日志；这表示请求生命周期未归零。若 `ffn_handoff_gate` 失败，回传 `cycle_summary.json` 和两侧完整日志；若 handoff 通过后仍出现 `Connection closed by peer`、`507035` 或 EngineCore fatal，再补充 A5 设备侧 plog/slog。不能以第二轮偶然通过覆盖第一轮失败。
 
 ## 7. 单独运行 A4F2 容量项
 
@@ -271,6 +250,9 @@ for path in sorted(root.rglob("validation_summary.json")):
             "cancel_idle=", cycle.get("cancellation_quiescence_gate", {}).get("passed"),
             "recovery_idle=", cycle.get("request_quiescence_gate", {}).get("passed"),
             "coordinated_shutdown=", cycle.get("shutdown", {}).get("coordinated"),
+            "handoff=", cycle.get("shutdown", {}).get("ffn_handoff_gate", {}).get("passed"),
+            "handoff_observed=", cycle.get("shutdown", {}).get("ffn_handoff_gate", {}).get("observed"),
+            "handoff_expected=", cycle.get("shutdown", {}).get("ffn_handoff_gate", {}).get("expected"),
             "u2=", cycle.get("ubatch_gate", {}).get("observed_two_stages"),
             "cleanup=", cycle.get("npu_cleanup_gate", {}).get("passed"),
         )
@@ -280,7 +262,8 @@ PY
 原生 `runtime.env` 必须为 `enable_mtp=0`，`summary.env` 必须为 `passed=1`、
 `forced_stop=0`、`npu_cleanup_passed=1`。AFD summary 必须为
 `validation_mode=functional_smoke`、`golden_checked=false`、`enable_mtp=false` 和
-`mtp_draft_execution=null`。
+`mtp_draft_execution=null`。每个 AFD cycle 的 handoff 必须为 `passed=true` 且
+`observed=expected`；A4F4 应为 `4/4`，A2F4 和 A4F2 应分别为 `4/4` 和 `2/2`。
 
 ## 9. 收集并回传证据
 

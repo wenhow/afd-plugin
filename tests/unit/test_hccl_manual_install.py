@@ -415,7 +415,7 @@ def test_a5_reuse_profile_reuses_installed_stack_and_uses_new_plugin_root():
     assert "-name __pycache__ -empty -delete" in builder
     section = builder.split("  a5-reuse)", 1)[1].split("  dual-a3-reuse)", 1)[0]
     assert 'CANN_ROOT="/usr/local/Ascend/cann-9.2.0"' in section
-    assert 'MODEL_PATH="/home/models/DeepSeek-V4-Flash-MXFP8"' in section
+    assert 'MODEL_PATH="/home/models/DeepSeek-V4-Flash"' in section
     assert 'MODEL_QUANTIZATION="deepseek-v4-native"' in section
     assert 'ATTENTION_RANKS="4"' in section
     assert 'FFN_RANKS="4"' in section

@@ -82,7 +82,7 @@ DeepSeek-V4 的拆分边界放在远端 MoE，而不是把整个 FFN 子层搬�
 | TP2 | 已冻结功能基线 | 等量 A8F8、DP4/TP2、eager/U1 | CAMP2P TP2、非等量 TP2、TP3、最大 Graph+MTP 组合 |
 | PD 分离 | 第一期 A3 功能基线已冻结，目标点 3/3 | Mooncake contract/runtime；双 A3 TP1、Graph/U2、A8F8 N2/N3 与 A4F8 N3 各两轮；smoke、取消恢复、P1 完整请求和全 rank 在线 U2 通过 | 逐 token 精度、其他并行组合、U3 和正式性能；启停脚本质量不属于本期交付 |
 | v0.23/plugin 工程底座 | 已冻结功能基线 | 同栈 golden、兼容层、部署和验证工具 | 旧栈性能数字不能作为 v0.23 基线 |
-| A5 原始权重适配 | 进行中 | 官方 `fp8`/`weight_block_size=[128,128]` 配置门禁、无 `--quantization ascend`、block 32/prefetch；DP4 no-AFD/MTP-off 已通过；A4F4 eager/U1 两轮业务和恢复均通过，但 20 秒退出复跑的两轮 FFN 均触发 `507035` fatal gate，已定位为角色串行停机窗口 | 协调停机补丁需 A5 单点复跑；其余两个 AFD 必过点和 A4F2 容量项尚未完成；MTP 后移到 dSpark，不能创建 A5 功能 tag |
+| A5 原始权重适配 | 进行中 | 官方 `fp8`/`weight_block_size=[128,128]` 配置门禁、无 `--quantization ascend`、block 32/prefetch；DP4 no-AFD/MTP-off 已通过；A4F4 eager/U1 两轮业务、取消恢复与两次请求归零均通过。串行停机使 FFN 报 `507035`，同时停机则使 Attention 最后一次 dummy batch 报 peer closed，已收敛为 AF 停机交接时序 | 显式 shutdown payload 交接补丁需 A5 单点复跑；其余两个 AFD 必过点和 A4F2 容量项尚未完成；MTP 后移到 dSpark，不能创建 A5 功能 tag |
 | 正式性能验收 | 未完成 | 已有 standalone 对照；PD Graph/U2 三拓扑三轮测量及 A8F8/A16F8 双侧 profile | split A8F8 CV 超限；缺路径匹配 PD control、MTP on/off、跨负载及固定收益阈值，尚无可发布性能 tag |
 
 ### 2.2.1 两阶段交付口径与第一阶段完成度（2026-09-14）
@@ -132,14 +132,22 @@ SHA256、截断日志且排除 profiler raw 的证据包。A5 当前操作见独
 | A8F8 路径匹配 F0 | `/mnt/workspace/validation/phase1_formal_exact_3b869ae_a8f8_u2_n2`；eager/U2/N2 serial 10/10，batch 1/8/32 均有效且 exact 为 1/1、8/8、8/32，真实双 stage、双 role rc=0、fatal 和 NPU cleanup 通过；batch 32 差异保留为 `UPSTREAM-DSV4-BI-001`，不误判为路径金标错误 |
 | 2026-09-10 双 A3 一期 smoke | 3 个适用点单轮 batch 1/8/32 和取消恢复通过；原始明细见上述两个 2026-09-10 证据包 |
 | 2026-09-11 双 A3 两轮验证 | 6/6 次 smoke batch 1/8/32、取消恢复、P1 128/128 和在线 U2 均通过；A8F8 N2/N3、A4F8 N3 三点各两轮，第一阶段 A3 功能目标 3/3 完成；显式停服后的脚本 traceback 单列为非阻塞遗留项 |
-| 2026-09-12 至 09-14 A5 bring-up | 固定上游安装和 8 张 Ascend950DT 可见性已通过；官方原始权重 DP4 no-AFD/MTP-off 的加载、health 和请求已通过。A4F4 eager/U1/MTP-off 在 `shutdown-timeout=0` 的首轮证据和提交 `40b1fa3` 的 20 秒两轮复跑中，业务 smoke、取消恢复、返回码及 NPU 清理均通过；20 秒复跑的两轮 Attention 均在超时后强杀 EngineCore，FFN 随后分别在 DP2/DP3 和 DP0 报 `507035`，因此完整 fatal gate 仍未通过 |
+| 2026-09-12 至 09-14 A5 bring-up | 固定上游安装和 8 张 Ascend950DT 可见性已通过；官方原始权重 DP4 no-AFD/MTP-off 的加载、health 和请求已通过。A4F4 eager/U1/MTP-off 的业务、取消、恢复、两次请求归零、角色 rc 和 NPU 清理在两轮均通过；提交 `8325c18` 的同时停机证据中 FFN 已无 fatal，但 Attention DP 在 FFN 先关闭 Gloo 后执行最后一次 dummy batch，报 peer closed、EngineCore fatal 和 `507035`，因此完整门禁仍未通过 |
 | A5 一期工具覆盖 | no-AFD DP4/MTP-off；A4F4 eager/U1/MTP-off；A4F4 Graph/U2/MTP-off；A2F4 Graph/U2/MTP-off；A4F2 Graph/U2/MTP-off 容量项；不做逐 token 比对；MTP 后移到 dSpark |
-| A5 退出门禁修正 | 20 秒只消除了立即 abort，未消除“等待 Attention 结束后才通知 FFN”的串行窗口。新 runner 保持 Attention-first 请求顺序但不在两侧请求之间等待，并用进程级 TERM 触发 vLLM 优雅退出；流式取消后、恢复后均要求 `/metrics` 连续两次 running/waiting 为 0；HCCL connector close 在首个错误后也会清空本地 group 引用，防止重复 destroy 产生二次噪声。`507035` 继续视为 fatal，升级后先单独复跑 A4F4 eager/U1 两轮 |
+| A5 退出门禁修正 | 串行等待会使 Attention/FFN 相互等待，同时请求又会使 FFN 早于 Attention 的最后一次 DP dummy batch 关闭。新 runner 先 TERM Attention，等待全部 FFN DP rank 记录收到 Attention shutdown payload，再 TERM FFN 并等待两侧退出；15 秒未收齐仍执行清理但 handoff gate 失败。流式取消后、恢复后仍要求 `/metrics` 连续两次 running/waiting 为 0；HCCL connector close 保持幂等，`507035` 直接列入 fatal marker。升级后先单独复跑 A4F4 eager/U1 两轮 |
 
 20 秒两轮复跑的原始证据包为 `19a7fb5ecf2946f6a035ebe8245b7c07.gz`，SHA256
 `6b8bf39d3266c9bf0d4b07390e4971cd108521b935b4bd0910dadd74ccde1d36`。包内
 `matrix.env` 固定 afd-plugin `40b1fa3ff8b8d58e3380db3d01dad8d84150e398`、CANN
 `/usr/local/Ascend/cann-9.2.0` 和 `vllm_shutdown_timeout_seconds=20`，可排除仍在执行旧包。
+
+同时停机复跑证据包为 `427763c5a65d4a1fb31aa83de90414e1.gz`，SHA256
+`fbc83cb4e80f0c693264aeef6c26f4ab0b13cc0a65b3898f4262b1f826ad0f37`。包内固定
+afd-plugin `8325c18e05f3f949067756a33bce03d96e8c8b4c` 与 CANN
+`/usr/local/Ascend/cann-9.2.0`。两轮 cancellation/recovery quiescence 均达到连续两次
+running/waiting 为 0，FFN fatal gate 均通过；cycle 1 的 Attention DP0/DP2、cycle 2 的
+Attention DP2 在停机 dummy batch 的 Gloo send 命中 `Connection closed by peer`，随后出现
+EngineCore fatal 和 `507035`。该证据排除了旧代码、请求残留和固定 FFN rank 故障。
 
 A5 原始权重和单机 DP4 参数以
 [vLLM-Ascend v0.23.0 官方指导](https://docs.vllm.ai/projects/ascend/en/v0.23.0/tutorials/models/DeepSeek-V4-Flash.html#single-node-online-deployment)
@@ -1364,11 +1372,13 @@ serial 10/10、batch 1/8/32 均有效、真实双 stage、双 role rc=0、无 fa
 两轮请求及恢复通过，但旧矩阵以 `shutdown-timeout=0` 强制退出，cycle 1 FFN 在
 `torch.npu.synchronize()` 报 `507035`。提交 `40b1fa3` 改为 20 秒后，2026-09-14
 两轮复跑仍在 Attention 超时强杀之后 2～3 秒触发同一错误，且落在不同 FFN DP rank；
-这证明仅增加 timeout 不足，根因是验证器串行等待 Attention 后才通知 FFN，而不是固定
-业务请求或固定单卡。当前 runner 改为连续请求两侧优雅停机、再分别等待，同时用流式
-取消与两次 `/metrics` 归零门禁证明服务端生命周期已空闲；connector close 清空 group
-引用后再逐一释放，避免首次设备错误后的重复 destroy。完整门禁仍需 A5 单点复跑，
-通过后再继续另外两个必过 Graph/U2 点和 A4F2 容量项。
+这证明仅增加 timeout 不足，且问题不是固定业务请求或固定单卡。提交 `8325c18` 改为
+同时请求两侧停机后，FFN 不再报错，但两轮 Attention 分别在 DP0/DP2 和 DP2 的最后一次
+dummy batch 命中已关闭的 FFN Gloo peer；两次 `/metrics` 归零门禁均通过，排除请求残留。
+当前 runner 因此改为显式交接：先请求 Attention 停机，等全部 FFN DP rank 记录收到
+Attention shutdown payload，再请求 FFN 停机并等待两侧退出。connector close 继续幂等，
+`507035` 直接列入 fatal marker。完整门禁仍需 A5 单点复跑，通过后再继续另外两个必过
+Graph/U2 点和 A4F2 容量项。
 control/exact 后移到最终精度阶段，MTP N1/N2/N3 后移到 dSpark 组合阶段。
 
 `2026-09-08` 的 A3 交付复核显式固定 CANN 9.0.0、vLLM `0fc695fc6d1d82e9a5ac6835ac8e4e1c83703665`

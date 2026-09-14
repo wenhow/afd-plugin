@@ -1274,18 +1274,32 @@ def test_dsv4_shutdown_gate_requires_both_roles_to_exit_cleanly(monkeypatch):
         "_wait_for_process_stop",
         wait_for_process,
     )
+    monkeypatch.setattr(
+        runner,
+        "_wait_for_log_occurrences",
+        lambda **kwargs: calls.append(("handoff", kwargs))
+        or {
+            "passed": True,
+            "observed": kwargs["expected"],
+            "expected": kwargs["expected"],
+        },
+    )
 
     clean = runner._shutdown_roles(
         {
             "attention": FakeProcess("attention", 0),
             "ffn": FakeProcess("ffn", 0),
-        }
+        },
+        ffn_log_path=Path("ffn.log"),
+        expected_ffn_shutdown_receipts=4,
     )
     failed = runner._shutdown_roles(
         {
             "attention": FakeProcess("attention", 0),
             "ffn": FakeProcess("ffn", 1),
-        }
+        },
+        ffn_log_path=Path("ffn.log"),
+        expected_ffn_shutdown_receipts=4,
     )
 
     assert clean["passed"] is True
@@ -1293,13 +1307,129 @@ def test_dsv4_shutdown_gate_requires_both_roles_to_exit_cleanly(monkeypatch):
     assert failed["passed"] is False
     assert calls == [
         ("request", "attention", {"signal_group": False}),
+        (
+            "handoff",
+            {
+                "log_path": Path("ffn.log"),
+                "marker": runner.FFN_SHUTDOWN_RECEIPT_MARKER,
+                "expected": 4,
+                "timeout": runner.SHUTDOWN_HANDOFF_TIMEOUT_SECONDS,
+            },
+        ),
         ("request", "ffn", {"signal_group": False}),
         ("wait", "attention", {}),
         ("wait", "ffn", {}),
         ("request", "attention", {"signal_group": False}),
+        (
+            "handoff",
+            {
+                "log_path": Path("ffn.log"),
+                "marker": runner.FFN_SHUTDOWN_RECEIPT_MARKER,
+                "expected": 4,
+                "timeout": runner.SHUTDOWN_HANDOFF_TIMEOUT_SECONDS,
+            },
+        ),
         ("request", "ffn", {"signal_group": False}),
         ("wait", "attention", {}),
         ("wait", "ffn", {}),
+    ]
+
+
+def test_dsv4_shutdown_handoff_counts_all_ffn_receipts(tmp_path):
+    runner = _load_runner()
+    log_path = tmp_path / "ffn.log"
+    marker = runner.FFN_SHUTDOWN_RECEIPT_MARKER
+    log_path.write_text(
+        f"{marker}\nworker cleanup\n{marker}\n",
+        encoding="utf-8",
+    )
+
+    gate = runner._wait_for_log_occurrences(
+        log_path=log_path,
+        marker=marker,
+        expected=2,
+        timeout=1,
+    )
+
+    assert gate["passed"] is True
+    assert gate["expected"] == 2
+    assert gate["observed"] == 2
+
+
+def test_dsv4_shutdown_handoff_reports_partial_receipts_on_timeout(
+    monkeypatch,
+    tmp_path,
+):
+    runner = _load_runner()
+    log_path = tmp_path / "ffn.log"
+    marker = runner.FFN_SHUTDOWN_RECEIPT_MARKER
+    log_path.write_text(f"{marker}\n", encoding="utf-8")
+    monotonic_values = iter([0, 0, 0, 1, 1])
+    monkeypatch.setattr(runner.time, "monotonic", lambda: next(monotonic_values))
+    monkeypatch.setattr(runner.time, "sleep", lambda _seconds: None)
+
+    gate = runner._wait_for_log_occurrences(
+        log_path=log_path,
+        marker=marker,
+        expected=2,
+        timeout=1,
+    )
+
+    assert gate["passed"] is False
+    assert gate["expected"] == 2
+    assert gate["observed"] == 1
+    assert gate["waited_seconds"] == 1
+
+
+def test_dsv4_shutdown_handoff_timeout_still_stops_ffn(monkeypatch):
+    runner = _load_runner()
+    calls = []
+
+    class FakeProcess:
+        returncode = None
+        pid = 1
+
+        def __init__(self, name):
+            self.name = name
+
+        def poll(self):
+            return self.returncode
+
+    def request_stop(process, **_kwargs):
+        calls.append(("request", process.name))
+
+    def wait_for_stop(process, **_kwargs):
+        calls.append(("wait", process.name))
+        process.returncode = 0
+
+    monkeypatch.setattr(runner, "_request_process_stop", request_stop)
+    monkeypatch.setattr(runner, "_wait_for_process_stop", wait_for_stop)
+    monkeypatch.setattr(
+        runner,
+        "_wait_for_log_occurrences",
+        lambda **_kwargs: {"passed": False, "expected": 4, "observed": 3},
+    )
+
+    result = runner._shutdown_roles(
+        {
+            "attention": FakeProcess("attention"),
+            "ffn": FakeProcess("ffn"),
+        },
+        ffn_log_path=Path("ffn.log"),
+        expected_ffn_shutdown_receipts=4,
+    )
+
+    assert result["passed"] is False
+    assert result["ffn_handoff_gate"] == {
+        "passed": False,
+        "expected": 4,
+        "observed": 3,
+    }
+    assert calls == [
+        ("request", "attention"),
+        ("request", "ffn"),
+        ("wait", "attention"),
+        ("wait", "ffn"),
     ]
 
 
@@ -1356,7 +1486,11 @@ def test_dsv4_stop_process_drains_owned_group_after_clean_exit(monkeypatch):
 
 @pytest.mark.parametrize(
     "fatal_marker",
-    ["AFD NPU FFN worker loop failed", "Exception in thread"],
+    [
+        "AFD NPU FFN worker loop failed",
+        "Exception in thread",
+        "error code is 507035",
+    ],
 )
 def test_dsv4_log_gate_rejects_hidden_worker_fatal(tmp_path, fatal_marker):
     runner = _load_runner()

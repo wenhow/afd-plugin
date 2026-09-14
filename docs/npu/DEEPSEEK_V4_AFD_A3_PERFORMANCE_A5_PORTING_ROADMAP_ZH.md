@@ -1735,9 +1735,11 @@ NPU、吞吐、token/s/NPU、TPOT、CV、HBM、FFN `Free/wall`、`Bubble/wall`�
     `/mnt/workspace/validation/phase1_cann900_exact_3e88ad2`；恢复时不得退回单 token、
     `A>=F` 或跨 target/draft/MTP 路径复用 golden 的假设；
 19. A5 环境安装、官方 `config.json` 恢复和 no-AFD DP4/MTP-off 已完成。A4F4
-    eager/U1 的请求与恢复通过，但 20 秒两轮复跑仍在 Attention 强杀 peer 后命中 FFN
-    `507035` fatal gate；已改为两侧连续请求停机、流式取消和两次请求归零门禁，待单点
-    复跑。其后继续另外两个必须 AFD MTP-off 点和 A4F2 容量项，全部不生成或比较
+    eager/U1 的请求、取消恢复与两次请求归零均通过；20 秒串行停机证据命中 FFN
+    `507035`，提交 `8325c18` 的同时停机证据则使 FFN 干净但 Attention 最后一次 dummy
+    batch 命中已关闭的 Gloo peer。当前改为先请求 Attention、等待全部 FFN rank 收到
+    shutdown payload、再请求 FFN 的显式交接门禁，待 A5 单点复跑。其后继续另外两个
+    必须 AFD MTP-off 点和 A4F2 容量项，全部不生成或比较
     golden；MTP N1/N2/N3 后移到 dSpark 组合阶段；
 20. 每次阶段完成都保存日志、原始数据、解析结果和清理证据。
 
@@ -1750,7 +1752,7 @@ Graph/U1/U2、单 token MTP M0-M7、双向整数比例组件与 TP2/M8 历史基
 通过。M9 的
 TP1/MTP off/Graph U2 已完成双 A3 三拓扑运行和 Profile 观测，但动态路由、优雅退出和
   路径匹配 F1 未冻结。第一阶段 A3 功能标签已经完成；A5 的官方原始权重 DP4
-  no-AFD/MTP-off 功能 smoke 已通过，当前下一步是用协调停机与请求归零门禁复跑 A4F4
+  no-AFD/MTP-off 功能 smoke 已通过，当前下一步是用 shutdown payload 显式交接与请求归零门禁复跑 A4F4
   eager/U1，再执行 A4F4 Graph/U2、A2F4 Graph/U2 和 A4F2 Graph/U2 容量项，均关闭
   MTP 且不做逐 token 比对。MTP
 N1/N2/N3 后移到 dSpark 组合阶段。完整 A8F4

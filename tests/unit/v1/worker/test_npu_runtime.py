@@ -4482,7 +4482,7 @@ def test_npu_ffn_worker_reports_zero_compilation_times():
     assert compilation_times.encoder == 0.0
 
 
-def test_npu_ffn_worker_stops_on_attention_shutdown_payload(monkeypatch):
+def test_npu_ffn_worker_stops_on_attention_shutdown_payload(monkeypatch, caplog):
     _require_npu_runtime()
     from afd_plugin.v1.worker.npu import ffn_worker as ffn_worker_module
 
@@ -4503,9 +4503,14 @@ def test_npu_ffn_worker_stops_on_attention_shutdown_payload(monkeypatch):
     )
     monkeypatch.setattr(ffn_worker_module.torch.npu, "set_device", lambda _device: None)
 
-    worker._run_ffn_server_loop()
+    with caplog.at_level(
+        logging.WARNING,
+        logger="afd_plugin.v1.worker.npu.ffn_worker",
+    ):
+        worker._run_ffn_server_loop()
 
     assert event.is_set()
+    assert "AFD NPU FFN received Attention shutdown payload" in caplog.text
 
 
 def test_npu_ffn_worker_controls_profile_without_stopping_service(monkeypatch):
