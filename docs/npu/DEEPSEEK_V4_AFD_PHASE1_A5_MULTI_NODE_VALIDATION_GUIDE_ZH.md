@@ -213,10 +213,11 @@ npu-smi info
 解析到 CANN 9.0.0，A5 解析到 `config.env` 指定的唯一 `CANN_ROOT`；NPU 健康；开始
 验证前没有其他 NPU 进程。把输出保存为文本，后续随证据包回传。
 
-## 4. A5 同栈路径匹配 native control
+## 4. A5 同栈路径匹配 native control（已后移）
 
-**当前 A5 执行本节；双 A3 不执行。** 本节的 5 份 control 只供 A5 第 5 节使用，
-不向双 A3 交付任何文件。启动器会验证官方 `fp8` 模型配置，保留现场
+**当前第一期不要执行本节；双 A3 也不执行。** 本节的 5 份 control 是早期 standalone
+exact 草案，只供同样已经后移的第 5 节使用，不向双 A3 交付任何文件。MTP 后续随
+dSpark 组合重新立项。启动器会验证官方 `fp8` 模型配置，保留现场
 `SOC_VERSION`，使用 `block-size=32`、`safetensors-load-strategy=prefetch` 和
 `kv-cache-dtype=auto`，MTP 命令使用官方 `deepseek_mtp`（vLLM 初始化后归一化为
 插件内部的 `mtp`），且不传 `--quantization ascend`。
@@ -263,10 +264,12 @@ mismatch；metadata 中的 control key、target/draft、MTP N、解析后的 `ca
 本节完成后，A5 留存全部 5 份 control，供第 5 节 standalone 验证使用。双 A3 不
 复制这些文件；它直接使用仓库中的 `tools/dsv4/phase1_prompts.json`。
 
-## 5. A5 standalone AFD 逐 token 门禁
+## 5. A5 standalone AFD 逐 token 门禁（已后移）
 
-**第 4 节 5 份 control 全部通过后在 A5 执行；双 A3 完全跳过。** 本节读取第 4 节的
-5 份 control，但不会向第 6、7、8 节输出任何依赖文件。
+**当前第一期不要执行第 4、5 节。** 这里保留的是早期 standalone exact 草案，不是
+现行 A5 门禁。当前单 A5 只执行独立指导书中的 MTP-off smoke；MTP N1/N2/N3 后移到
+叠加 dSpark 的组合验证阶段，并重新制定 control、精度和性能口径。本节不会向第 6、
+7、8 节输出任何依赖文件。
 
 矩阵脚本固定了 9 个代表点：
 
@@ -297,8 +300,9 @@ cd "$AFD_PLUGIN_ROOT"
 export MODEL_PATH
 export PHASE1_GOLDEN_ROOT
 export PHASE1_OUTPUT_BASE="/data/validation/dsv4-phase1-a5-$(date +%Y%m%d_%H%M%S)"
-bash tools/dsv4/run_phase1_a5_matrix.sh list
-bash tools/dsv4/run_phase1_a5_matrix.sh preflight
+export PHASE1_ENABLE_DEFERRED_EXACT=1
+bash tools/dsv4/run_phase1_a5_matrix.sh list-deferred-exact
+bash tools/dsv4/run_phase1_a5_matrix.sh preflight-deferred-exact
 bash tools/dsv4/run_phase1_a5_matrix.sh f0
 ```
 

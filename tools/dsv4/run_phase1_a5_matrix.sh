@@ -22,10 +22,9 @@ EXACT_CASES=(
 )
 SMOKE_CASES=(
   a4f4_eager_u1_mtp_off
-  a4f4_graph_u2_n2
-  a4f4_graph_u2_n3
-  a2f4_graph_u2_n3
-  a4f2_graph_u2_n3
+  a4f4_graph_u2_mtp_off
+  a2f4_graph_u2_mtp_off
+  a4f2_graph_u2_mtp_off
 )
 
 usage() {
@@ -33,24 +32,26 @@ usage() {
 Usage:
   bash tools/dsv4/run_phase1_a5_matrix.sh list
   bash tools/dsv4/run_phase1_a5_matrix.sh list-smoke
+  bash tools/dsv4/run_phase1_a5_matrix.sh list-deferred-exact
   bash tools/dsv4/run_phase1_a5_matrix.sh preflight-native
-  bash tools/dsv4/run_phase1_a5_matrix.sh preflight
+  bash tools/dsv4/run_phase1_a5_matrix.sh preflight [case ...]
   bash tools/dsv4/run_phase1_a5_matrix.sh preflight-smoke [case ...]
+  bash tools/dsv4/run_phase1_a5_matrix.sh preflight-deferred-exact [case ...]
   bash tools/dsv4/run_phase1_a5_matrix.sh smoke [case ...]
   bash tools/dsv4/run_phase1_a5_matrix.sh f0 [case ...]
   bash tools/dsv4/run_phase1_a5_matrix.sh f1 [case ...]
 
 Required environment for f0/f1 only:
   PHASE1_GOLDEN_ROOT  Five same-stack, path-matched native controls
+  PHASE1_ENABLE_DEFERRED_EXACT=1  Explicit acknowledgement of deferred scope
 
 Required environment for smoke/f0/f1:
   PHASE1_OUTPUT_BASE  Fresh output root (default includes a timestamp)
 
-Smoke is the A5 phase-one functional gate. It runs two cold cycles, batch
-1/8/32, cancellation recovery, U2/log/cleanup gates, and no golden comparison.
-F0 runs one cold cycle, one validation round, and no idle-resume wait.
-F1 runs two cold cycles, three rounds, batch 1/8/32, and a 30-minute
-idle-resume gate by default. Override PHASE1_F1_IDLE_SECONDS only for diagnosis.
+Smoke is the MTP-off A5 phase-one functional gate. It runs two cold cycles,
+batch 1/8/32, cancellation recovery, U2/log/cleanup gates, and no golden
+comparison. F0/F1 retain the deferred standalone exact matrix, but are not
+part of the current A5 gate; MTP validation resumes only with dSpark.
 EOF
 }
 
@@ -258,6 +259,15 @@ case_arguments() {
     a4f4_eager_u1_mtp_off)
       CASE_ARGS+=(--attention-devices 0,1,2,3 --ffn-devices 4,5,6,7 --ffn-max-num-batched-tokens 4096 --execution-mode eager --u-batches 1)
       ;;
+    a4f4_graph_u2_mtp_off)
+      CASE_ARGS+=(--attention-devices 0,1,2,3 --ffn-devices 4,5,6,7 --ffn-max-num-batched-tokens 4096 --execution-mode full-decode-only --u-batches 2)
+      ;;
+    a2f4_graph_u2_mtp_off)
+      CASE_ARGS+=(--attention-devices 0,1 --ffn-devices 2,3,4,5 --ffn-max-num-batched-tokens 2048 --execution-mode full-decode-only --u-batches 2)
+      ;;
+    a4f2_graph_u2_mtp_off)
+      CASE_ARGS+=(--attention-devices 0,1,2,3 --ffn-devices 4,5 --ffn-max-num-batched-tokens 8192 --execution-mode full-decode-only --u-batches 2)
+      ;;
     a4f4_eager_u1_n1)
       CASE_ARGS+=(--attention-devices 0,1,2,3 --ffn-devices 4,5,6,7 --ffn-max-num-batched-tokens 4096 --execution-mode eager --u-batches 1 --enable-mtp --mtp-num-speculative-tokens 1 --mtp-draft-execution eager)
       ;;
@@ -389,12 +399,25 @@ run_matrix() {
 
 case "${ACTION}" in
   help|-h|--help) usage ;;
-  list) printf '%s\n' "${EXACT_CASES[@]}" ;;
-  list-smoke) printf '%s\n' "${SMOKE_CASES[@]}" ;;
+  list|list-smoke) printf '%s\n' "${SMOKE_CASES[@]}" ;;
+  list-deferred-exact) printf '%s\n' "${EXACT_CASES[@]}" ;;
   preflight-native) audit_stack; printf '[phase1-a5] native preflight passed\n' ;;
-  preflight) activate_and_audit "$@"; printf '[phase1-a5] preflight passed\n' ;;
-  preflight-smoke) activate_and_audit_smoke "$@"; printf '[phase1-a5] smoke preflight passed\n' ;;
+  preflight|preflight-smoke)
+    activate_and_audit_smoke "$@"
+    printf '[phase1-a5] MTP-off smoke preflight passed\n'
+    ;;
+  preflight-deferred-exact)
+    [[ "${PHASE1_ENABLE_DEFERRED_EXACT:-0}" == "1" ]] \
+      || die "exact preflight is deferred; MTP validation resumes with dSpark"
+    activate_and_audit "$@"
+    printf '[phase1-a5] deferred exact preflight passed\n'
+    ;;
   smoke) activate_and_audit_smoke "$@"; run_matrix "${ACTION}" "$@" ;;
-  f0|f1) activate_and_audit "$@"; run_matrix "${ACTION}" "$@" ;;
+  f0|f1)
+    [[ "${PHASE1_ENABLE_DEFERRED_EXACT:-0}" == "1" ]] \
+      || die "f0/f1 are deferred; MTP validation resumes with dSpark"
+    activate_and_audit "$@"
+    run_matrix "${ACTION}" "$@"
+    ;;
   *) usage; die "Unknown action: ${ACTION}" ;;
 esac

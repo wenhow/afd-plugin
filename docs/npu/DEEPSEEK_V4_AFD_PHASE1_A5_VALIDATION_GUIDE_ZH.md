@@ -6,8 +6,9 @@
 H0 审计已经完成。不要重复安装 Python、CANN、vLLM 或 vLLM-Ascend，也不要在本机
 执行双 A3、多节点、A8F8、A8F4 或 A4F8 章节。
 
-第一期只做功能门禁，不生成 golden，不进行逐 token 比对。最终精度测试在全部功能
-开发结束后另行执行。本次固定项如下：
+第一期只做 MTP-off 功能门禁，不生成 golden，不进行逐 token 比对。MTP N1/N2/N3
+不在本次单 A5 范围，后续叠加 dSpark 时另行制定组合验证矩阵；最终精度测试在全部
+功能开发结束后另行执行。本次固定项如下：
 
 | 项目 | 固定值 |
 |---|---|
@@ -17,20 +18,19 @@ H0 审计已经完成。不要重复安装 Python、CANN、vLLM 或 vLLM-Ascend�
 | CANN | 只使用 `config.env` 指定的绝对路径；`EXPECTED_CANN_VERSION` 保持为空 |
 | 模型 | `/home/models/DeepSeek-V4-Flash-MXFP8` 的官方原始 `DeepSeek-V4-Flash` 配置 |
 | 硬件 | 单机 8 卡，device ordinal 为 0-7 |
-| AFD | `P2pHcclAFDConnector`、TP1、MTP 最大 N3 |
+| AFD | `P2pHcclAFDConnector`、TP1、`ENABLE_MTP=0` |
 
 ## 2. 本次要执行的项目
 
-按下列顺序执行。前五项是功能门禁，最后一项是容量项：
+按下列顺序执行。前四项是功能门禁，最后一项是容量项：
 
 | 顺序 | 项目 | NPU | 预期结论 |
 |---|---|---|---|
-| 1 | 官方 no-AFD、DP4、Graph、MTP N1 | 0-3 | 模型加载、health、models 和请求成功 |
+| 1 | 官方 no-AFD、DP4、Graph、MTP-off | 0-3 | 模型加载、health、models 和请求成功 |
 | 2 | A4F4 eager/U1/MTP-off | A: 0-3，F: 4-7 | AFD 基础门禁 |
-| 3 | A4F4 Graph/U2/N2 | A: 0-3，F: 4-7 | 多 token N2 和真实 U2 |
-| 4 | A4F4 Graph/U2/N3 | A: 0-3，F: 4-7 | 最大 N3 和真实 U2 |
-| 5 | A2F4 Graph/U2/N3 | A: 0-1，F: 2-5 | `F=kA` 门禁 |
-| 6 | A4F2 Graph/U2/N3 | A: 0-3，F: 4-5 | `A=kF` 容量项 |
+| 3 | A4F4 Graph/U2/MTP-off | A: 0-3，F: 4-7 | Graph 和真实 U2 门禁 |
+| 4 | A2F4 Graph/U2/MTP-off | A: 0-1，F: 2-5 | `F=kA` 门禁 |
+| 5 | A4F2 Graph/U2/MTP-off | A: 0-3，F: 4-5 | `A=kF` 容量项 |
 
 每个 AFD 点执行两次独立冷启动；每轮检查 ready、batch 1/8/32、取消请求后恢复、
 启动与请求 fatal、U2 实际执行、停服和 NPU 清理。所有请求只检查 HTTP 和输出结构，
@@ -51,6 +51,11 @@ cd dsv4-afd-hccl-manual-install-slim-a5-reuse-*
 export BUNDLE_ROOT="$PWD"
 export OLD_BUNDLE_ROOT="/替换为上一次A5包目录"
 cp "$OLD_BUNDLE_ROOT/config.env" "$BUNDLE_ROOT/config.env"
+sed -i \
+  -e 's/^ENABLE_MTP=.*/ENABLE_MTP="0"/' \
+  -e 's/^MTP_NUM_SPECULATIVE_TOKENS=.*/MTP_NUM_SPECULATIVE_TOKENS="1"/' \
+  -e 's/^MTP_DRAFT_EXECUTION=.*/MTP_DRAFT_EXECUTION="eager"/' \
+  "$BUNDLE_ROOT/config.env"
 bash bin/00_print_config.sh
 bash bin/install_all.sh
 ```
@@ -84,7 +89,7 @@ git status --short
 bash tools/dsv4/run_phase1_a5_matrix.sh list-smoke
 ```
 
-`git status --short` 必须为空；`list-smoke` 必须输出 5 个 AFD case。
+`git status --short` 必须为空；`list-smoke` 必须输出 4 个 MTP-off AFD case。
 
 ## 4. 运行前预检
 
@@ -96,10 +101,9 @@ cd "$AFD_PLUGIN_ROOT"
 bash tools/dsv4/run_phase1_a5_native_smoke.sh preflight
 bash tools/dsv4/run_phase1_a5_matrix.sh preflight-smoke \
   a4f4_eager_u1_mtp_off \
-  a4f4_graph_u2_n2 \
-  a4f4_graph_u2_n3 \
-  a2f4_graph_u2_n3 \
-  a4f2_graph_u2_n3
+  a4f4_graph_u2_mtp_off \
+  a2f4_graph_u2_mtp_off \
+  a4f2_graph_u2_mtp_off
 ```
 
 预检会核对两个固定上游提交、三个源码导入根、干净工作树、模型路径、custom ops、唯一 CANN 路径和空闲 NPU。它不依赖 `ss`，也不校验 A5 的 CANN 版本字符串。
@@ -118,7 +122,7 @@ bash tools/dsv4/run_phase1_a5_native_smoke.sh run \
   2>&1 | tee "$A5_VALIDATION_ROOT/native-dp4.console.log"
 ```
 
-脚本使用 NPU 0-3、DP4/TP1，按官方风格启动 no-AFD Graph/MTP N1 服务一次。它检查`/health`、`/v1/models` 和一个 completion，然后停服并检查 NPU 清理。通过时应出现：
+脚本使用 NPU 0-3、DP4/TP1，按官方风格启动 no-AFD Graph/MTP-off 服务一次。它检查`/health`、`/v1/models` 和一个 completion，然后停服并检查 NPU 清理。此前 MTP N1 的成功结果可以保留为附加证据，但不能替代本次 MTP-off 基线。通过时应出现：
 
 ```text
 [phase1-a5-native] completed: .../native-dp4
@@ -137,23 +141,22 @@ native-dp4/npu-ready.txt
 native-dp4/npu-after-stop.txt
 ```
 
-## 6. 运行 4 个必须通过的 AFD 点
+## 6. 运行 3 个必须通过的 AFD 点
 
 ```bash
 export PHASE1_OUTPUT_BASE="$A5_VALIDATION_ROOT/afd-required"
 bash tools/dsv4/run_phase1_a5_matrix.sh smoke \
   a4f4_eager_u1_mtp_off \
-  a4f4_graph_u2_n2 \
-  a4f4_graph_u2_n3 \
-  a2f4_graph_u2_n3 \
+  a4f4_graph_u2_mtp_off \
+  a2f4_graph_u2_mtp_off \
   2>&1 | tee "$A5_VALIDATION_ROOT/afd-required.console.log"
 ```
 
-矩阵脚本会先清除外层 `config.env` 的 MTP 默认值，再按 case 参数设置 MTP。这样
-`a4f4_eager_u1_mtp_off` 不会被 `ENABLE_MTP=1` 或
-`MTP_DRAFT_EXECUTION=graph` 误改成 eager + MTP draft Graph。
+矩阵脚本会强制清除外层 `config.env` 的 MTP 默认值，三个 case 均不传
+`--enable-mtp`。这样旧配置中的 `ENABLE_MTP=1` 或 `MTP_DRAFT_EXECUTION=graph`
+也不能把当前 A5 门禁改成 MTP 路径。
 
-四项必须全部返回 0。每个 case 目录必须包含 `cycle_1`、`cycle_2` 和
+三项必须全部返回 0。每个 case 目录必须包含 `cycle_1`、`cycle_2` 和
 `validation_summary.json`；每轮必须包含：
 
 ```text
@@ -178,9 +181,8 @@ npu_after_cleanup.txt
 export PHASE1_OUTPUT_BASE="$A5_VALIDATION_ROOT/afd-required-r2"
 bash tools/dsv4/run_phase1_a5_matrix.sh smoke \
   a4f4_eager_u1_mtp_off \
-  a4f4_graph_u2_n2 \
-  a4f4_graph_u2_n3 \
-  a2f4_graph_u2_n3 \
+  a4f4_graph_u2_mtp_off \
+  a2f4_graph_u2_mtp_off \
   2>&1 | tee "$A5_VALIDATION_ROOT/afd-required-r2.console.log"
 ```
 
@@ -192,7 +194,7 @@ bash tools/dsv4/run_phase1_a5_matrix.sh smoke \
 ```bash
 export PHASE1_OUTPUT_BASE="$A5_VALIDATION_ROOT/afd-capacity"
 set +e
-bash tools/dsv4/run_phase1_a5_matrix.sh smoke a4f2_graph_u2_n3 \
+bash tools/dsv4/run_phase1_a5_matrix.sh smoke a4f2_graph_u2_mtp_off \
   2>&1 | tee "$A5_VALIDATION_ROOT/afd-capacity.console.log"
 export A4F2_EXITCODE=${PIPESTATUS[0]}
 set -e
@@ -236,8 +238,10 @@ for path in sorted(root.rglob("validation_summary.json")):
 PY
 ```
 
-原生 `summary.env` 必须为 `passed=1`、`forced_stop=0`、`npu_cleanup_passed=1`。
-AFD summary 必须为 `validation_mode=functional_smoke`、`golden_checked=false`。
+原生 `runtime.env` 必须为 `enable_mtp=0`，`summary.env` 必须为 `passed=1`、
+`forced_stop=0`、`npu_cleanup_passed=1`。AFD summary 必须为
+`validation_mode=functional_smoke`、`golden_checked=false`、`enable_mtp=false` 和
+`mtp_draft_execution=null`。
 
 ## 9. 收集并回传证据
 
@@ -272,10 +276,11 @@ summary。证据包会包含提交、CANN 路径、环境、Python 包、NPU 快
 满足以下条件后，A5 第一期功能验证才可关闭：
 
 1. 官方 no-AFD DP4 模型加载、health、models、请求和 NPU 清理通过。
-2. 4 个必须 AFD 点两轮全部通过，batch 1/8/32、取消恢复和 fatal 门禁通过。
-3. 3 个 Graph/U2 点都观测到真实 two-stage，而不是只配置了 `U_BATCHES=2`。
+2. 3 个必须 AFD 点两轮全部通过，batch 1/8/32、取消恢复和 fatal 门禁通过。
+3. 2 个必过 Graph/U2 点都观测到真实 two-stage，而不是只配置了 `U_BATCHES=2`。
 4. A4F2 得到“通过”或有完整 HBM 证据的“容量阻塞”结论。
 5. 所有功能报告均明确 `golden_checked=false`，没有逐 token 精度声明。
 
 最终精度、路径匹配 control、30/30 token exact、idle-resume、U3、正式性能和 12 卡
-A8F4 均不在本次 A5 第一期执行范围。
+A8F4 均不在本次 A5 第一期执行范围。MTP 只在后续 dSpark 组合阶段重新纳入，不能用
+本次 MTP-off 结果声明 dSpark + MTP 已通过。

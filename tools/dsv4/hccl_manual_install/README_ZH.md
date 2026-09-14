@@ -132,7 +132,8 @@ A5 原始权重的官方配置使用 `quant_method=fp8` 和
 `weight_block_size=[128,128]`。执行 `bin/install_a5_model_config.sh` 会先把现场
 `config.json` 备份到 `STATE_ROOT/model-config-backup`，再恢复包内官方文件；该动作
 不会改 safetensors。A5 启动不传 `--quantization ascend`，固定 `block-size=32` 和
-`safetensors-load-strategy=prefetch`，MTP 使用 `deepseek_mtp`；A3 W8A8 仍走
+`safetensors-load-strategy=prefetch`；当前 A5 一期固定 MTP-off，后续 dSpark 组合中的
+MTP 才使用 `deepseek_mtp`。A3 W8A8 仍走
 `--quantization ascend`、block 128 和 `mtp`。原始权重与参数口径见
 [vLLM-Ascend v0.23.0 官方指导](https://docs.vllm.ai/projects/ascend/en/v0.23.0/tutorials/models/DeepSeek-V4-Flash.html#single-node-online-deployment)。
 
@@ -208,8 +209,8 @@ INCLUDE_SOURCES=1 \
 
 ## 6. 启动和停止
 
-A5 profile 默认启动单机 8 卡 A4F4 Graph/U2、graph draft MTP N=3；A5 的 no-AFD
-路径 control 按官方基线只使用 NPU 0-3 做 DP4。双 A3 reuse profile 仍启动 A8F8：
+A5 profile 默认启动单机 8 卡 A4F4 Graph/U2/MTP-off；A5 的 no-AFD 基线按官方风格
+只使用 NPU 0-3 做 DP4/MTP-off。双 A3 reuse profile 仍启动 A8F8：
 
 ```bash
 bash bin/07_start.sh
@@ -222,7 +223,8 @@ bash bin/09_stop.sh
 不会重复检查安装工具链、基础 Python 或离线 wheelhouse；CANN、网络、模型、拓扑、
 NPU、PID、端口和服务 readiness 仍会检查。
 
-切换到最小定位组合 eager/U1 + MTP N=1 时修改：
+下面的 eager/U1 + MTP N1 仅保留为代码定位能力，不属于当前 A5 验收；后续必须在
+dSpark 组合验证方案中重新固定参数和门禁：
 
 ```bash
 EXECUTION_MODE="eager"

@@ -96,6 +96,9 @@ case "${CONFIG_PROFILE}" in
       -e 's|^FFN_RANKS=.*|FFN_RANKS="4"|' \
       -e 's|^ATTENTION_DEVICES=.*|ATTENTION_DEVICES="0,1,2,3"|' \
       -e 's|^FFN_DEVICES=.*|FFN_DEVICES="4,5,6,7"|' \
+      -e 's|^ENABLE_MTP=.*|ENABLE_MTP="0"|' \
+      -e 's|^MTP_NUM_SPECULATIVE_TOKENS=.*|MTP_NUM_SPECULATIVE_TOKENS="1"|' \
+      -e 's|^MTP_DRAFT_EXECUTION=.*|MTP_DRAFT_EXECUTION="eager"|' \
       "${payload_root}/config.env.example"
     ;;
   a5-reuse)
@@ -117,6 +120,9 @@ case "${CONFIG_PROFILE}" in
       -e 's|^FFN_RANKS=.*|FFN_RANKS="4"|' \
       -e 's|^ATTENTION_DEVICES=.*|ATTENTION_DEVICES="0,1,2,3"|' \
       -e 's|^FFN_DEVICES=.*|FFN_DEVICES="4,5,6,7"|' \
+      -e 's|^ENABLE_MTP=.*|ENABLE_MTP="0"|' \
+      -e 's|^MTP_NUM_SPECULATIVE_TOKENS=.*|MTP_NUM_SPECULATIVE_TOKENS="1"|' \
+      -e 's|^MTP_DRAFT_EXECUTION=.*|MTP_DRAFT_EXECUTION="eager"|' \
       -e 's|^REUSE_SOURCES=.*|REUSE_SOURCES="1"|' \
       -e 's|^REUSE_VENV=.*|REUSE_VENV="1"|' \
       -e 's|^INSTALL_PYTHON_DEPS=.*|INSTALL_PYTHON_DEPS="0"|' \

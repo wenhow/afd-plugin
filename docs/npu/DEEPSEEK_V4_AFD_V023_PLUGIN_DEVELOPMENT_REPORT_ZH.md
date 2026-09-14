@@ -13,7 +13,7 @@
 | vLLM | `releases/v0.23.0`，`0fc695fc6d1d82e9a5ac6835ac8e4e1c83703665` |
 | vLLM-Ascend | `rfc/vllm_cann`，`3da28f9414583d2d0b672a8f06d1fae142404bda` |
 | afd-plugin | `feat/dsv4-afd-graph-u2-multistream-all-on-v1`；第一阶段 A3 功能基线 tag 为 `dsv4-afd-v023-phase1-a3-functional-v1`。2026-09-11 双 A3 两轮中，A8F8 N2/N3 两轮及 A4F8 N3 第 2 轮使用 clean `6386f18`；A4F8 N3 第 1 轮为 dirty `a695ff2`，但两者运行时代码一致，差异仅在验证/文档工具，作为功能轮次接受并保留元数据说明 |
-| 开发范围 | 从 `99ee0ef6` 的 v0.23 兼容迁移到 Mooncake PD M9，以及第一阶段 M10/M11 功能门禁；A3 功能标签不含逐 token 精度，A5 当前按原始权重独立执行无 golden 功能 smoke |
+| 开发范围 | 从 `99ee0ef6` 的 v0.23 兼容迁移到 Mooncake PD M9，以及第一阶段 M10/M11 功能门禁；A3 功能标签不含逐 token 精度，A5 当前按原始权重独立执行无 golden、MTP-off 功能 smoke，MTP 后移到 dSpark 组合阶段 |
 | 主要模型 | A3 为 `DeepSeek-V4-Flash-w8a8-mtp`；A5/Ascend 950DT 为原始 `DeepSeek-V4-Flash` MXFP8/MXFP4 权重 |
 | 功能验证工具链 | M10/M11 与双 A3 固定 CANN 9.0.0、Python 3.12、`torch_npu 2.10.0.post2` 和 `afd-v023-vllm-cann` venv；A5 复用现场已安装 venv，只固定 CANN 绝对路径而不强校验版本 |
 | 当前提交边界 | `dsv4-afd-v023-phase1-a3-functional-v1` 只冻结 A3 功能范围；当前分支在该 tag 后增加 A5 原始权重模型契约、四卡 no-AFD 和八卡内 AFD 功能 smoke/安装工具，尚未形成 A5 功能 tag；不合入 R14 的 AllToAllV split cache，不扩大为 U3、逐 token 精度或性能结论 |
@@ -82,12 +82,12 @@ DeepSeek-V4 的拆分边界放在远端 MoE，而不是把整个 FFN 子层搬�
 | TP2 | 已冻结功能基线 | 等量 A8F8、DP4/TP2、eager/U1 | CAMP2P TP2、非等量 TP2、TP3、最大 Graph+MTP 组合 |
 | PD 分离 | 第一期 A3 功能基线已冻结，目标点 3/3 | Mooncake contract/runtime；双 A3 TP1、Graph/U2、A8F8 N2/N3 与 A4F8 N3 各两轮；smoke、取消恢复、P1 完整请求和全 rank 在线 U2 通过 | 逐 token 精度、其他并行组合、U3 和正式性能；启停脚本质量不属于本期交付 |
 | v0.23/plugin 工程底座 | 已冻结功能基线 | 同栈 golden、兼容层、部署和验证工具 | 旧栈性能数字不能作为 v0.23 基线 |
-| A5 原始权重适配 | 进行中 | 官方 `fp8`/`weight_block_size=[128,128]` 配置门禁、无 `--quantization ascend`、block 32/prefetch、`deepseek_mtp`；现场 DP4 no-AFD 已通过，A4F4/A4F2/A2F4 功能 smoke 工具已就绪 | 尚无 AFD 实模 case 通过，不能创建功能 tag |
+| A5 原始权重适配 | 进行中 | 官方 `fp8`/`weight_block_size=[128,128]` 配置门禁、无 `--quantization ascend`、block 32/prefetch；旧 DP4 Graph/MTP N1 已通过，MTP-off 的 A4F4/A4F2/A2F4 功能 smoke 工具已就绪 | 当前 MTP-off no-AFD 和 AFD 实模门禁尚未完成，MTP 后移到 dSpark，不能创建 A5 功能 tag |
 | 正式性能验收 | 未完成 | 已有 standalone 对照；PD Graph/U2 三拓扑三轮测量及 A8F8/A16F8 双侧 profile | split A8F8 CV 超限；缺路径匹配 PD control、MTP on/off、跨负载及固定收益阈值，尚无可发布性能 tag |
 
 ### 2.2.1 两阶段交付口径与第一阶段完成度（2026-09-14）
 
-第一阶段 A3 功能标签已经冻结，第二阶段仍交付 U3 和正式性能收益。A3 标签不生成 golden、不执行逐 token exact，也不要求路径匹配 native/PD control；启停辅助脚本自身的退出码、显式停服后的 traceback 和自动清理质量也不作为 A3 标签目标。A5 当前作为第一阶段的独立平台适配轨道执行原始权重的无 golden 功能 smoke：no-AFD DP4 一次、4 个必须 AFD 点各两轮，以及 A4F2 容量项。路径匹配 control、token exact 和 idle-resume 后移到最终精度阶段。第一阶段固定 TP1，并明确不包含 TP/SP/CP/DCP/PP、TP3、非等量 TP2 和 TP2 最大 Graph+MTP 组合；仓库中已经冻结的等量 DP4/TP2 eager/U1 证据继续保留，但不作为本次 A5 交付门禁。
+第一阶段 A3 功能标签已经冻结，第二阶段仍交付 U3 和正式性能收益。A3 标签不生成 golden、不执行逐 token exact，也不要求路径匹配 native/PD control；启停辅助脚本自身的退出码、显式停服后的 traceback 和自动清理质量也不作为 A3 标签目标。A5 当前作为独立平台适配轨道执行原始权重的无 golden、MTP-off 功能 smoke：no-AFD DP4 一次、3 个必须 AFD 点各两轮，以及 A4F2 容量项。路径匹配 control、token exact 和 idle-resume 后移到最终精度阶段，MTP N1/N2/N3 后移到 dSpark 组合阶段。第一阶段固定 TP1，并明确不包含 TP/SP/CP/DCP/PP、TP3、非等量 TP2 和 TP2 最大 Graph+MTP 组合；仓库中已经冻结的等量 DP4/TP2 eager/U1 证据继续保留，但不作为本次 A5 交付门禁。
 
 第一阶段的 MTP 目标不是增加 checkpoint 中的 MTP layer 数，而是在模型
 `num_nextn_predict_layers=1` 的前提下，支持通过 `num_speculative_tokens=N` 配置每轮多个draft token。本轮已将对外最大值冻结为 `N=3`，复用同一个 MTP layer 执行多个speculative step，并完成 `N=1/2/3` 代码回归、N2/N3 本机 NPU 组件与 A8F8 N2 实模 smoke。
@@ -112,7 +112,7 @@ DeepSeek-V4 的拆分边界放在远端 MoE，而不是把整个 FFN 子层搬�
 第一阶段 A3 功能范围没有剩余硬缺口，不再要求为启停脚本问题重跑这三个点。后续可独立修复停止期 traceback、进程返回码和 HBM 等待观测；A4F8 第 1 轮的 dirty 验证工具元数据也可在需要精确 tree 复现时补跑。A5 适配已进入独立执行阶段；A8F4 容量环境、U3 和正式性能仍属于后续范围，不改变 A3 的 3/3 功能验收。
 
 外部验收工具继续使用：`run_phase1_a5_native_smoke.sh` 执行四卡 DP4 no-AFD 功能
-请求；`run_phase1_a5_matrix.sh smoke` 执行 A5 的 5 个 standalone 功能/容量点；
+请求；`run_phase1_a5_matrix.sh smoke` 执行 A5 的 4 个 MTP-off 功能/容量点；
 `pd_graph_matrix.sh` 提供双 A3 的历史矩阵；`collect_phase1_validation.sh` 生成带
 SHA256、截断日志且排除 profiler raw 的证据包。A5 当前操作见独立的
 `DEEPSEEK_V4_AFD_PHASE1_A5_VALIDATION_GUIDE_ZH.md`；control/golden 和 exact 路径
@@ -132,8 +132,8 @@ SHA256、截断日志且排除 profiler raw 的证据包。A5 当前操作见独
 | A8F8 路径匹配 F0 | `/mnt/workspace/validation/phase1_formal_exact_3b869ae_a8f8_u2_n2`；eager/U2/N2 serial 10/10，batch 1/8/32 均有效且 exact 为 1/1、8/8、8/32，真实双 stage、双 role rc=0、fatal 和 NPU cleanup 通过；batch 32 差异保留为 `UPSTREAM-DSV4-BI-001`，不误判为路径金标错误 |
 | 2026-09-10 双 A3 一期 smoke | 3 个适用点单轮 batch 1/8/32 和取消恢复通过；原始明细见上述两个 2026-09-10 证据包 |
 | 2026-09-11 双 A3 两轮验证 | 6/6 次 smoke batch 1/8/32、取消恢复、P1 128/128 和在线 U2 均通过；A8F8 N2/N3、A4F8 N3 三点各两轮，第一阶段 A3 功能目标 3/3 完成；显式停服后的脚本 traceback 单列为非阻塞遗留项 |
-| 2026-09-12 A5 bring-up | 固定上游安装和 8 张 Ascend950DT 可见性已通过；官方原始权重 DP4 no-AFD 的模型加载、health 和请求已通过。AFD 首个 MTP-off case 暴露矩阵继承 `config.env` MTP 默认值的问题，runner 尚未启动；现已隔离 case 环境，4 个必过点和 1 个容量项待现场续跑 |
-| A5 一期工具覆盖 | no-AFD DP4；A4F4 eager/U1/MTP-off；A4F4 Graph/U2/N2/N3；A2F4 Graph/U2/N3；A4F2 Graph/U2/N3 容量项；不做逐 token 比对 |
+| 2026-09-12 A5 bring-up | 固定上游安装和 8 张 Ascend950DT 可见性已通过；官方原始权重 DP4 no-AFD Graph/MTP N1 的模型加载、health 和请求已通过，保留为附加证据。当前门禁改为 MTP-off，因此 no-AFD 基线需重跑；AFD 首个 case 尚未启动 |
+| A5 一期工具覆盖 | no-AFD DP4/MTP-off；A4F4 eager/U1/MTP-off；A4F4 Graph/U2/MTP-off；A2F4 Graph/U2/MTP-off；A4F2 Graph/U2/MTP-off 容量项；不做逐 token 比对；MTP 后移到 dSpark |
 
 A5 原始权重和单机 DP4 参数以
 [vLLM-Ascend v0.23.0 官方指导](https://docs.vllm.ai/projects/ascend/en/v0.23.0/tutorials/models/DeepSeek-V4-Flash.html#single-node-online-deployment)
@@ -1354,8 +1354,8 @@ standalone 修正为 5 份路径匹配 native control，禁止跨 target/draft/M
 serial 10/10、batch 1/8/32 均有效、真实双 stage、双 role rc=0、无 fatal 且 NPU cleanup
 通过；batch 32 exact 为 8/32，继续按 `UPSTREAM-DSV4-BI-001` 记录。该证据关闭 M10
 本机开发门禁。A5 已补齐官方原始权重的严格配置解析、DP4 no-AFD 功能 smoke 和
-八卡内 A4F4/A4F2/A2F4 启动参数；当前 5 个 AFD 功能/容量点仍需现场独立执行，
-control/9 点 exact F1 后移到最终精度阶段。
+八卡内 A4F4/A4F2/A2F4 启动参数；当前 4 个 AFD/MTP-off 功能/容量点仍需现场独立
+执行，control/exact 后移到最终精度阶段，MTP N1/N2/N3 后移到 dSpark 组合阶段。
 
 `2026-09-08` 的 A3 交付复核显式固定 CANN 9.0.0、vLLM `0fc695fc6d1d82e9a5ac6835ac8e4e1c83703665`
 和 vLLM-Ascend `3da28f9414583d2d0b672a8f06d1fae142404bda` 的实际导入路径；精确组合下
@@ -2026,8 +2026,8 @@ fatal/强杀门禁未通过且没有独立进程 rc。该结果扩展了问题�
 - [x] 第一阶段 M10 本机开发门禁：保持单 MTP layer，泛化 `speculative_step`、MTP header、
   FFN draft 循环、Graph key/cache 与异常清理；N1/N2/N3 回归、N2/N3 eager/Graph U1/U2
   组件通过；A8F8 N2 在 U1/U2 下均与路径匹配 native N2 10/10 exact。
-- [ ] 当前 A5 轨道：执行 NPU 0-3 的 DP4 no-AFD 功能 smoke、4 个必须 AFD 点和
-  A4F2 容量项；不生成或比较 golden。脚本和本机回归已完成，现场实模结果待回传。
+- [ ] 当前 A5 轨道：执行 NPU 0-3 的 DP4 no-AFD/MTP-off 功能 smoke、3 个必须 AFD
+  MTP-off 点和 A4F2 容量项；不生成或比较 golden。MTP 后移到 dSpark 组合阶段。
 - [x] 第一阶段 `num_speculative_tokens` 最大对外配置值冻结为 3，越界继续 fail-fast。
 - [x] 双机完成 PD + 多 speculative token/双向拓扑一期 A3 功能闭环：6/6 次 P1 请求及
   在线 U2 均通过，三个适用点各完成两轮；停止期脚本 traceback 不属于交付门禁，逐 token
@@ -2117,7 +2117,7 @@ DP4/TP2 eager/U1 功能 tag 保留，但不改变本次范围。
 | `2164240` | Graph/U2 三项新增物理流水默认全开；双 A3 R14 采集的代码基线 |
 | `71168312` | 第一阶段 M10/M11：单 MTP layer N1-N3、双向整数 A/F、组件/recipe/部署验证 |
 | `ec106f5b` | 第一期 A5/双机矩阵、路径匹配 control、证据收集器、安装补丁包与执行指导书 |
-| 本次更新 | A5 原始 `DeepSeek-V4-Flash` 配置契约与显式备份/恢复、`fp8`/MXFP 算子审计、四卡 DP4 no-AFD 功能 smoke、5 个 AFD 功能/容量点、无 golden 双冷启动/取消恢复门禁，以及可升级已安装 A5 环境的交付 profile |
+| 本次更新 | A5 原始 `DeepSeek-V4-Flash` 配置契约与显式备份/恢复、`fp8`/MXFP 算子审计、四卡 DP4 no-AFD/MTP-off 功能 smoke、4 个 AFD/MTP-off 功能/容量点、无 golden 双冷启动/取消恢复门禁，以及可升级已安装 A5 环境的交付 profile；MTP 后移到 dSpark |
 
 ### 13.2 冻结 tag
 
@@ -2163,5 +2163,5 @@ M9 的第一阶段 A3 功能范围已由 `dsv4-afd-v023-phase1-a3-functional-v1`
 A8F8 N2/N3、A4F8 N3 三个适用 PD Graph/U2 点各完成两轮，6/6 smoke、取消恢复、P1
 128/128 和全 rank 在线 U2 均通过，并冻结为 `dsv4-afd-v023-phase1-a3-functional-v1`。
 启停脚本问题、逐 token F1、A5、A8F4 容量环境、U3 和可发布性能收益不属于该标签。
-A5 原始权重适配已进入独立现场验证，当前只有安装/模型契约和功能 smoke 工具准备
-完成，尚无 no-AFD 或 AFD 实模 case 可标记为通过。
+A5 原始权重适配已进入独立现场验证；旧 DP4 Graph/MTP N1 成功结果只作附加证据，
+当前 MTP-off no-AFD 和 AFD 门禁尚未完成。MTP N1/N2/N3 后移到 dSpark 组合阶段。

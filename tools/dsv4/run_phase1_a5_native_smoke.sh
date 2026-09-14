@@ -22,7 +22,7 @@ Optional:
   PHASE1_NATIVE_API_PORT=8900
   PHASE1_NATIVE_READY_TIMEOUT_SECONDS=3600
 
-This starts one official-style no-AFD DP4 Graph/MTP-N1 service, checks health,
+This starts one official-style no-AFD DP4 Graph/MTP-off service, checks health,
 the model list and one completion, then stops it. It never creates or compares
 golden tokens.
 EOF
@@ -96,8 +96,9 @@ PY
     printf 'data_parallel_size=4\n'
     printf 'tensor_parallel_size=1\n'
     printf 'execution_mode=full-decode-only\n'
-    printf 'mtp_num_speculative_tokens=1\n'
-    printf 'mtp_draft_execution=graph\n'
+    printf 'enable_mtp=0\n'
+    printf 'mtp_num_speculative_tokens=0\n'
+    printf 'mtp_draft_execution=off\n'
     printf 'model_path=%s\n' "${MODEL_PATH}"
     printf 'model_config_sha256=%s\n' "$(sha256sum "${MODEL_PATH}/config.json" | awk '{print $1}')"
     printf 'cann_root=%s\n' "$(readlink -f "${DSV4_CANN_ROOT}")"
@@ -150,9 +151,9 @@ PY
     HCCL_IF_BASE_PORT=$((api_port + 44000)) \
     ASCEND_RT_VISIBLE_DEVICES="${devices}" \
     EXECUTION_MODE=full-decode-only \
-    ENABLE_MTP=1 \
+    ENABLE_MTP=0 \
     MTP_NUM_SPECULATIVE_TOKENS=1 \
-    MTP_DRAFT_EXECUTION=graph \
+    MTP_DRAFT_EXECUTION=eager \
     TENSOR_PARALLEL_SIZE=1 \
     bash "${NATIVE_LAUNCHER}" \
     >"${output_root}/server.log" 2>&1 &

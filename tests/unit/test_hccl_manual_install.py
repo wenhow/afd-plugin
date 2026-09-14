@@ -419,6 +419,9 @@ def test_a5_reuse_profile_reuses_installed_stack_and_uses_new_plugin_root():
     assert 'MODEL_QUANTIZATION="deepseek-v4-native"' in section
     assert 'ATTENTION_RANKS="4"' in section
     assert 'FFN_RANKS="4"' in section
+    assert 'ENABLE_MTP="0"' in section
+    assert 'MTP_NUM_SPECULATIVE_TOKENS="1"' in section
+    assert 'MTP_DRAFT_EXECUTION="eager"' in section
     assert 'REUSE_VENV="1"' in section
     assert 'INSTALL_PYTHON_DEPS="0"' in section
     assert 'INSTALL_UPSTREAM_STACK="0"' in section

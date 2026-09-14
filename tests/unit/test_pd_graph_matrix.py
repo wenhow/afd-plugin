@@ -370,9 +370,11 @@ def test_phase1_points_match_control_and_topology_contract(
     ]
 
 
-def test_a5_matrix_lists_the_blocking_phase1_cases():
+def test_a5_matrix_lists_the_deferred_exact_cases_explicitly():
     script = A5_MATRIX.read_text(encoding="utf-8")
-    output = subprocess.check_output(["bash", str(A5_MATRIX), "list"], text=True)
+    output = subprocess.check_output(
+        ["bash", str(A5_MATRIX), "list-deferred-exact"], text=True
+    )
 
     assert 'export PYTHONPATH="${REPO_ROOT}:${DSV4_VLLM_ROOT}' in script
     assert "imported_roots" in script
@@ -400,10 +402,13 @@ def test_a5_matrix_lists_the_blocking_phase1_cases():
     ("case_name", "attention_devices", "ffn_devices", "ffn_capacity"),
     [
         ("a4f4_eager_u1_mtp_off", "0,1,2,3", "4,5,6,7", "4096"),
+        ("a4f4_graph_u2_mtp_off", "0,1,2,3", "4,5,6,7", "4096"),
         ("a4f4_graph_u2_n2", "0,1,2,3", "4,5,6,7", "4096"),
         ("a4f4_graph_u2_n3", "0,1,2,3", "4,5,6,7", "4096"),
+        ("a2f4_graph_u2_mtp_off", "0,1", "2,3,4,5", "2048"),
         ("a2f4_eager_u1_n2", "0,1", "2,3,4,5", "2048"),
         ("a2f4_graph_u2_n3", "0,1", "2,3,4,5", "2048"),
+        ("a4f2_graph_u2_mtp_off", "0,1,2,3", "4,5", "8192"),
         ("a4f2_eager_u1_n2", "0,1,2,3", "4,5", "8192"),
         ("a4f2_graph_u2_n3", "0,1,2,3", "4,5", "8192"),
     ],
@@ -447,14 +452,42 @@ def test_a5_phase1_smoke_matrix_is_functional_only():
 
     assert output.splitlines() == [
         "a4f4_eager_u1_mtp_off",
-        "a4f4_graph_u2_n2",
-        "a4f4_graph_u2_n3",
-        "a2f4_graph_u2_n3",
-        "a4f2_graph_u2_n3",
+        "a4f4_graph_u2_mtp_off",
+        "a2f4_graph_u2_mtp_off",
+        "a4f2_graph_u2_mtp_off",
     ]
+    assert subprocess.check_output(
+        ["bash", str(A5_MATRIX), "list"], text=True
+    ) == output
     assert "smoke) activate_and_audit_smoke" in script
+    assert "preflight|preflight-smoke)" in script
     assert "runner_args+=(--functional-smoke)" in script
     assert "golden_checked=%s" in script
+
+    for case_name in output.splitlines():
+        command = """
+matrix_path="$1"
+case_name="$2"
+set -- help
+source "$matrix_path" >/dev/null
+case_arguments "$case_name"
+printf '%s\\0' "${CASE_ARGS[@]}"
+"""
+        args = subprocess.check_output(
+            ["bash", "-c", command, "bash", str(A5_MATRIX), case_name]
+        ).decode().rstrip("\0").split("\0")
+        assert "--enable-mtp" not in args
+
+
+def test_a5_deferred_exact_requires_explicit_opt_in():
+    result = subprocess.run(
+        ["bash", str(A5_MATRIX), "f0", "a4f4_eager_u1_mtp_off"],
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 2
+    assert "MTP validation resumes with dSpark" in result.stderr
 
 
 def test_a5_matrix_does_not_inherit_mtp_defaults(tmp_path):
@@ -527,7 +560,11 @@ def test_a5_native_smoke_and_guide_do_not_require_golden():
     guide = A5_GUIDE.read_text(encoding="utf-8")
 
     assert "ASCEND_RT_VISIBLE_DEVICES=\"${devices}\"" in native
+    assert "ENABLE_MTP=0" in native
+    assert "ENABLE_MTP=1" not in native
     assert "MTP_NUM_SPECULATIVE_TOKENS=1" in native
+    assert "mtp_num_speculative_tokens=0" in native
+    assert "mtp_draft_execution=off" in native
     assert "--batch-sizes \"1\"" in native
     assert "GOLDEN_GENERATOR" not in native
     assert "trap - EXIT TERM INT" in native
