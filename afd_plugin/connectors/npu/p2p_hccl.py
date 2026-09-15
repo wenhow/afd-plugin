@@ -728,6 +728,11 @@ class P2pHcclAFDConnector(AFDConnectorBase):
             raise RuntimeError("HCCL P2P Attention Graph compute pipeline is inactive")
         parent_stream = torch.npu.current_stream()
         events = self._attention_graph_events(layer_idx, stage_idx)
+        if self._graph_parent_transport_active():
+            events.compute_done.wait(parent_stream)
+            for tensor in tensors:
+                self._record_stream(tensor, parent_stream)
+            return
         send_stream = self._attention_graph_stream("send", parent_stream)
         events.compute_done.wait(send_stream)
         for tensor in tensors:
@@ -856,6 +861,20 @@ class P2pHcclAFDConnector(AFDConnectorBase):
                 metadata.stage_idx,
             )
             parent_stream = torch.npu.current_stream()
+            # Graph-visible HCCL must stay on the stream that owns the active
+            # NPUGraph's parent stream.  A configured side send stream can
+            # leave pending HCCL work before capture and an unjoined graph
+            # task during capture.  Keep the model compute fork independent.
+            if self._graph_parent_transport_active():
+                # The compute fork may be a side stream.  Join it before the
+                # parent-stream HCCL operation in both warmup and capture.
+                events.compute_done.wait(parent_stream)
+                self._send_attention_tensor(
+                    hidden_states,
+                    group=group,
+                )
+                events.send_done.record(parent_stream)
+                return
             with self._use_attention_graph_stream(
                 "send",
                 parent_stream,
@@ -895,6 +914,14 @@ class P2pHcclAFDConnector(AFDConnectorBase):
                 )
             events = self._attention_graph_events(int(layer_idx), ubatch_idx)
             parent_stream = torch.npu.current_stream()
+            if self._graph_parent_transport_active():
+                events.send_done.wait(parent_stream)
+                self._recv_attention_tensor(
+                    ref_tensor,
+                    group=group,
+                )
+                events.recv_done.record(parent_stream)
+                return ref_tensor
             with self._use_attention_graph_stream(
                 "recv",
                 parent_stream,
@@ -1185,6 +1212,24 @@ class P2pHcclAFDConnector(AFDConnectorBase):
         **kwargs: Any,
     ) -> tuple[AFDA2FTransferPayload, Any]:
         """Enqueue an FFN-side receive while retaining synchronous recv APIs."""
+        # ``recv_attn_output`` is invoked from this helper while the FFN
+        # capture stream is current.  Keep Graph U2 HCCL on that parent during
+        # both warmup and capture; eager requests may use the dedicated recv
+        # stream.  This avoids pending warmup work and unjoined A5 graph tasks
+        # while preserving the compute-stream overlap below.
+        if self._graph_parent_transport_active():
+            parent_stream = torch.npu.current_stream()
+            if wait_event is not None:
+                wait_event.wait(parent_stream)
+            payload = self.recv_attn_output(
+                ubatch_idx=ubatch_idx,
+                **kwargs,
+            )
+            self._record_stream(payload.hidden_states, parent_stream)
+            if payload.input_ids is not None:
+                self._record_stream(payload.input_ids, parent_stream)
+            done_event.record(parent_stream)
+            return payload, done_event
         with torch.npu.stream(recv_stream):
             if wait_event is not None:
                 wait_event.wait(recv_stream)
@@ -1210,6 +1255,20 @@ class P2pHcclAFDConnector(AFDConnectorBase):
         done_event,
     ) -> Any:
         """Enqueue an FFN-side send while retaining synchronous send APIs."""
+        # See ``recv_attn_output_streamed`` above.  The FFN compute event is
+        # the only cross-stream dependency needed here; Graph U2 HCCL belongs
+        # to the parent stream in both warmup and capture.
+        if self._graph_parent_transport_active():
+            parent_stream = torch.npu.current_stream()
+            wait_event.wait(parent_stream)
+            self._record_stream(ffn_output, parent_stream)
+            self.send_ffn_output(
+                ffn_output,
+                context,
+                ubatch_idx=ubatch_idx,
+            )
+            done_event.record(parent_stream)
+            return done_event
         with torch.npu.stream(send_stream):
             wait_event.wait(send_stream)
             self._record_stream(ffn_output, send_stream)
@@ -1681,6 +1740,16 @@ class P2pHcclAFDConnector(AFDConnectorBase):
             getattr(forward_context, "afd_graph_ubatching", False)
             and torch.npu.is_current_stream_capturing()
         )
+
+    def _graph_parent_transport_active(self) -> bool:
+        """Keep Graph U2 warmup and capture communication on the parent stream.
+
+        Warmup intentionally uses regular ``dist.send``/``dist.recv`` so the
+        first graph capture starts with a quiescent communicator.  It still
+        follows the Graph U2 stream schedule, so collectives must not be
+        launched on the compute/send/receive side streams.
+        """
+        return bool(self.is_warmup or self._graph_transport_active())
 
     @staticmethod
     def _record_stream(tensor: torch.Tensor, stream) -> None:
