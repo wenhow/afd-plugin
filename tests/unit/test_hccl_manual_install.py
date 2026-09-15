@@ -408,6 +408,16 @@ def test_launchers_resolve_model_format_and_preserve_soc_version():
         ROOT / "recipe/npu/deepseek_v4/common/activate_role_runtime.sh"
     ).read_text(encoding="utf-8")
     assert 'export SOC_VERSION="${SOC_VERSION:-ascend910_9362}"' in runtime
+    assert (
+        'export HCCL_OP_EXPANSION_MODE="${HCCL_OP_EXPANSION_MODE:-AIV}"'
+        in runtime
+    )
+
+    manual_launcher = (INSTALLER / "bin/run_role.sh").read_text(encoding="utf-8")
+    assert (
+        'export HCCL_OP_EXPANSION_MODE="${HCCL_OP_EXPANSION_MODE:-AIV}"'
+        in manual_launcher
+    )
 
 
 def test_manual_launcher_pins_graph_u2_to_synchronous_scheduling():

@@ -327,6 +327,10 @@ def test_dsv4_shared_recipe_is_connector_neutral():
     assert (COMMON_RECIPE_DIR / "validate_golden.py").is_file()
     assert (COMMON_RECIPE_DIR / "activate_role_runtime.sh").is_file()
     assert 'export PYTHONPATH="${ROOT_DIR}:${DSV4_VLLM_ROOT}' in role_runtime
+    assert (
+        'export HCCL_OP_EXPANSION_MODE="${HCCL_OP_EXPANSION_MODE:-AIV}"'
+        in role_runtime
+    )
 
     camp_runner = (CAMP_RECIPE_DIR / "run_validation.py").read_text(encoding="utf-8")
     assert 'sys.argv.extend(["--connector", "CAMP2pAFDConnector"])' in camp_runner
