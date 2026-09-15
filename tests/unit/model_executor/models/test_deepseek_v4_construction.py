@@ -447,6 +447,10 @@ def test_attention_graph_u2_builds_stage_local_receive_dependencies(
             assert tensor is not None
             events.append(("wait_recv", pending_recv_layers.pop(stage_idx), stage_idx))
 
+        def wait_for_attention_graph_receive(self, *, layer_idx, stage_idx, tensor):
+            assert tensor is not None
+            events.append(("graph_wait_recv", layer_idx, stage_idx))
+
         def reset_attention_pipeline_state(self):
             events.append(("reset",))
 

@@ -35,8 +35,11 @@ die() {
 
 npu_process_count() {
   npu-smi info | awk '
-    /\| NPU +Chip +\| Process id/ {in_process_table=1; next}
-    in_process_table && /^\|[[:space:]]*[0-9]+[[:space:]]+[0-9]+[[:space:]]*\|[[:space:]]*[0-9]+/ {count++}
+    /^\|[[:space:]]*NPU[[:space:]]+(ID|Chip)[[:space:]]*\|[[:space:]]*Process[[:space:]]+id[[:space:]]*\|/ {
+      in_process_table=1
+      next
+    }
+    in_process_table && /^\|[[:space:]]*[0-9]+[[:space:]]*\|[[:space:]]*[0-9]+[[:space:]]*\|/ {count++}
     END {print count + 0}
   '
 }

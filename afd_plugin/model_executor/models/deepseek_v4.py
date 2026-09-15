@@ -819,6 +819,11 @@ class AFDDeepseekV4Model(native.DeepseekV4Model):
             "wait_for_attention_stage_receive",
             None,
         )
+        wait_for_graph_receive = getattr(
+            connector,
+            "wait_for_attention_graph_receive",
+            None,
+        )
         if not all(
             callable(method)
             for method in (
@@ -826,6 +831,7 @@ class AFDDeepseekV4Model(native.DeepseekV4Model):
                 wait_for_compute,
                 join_compute,
                 wait_for_receive,
+                wait_for_graph_receive,
                 hybrid_dag_active,
             )
         ):
@@ -843,6 +849,12 @@ class AFDDeepseekV4Model(native.DeepseekV4Model):
         ) -> None:
             item = ubatch_metadata[stage_idx]
             forward_context = stage_contexts[stage_idx]
+            if layer_offset > 0 and not use_hybrid_dag:
+                wait_for_graph_receive(
+                    layer_idx=layers[layer_offset - 1].layer_idx,
+                    stage_idx=stage_idx,
+                    tensor=hidden_ubatches[stage_idx],
+                )
             with (
                 override_forward_context(forward_context),
                 compute_scope(
@@ -909,6 +921,12 @@ class AFDDeepseekV4Model(native.DeepseekV4Model):
                     )
             else:
                 for stage_idx, forward_context in enumerate(stage_contexts):
+                    if not use_hybrid_dag:
+                        wait_for_graph_receive(
+                            layer_idx=layer.layer_idx,
+                            stage_idx=stage_idx,
+                            tensor=hidden_ubatches[stage_idx],
+                        )
                     with (
                         override_forward_context(forward_context),
                         compute_scope(

@@ -32,6 +32,7 @@ DIAGNOSTIC_CASES=(
   a4f4_eager_u2_mtp_off
   a4f4_eager_u2_serial_mtp_off
   a4f4_graph_u2_serial_mtp_off
+  a4f4_graph_u2_compute_only_mtp_off
 )
 
 usage() {
@@ -63,8 +64,8 @@ batch 1/8/32, cancellation recovery, U2/log/cleanup gates, and no golden
 comparison. F0/F1 retain the deferred standalone exact matrix, but are not
 part of the current A5 gate; MTP validation resumes only with dSpark.
 Diagnostic runs one cold cycle for the MTP-off A4F4 Graph/U1, streamed U2,
-and serial U2 isolation points. It is evidence for fault localization, not a
-phase-one gate.
+serial U2, and Graph compute-only isolation points. It is evidence for fault
+localization, not a phase-one gate.
 EOF
 }
 
@@ -145,14 +146,26 @@ PY
   [[ "${imported_roots[2]:-}" == "$(readlink -f "${DSV4_VLLM_ASCEND_ROOT}")" ]] \
     || die "vLLM-Ascend imports from ${imported_roots[2]:-unknown}, not ${DSV4_VLLM_ASCEND_ROOT}"
 
-  local npu_process_count
-  npu_process_count="$(npu-smi info | awk '
-    /\| NPU +Chip +\| Process id/ {in_process_table=1; next}
-    in_process_table && /^\|[[:space:]]*[0-9]+[[:space:]]+[0-9]+[[:space:]]*\|[[:space:]]*[0-9]+/ {count++}
+  local existing_npu_process_count
+  existing_npu_process_count="$(npu_process_count)"
+  (( existing_npu_process_count == 0 )) \
+    || die "Detected ${existing_npu_process_count} existing NPU processes"
+}
+
+npu_process_count() {
+  # A5 npu-smi uses `NPU ID`, while older releases used `NPU Chip`.
+  # Count rows only after the process-table header so the device summary is
+  # never mistaken for an occupied process.
+  npu-smi info | awk '
+    /^\|[[:space:]]*NPU[[:space:]]+(ID|Chip)[[:space:]]*\|[[:space:]]*Process[[:space:]]+id[[:space:]]*\|/ {
+      in_process_table=1
+      next
+    }
+    in_process_table && /^\|[[:space:]]*[0-9]+[[:space:]]*\|[[:space:]]*[0-9]+[[:space:]]*\|/ {
+      count++
+    }
     END {print count + 0}
-  ')"
-  (( npu_process_count == 0 )) \
-    || die "Detected ${npu_process_count} existing NPU processes"
+  '
 }
 
 control_key_for_case() {
@@ -293,7 +306,7 @@ case_arguments() {
       CASE_ARGS+=(--attention-devices 0,1,2,3 --ffn-devices 4,5,6,7 --ffn-max-num-batched-tokens 4096 --execution-mode eager --u-batches 1)
       ;;
     a4f4_graph_u2_mtp_off)
-      CASE_ARGS+=(--attention-devices 0,1,2,3 --ffn-devices 4,5,6,7 --ffn-max-num-batched-tokens 4096 --execution-mode full-decode-only --u-batches 2 --async-scheduling off)
+      CASE_ARGS+=(--attention-devices 0,1,2,3 --ffn-devices 4,5,6,7 --ffn-max-num-batched-tokens 4096 --execution-mode full-decode-only --u-batches 2 --async-scheduling off --eager-u2-stream-overlap off --graph-u2-compute-overlap on --graph-u2-hybrid-dag on --graph-u2-attention-three-stream on --graph-u2-ffn-recv-stream on --graph-u2-ffn-cross-layer on)
       ;;
     a4f4_graph_u1_mtp_off)
       CASE_ARGS+=(--attention-devices 0,1,2,3 --ffn-devices 4,5,6,7 --ffn-max-num-batched-tokens 4096 --execution-mode full-decode-only --u-batches 1 --async-scheduling off)
@@ -305,13 +318,16 @@ case_arguments() {
       CASE_ARGS+=(--attention-devices 0,1,2,3 --ffn-devices 4,5,6,7 --ffn-max-num-batched-tokens 4096 --execution-mode eager --u-batches 2 --async-scheduling off --eager-u2-stream-overlap off --stage-diagnostics on)
       ;;
     a4f4_graph_u2_serial_mtp_off)
-      CASE_ARGS+=(--attention-devices 0,1,2,3 --ffn-devices 4,5,6,7 --ffn-max-num-batched-tokens 4096 --execution-mode full-decode-only --u-batches 2 --async-scheduling off --graph-u2-compute-overlap off --stage-diagnostics on)
+      CASE_ARGS+=(--attention-devices 0,1,2,3 --ffn-devices 4,5,6,7 --ffn-max-num-batched-tokens 4096 --execution-mode full-decode-only --u-batches 2 --async-scheduling off --eager-u2-stream-overlap off --graph-u2-compute-overlap off --graph-u2-hybrid-dag off --graph-u2-attention-three-stream off --graph-u2-ffn-recv-stream off --graph-u2-ffn-cross-layer off --stage-diagnostics on)
+      ;;
+    a4f4_graph_u2_compute_only_mtp_off)
+      CASE_ARGS+=(--attention-devices 0,1,2,3 --ffn-devices 4,5,6,7 --ffn-max-num-batched-tokens 4096 --execution-mode full-decode-only --u-batches 2 --async-scheduling off --eager-u2-stream-overlap off --graph-u2-compute-overlap on --graph-u2-hybrid-dag off --graph-u2-attention-three-stream off --graph-u2-ffn-recv-stream off --graph-u2-ffn-cross-layer off --stage-diagnostics on)
       ;;
     a2f4_graph_u2_mtp_off)
-      CASE_ARGS+=(--attention-devices 0,1 --ffn-devices 2,3,4,5 --ffn-max-num-batched-tokens 2048 --execution-mode full-decode-only --u-batches 2 --async-scheduling off)
+      CASE_ARGS+=(--attention-devices 0,1 --ffn-devices 2,3,4,5 --ffn-max-num-batched-tokens 2048 --execution-mode full-decode-only --u-batches 2 --async-scheduling off --eager-u2-stream-overlap off --graph-u2-compute-overlap on --graph-u2-hybrid-dag on --graph-u2-attention-three-stream on --graph-u2-ffn-recv-stream on --graph-u2-ffn-cross-layer on)
       ;;
     a4f2_graph_u2_mtp_off)
-      CASE_ARGS+=(--attention-devices 0,1,2,3 --ffn-devices 4,5 --ffn-max-num-batched-tokens 8192 --execution-mode full-decode-only --u-batches 2 --async-scheduling off)
+      CASE_ARGS+=(--attention-devices 0,1,2,3 --ffn-devices 4,5 --ffn-max-num-batched-tokens 8192 --execution-mode full-decode-only --u-batches 2 --async-scheduling off --eager-u2-stream-overlap off --graph-u2-compute-overlap on --graph-u2-hybrid-dag on --graph-u2-attention-three-stream on --graph-u2-ffn-recv-stream on --graph-u2-ffn-cross-layer on)
       ;;
     a4f4_eager_u1_n1)
       CASE_ARGS+=(--attention-devices 0,1,2,3 --ffn-devices 4,5,6,7 --ffn-max-num-batched-tokens 4096 --execution-mode eager --u-batches 1 --enable-mtp --mtp-num-speculative-tokens 1 --mtp-draft-execution eager)

@@ -733,6 +733,21 @@ class P2pHcclAFDConnector(AFDConnectorBase):
         for tensor in tensors:
             self._record_stream(tensor, send_stream)
 
+    def wait_for_attention_graph_receive(
+        self,
+        *,
+        layer_idx: int,
+        stage_idx: int,
+        tensor: torch.Tensor,
+    ) -> None:
+        """Join a Graph F2A receive before non-hybrid next-layer compute."""
+        if not self.attention_graph_compute_pipeline_active():
+            return
+        parent_stream = torch.npu.current_stream()
+        events = self._attention_graph_events(layer_idx, stage_idx)
+        events.recv_done.wait(parent_stream)
+        self._record_stream(tensor, parent_stream)
+
     def join_attention_graph_compute(
         self,
         *,

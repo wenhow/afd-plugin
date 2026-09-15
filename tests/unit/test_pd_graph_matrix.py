@@ -406,6 +406,7 @@ def test_a5_matrix_lists_the_deferred_exact_cases_explicitly():
         ("a4f4_eager_u2_mtp_off", "0,1,2,3", "4,5,6,7", "4096"),
         ("a4f4_eager_u2_serial_mtp_off", "0,1,2,3", "4,5,6,7", "4096"),
         ("a4f4_graph_u2_serial_mtp_off", "0,1,2,3", "4,5,6,7", "4096"),
+        ("a4f4_graph_u2_compute_only_mtp_off", "0,1,2,3", "4,5,6,7", "4096"),
         ("a4f4_graph_u2_mtp_off", "0,1,2,3", "4,5,6,7", "4096"),
         ("a4f4_graph_u2_n2", "0,1,2,3", "4,5,6,7", "4096"),
         ("a4f4_graph_u2_n3", "0,1,2,3", "4,5,6,7", "4096"),
@@ -485,6 +486,28 @@ printf '%s\\0' "${CASE_ARGS[@]}"
             assert args[args.index("--async-scheduling") + 1] == "off"
 
 
+def test_a5_preflight_parses_current_npu_smi_process_table():
+    command = r'''
+npu-smi() {
+  printf '%s\n' \
+    '| NPU ID | Name | Health |' \
+    '| 0 | Ascend950DT | OK |' \
+    '| NPU ID                    | Process id    | Process name |' \
+    '| 0                         | 3205305       | python3 |' \
+    '| 1                         | 3205305       | python3 |'
+}
+matrix_path="$1"
+set -- help
+source "$matrix_path" >/dev/null
+printf '%s\n' "$(npu_process_count)"
+'''
+    result = subprocess.check_output(
+        ["bash", "-c", command, "bash", str(A5_MATRIX)],
+        text=True,
+    )
+    assert result.strip() == "2"
+
+
 def test_a5_diagnostic_matrix_is_mtp_off_and_kept_out_of_smoke():
     script = A5_MATRIX.read_text(encoding="utf-8")
     diagnostic_cases = subprocess.check_output(
@@ -499,6 +522,7 @@ def test_a5_diagnostic_matrix_is_mtp_off_and_kept_out_of_smoke():
         "a4f4_eager_u2_mtp_off",
         "a4f4_eager_u2_serial_mtp_off",
         "a4f4_graph_u2_serial_mtp_off",
+        "a4f4_graph_u2_compute_only_mtp_off",
     ]
     assert set(diagnostic_cases).isdisjoint(smoke_cases)
     assert "preflight-diagnostic)" in script
@@ -516,6 +540,12 @@ def test_a5_diagnostic_matrix_is_mtp_off_and_kept_out_of_smoke():
             "2",
             None,
             "off",
+        ),
+        "a4f4_graph_u2_compute_only_mtp_off": (
+            "full-decode-only",
+            "2",
+            None,
+            "on",
         ),
     }
     for case_name in diagnostic_cases:
@@ -618,6 +648,7 @@ printf '%s\n' "$status"
         "a4f4_eager_u2_mtp_off",
         "a4f4_eager_u2_serial_mtp_off",
         "a4f4_graph_u2_serial_mtp_off",
+        "a4f4_graph_u2_compute_only_mtp_off",
     ]
     diagnostic_root = output_root / "diagnostic"
     assert (diagnostic_root / "a4f4_graph_u1_mtp_off.exitcode").read_text() == "1\n"
@@ -627,6 +658,9 @@ printf '%s\n' "$status"
     ).read_text() == "0\n"
     assert (
         diagnostic_root / "a4f4_graph_u2_serial_mtp_off.exitcode"
+    ).read_text() == "0\n"
+    assert (
+        diagnostic_root / "a4f4_graph_u2_compute_only_mtp_off.exitcode"
     ).read_text() == "0\n"
     assert (diagnostic_root / "ascend-process-log").is_dir()
     matrix_env = (diagnostic_root / "matrix.env").read_text()

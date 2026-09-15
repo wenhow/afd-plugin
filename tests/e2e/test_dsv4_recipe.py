@@ -525,12 +525,20 @@ def test_dsv4_execution_environment_pins_scheduler(monkeypatch):
         async_scheduling="off",
         eager_u2_stream_overlap="off",
         graph_u2_compute_overlap="off",
+        graph_u2_hybrid_dag="off",
+        graph_u2_attention_three_stream="off",
+        graph_u2_ffn_recv_stream="off",
+        graph_u2_ffn_cross_layer="off",
         stage_diagnostics="on",
     )
 
     assert runner.os.environ["AFD_ASYNC_SCHEDULING"] == "off"
     assert runner.os.environ["AFD_HCCL_EAGER_U2_STREAM_OVERLAP"] == "0"
     assert runner.os.environ["AFD_HCCL_GRAPH_U2_COMPUTE_OVERLAP"] == "0"
+    assert runner.os.environ["AFD_HCCL_GRAPH_U2_HYBRID_DAG"] == "0"
+    assert runner.os.environ["AFD_HCCL_GRAPH_U2_ATTENTION_THREE_STREAM"] == "0"
+    assert runner.os.environ["AFD_HCCL_GRAPH_U2_FFN_RECV_STREAM"] == "0"
+    assert runner.os.environ["AFD_HCCL_GRAPH_U2_FFN_CROSS_LAYER"] == "0"
     assert runner.os.environ["AFD_HCCL_STAGE_DIAGNOSTICS"] == "1"
 
 

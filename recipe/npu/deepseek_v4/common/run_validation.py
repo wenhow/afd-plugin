@@ -703,6 +703,10 @@ def _runtime_manifest(
     async_scheduling: str = "auto",
     eager_u2_stream_overlap: str = "on",
     graph_u2_compute_overlap: str = "on",
+    graph_u2_hybrid_dag: str = "on",
+    graph_u2_attention_three_stream: str = "on",
+    graph_u2_ffn_recv_stream: str = "on",
+    graph_u2_ffn_cross_layer: str = "on",
     stage_diagnostics: str = "off",
     enable_mtp: bool = False,
     mtp_num_speculative_tokens: int = 1,
@@ -777,6 +781,10 @@ def _runtime_manifest(
         "async_scheduling": async_scheduling,
         "eager_u2_stream_overlap": eager_u2_stream_overlap,
         "graph_u2_compute_overlap": graph_u2_compute_overlap,
+        "graph_u2_hybrid_dag": graph_u2_hybrid_dag,
+        "graph_u2_attention_three_stream": graph_u2_attention_three_stream,
+        "graph_u2_ffn_recv_stream": graph_u2_ffn_recv_stream,
+        "graph_u2_ffn_cross_layer": graph_u2_ffn_cross_layer,
         "stage_diagnostics": stage_diagnostics,
         "enable_mtp": enable_mtp,
         "mtp_num_speculative_tokens": mtp_num_speculative_tokens,
@@ -929,6 +937,10 @@ def _set_execution_environment(
     async_scheduling: str,
     eager_u2_stream_overlap: str = "on",
     graph_u2_compute_overlap: str = "on",
+    graph_u2_hybrid_dag: str = "on",
+    graph_u2_attention_three_stream: str = "on",
+    graph_u2_ffn_recv_stream: str = "on",
+    graph_u2_ffn_cross_layer: str = "on",
     stage_diagnostics: str = "off",
 ) -> None:
     os.environ.update(
@@ -940,9 +952,30 @@ def _set_execution_environment(
             "AFD_HCCL_GRAPH_U2_COMPUTE_OVERLAP": (
                 "1" if graph_u2_compute_overlap == "on" else "0"
             ),
+            "AFD_HCCL_GRAPH_U2_HYBRID_DAG": (
+                "1" if graph_u2_hybrid_dag == "on" else "0"
+            ),
+            "AFD_HCCL_GRAPH_U2_ATTENTION_THREE_STREAM": (
+                "1" if graph_u2_attention_three_stream == "on" else "0"
+            ),
+            "AFD_HCCL_GRAPH_U2_FFN_RECV_STREAM": (
+                "1" if graph_u2_ffn_recv_stream == "on" else "0"
+            ),
+            "AFD_HCCL_GRAPH_U2_FFN_CROSS_LAYER": (
+                "1" if graph_u2_ffn_cross_layer == "on" else "0"
+            ),
             "AFD_HCCL_STAGE_DIAGNOSTICS": ("1" if stage_diagnostics == "on" else "0"),
         }
     )
+
+
+def _toggle_default(environment_name: str) -> str:
+    raw = os.environ.get(environment_name, "1")
+    if raw == "1":
+        return "on"
+    if raw == "0":
+        return "off"
+    raise ValueError(f"{environment_name} must be 0 or 1, got {raw!r}")
 
 
 def _validate_execution_topology(
@@ -1034,14 +1067,38 @@ def main() -> None:
     parser.add_argument(
         "--eager-u2-stream-overlap",
         choices=("on", "off"),
-        default="on",
+        default=_toggle_default("AFD_HCCL_EAGER_U2_STREAM_OVERLAP"),
         help="Toggle eager U2 HCCL communication streams without disabling U2.",
     )
     parser.add_argument(
         "--graph-u2-compute-overlap",
         choices=("on", "off"),
-        default="on",
+        default=_toggle_default("AFD_HCCL_GRAPH_U2_COMPUTE_OVERLAP"),
         help="Toggle Graph U2 side-compute streams without disabling U2.",
+    )
+    parser.add_argument(
+        "--graph-u2-hybrid-dag",
+        choices=("on", "off"),
+        default=_toggle_default("AFD_HCCL_GRAPH_U2_HYBRID_DAG"),
+        help="Toggle per-stage Graph U2 receive dependencies.",
+    )
+    parser.add_argument(
+        "--graph-u2-attention-three-stream",
+        choices=("on", "off"),
+        default=_toggle_default("AFD_HCCL_GRAPH_U2_ATTENTION_THREE_STREAM"),
+        help="Toggle dedicated Attention Graph send/receive streams.",
+    )
+    parser.add_argument(
+        "--graph-u2-ffn-recv-stream",
+        choices=("on", "off"),
+        default=_toggle_default("AFD_HCCL_GRAPH_U2_FFN_RECV_STREAM"),
+        help="Toggle the FFN Graph receive stream.",
+    )
+    parser.add_argument(
+        "--graph-u2-ffn-cross-layer",
+        choices=("on", "off"),
+        default=_toggle_default("AFD_HCCL_GRAPH_U2_FFN_CROSS_LAYER"),
+        help="Toggle FFN cross-layer receive overlap.",
     )
     parser.add_argument(
         "--stage-diagnostics",
@@ -1121,6 +1178,10 @@ def main() -> None:
         async_scheduling=args.async_scheduling,
         eager_u2_stream_overlap=args.eager_u2_stream_overlap,
         graph_u2_compute_overlap=args.graph_u2_compute_overlap,
+        graph_u2_hybrid_dag=args.graph_u2_hybrid_dag,
+        graph_u2_attention_three_stream=args.graph_u2_attention_three_stream,
+        graph_u2_ffn_recv_stream=args.graph_u2_ffn_recv_stream,
+        graph_u2_ffn_cross_layer=args.graph_u2_ffn_cross_layer,
         stage_diagnostics=args.stage_diagnostics,
     )
     _set_mtp_environment(
@@ -1145,6 +1206,10 @@ def main() -> None:
                 async_scheduling=args.async_scheduling,
                 eager_u2_stream_overlap=args.eager_u2_stream_overlap,
                 graph_u2_compute_overlap=args.graph_u2_compute_overlap,
+                graph_u2_hybrid_dag=args.graph_u2_hybrid_dag,
+                graph_u2_attention_three_stream=args.graph_u2_attention_three_stream,
+                graph_u2_ffn_recv_stream=args.graph_u2_ffn_recv_stream,
+                graph_u2_ffn_cross_layer=args.graph_u2_ffn_cross_layer,
                 stage_diagnostics=args.stage_diagnostics,
                 enable_mtp=args.enable_mtp,
                 mtp_num_speculative_tokens=args.mtp_num_speculative_tokens,
@@ -1349,6 +1414,10 @@ def main() -> None:
             "async_scheduling": args.async_scheduling,
             "eager_u2_stream_overlap": args.eager_u2_stream_overlap,
             "graph_u2_compute_overlap": args.graph_u2_compute_overlap,
+            "graph_u2_hybrid_dag": args.graph_u2_hybrid_dag,
+            "graph_u2_attention_three_stream": args.graph_u2_attention_three_stream,
+            "graph_u2_ffn_recv_stream": args.graph_u2_ffn_recv_stream,
+            "graph_u2_ffn_cross_layer": args.graph_u2_ffn_cross_layer,
             "stage_diagnostics": args.stage_diagnostics,
             "profile": args.profile,
             "enable_mtp": args.enable_mtp,

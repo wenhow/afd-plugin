@@ -1708,6 +1708,60 @@ def test_p2p_hccl_attention_graph_compute_waits_for_own_prior_receive(
     ]
 
 
+def test_p2p_hccl_nonhybrid_graph_joins_receive_on_parent_stream(monkeypatch):
+    connector = _connector(role="attention", num_ubatches=2)
+    parent_stream = object()
+    tensor = torch.ones((2, 4), dtype=torch.bfloat16)
+    calls = []
+
+    class FakeEvent:
+        def wait(self, stream):
+            calls.append(("recv_done", "wait", stream))
+
+    connector.attention_graph_stream_plan = HCCLAttentionGraphStreamPlan(
+        compute_stream=object(),
+    )
+    connector.attention_graph_events = {
+        (0, 0): hccl_module.HCCLAttentionGraphEvents(
+            ready=FakeEvent(),
+            compute_done=FakeEvent(),
+            send_done=FakeEvent(),
+            recv_done=FakeEvent(),
+        )
+    }
+    monkeypatch.setattr(
+        hccl_module,
+        "get_forward_context",
+        lambda: SimpleNamespace(
+            afd_graph_ubatching=True,
+            afd_layer_major_u2=True,
+            dbo_enabled=True,
+            num_ubatches=2,
+        ),
+    )
+    monkeypatch.setattr(
+        hccl_module.torch.npu,
+        "current_stream",
+        lambda: parent_stream,
+    )
+    monkeypatch.setattr(
+        connector,
+        "_record_stream",
+        lambda value, stream: calls.append(("tensor", value, stream)),
+    )
+
+    connector.wait_for_attention_graph_receive(
+        layer_idx=0,
+        stage_idx=0,
+        tensor=tensor,
+    )
+
+    assert calls == [
+        ("recv_done", "wait", parent_stream),
+        ("tensor", tensor, parent_stream),
+    ]
+
+
 def test_p2p_hccl_attention_stream_pipeline_is_inactive_while_compiling(
     monkeypatch,
 ):
