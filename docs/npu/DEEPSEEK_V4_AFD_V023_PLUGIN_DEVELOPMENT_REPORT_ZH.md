@@ -9,11 +9,11 @@
 
 | 项目 | 固定口径 |
 |---|---|
-| 报告截止日期 | 主功能基线 2026-08-25；第一阶段 M10/M11 本机验证更新 2026-09-08；双 A3 PD + Graph/U2/MTP 两轮验证更新 2026-09-11；A5 原始权重 bring-up 与验证工具更新 2026-09-14 |
+| 报告截止日期 | 主功能基线 2026-08-25；第一阶段 M10/M11 本机验证更新 2026-09-08；双 A3 PD + Graph/U2/MTP 两轮验证更新 2026-09-11；A5 standalone AF 实模更新 2026-09-16 |
 | vLLM | `releases/v0.23.0`，`0fc695fc6d1d82e9a5ac6835ac8e4e1c83703665` |
 | vLLM-Ascend | `rfc/vllm_cann`，`3da28f9414583d2d0b672a8f06d1fae142404bda` |
 | afd-plugin | `feat/dsv4-afd-graph-u2-multistream-all-on-v1`；第一阶段 A3 功能基线 tag 为 `dsv4-afd-v023-phase1-a3-functional-v1`。2026-09-11 双 A3 两轮中，A8F8 N2/N3 两轮及 A4F8 N3 第 2 轮使用 clean `6386f18`；A4F8 N3 第 1 轮为 dirty `a695ff2`，但两者运行时代码一致，差异仅在验证/文档工具，作为功能轮次接受并保留元数据说明 |
-| 开发范围 | 从 `99ee0ef6` 的 v0.23 兼容迁移到 Mooncake PD M9，以及第一阶段 M10/M11 功能门禁；A3 功能标签不含逐 token 精度，A5 当前按原始权重独立执行无 golden、MTP-off 功能 smoke，MTP 后移到 dSpark 组合阶段 |
+| 开发范围 | 从 `99ee0ef6` 的 v0.23 兼容迁移到 Mooncake PD M9，以及第一阶段 M10/M11 功能门禁；A3 功能标签不含逐 token 精度；A5 已完成 standalone Decode-AF 的主要 MTP-off 功能点，A5 PD + Decode-AF 未验证，MTP 后移到 dSpark 组合阶段 |
 | 主要模型 | A3 为 `DeepSeek-V4-Flash-w8a8-mtp`；A5/Ascend 950DT 为原始 `DeepSeek-V4-Flash` MXFP8/MXFP4 权重 |
 | 功能验证工具链 | M10/M11 与双 A3 固定 CANN 9.0.0、Python 3.12、`torch_npu 2.10.0.post2` 和 `afd-v023-vllm-cann` venv；A5 复用现场已安装 venv，只固定 CANN 绝对路径而不强校验版本 |
 | 当前提交边界 | `dsv4-afd-v023-phase1-a3-functional-v1` 只冻结 A3 功能范围；当前分支在该 tag 后增加 A5 原始权重模型契约、四卡 no-AFD 和八卡内 AFD 功能 smoke/安装工具，尚未形成 A5 功能 tag；不合入 R14 的 AllToAllV split cache，不扩大为 U3、逐 token 精度或性能结论 |
@@ -80,14 +80,14 @@ DeepSeek-V4 的拆分边界放在远端 MoE，而不是把整个 FFN 子层搬�
 | MTP | 单 token 基线、多 token 本机门禁及双 A3 一期组合均已冻结 | 单 MTP layer，最大 `N=3`；N1/N2/N3 回归与 NPU 组件；双 A3 两轮 P1 请求 6/6 为 128/128，MTP 指标均有效 | 多 MTP layer、`N>3`；逐 token 精度；正式性能 |
 | AF 非等量拓扑 | 双向整数比例本机门禁通过；双 A3 A4F8 N3 两轮功能通过 | `A=kF`、`A=F`、`F=kA`；A4F8 N3 两轮请求和 4/4 Attention rank 在线双 stage | 非整数比例；A8F4 高 HBM E2E；性能收益 |
 | TP2 | 已冻结功能基线 | 等量 A8F8、DP4/TP2、eager/U1 | CAMP2P TP2、非等量 TP2、TP3、最大 Graph+MTP 组合 |
-| PD 分离 | 第一期 A3 功能基线已冻结，目标点 3/3 | Mooncake contract/runtime；双 A3 TP1、Graph/U2、A8F8 N2/N3 与 A4F8 N3 各两轮；smoke、取消恢复、P1 完整请求和全 rank 在线 U2 通过 | 逐 token 精度、其他并行组合、U3 和正式性能；启停脚本质量不属于本期交付 |
+| PD 分离 | 第一期 A3 功能基线已冻结；A5 平台未验证 | Mooncake contract/runtime；双 A3 TP1、Graph/U2、A8F8 N2/N3 与 A4F8 N3 各两轮；smoke、取消恢复、P1 完整请求和全 rank 在线 U2 通过 | A5 Prefill/Decode + AF 组合；逐 token 精度、其他并行组合、U3 和正式性能 |
 | v0.23/plugin 工程底座 | 已冻结功能基线 | 同栈 golden、兼容层、部署和验证工具 | 旧栈性能数字不能作为 v0.23 基线 |
-| A5 原始权重适配 | 进行中 | 官方 `fp8`/`weight_block_size=[128,128]` 配置门禁、无 `--quantization ascend`、block 32/prefetch；DP4 no-AFD/MTP-off、A4F4 eager/U1 两轮和 A4F4 Graph/U1 单轮完整门禁已通过。A4F4 streamed eager/U2 在 batch 8 的全部 Attention rank 进入双 stage 后约 300 秒超时，超时前无设备首错 | 执行 eager/U2 serial 与 Graph/U2 serial 对照，区分 U2 协议和 A5 多 stream/event；A4F4/A2F4 Graph/U2 和 A4F2 容量项暂停重复；MTP 后移到 dSpark，不能创建 A5 功能 tag |
+| A5 原始权重适配 | 进行中 | 官方 `fp8`/`weight_block_size=[128,128]` 配置门禁；DP4 no-AFD/MTP-off 通过；A4F4 eager/U1、A4F4 Graph/U2、A2F4 Graph/U2 各两轮通过，Graph/U2 真实 two-stage；A4F2 为 `A5-HCCL-RS-001` | 先完成 A5 PD + Decode-AF/MTP-off 组合，并平行等待 HCCL 修复后复跑 A4F2；其后进入 dSpark + MTP N1/N2/N3，不能创建 A5 总体功能 tag |
 | 正式性能验收 | 未完成 | 已有 standalone 对照；PD Graph/U2 三拓扑三轮测量及 A8F8/A16F8 双侧 profile | split A8F8 CV 超限；缺路径匹配 PD control、MTP on/off、跨负载及固定收益阈值，尚无可发布性能 tag |
 
-### 2.2.1 两阶段交付口径与第一阶段完成度（2026-09-14）
+### 2.2.1 两阶段交付口径与第一阶段完成度（2026-09-16）
 
-第一阶段 A3 功能标签已经冻结，第二阶段仍交付 U3 和正式性能收益。A3 标签不生成 golden、不执行逐 token exact，也不要求路径匹配 native/PD control；启停辅助脚本自身的退出码、显式停服后的 traceback 和自动清理质量也不作为 A3 标签目标。A5 当前作为独立平台适配轨道执行原始权重的无 golden、MTP-off 功能 smoke：no-AFD DP4 一次、3 个必须 AFD 点各两轮，以及 A4F2 容量项。路径匹配 control、token exact 和 idle-resume 后移到最终精度阶段，MTP N1/N2/N3 后移到 dSpark 组合阶段。第一阶段固定 TP1，并明确不包含 TP/SP/CP/DCP/PP、TP3、非等量 TP2 和 TP2 最大 Graph+MTP 组合；仓库中已经冻结的等量 DP4/TP2 eager/U1 证据继续保留，但不作为本次 A5 交付门禁。
+第一阶段 A3 功能标签已经冻结，第二阶段仍交付 U3 和正式性能收益。A3 标签不生成 golden、不执行逐 token exact，也不要求路径匹配 native/PD control。A5 的 standalone Decode-AF 子阶段已完成 no-AFD DP4 和 3 个必过 AFD 点，A4F2 受 HCCL 平台问题阻塞。A5 平台的 Prefill/Decode PD + Decode-AF 尚未验证，因此 A5 总体功能目标不能关闭。下一阶段先完成 A5 PD/MTP-off，其后在 dSpark 组合阶段恢复 MTP N1/N2/N3。路径匹配 control、token exact 和 idle-resume 继续后移到最终精度阶段。
 
 第一阶段的 MTP 目标不是增加 checkpoint 中的 MTP layer 数，而是在模型
 `num_nextn_predict_layers=1` 的前提下，支持通过 `num_speculative_tokens=N` 配置每轮多个draft token。本轮已将对外最大值冻结为 `N=3`，复用同一个 MTP layer 执行多个speculative step，并完成 `N=1/2/3` 代码回归、N2/N3 本机 NPU 组件与 A8F8 N2 实模 smoke。
@@ -133,7 +133,8 @@ SHA256、截断日志且排除 profiler raw 的证据包。A5 当前操作见独
 | 2026-09-10 双 A3 一期 smoke | 3 个适用点单轮 batch 1/8/32 和取消恢复通过；原始明细见上述两个 2026-09-10 证据包 |
 | 2026-09-11 双 A3 两轮验证 | 6/6 次 smoke batch 1/8/32、取消恢复、P1 128/128 和在线 U2 均通过；A8F8 N2/N3、A4F8 N3 三点各两轮，第一阶段 A3 功能目标 3/3 完成；显式停服后的脚本 traceback 单列为非阻塞遗留项 |
 | 2026-09-12 至 09-14 A5 bring-up | 固定上游安装和 8 张 Ascend950DT 可见性已通过；官方原始权重 DP4 no-AFD/MTP-off 已通过。A4F4 eager/U1/MTP-off 升级 shutdown payload 交接后两轮完整门禁通过。A4F4 Graph/U1 单轮通过；streamed eager/U2 的 batch 1 通过，batch 8 全 rank 进入双 stage 后约 300 秒无输出，排除 Graph 为必要条件并把故障收敛到 U2 数据面 |
-| A5 一期工具覆盖 | no-AFD DP4/MTP-off；A4F4 eager/U1/MTP-off；A4F4 Graph/U2/MTP-off；A2F4 Graph/U2/MTP-off；A4F2 Graph/U2/MTP-off 容量项；不做逐 token 比对；MTP 后移到 dSpark |
+| 2026-09-15 至 09-16 A5 standalone AF | A4F4 Graph/U2 和 A2F4 Graph/U2 均两轮通过，`async_scheduling=off`、MTP-off 且真实 two-stage；A4F2 通过 eager/U1 隔离和两进程 BF16 ReduceScatter 最小复现收敛为 `A5-HCCL-RS-001`。该阶段未启动 Prefill、Mooncake KV 或 Proxy，不是 A5 PD 验证 |
+| A5 standalone AF 工具覆盖 | no-AFD DP4/MTP-off；A4F4 eager/U1/MTP-off；A4F4 Graph/U2/MTP-off；A2F4 Graph/U2/MTP-off；A4F2 Graph/U2/MTP-off 容量项；不包含 Prefill/Mooncake/Proxy；不做逐 token 比对 |
 | A5 退出门禁修正 | 串行等待会使 Attention/FFN 相互等待，同时请求又会使 FFN 早于 Attention 的最后一次 DP dummy batch 关闭。新 runner 先 TERM Attention，等待全部 FFN DP rank 记录收到 Attention shutdown payload，再 TERM FFN 并等待两侧退出；handoff 预算为 `max(15, drain+15)` 秒，本矩阵为 35 秒，避免旧 15 秒上限短于 20 秒 drain。未收齐仍执行清理但 handoff gate 失败。流式取消后、恢复后仍要求 `/metrics` 连续两次 running/waiting 为 0；HCCL connector close 保持幂等，`507035` 直接列入 fatal marker；A4F4 eager/U1 两轮已通过 |
 | A5 Graph/U2 调度控制 | A5 matrix 的 Graph/U2 case 显式传 `--async-scheduling off`；共享 runner 将该值传给角色脚本并写入 runtime/summary，固定栈 Graph/U2 的 `auto/on` 启动前 fail-fast。这只固定实验变量，不再记作 A5 capture 修复；`507014`、`507034` 均纳入 fatal marker |
 | 本机 A3 对照回归 | 固定 vLLM `0fc695fc`、vLLM-Ascend `3da28f9`、CANN 9.0.0，A8F8/MTP-off 的 eager/U2 serial 与 Graph/U2 serial 各一轮完整通过；均为 batch 1/8、真实 two-stage、8/8 shutdown receipt、双角色 rc=0、无 fatal 且 NPU 清理通过。eager handoff 用时 15.756 秒，证明 15 秒旧上限短于 20 秒 drain 契约；新预算为 35 秒。该环境使用 Ascend 量化权重、A8F8、block 128/lazy，与 A5 官方 FP8、A4F4、block 32/prefetch、现场 CANN 不等价；只能证明控制项和通用插件路径，不能作为 A5 修复证据 |
@@ -2089,9 +2090,9 @@ fatal/强杀门禁未通过且没有独立进程 rc。该结果扩展了问题�
 - [x] 第一阶段 M10 本机开发门禁：保持单 MTP layer，泛化 `speculative_step`、MTP header、
   FFN draft 循环、Graph key/cache 与异常清理；N1/N2/N3 回归、N2/N3 eager/Graph U1/U2
   组件通过；A8F8 N2 在 U1/U2 下均与路径匹配 native N2 10/10 exact。
-- [ ] 当前 A5 轨道：DP4 no-AFD、A4F4 eager/U1 和 A4F4 Graph/U1 已通过；先执行
-  A4F4 eager/U2 serial、Graph/U2 serial 单轮诊断，再恢复 3 个必须 AFD MTP-off 点和
-  A4F2 容量项；不生成或比较 golden。MTP 后移到 dSpark 组合阶段。
+- [ ] 当前 A5 轨道：standalone Decode-AF 的 no-AFD 和 3 个必过点已通过；A4F2
+  受 `A5-HCCL-RS-001` 阻塞。A5 PD + Decode-AF/MTP-off 尚未验证，需第二节点或
+  容量合格拓扑；完成后再进入 dSpark + MTP N1/N2/N3。
 - [x] 第一阶段 `num_speculative_tokens` 最大对外配置值冻结为 3，越界继续 fail-fast。
 - [x] 双机完成 PD + 多 speculative token/双向拓扑一期 A3 功能闭环：6/6 次 P1 请求及
   在线 U2 均通过，三个适用点各完成两轮；停止期脚本 traceback 不属于交付门禁，逐 token
@@ -2181,7 +2182,7 @@ DP4/TP2 eager/U1 功能 tag 保留，但不改变本次范围。
 | `2164240` | Graph/U2 三项新增物理流水默认全开；双 A3 R14 采集的代码基线 |
 | `71168312` | 第一阶段 M10/M11：单 MTP layer N1-N3、双向整数 A/F、组件/recipe/部署验证 |
 | `ec106f5b` | 第一期 A5/双机矩阵、路径匹配 control、证据收集器、安装补丁包与执行指导书 |
-| 本次更新 | A5 原始 `DeepSeek-V4-Flash` 配置契约与显式备份/恢复、`fp8`/MXFP 算子审计、四卡 DP4 no-AFD/MTP-off 功能 smoke、4 个 AFD/MTP-off 功能/容量点、无 golden 双冷启动/流式取消与请求归零门禁、shutdown payload 交接和覆盖 drain 的动态 handoff 预算、Graph/U2 同步调度控制、`507014`/`507034` fatal 检查；基于 Graph/U1 通过而 streamed eager/U2 超时的证据，新增保持 layer-major U2 的 eager/Graph serial 对照、runtime 开关和逐 stage 诊断；两个 serial 控制项已在精确目标栈 A3 A8F8 完整通过，并提供可升级已安装 A5 环境的交付 profile；MTP 后移到 dSpark |
+| 本次更新 | A5 原始 `DeepSeek-V4-Flash` 配置契约、DP4 no-AFD/MTP-off、A4F4 eager/U1、A4F4 Graph/U2 和 A2F4 Graph/U2 功能证据；A4F2 最小复现收敛为 `A5-HCCL-RS-001`。现有 A5 runner 只启动 Decode Attention/FFN，所以上述结论是 standalone AF，不是 PD；A5 PD + Decode-AF/MTP-off 与后续 dSpark + MTP N1/N2/N3 均待验证 |
 
 ### 13.2 冻结 tag
 

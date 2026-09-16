@@ -76,8 +76,9 @@ eager/U1 隔离和脱离 vLLM/模型/AFD 的两进程最小复现收敛为 rank-
 ReduceScatter 的 HCCL 平台故障 `A5-HCCL-RS-001`：HCCL 选择
 `AicpuReduceScatterSoleMeshConcur_device` 后在设备侧报
 `PreSyncInterThreads subThreads size [2], notifyIdxMainToSub size [1] is not equal`和 `507018`。
-该结果不是 HBM/OOM 容量阻塞，也不是 AFD Graph/U2 故障。AFD 必过功能目标已完成；
-A5 一期严格整体验收只剩 HCCL 修复后的 A4F2 两轮复跑和证据归档。
+该结果不是 HBM/OOM 容量阻塞，也不是 AFD Graph/U2 故障。A5 standalone Decode-AF
+的三个必过点已完成，但不能据此声明 A5 总体功能完成：A4F2 仍等待 HCCL 修复，
+A5 平台的 Prefill/Decode PD + Decode-AF 组合尚未验证，dSpark + MTP N1/N2/N3 为后续组合阶段。
 权重和单机参数以 [vLLM-Ascend v0.23.0 官方指导](https://docs.vllm.ai/projects/ascend/en/v0.23.0/tutorials/models/DeepSeek-V4-Flash.html#single-node-online-deployment) 为准。
 
 M9 在 2026-09-04 完成双 A3 的 TP1、MTP off、Graph/U2 数据面与性能/Profile 测量：
@@ -151,9 +152,10 @@ A3 当前阶段
   -> 冻结 A3 性能基线
 
 A5 当前独立 bring-up
-  平台审计和独立运行栈（环境已安装；官方模型配置恢复待现场执行）
+  平台审计、独立运行栈和官方模型配置（已完成）
   -> 4 卡 DP4 的 no-AFD/MTP-off 功能 smoke（不生成 golden）
   -> 8 卡内 3 个必须 AFD/MTP-off 功能点 + A4F2 容量项（不逐 token 比对）
+  -> 第二节点/容量合格拓扑上的 A5 PD + Decode-AF/MTP-off 组合验证
   -> 最终精度阶段再生成路径匹配 control 并执行 exact F1
   -> dSpark 组合阶段再验证 MTP N1/N2/N3
   -> 重新选择 A/F 比例并完成独立性能验收
@@ -180,6 +182,7 @@ A3 验收通过只说明实现语义和 A3 性能成立，不等于 A5 已支持
 
 后续功能/精度范围
   单 A5 8 卡：MTP-off A4F4/A4F2/A2F4 实模（A4F2 先做 HBM 预检）
+  -> A5 PD + Decode-AF/MTP-off 组合（需第二节点或容量合格拓扑）
   -> 至少 12 卡环境：完整 A8F4 实模
   -> 路径匹配 control、逐 token F1 和启停脚本改进
   -> dSpark + MTP N1/N2/N3 组合验证
@@ -195,18 +198,19 @@ A3 验收通过只说明实现语义和 A3 性能成立，不等于 A5 已支持
 
 2026-09-08 已补齐外部验证交付物；2026-09-11 双 A3 的一期功能硬件证据已完成；2026-09-12 A5 已进入独立 bring-up：
 
-- A5 第一期固定 MTP-off：用 NPU 0-3、DP4 启动一次 no-AFD 服务；该基线已完成，
+- A5 standalone AF 子阶段固定 MTP-off：用 NPU 0-3、DP4 启动一次 no-AFD 服务；该基线已完成，
   此前 Graph/MTP N1 的成功结果只作附加证据。AFD 执行 A4F4 eager/U1、A4F4
   Graph/U2、A2F4 Graph/U2 和 A4F2 Graph/U2 容量项，均显式关闭 MTP。AFD 每点
   两次冷启动并检查 batch 1/8/32、取消恢复、真实 U2、fatal 和 cleanup，不生成或比较
-  golden。no-AFD 与 eager 必过点已通过；2 个 Graph/U2 必过点和 1 个容量项待续跑；
-  MTP N1/N2/N3 后移到 dSpark 组合阶段。
+  golden。no-AFD 和 3 个 AFD 必过点已通过；A4F2 已收敛为 `A5-HCCL-RS-001`。
+  这些结果只覆盖 Decode-AF，未覆盖 A5 PD。
 - 2026-09-14 现场 DP4 no-AFD/MTP-off 与 A4F4 eager/U1 两轮完整门禁已通过。A4F4
   Graph/U2 在 async scheduling on/off 下均卡在启动 U2 capture，四个 FFN rank 约 9 分钟
   后报 grouped/quant matmul `507014`/`507034`；这不是请求取消、停机或单卡问题。新增
   `diagnostic` 单轮运行 A4F4 Graph/U1 与 eager/U2 并定向收集 CANN plog；收到隔离结论前
   暂停重复 A4F4/A2F4 Graph/U2 和 A4F2 容量项。
 - 双机 PD 一期实际验收 A8F8 N2/N3、A4F8 N3 三个适用点，均完成两轮功能验证；A8F4 N3 受 A3 HBM 限制排除。3 个路径匹配 no-AFD control 和逐 token F1 延期，control golden 仍须按 Attention DP、target/draft execution、U 数和 MTP N 隔离，不能跨路径复用。
+- 上述双机 PD 是 A3 平台证据，不能代替 A5 PD。A5 尚需在第二节点或容量合格拓扑上组合 Prefill、Mooncake KV、Decode Attention/FFN 和 Proxy，先做 MTP-off PD 功能门禁，再进入 dSpark + MTP N1/N2/N3。
 - `pd.sh` 的部署约束已同步为双向整数 A/F 和 N1-N3，矩阵按拓扑动态生成 device list 与 FFN capacity；A5 当前执行和证据回传步骤见 `DEEPSEEK_V4_AFD_PHASE1_A5_VALIDATION_GUIDE_ZH.md`。
 - 已按双 A3 历史实跑配置提供 `dual-a3-reuse` 安装 profile：复用 CANN 9.0.0、固定 venv 和两个上游源码，不重装依赖或重建上游；从旧 `2164240` 仓库通过包内增量 Git bundle 创建独立的一期 afd-plugin 路径，并附带双机 PD common 模板。旧 seed 仓库保持不动，本地 tracked diff 自动留档且不会进入新目标；seed HEAD、目标/上游工作树、custom ops 和 Python 导入根不一致时 fail-fast。
 - A5 新增 `a5-reuse` profile，复用已经安装完成的 venv 和固定上游源码，只创建新的 afd-plugin 路径。包内附官方 `DeepSeek-V4-Flash` 配置和显式恢复脚本；恢复前先备份现场 config，预检严格拒绝 `mxfp8` 别名，不通过修改上游或 `hf-overrides` 隐藏权重契约差异。
@@ -1393,25 +1397,21 @@ A5 使用独立运行栈，并按目标产品支持矩阵固定版本。不要�
 - HCCL buffer、超时和网络接口选择；
 - rank 到物理 NPU/NIC 的映射。
 
-### 8.4 A5-H3：实模功能与最终精度回归
+### 8.4 A5-H3：Standalone AF、PD 组合与最终精度回归
 
-A5 第一期先执行不含 golden 的 MTP-off 实模功能门禁：官方 no-AFD DP4 启动一次；
+A5 先执行不含 golden 的 standalone Decode-AF/MTP-off 实模功能门禁：官方 no-AFD DP4 启动一次；
 AFD 执行 A4F4 eager/U1、A4F4 Graph/U2、A2F4 Graph/U2，以及 A4F2 Graph/U2
 容量项。每个 AFD 点检查两次冷启动、batch
 1/8/32、取消恢复、真实 U2、fatal 和 NPU 清理。A4F2 若模型加载 OOM，保留 HBM
 证据并登记容量阻塞。操作见
 `DEEPSEEK_V4_AFD_PHASE1_A5_VALIDATION_GUIDE_ZH.md`。
 
-当前现场隔离顺序是 A4F4 Graph/U1、streamed eager/U2、eager/U2 serial、Graph/U2
-serial。前两项已经分别得到“通过/超时”；后两项不属于新增功能门禁，而是只改变物理
-stream/event 调度的对照。若两个 serial 均通过，先按 A5 多流兼容问题处理；若 eager
-serial 仍失败，则继续定位不依赖多流的 U2 消息/算子路径。收到对照结果前不扩大到
-A2F4 或 A4F2。
+上述 runner 只启动 Decode Attention/FFN，不启动 Prefill、Mooncake KV producer/consumer 和 Proxy，因此不是 PD 验证。Standalone AF 之后仍须在 A5 平台完成一个 MTP-off PD + Decode-AF 组合门禁：Prefill 和 Proxy 就绪，Mooncake KV 成功进入 Decode Attention，Decode Attention/FFN 的 Graph/U2 真实双 stage 成立，batch 1/8/32、取消恢复、两轮冷启动、fatal 和清理通过。单机 A5 的 A4F4 Decode 已占满 8 卡，该 PD 门禁需要第二节点或另一个经容量证明可行的拓扑。
 
-两个 serial 对照已在精确目标源码栈的本机 A3 A8F8 上先行通过。eager 对照的 8/8
-shutdown receipt 用时 15.756 秒，Graph 对照为 0.403 秒；runner 因此将 handoff 预算从
-固定 15 秒改为 `max(15, drain+15)`，在当前 20 秒 drain 下为 35 秒。A3 的 SoC、权重、
-拓扑和 CANN 与 A5 不同，该证据不用于关闭 A5 故障，A5 仍须执行两个 A4F4 对照。
+2026-09-15 至 09-16 的现场结果已取代早期隔离结论：A4F4 Graph/U2 和 A2F4
+Graph/U2 正式两轮通过，所以 Graph/U2 多流问题已关闭，不再执行 serial 对照。
+A4F2 失败由脱离 Graph/U2 与模型的 rank-size 2 BF16 ReduceScatter 最小复现收敛为
+`A5-HCCL-RS-001`。Standalone AF 结果不含 Prefill、Mooncake KV 或 Proxy，不能关闭 A5 PD。
 
 全部计划功能完成后才进入最终精度阶段。届时 A5 必须先生成同平台非 AFD golden，
 不能只拿 A3 token 文件代替 A5 基线，并依次验证：
@@ -1765,12 +1765,12 @@ NPU、吞吐、token/s/NPU、TPOT、CV、HBM、FFN `Free/wall`、`Bubble/wall`�
     10/10 exact，A4F8 eager/U1/N2 实模 smoke 通过。组件证据位于
     `/mnt/workspace/validation/phase1_cann900_exact_3e88ad2`；恢复时不得退回单 token、
     `A>=F` 或跨 target/draft/MTP 路径复用 golden 的假设；
-19. A5 的 no-AFD DP4/MTP-off 和三个 AFD 必过点已完成；A4F4 Graph/U2 与
+19. A5 standalone Decode-AF 的 no-AFD DP4/MTP-off 和三个 AFD 必过点已完成；A4F4 Graph/U2 与
     A2F4 Graph/U2 均两轮观测到真实 two-stage。A4F2 已标记为非 OOM 的
     HCCL 平台阻塞 `A5-HCCL-RS-001`，两进程 rank-size 2 BF16 ReduceScatter 最小
     复现在 `AicpuReduceScatterSoleMeshConcur_device` 路径返回 `507018`。不重跑
-    已通过项；等待 HCCL 修复后先跑最小复现，再补 A4F2 两轮和证据归档。MTP
-    N1/N2/N3 仍后移到 dSpark 组合阶段；
+    已通过项；等待 HCCL 修复后先跑最小复现，再补 A4F2 两轮和证据归档。A5 PD +
+    Decode-AF 尚未验证，需第二节点/容量合格拓扑；通过后再进入 dSpark + MTP N1/N2/N3；
 20. 每次阶段完成都保存日志、原始数据、解析结果和清理证据。
 
 ## 13. 一句话路线
@@ -1780,9 +1780,9 @@ Graph/U1/U2、单 token MTP M0-M7、双向整数比例组件与 TP2/M8 历史基
 已关闭本机开发门禁：单 MTP layer 最大 `N=3`，A1F2/A2F4 16 项组件通过，A8F8 N2
 的 U1/U2 输出均与路径匹配 native N2 达到 10/10 exact，A4F8 eager/U1/N2 实模 smoke
 通过。M9 的 TP1/MTP off/Graph U2 已完成双 A3 三拓扑运行和 Profile 观测，但动态路由、
-优雅退出和路径匹配 F1 未冻结。第一阶段 A3 功能标签已经完成；A5 的 no-AFD 和三个
-AFD 必过点也已通过，Graph/U2 多流问题已关闭。A4F2 已由最小复现确认为
-`A5-HCCL-RS-001` HCCL 平台阻塞，不是 HBM/OOM 或 AFD 功能失败。当前只等待 HCCL 修复后
-补 A4F2 两轮并归档；MTP N1/N2/N3 后移到 dSpark 组合阶段。完整 A8F4
-留给至少 12 张可用 NPU 且容量足够的环境。A5 功能闭环后，第二阶段再做 U3 和正式性能
+优雅退出和路径匹配 F1 未冻结。第一阶段 A3 功能标签已经完成；A5 standalone
+Decode-AF 的 no-AFD 和三个 AFD 必过点已通过，Graph/U2 多流问题已关闭。A4F2
+仍受 `A5-HCCL-RS-001` 阻塞。A5 PD + Decode-AF 尚未验证，需第二节点/容量合格
+拓扑；该组合通过后再进入 dSpark + MTP N1/N2/N3。完整 A8F4
+留给至少 12 张可用 NPU 且容量足够的环境。A5 PD 和 dSpark 组合闭环后，再进入最终精度；第二阶段再做 U3 和正式性能
 收益；TP/SP/CP/DCP/PP、TP3、非等量 TP2 和 TP2 最大 Graph+MTP 不作为第一阶段门禁。

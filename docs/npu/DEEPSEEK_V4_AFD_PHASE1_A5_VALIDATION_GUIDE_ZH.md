@@ -1,10 +1,12 @@
-# DeepSeek-V4 AFD 第一期 A5 验证指导书
+# DeepSeek-V4 AFD 第一期 A5 Standalone AF 验证指导书
 
 ## 1. 适用范围
 
-本文只用于单台 8 卡 Ascend 950DT A5。执行前提是原指导书第 2.2 节安装和第 3 节H0 审计已经完成。不要重复安装 Python、CANN、vLLM 或 vLLM-Ascend，也不要在本机执行双 A3、多节点、A8F8、A8F4 或 A4F8 章节。
+本文只用于单台 8 卡 Ascend 950DT A5 的 **standalone Decode Attention/FFN 分离子阶段**。执行前提是原指导书第 2.2 节安装和第 3 节 H0 审计已经完成。不要重复安装 Python、CANN、vLLM 或 vLLM-Ascend，也不要在本机执行双 A3、多节点、A8F8、A8F4 或 A4F8 章节。
 
-第一期只做 MTP-off 功能门禁，不生成 golden，不进行逐 token 比对。MTP N1/N2/N3不在本次单 A5 范围，后续叠加 dSpark 时另行制定组合验证矩阵；最终精度测试在全部功能开发结束后另行执行。本次固定项如下：
+本文的 runner 只启动 Decode Attention 和 Decode FFN。`run_pd_functional_smoke.py` 只是历史请求工具名，不代表已启动 Prefill、Mooncake KV producer/consumer 或 Proxy。因此本文结果不能记为 A5 PD 分离通过；A3 的双机 PD 证据也不能替代 A5 平台证据。
+
+本子阶段只做 MTP-off 功能门禁，不生成 golden，不进行逐 token 比对。A5 PD 组合验证是下一个独立功能阶段；MTP N1/N2/N3 后续在 dSpark 组合阶段重新纳入。最终精度测试在全部功能开发结束后另行执行。本次固定项如下：
 
 | 项目 | 固定值 |
 |---|---|
@@ -33,6 +35,16 @@
 结果必须记录 `golden_checked=false`。
 
 A4F2 若成功加载并通过全部功能门禁，记录为通过；若 FFN EP2 在模型加载阶段 OOM，保留日志和 `npu-smi` 作为“容量阻塞”。不得降低模型、改权重或超卖来伪造通过。当前 A4F2 已进入 HCCL ReduceScatter 并由脱离模型的最小复现确认为平台阻塞，不属于“容量阻塞”。
+
+A5 总体功能路线不只有上述五项。当前分层状态为：
+
+| 层级 | 当前状态 | 剩余工作 |
+|---|---|---|
+| A5 standalone Decode-AF + microbatch + Graph | 三个必过 AFD 点已通过；A4F2 受 `A5-HCCL-RS-001` 阻塞 | HCCL 修复后复跑 A4F2 |
+| A5 PD + Decode-AF | **未验证** | 验证 Prefill 到 Decode Attention 的 Mooncake KV 传输与 Decode Attention 到 FFN 的 HCCL/U2 同时成立 |
+| dSpark 组合 | **未验证** | 在 dSpark 接入后验证 MTP N1/N2/N3 及对应 AF/Graph/U2 组合 |
+
+当前单机 A5 只有 8 卡，A4F4 Decode-AF 已占用全部 8 卡，无法再同机部署 Prefill。A5 PD 需要第二节点，或另行确认能同时容纳 Prefill 和 Decode-AF 的拓扑；未确认资源与网络前，本指导书不伪造单机 PD 操作命令。
 
 ## 3. 用新包升级验证脚本
 
@@ -371,9 +383,9 @@ a4f2-result.env
 summary。证据包会包含提交、CANN 路径、环境、Python 包、NPU 快照、结构化结果和截断
 日志；不会打包 profiler raw。
 
-## 10. 第一期完成条件
+## 10. Standalone AF 子阶段完成条件
 
-满足以下条件后，A5 第一期功能验证才可关闭：
+满足以下条件后，A5 standalone Decode-AF 子阶段才可关闭；这不等于 A5 PD 或 A5 总体功能验收关闭：
 
 1. 官方 no-AFD DP4 模型加载、health、models、请求和 NPU 清理通过。
 2. 3 个必须 AFD 点两轮全部通过，batch 1/8/32、取消恢复和 fatal 门禁通过。
@@ -381,10 +393,12 @@ summary。证据包会包含提交、CANN 路径、环境、Python 包、NPU 快
 4. A4F2 得到“通过”或有完整 HBM 证据的“容量阻塞”结论。
 5. 所有功能报告均明确 `golden_checked=false`，没有逐 token 精度声明。
 
-截至 2026-09-16，第 1、2、3、5 项已完成，AFD 三个必过功能点已全部关闭。第 4 项未按原验收口径完成：A4F2 既未通过，也不是 HBM 容量阻塞，而是已有最小复现的外部 HCCL 平台阻塞。因此当前结论为：**AFD 一期必过功能目标已完成；A5 第一期严格整体验收尚未完成，只剩 `A5-HCCL-RS-001` 解决后的 A4F2 复跑和证据归档。**
+截至 2026-09-16，第 1、2、3、5 项已完成，standalone AF 的三个必过功能点已全部关闭。第 4 项未按原验收口径完成：A4F2 既未通过，也不是 HBM 容量阻塞，而是已有最小复现的外部 HCCL 平台阻塞。
 
-不需要重跑 no-AFD、A4F4 eager/U1、A4F4 Graph/U2 或 A2F4 Graph/U2；也不需要在本阶段追加 MTP、golden、逐 token 比对、A8F4 或双机/多机验证。
+因此当前结论为：**A5 standalone AF 的 A4F4/A2F4 功能门禁已完成，A4F2 仍受 `A5-HCCL-RS-001` 阻塞；A5 PD 尚未验证，后续 dSpark 组合也尚未验证，所以 A5 总体功能目标没有完成。**
+
+不需要重跑 no-AFD、A4F4 eager/U1、A4F4 Graph/U2 或 A2F4 Graph/U2。下一功能阶段应为 A5 PD + Decode-AF 的 MTP-off 验证，其后才是 dSpark + MTP N1/N2/N3；PD 所需双机/多节点资源不属于本单机指导书的可执行范围。
 
 最终精度、路径匹配 control、30/30 token exact、idle-resume、U3、正式性能和 12 卡
-A8F4 均不在本次 A5 第一期执行范围。MTP 只在后续 dSpark 组合阶段重新纳入，不能用
+A8F4 均不在本次 standalone AF 子阶段执行范围。MTP 只在后续 dSpark 组合阶段重新纳入，不能用
 本次 MTP-off 结果声明 dSpark + MTP 已通过。
