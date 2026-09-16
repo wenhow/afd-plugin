@@ -27,6 +27,9 @@ CUDAGRAPH_CAPTURE_SIZES="${CUDAGRAPH_CAPTURE_SIZES:-1 2 4 8}"
 ENABLE_MTP="${ENABLE_MTP:-0}"
 MTP_NUM_SPECULATIVE_TOKENS="${MTP_NUM_SPECULATIVE_TOKENS:-1}"
 MTP_DRAFT_EXECUTION="${MTP_DRAFT_EXECUTION:-eager}"
+ENABLE_DSPARK="${ENABLE_DSPARK:-0}"
+DSPARK_NUM_SPECULATIVE_TOKENS="${DSPARK_NUM_SPECULATIVE_TOKENS:-auto}"
+DSPARK_DRAFT_EXECUTION="${DSPARK_DRAFT_EXECUTION:-eager}"
 MODEL_QUANTIZATION="${MODEL_QUANTIZATION:-auto}"
 MODEL_BLOCK_SIZE="${MODEL_BLOCK_SIZE:-auto}"
 MODEL_SAFETENSORS_LOAD_STRATEGY="${MODEL_SAFETENSORS_LOAD_STRATEGY:-auto}"
@@ -74,11 +77,11 @@ if [[ "${MODEL_SPECULATIVE_METHOD}" == auto ]]; then
   )"
 fi
 
-case "$ENABLE_MTP" in
-  0)
+case "${ENABLE_MTP}:${ENABLE_DSPARK}" in
+  0:0)
     MTP_ARGS=()
     ;;
-  1)
+  1:0)
     if [[ ! "$MTP_NUM_SPECULATIVE_TOKENS" =~ ^[1-3]$ ]]; then
       echo "DeepSeek-V4 MTP supports num_speculative_tokens in [1, 3]" >&2
       exit 2
@@ -112,8 +115,40 @@ case "$ENABLE_MTP" in
       "$MTP_CONFIG"
     )
     ;;
+  0:1)
+    DSPARK_CHECKPOINT_TOKENS="$(
+      "${DSV4_VLLM_VENV}/bin/python" \
+        "${ROOT_DIR}/tools/dsv4/hccl_manual_install/bin/model_launch_args.py" \
+        --model-path "${MODEL_PATH}" \
+        --quantization "${MODEL_QUANTIZATION}" \
+        --block-size "${MODEL_BLOCK_SIZE}" \
+        --safetensors-load-strategy "${MODEL_SAFETENSORS_LOAD_STRATEGY}" \
+        --kv-cache-dtype "${KV_CACHE_DTYPE}" \
+        --get dspark_block_size
+    )"
+    if [[ ! "${DSPARK_CHECKPOINT_TOKENS}" =~ ^[1-9][0-9]*$ ]]; then
+      echo "ENABLE_DSPARK=1 requires a DSpark checkpoint with dspark_block_size" >&2
+      exit 2
+    fi
+    if [[ "${DSPARK_NUM_SPECULATIVE_TOKENS}" == auto ]]; then
+      DSPARK_NUM_SPECULATIVE_TOKENS="${DSPARK_CHECKPOINT_TOKENS}"
+    elif [[ "${DSPARK_NUM_SPECULATIVE_TOKENS}" != "${DSPARK_CHECKPOINT_TOKENS}" ]]; then
+      echo "DSPARK_NUM_SPECULATIVE_TOKENS must match checkpoint dspark_block_size=${DSPARK_CHECKPOINT_TOKENS}" >&2
+      exit 2
+    fi
+    case "${EXECUTION_MODE}:${DSPARK_DRAFT_EXECUTION}" in
+      eager:eager|full-decode-only:eager) DSPARK_DRAFT_ENFORCE_EAGER=true ;;
+      full-decode-only:graph) DSPARK_DRAFT_ENFORCE_EAGER=false ;;
+      *)
+        echo "Unsupported DSpark target/draft execution: ${EXECUTION_MODE}/${DSPARK_DRAFT_EXECUTION}" >&2
+        exit 2
+        ;;
+    esac
+    DSPARK_CONFIG="$(printf '{"method":"%s","num_speculative_tokens":%s,"enforce_eager":%s,"draft_sample_method":"greedy"}' "$MODEL_SPECULATIVE_METHOD" "$DSPARK_NUM_SPECULATIVE_TOKENS" "$DSPARK_DRAFT_ENFORCE_EAGER")"
+    MTP_ARGS=(--speculative-config "$DSPARK_CONFIG")
+    ;;
   *)
-    echo "ENABLE_MTP must be 0 or 1" >&2
+    echo "ENABLE_MTP and ENABLE_DSPARK must be 0 or 1 and cannot both be enabled" >&2
     exit 2
     ;;
 esac

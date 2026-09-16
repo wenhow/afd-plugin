@@ -21,6 +21,12 @@ MAX_MODEL_LEN="${MAX_MODEL_LEN:-4096}"
 MAX_NUM_BATCHED_TOKENS="${MAX_NUM_BATCHED_TOKENS:-4096}"
 MAX_NUM_SEQS="${MAX_NUM_SEQS:-16}"
 GPU_MEMORY_UTILIZATION="${GPU_MEMORY_UTILIZATION:-0.90}"
+MODEL_QUANTIZATION="${MODEL_QUANTIZATION:-auto}"
+MODEL_BLOCK_SIZE="${MODEL_BLOCK_SIZE:-auto}"
+MODEL_SAFETENSORS_LOAD_STRATEGY="${MODEL_SAFETENSORS_LOAD_STRATEGY:-auto}"
+KV_CACHE_DTYPE="${KV_CACHE_DTYPE:-auto}"
+ENABLE_DSPARK="${ENABLE_DSPARK:-0}"
+DSPARK_NUM_SPECULATIVE_TOKENS="${DSPARK_NUM_SPECULATIVE_TOKENS:-auto}"
 
 export ASCEND_RT_VISIBLE_DEVICES="${PREFILL_DEVICES:-${ASCEND_RT_VISIBLE_DEVICES:-0,1,2,3,4,5,6,7}}"
 export HCCL_IF_IP="${HCCL_IF_IP:-192.169.91.106}"
@@ -34,7 +40,7 @@ export PYTORCH_NPU_ALLOC_CONF="${PYTORCH_NPU_ALLOC_CONF:-expandable_segments:Tru
 export HCCL_BUFFSIZE="${HCCL_BUFFSIZE:-2048}"
 export HCCL_OP_EXPANSION_MODE=AIV
 export TASK_QUEUE_ENABLE=1
-export SOC_VERSION=ascend910_9362
+export SOC_VERSION="${SOC_VERSION:-ascend910_9362}"
 export VLLM_ENGINE_READY_TIMEOUT_S="${VLLM_ENGINE_READY_TIMEOUT_S:-18000}"
 case "${ENABLE_AFD_PLUGIN:-1}" in
   0)
@@ -51,6 +57,61 @@ esac
 unset VLLM_ASCEND_ENABLE_FLASHCOMM1
 
 source "${ROOT_DIR}/tools/dsv4/check_mooncake_runtime.sh"
+MODEL_SPECULATIVE_METHOD="$(
+  "${DSV4_VLLM_VENV}/bin/python" \
+    "${ROOT_DIR}/tools/dsv4/hccl_manual_install/bin/model_launch_args.py" \
+    --model-path "${MODEL_PATH}" \
+    --quantization "${MODEL_QUANTIZATION}" \
+    --block-size "${MODEL_BLOCK_SIZE}" \
+    --safetensors-load-strategy "${MODEL_SAFETENSORS_LOAD_STRATEGY}" \
+    --kv-cache-dtype "${KV_CACHE_DTYPE}" \
+    --get speculative_method
+)"
+MODEL_ARGS_OUTPUT="$(
+  "${DSV4_VLLM_VENV}/bin/python" \
+    "${ROOT_DIR}/tools/dsv4/hccl_manual_install/bin/model_launch_args.py" \
+    --model-path "${MODEL_PATH}" \
+    --quantization "${MODEL_QUANTIZATION}" \
+    --block-size "${MODEL_BLOCK_SIZE}" \
+    --safetensors-load-strategy "${MODEL_SAFETENSORS_LOAD_STRATEGY}" \
+    --kv-cache-dtype "${KV_CACHE_DTYPE}"
+)"
+mapfile -t MODEL_ARGS <<<"${MODEL_ARGS_OUTPUT}"
+
+case "${ENABLE_DSPARK}" in
+  0)
+    DSPARK_ARGS=()
+    ;;
+  1)
+    DSPARK_CHECKPOINT_TOKENS="$(
+      "${DSV4_VLLM_VENV}/bin/python" \
+        "${ROOT_DIR}/tools/dsv4/hccl_manual_install/bin/model_launch_args.py" \
+        --model-path "${MODEL_PATH}" \
+        --quantization "${MODEL_QUANTIZATION}" \
+        --block-size "${MODEL_BLOCK_SIZE}" \
+        --safetensors-load-strategy "${MODEL_SAFETENSORS_LOAD_STRATEGY}" \
+        --kv-cache-dtype "${KV_CACHE_DTYPE}" \
+        --get dspark_block_size
+    )"
+    if [[ ! "${DSPARK_CHECKPOINT_TOKENS}" =~ ^[1-9][0-9]*$ ]]; then
+      echo "ENABLE_DSPARK=1 requires a DSpark checkpoint with dspark_block_size" >&2
+      exit 2
+    fi
+    if [[ "${DSPARK_NUM_SPECULATIVE_TOKENS}" == auto ]]; then
+      DSPARK_NUM_SPECULATIVE_TOKENS="${DSPARK_CHECKPOINT_TOKENS}"
+    elif [[ "${DSPARK_NUM_SPECULATIVE_TOKENS}" != "${DSPARK_CHECKPOINT_TOKENS}" ]]; then
+      echo "DSPARK_NUM_SPECULATIVE_TOKENS must match checkpoint dspark_block_size=${DSPARK_CHECKPOINT_TOKENS}" >&2
+      exit 2
+    fi
+    DSPARK_CONFIG="$(printf '{"method":"%s","num_speculative_tokens":%s,"enforce_eager":true,"draft_sample_method":"greedy"}' "${MODEL_SPECULATIVE_METHOD}" "${DSPARK_NUM_SPECULATIVE_TOKENS}")"
+    DSPARK_ARGS=(--speculative-config "${DSPARK_CONFIG}")
+    ;;
+  *)
+    echo "ENABLE_DSPARK must be 0 or 1" >&2
+    exit 2
+    ;;
+esac
+
 KV_TRANSFER_CONFIG="$(python "${ROOT_DIR}/tools/dsv4/mooncake_pd_config.py" \
   --role kv_producer \
   --engine-id "$MOONCAKE_ENGINE_ID" \
@@ -76,8 +137,7 @@ exec vllm serve "$MODEL_PATH" \
   --gpu-memory-utilization "$GPU_MEMORY_UTILIZATION" \
   --tokenizer-mode deepseek_v4 \
   --no-enable-prefix-caching \
-  --safetensors-load-strategy lazy \
-  --quantization ascend \
-  --block-size 128 \
+  "${MODEL_ARGS[@]}" \
+  "${DSPARK_ARGS[@]}" \
   --enforce-eager \
   --kv-transfer-config "$KV_TRANSFER_CONFIG"

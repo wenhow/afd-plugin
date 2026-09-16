@@ -23,6 +23,7 @@ Actions:
   start         Start the configured prefill, decode, split A/F, or proxy role.
   status        Check owned processes, readiness, and fatal log markers.
   smoke         Run F0 batch/cancellation/recovery checks without golden.
+  verify-data-path  Gate Mooncake KV, live U2, and DSpark draft evidence.
   record-control  Record a stable PD no-AFD control golden from the proxy.
   validate      Compare PD + AFD against the path-matched control golden.
   profile-start  Explicitly start Attention/FFN profilers while serving.
@@ -78,6 +79,11 @@ set +a
 : "${CANN_VERSION:=9.0.0}"
 : "${ATB_ROOT:=}"
 : "${MODEL_PATH:=/data/z00569729/models/DeepSeek-V4-Flash-w8a8-mtp}"
+: "${MODEL_QUANTIZATION:=auto}"
+: "${MODEL_BLOCK_SIZE:=auto}"
+: "${MODEL_SAFETENSORS_LOAD_STRATEGY:=auto}"
+: "${KV_CACHE_DTYPE:=auto}"
+: "${SOC_VERSION:=ascend910_9362}"
 : "${DEPLOYMENT_VARIANT:=pd_afd}"
 DEPLOYMENT_SLUG="${DEPLOYMENT_VARIANT//_/-}"
 : "${RUN_ROOT:=/data/z00569729/run/dsv4-mooncake-${DEPLOYMENT_SLUG}}"
@@ -125,6 +131,10 @@ DEPLOYMENT_SLUG="${DEPLOYMENT_VARIANT//_/-}"
 : "${DECODE_ENABLE_MTP:=0}"
 : "${DECODE_MTP_DRAFT_EXECUTION:=eager}"
 : "${DECODE_MTP_NUM_SPECULATIVE_TOKENS:=1}"
+: "${DECODE_ENABLE_DSPARK:=0}"
+: "${DECODE_DSPARK_DRAFT_EXECUTION:=eager}"
+: "${DECODE_DSPARK_NUM_SPECULATIVE_TOKENS:=auto}"
+: "${AFD_ASYNC_SCHEDULING:=auto}"
 : "${DECODE_DBO_DECODE_TOKEN_THRESHOLD:=2}"
 : "${DECODE_DBO_PREFILL_TOKEN_THRESHOLD:=12}"
 : "${DECODE_MAX_CUDAGRAPH_CAPTURE_SIZE:=8}"
@@ -178,7 +188,7 @@ ROUNDTRIP_TOOL="${AFD_PLUGIN_ROOT}/tools/dsv4/check_mooncake_npu_roundtrip.py"
 FUNCTIONAL_SMOKE_TOOL="${AFD_PLUGIN_ROOT}/tools/dsv4/run_pd_functional_smoke.py"
 GOLDEN_VALIDATOR="${AFD_PLUGIN_ROOT}/recipe/npu/deepseek_v4/common/validate_golden.py"
 GOLDEN_GENERATOR="${AFD_PLUGIN_ROOT}/tools/dsv4/generate_golden.py"
-FATAL_PATTERN='EngineCore encountered a fatal error|AFD NPU FFN worker loop failed|Mooncake transfer failed|Communication_Error|507015|Traceback'
+FATAL_PATTERN='EngineCore encountered a fatal error|AFD NPU FFN worker loop failed|RuntimeError: Worker failed with error|Exception in thread|Mooncake transfer failed|Communication_Error|507014|507015|507018|507034|507035|Traceback'
 
 is_true() {
   case "${1:-}" in
@@ -275,6 +285,47 @@ device_lists_are_disjoint() {
     [[ "${item}" =~ ^[0-9]+$ && -z "${seen[${item}]+present}" ]] || return 1
     seen["${item}"]=1
   done
+}
+
+device_list_union_count() {
+  printf '%s\n' "$@" \
+    | tr ',' '\n' \
+    | awk '/^[0-9]+$/ && !seen[$0]++ {count++} END {print count + 0}'
+}
+
+detect_npu_chip_count() {
+  local output count
+  output="$(npu-smi info 2>/dev/null || true)"
+  count="$(awk -F'|' '
+    function trim(value) {
+      gsub(/^[[:space:]]+|[[:space:]]+$/, "", value)
+      return value
+    }
+    /Chip Count[[:space:]]*:/ {
+      value = $0
+      sub(/^.*Chip Count[[:space:]]*:[[:space:]]*/, "", value)
+      sub(/[^0-9].*$/, "", value)
+      if (value ~ /^[0-9]+$/) legacy += value + 0
+    }
+    /^[[:space:]]*[|]/ {
+      id = trim($2)
+      product = trim($3)
+      if (id ~ /^[0-9]+$/ && product ~ /[[:alpha:]]/) devices[id] = 1
+    }
+    END {
+      if (legacy > 0) print legacy
+      else {
+        for (id in devices) total++
+        print total + 0
+      }
+    }
+  ' <<<"${output}")"
+  if (( count > 0 )); then
+    printf '%s\n' "${count}"
+    return 0
+  fi
+  npu-smi info -l 2>/dev/null \
+    | awk -F: '/Chip Count/ {gsub(/[[:space:]]/, "", $2); sum += $2} END {print sum + 0}'
 }
 
 port_is_listening() {
@@ -423,6 +474,10 @@ validate_common_config() {
     colocated)
       [[ "${NODE_ROLE}" != "prefill_ffn" && "${NODE_ROLE}" != "attention" ]] \
         || die "Split roles require AFD_PLACEMENT=split"
+      if [[ "${DEPLOYMENT_VARIANT}" == "pd_afd" && "${NODE_ROLE}" == "decode" ]]; then
+        device_lists_are_disjoint "${ATTENTION_DEVICES}" "${FFN_DEVICES}" \
+          || die "Colocated Decode requires disjoint Attention and FFN devices"
+      fi
       ;;
     split)
       [[ "${DEPLOYMENT_VARIANT}" == "pd_afd" ]] \
@@ -442,10 +497,20 @@ validate_common_config() {
     1|2) ;;
     *) die "DECODE_U_BATCHES must be 1 or 2" ;;
   esac
+  case "${AFD_ASYNC_SCHEDULING}" in
+    auto|on|off) ;;
+    *) die "AFD_ASYNC_SCHEDULING must be auto, on, or off" ;;
+  esac
   case "${DECODE_ENABLE_MTP}" in
     0|1) ;;
     *) die "DECODE_ENABLE_MTP must be 0 or 1" ;;
   esac
+  case "${DECODE_ENABLE_DSPARK}" in
+    0|1) ;;
+    *) die "DECODE_ENABLE_DSPARK must be 0 or 1" ;;
+  esac
+  [[ "${DECODE_ENABLE_MTP}:${DECODE_ENABLE_DSPARK}" != "1:1" ]] \
+    || die "DECODE_ENABLE_MTP and DECODE_ENABLE_DSPARK cannot both be enabled"
   case "${AFD_PROFILE_ENABLE}" in
     0) ;;
     1)
@@ -520,11 +585,44 @@ validate_common_config() {
     && "${DECODE_MTP_DRAFT_EXECUTION}" == "graph" ]]; then
     die "TP2 full-draft Graph U2 + MTP is not validated"
   fi
+  case "${DECODE_DSPARK_DRAFT_EXECUTION}" in
+    eager|graph) ;;
+    *) die "DECODE_DSPARK_DRAFT_EXECUTION must be eager or graph" ;;
+  esac
+  if [[ "${DECODE_EXECUTION_MODE}" == "eager" \
+    && "${DECODE_ENABLE_DSPARK}" == "1" \
+    && "${DECODE_DSPARK_DRAFT_EXECUTION}" != "eager" ]]; then
+    die "Eager Decode requires DECODE_DSPARK_DRAFT_EXECUTION=eager"
+  fi
+  if [[ "${DECODE_DSPARK_NUM_SPECULATIVE_TOKENS}" != "auto" \
+    && ! "${DECODE_DSPARK_NUM_SPECULATIVE_TOKENS}" =~ ^[1-9][0-9]*$ ]]; then
+    die "DECODE_DSPARK_NUM_SPECULATIVE_TOKENS must be auto or a positive integer"
+  fi
   require_command git
   require_dir "${AFD_PLUGIN_ROOT}"
   require_dir "${VLLM_ROOT}"
   require_dir "${VLLM_ASCEND_ROOT}"
   require_file "${PYTHON_BIN}"
+  require_dir "${MODEL_PATH}"
+  if [[ "${DECODE_ENABLE_DSPARK}" == "1" ]]; then
+    local checkpoint_dspark_tokens
+    checkpoint_dspark_tokens="$(
+      "${PYTHON_BIN}" \
+        "${AFD_PLUGIN_ROOT}/tools/dsv4/hccl_manual_install/bin/model_launch_args.py" \
+        --model-path "${MODEL_PATH}" \
+        --quantization "${MODEL_QUANTIZATION}" \
+        --block-size "${MODEL_BLOCK_SIZE}" \
+        --safetensors-load-strategy "${MODEL_SAFETENSORS_LOAD_STRATEGY}" \
+        --kv-cache-dtype "${KV_CACHE_DTYPE}" \
+        --get dspark_block_size
+    )"
+    [[ "${checkpoint_dspark_tokens}" =~ ^[1-9][0-9]*$ ]] \
+      || die "DECODE_ENABLE_DSPARK=1 requires a DSpark checkpoint"
+    if [[ "${DECODE_DSPARK_NUM_SPECULATIVE_TOKENS}" != "auto" \
+      && "${DECODE_DSPARK_NUM_SPECULATIVE_TOKENS}" != "${checkpoint_dspark_tokens}" ]]; then
+      die "DECODE_DSPARK_NUM_SPECULATIVE_TOKENS must match checkpoint dspark_block_size=${checkpoint_dspark_tokens}"
+    fi
+  fi
   [[ "$(git_head "${VLLM_ROOT}")" == "${VLLM_COMMIT}" ]] \
     || die "vLLM commit mismatch"
   [[ "$(git_head "${VLLM_ASCEND_ROOT}")" == "${VLLM_ASCEND_COMMIT}" ]] \
@@ -649,6 +747,10 @@ validate_mooncake_install_mode() {
 
 validate_cann_version() {
   local resolved version_text version_file expected_regex
+  if [[ -z "${CANN_VERSION}" ]]; then
+    log "CANN version check skipped; using configured path ${CANN_ROOT}"
+    return 0
+  fi
   [[ "${CANN_VERSION}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] \
     || die "CANN_VERSION must use major.minor.patch format: ${CANN_VERSION}"
   resolved="$(readlink -f "${CANN_ROOT}")"
@@ -734,8 +836,11 @@ write_mooncake_fingerprint() {
 
 npu_process_pids() {
   npu-smi info | awk '
-    /\| NPU +Chip +\| Process id/ {in_process_table=1; next}
-    in_process_table && /^\|[[:space:]]*[0-9]+[[:space:]]+[0-9]+[[:space:]]*\|[[:space:]]*[0-9]+/ {
+    /^\|[[:space:]]*NPU[[:space:]]+(ID|Chip)[[:space:]]*\|[[:space:]]*Process[[:space:]]+id[[:space:]]*\|/ {
+      in_process_table=1
+      next
+    }
+    in_process_table && /^\|[[:space:]]*[0-9]+[[:space:]]*\|[[:space:]]*[0-9]+[[:space:]]*\|/ {
       split($0, fields, "|")
       gsub(/[[:space:]]/, "", fields[3])
       if (fields[3] ~ /^[0-9]+$/) print fields[3]
@@ -786,14 +891,23 @@ validate_colocated_control_processes() {
 
 check_npus() {
   require_command npu-smi
-  local expected=8
-  if [[ "${NODE_ROLE}" == "decode" && "${DEPLOYMENT_VARIANT}" == "pd_afd" ]] \
-    || [[ "${NODE_ROLE}" == "prefill_ffn" ]] \
-    || [[ "${NODE_ROLE}" == "attention" && "${ATTENTION_RANKS}" == "16" ]]; then
-    expected=16
-  fi
+  local expected
+  case "${NODE_ROLE}" in
+    prefill) expected="$(device_list_union_count "${PREFILL_DEVICES}")" ;;
+    prefill_ffn) expected="$(device_list_union_count "${PREFILL_DEVICES}" "${FFN_DEVICES}")" ;;
+    attention) expected="$(device_list_union_count "${ATTENTION_DEVICES}")" ;;
+    decode)
+      if [[ "${DEPLOYMENT_VARIANT}" == "pd_afd" ]]; then
+        expected="$(device_list_union_count "${ATTENTION_DEVICES}" "${FFN_DEVICES}")"
+      else
+        expected="$(device_list_union_count "${ATTENTION_DEVICES}")"
+      fi
+      ;;
+    proxy) return 0 ;;
+  esac
+  (( expected > 0 )) || die "${NODE_ROLE} has no configured NPU devices"
   local detected
-  detected="$(npu-smi info -l | awk -F: '/Chip Count/ {gsub(/[[:space:]]/, "", $2); sum += $2} END {print sum + 0}')"
+  detected="$(detect_npu_chip_count)"
   (( detected >= expected )) || die "${NODE_ROLE} requires ${expected} NPUs, detected ${detected}"
   local process_count
   process_count="$(npu_process_count)"
@@ -886,6 +1000,8 @@ export_runtime_env() {
   export MC_MIN_PRC_PORT MC_MAX_PRC_PORT MAX_MODEL_LEN MAX_NUM_BATCHED_TOKENS
   export ATTENTION_MAX_NUM_BATCHED_TOKENS FFN_MAX_NUM_BATCHED_TOKENS
   export MAX_NUM_SEQS GPU_MEMORY_UTILIZATION HCCL_BUFFSIZE OMP_NUM_THREADS
+  export MODEL_QUANTIZATION MODEL_BLOCK_SIZE MODEL_SAFETENSORS_LOAD_STRATEGY
+  export KV_CACHE_DTYPE SOC_VERSION
   export PREFILL_DEVICES PREFILL_DP_SIZE PREFILL_TP_SIZE DECODE_DP_SIZE DECODE_TP_SIZE
   export ATTENTION_DEVICES FFN_DEVICES ATTENTION_RANKS FFN_RANKS
   export PREFILL_HCCL_IF_BASE_PORT ATTENTION_HCCL_IF_BASE_PORT FFN_HCCL_IF_BASE_PORT
@@ -899,9 +1015,13 @@ export_runtime_env() {
   export TENSOR_PARALLEL_SIZE="${DECODE_TP_SIZE}"
   export EXECUTION_MODE="${DECODE_EXECUTION_MODE}"
   export U_BATCHES="${DECODE_U_BATCHES}"
+  export AFD_ASYNC_SCHEDULING
   export ENABLE_MTP="${DECODE_ENABLE_MTP}"
   export MTP_DRAFT_EXECUTION="${DECODE_MTP_DRAFT_EXECUTION}"
   export MTP_NUM_SPECULATIVE_TOKENS="${DECODE_MTP_NUM_SPECULATIVE_TOKENS}"
+  export ENABLE_DSPARK="${DECODE_ENABLE_DSPARK}"
+  export DSPARK_DRAFT_EXECUTION="${DECODE_DSPARK_DRAFT_EXECUTION}"
+  export DSPARK_NUM_SPECULATIVE_TOKENS="${DECODE_DSPARK_NUM_SPECULATIVE_TOKENS}"
   export DBO_DECODE_TOKEN_THRESHOLD="${DECODE_DBO_DECODE_TOKEN_THRESHOLD}"
   export DBO_PREFILL_TOKEN_THRESHOLD="${DECODE_DBO_PREFILL_TOKEN_THRESHOLD}"
   export MAX_CUDAGRAPH_CAPTURE_SIZE="${DECODE_MAX_CUDAGRAPH_CAPTURE_SIZE}"
@@ -1098,7 +1218,7 @@ start_proxy() {
 status_action() {
   validate_role
   validate_variant
-  local overall=0 name pid cmdline log_path ready_count transfer_count
+  local overall=0 name pid cmdline log_path ready_count transfer_count dspark_count
   while read -r name; do
     if pid="$(read_pid "${STATE_ROOT}/${name}.pid" 2>/dev/null)" && pid_is_alive "${pid}"; then
       cmdline="$(tr '\0' ' ' <"/proc/${pid}/cmdline" 2>/dev/null || true)"
@@ -1130,6 +1250,11 @@ status_action() {
       log_path="${LOG_ROOT}/attention.log"
       grep -Eq 'AFDDeepseekV4ForCausalLM|P2pHcclAFDConnector' "${log_path}" 2>/dev/null \
         || { warn "PD + AFD Attention log has no AFD runtime marker"; overall=1; }
+      if [[ "${DECODE_ENABLE_DSPARK}" == "1" ]]; then
+        dspark_count="$( { grep -c 'keeps the complete DSpark draft model on the Attention worker' "${log_path}" 2>/dev/null || true; } )"
+        log "DSpark Attention drafter markers: ${dspark_count}/${ATTENTION_RANKS}"
+        (( dspark_count >= ATTENTION_RANKS )) || overall=1
+      fi
       transfer_count="$( { grep -c 'KV cache transfer for request .* took .* remote_session_id' "${log_path}" 2>/dev/null || true; } )"
       log "Successful Mooncake KV transfer records: ${transfer_count}"
       ;;
@@ -1152,6 +1277,11 @@ status_action() {
         log_path="${LOG_ROOT}/attention.log"
         grep -Eq 'AFDDeepseekV4ForCausalLM|P2pHcclAFDConnector' "${log_path}" 2>/dev/null \
           || { warn "PD + AFD Attention log has no AFD runtime marker"; overall=1; }
+        if [[ "${DECODE_ENABLE_DSPARK}" == "1" ]]; then
+          dspark_count="$( { grep -c 'keeps the complete DSpark draft model on the Attention worker' "${log_path}" 2>/dev/null || true; } )"
+          log "DSpark Attention drafter markers: ${dspark_count}/${ATTENTION_RANKS}"
+          (( dspark_count >= ATTENTION_RANKS )) || overall=1
+        fi
       fi
       transfer_count="$( { grep -c 'KV cache transfer for request .* took .* remote_session_id' "${log_path}" 2>/dev/null || true; } )"
       log "Successful Mooncake KV transfer records: ${transfer_count}"
@@ -1172,6 +1302,59 @@ status_action() {
   done < <(owned_pid_names)
   (( fatal == 0 )) || { warn "Fatal markers found"; overall=1; }
   return "${overall}"
+}
+
+verify_data_path_action() {
+  [[ "${NODE_ROLE}" == "decode" || "${NODE_ROLE}" == "attention" ]] \
+    || die "verify-data-path must run with NODE_ROLE=decode or attention"
+  [[ "${DEPLOYMENT_VARIANT}" == "pd_afd" ]] \
+    || die "verify-data-path requires DEPLOYMENT_VARIANT=pd_afd"
+  validate_common_config
+  status_action
+
+  local evidence_dir transfer_count u2_count metrics_file
+  evidence_dir="${OUTPUT_ROOT}/${MATRIX_POINT:-pd-afd}-${NODE_ROLE}-data-path"
+  mkdir -p "${evidence_dir}"
+  grep -E 'KV cache transfer for request .* took .* remote_session_id' \
+    "${LOG_ROOT}/attention.log" >"${evidence_dir}/mooncake-kv.log" 2>/dev/null || true
+  transfer_count="$(wc -l <"${evidence_dir}/mooncake-kv.log")"
+  (( transfer_count > 0 )) \
+    || die "No successful Mooncake KV transfer marker in Attention log"
+
+  u2_count=0
+  if [[ "${DECODE_U_BATCHES}" == "2" ]]; then
+    grep -E \
+      'stage_count=2 key=\(\(0,.*\), \(1,.*is_graph_capturing=False is_warmup=False' \
+      "${LOG_ROOT}/attention.log" \
+      >"${evidence_dir}/online-u2.log" 2>/dev/null || true
+    u2_count="$(wc -l <"${evidence_dir}/online-u2.log")"
+    (( u2_count > 0 )) \
+      || die "No live two-stage U2 marker in Attention log"
+  fi
+
+  if [[ "${DECODE_ENABLE_DSPARK}" == "1" ]]; then
+    metrics_file="${evidence_dir}/dspark.metrics"
+    curl --noproxy '*' -fsS --max-time 30 \
+      "http://127.0.0.1:${DECODE_API_PORT}/metrics" >"${metrics_file}"
+    awk '
+      /^vllm:spec_decode_num_draft_tokens_total([{]|[[:space:]])/ {drafted += $NF}
+      /^vllm:spec_decode_num_accepted_tokens_total([{]|[[:space:]])/ {accepted += $NF}
+      END {
+        printf "drafted_tokens=%g\naccepted_tokens=%g\npassed=%d\n", \
+          drafted, accepted, (drafted > 0 && accepted > 0)
+        exit !(drafted > 0 && accepted > 0)
+      }
+    ' "${metrics_file}" >"${evidence_dir}/dspark-gate.env" \
+      || die "DSpark did not draft and accept tokens"
+  fi
+
+  {
+    printf 'passed=1\n'
+    printf 'mooncake_kv_transfers=%s\n' "${transfer_count}"
+    printf 'online_u2_markers=%s\n' "${u2_count}"
+    printf 'dspark=%s\n' "${DECODE_ENABLE_DSPARK}"
+  } >"${evidence_dir}/summary.env"
+  log "Data-path gate passed: ${evidence_dir}"
 }
 
 wait_for_group_exit() {
@@ -1682,6 +1865,9 @@ control_golden_metadata_args() {
     "mtp=${DECODE_ENABLE_MTP}" \
     "mtp_draft_execution=${DECODE_MTP_DRAFT_EXECUTION}" \
     "mtp_num_speculative_tokens=${DECODE_MTP_NUM_SPECULATIVE_TOKENS}" \
+    "dspark=${DECODE_ENABLE_DSPARK}" \
+    "dspark_draft_execution=${DECODE_DSPARK_DRAFT_EXECUTION}" \
+    "dspark_num_speculative_tokens=${DECODE_DSPARK_NUM_SPECULATIVE_TOKENS}" \
     "batch_invariant=${ENABLE_BATCH_INVARIANT}" \
     "mooncake_version=${MOONCAKE_VERSION}"
 }
@@ -1731,7 +1917,7 @@ functional_smoke_action() {
   validate_common_config
   status_action
   require_file "${FUNCTIONAL_SMOKE_TOOL}"
-  local run_dir endpoint cancel_rc
+  local run_dir endpoint cancel_rc dspark_metrics
   run_dir="${VALIDATION_ROOT}/f0-functional-$(date +%Y%m%d_%H%M%S)"
   endpoint="http://127.0.0.1:${PROXY_PORT}/v1/completions"
   mkdir -p "${run_dir}" "${STATE_ROOT}"
@@ -1754,6 +1940,21 @@ functional_smoke_action() {
       --endpoint "${endpoint}" --model "${MODEL_NAME}" --batch-sizes "1" \
       --output "${run_dir}/recovery.json"
   fi
+  if [[ "${DECODE_ENABLE_DSPARK}" == "1" ]]; then
+    dspark_metrics="${run_dir}/dspark.metrics"
+    curl --noproxy '*' -fsS --max-time 30 \
+      "http://${DECODE_IP}:${DECODE_API_PORT}/metrics" >"${dspark_metrics}"
+    awk '
+      /^vllm:spec_decode_num_draft_tokens_total([{]|[[:space:]])/ {drafted += $NF}
+      /^vllm:spec_decode_num_accepted_tokens_total([{]|[[:space:]])/ {accepted += $NF}
+      END {
+        printf "drafted_tokens=%g\naccepted_tokens=%g\npassed=%d\n", \
+          drafted, accepted, (drafted > 0 && accepted > 0)
+        exit !(drafted > 0 && accepted > 0)
+      }
+    ' "${dspark_metrics}" >"${run_dir}/dspark-gate.env" \
+      || die "DSpark gate found no drafted/accepted tokens; inspect ${dspark_metrics}"
+  fi
   status_action
   {
     printf 'status=f0_functional_smoke_passed_no_golden\n'
@@ -1763,6 +1964,10 @@ functional_smoke_action() {
     printf 'execution_mode=%s\n' "${DECODE_EXECUTION_MODE}"
     printf 'u_batches=%s\n' "${DECODE_U_BATCHES}"
     printf 'mtp=%s\n' "${DECODE_ENABLE_MTP}"
+    printf 'dspark=%s\n' "${DECODE_ENABLE_DSPARK}"
+    printf 'dspark_draft_execution=%s\n' "${DECODE_DSPARK_DRAFT_EXECUTION}"
+    printf 'dspark_num_speculative_tokens=%s\n' \
+      "${DECODE_DSPARK_NUM_SPECULATIVE_TOKENS}"
     printf 'afd_profile=%s\n' "${AFD_PROFILE_ENABLE}"
     printf 'afd_profile_start_timeout_seconds=%s\n' \
       "${AFD_PROFILE_START_TIMEOUT_SECONDS}"
@@ -2031,6 +2236,12 @@ collect_action() {
   { grep -Eh 'KV cache transfer for request .* took .* remote_session_id' \
       "${transfer_log}" 2>/dev/null || true; } \
     | tail -n 50 >"${temp_dir}/kv-transfer-evidence.txt"
+  if [[ "${NODE_ROLE}" == "decode" || "${NODE_ROLE}" == "attention" ]]; then
+    curl --noproxy '*' -fsS --max-time 30 \
+      "http://127.0.0.1:${DECODE_API_PORT}/metrics" \
+      | grep -E '^vllm:spec_decode_' \
+      >"${temp_dir}/spec-decode.metrics" 2>/dev/null || true
+  fi
   {
     while read -r name; do
       log_path="${LOG_ROOT}/${name}.log"
@@ -2084,8 +2295,14 @@ print_config_action() {
   printf 'FFN_MAX_NUM_BATCHED_TOKENS=%s\n' "${FFN_MAX_NUM_BATCHED_TOKENS}"
   printf 'DECODE_EXECUTION_MODE=%s\n' "${DECODE_EXECUTION_MODE}"
   printf 'DECODE_U_BATCHES=%s\n' "${DECODE_U_BATCHES}"
+  printf 'AFD_ASYNC_SCHEDULING=%s\n' "${AFD_ASYNC_SCHEDULING}"
   printf 'DECODE_ENABLE_MTP=%s\n' "${DECODE_ENABLE_MTP}"
   printf 'DECODE_MTP_DRAFT_EXECUTION=%s\n' "${DECODE_MTP_DRAFT_EXECUTION}"
+  printf 'DECODE_ENABLE_DSPARK=%s\n' "${DECODE_ENABLE_DSPARK}"
+  printf 'DECODE_DSPARK_DRAFT_EXECUTION=%s\n' \
+    "${DECODE_DSPARK_DRAFT_EXECUTION}"
+  printf 'DECODE_DSPARK_NUM_SPECULATIVE_TOKENS=%s\n' \
+    "${DECODE_DSPARK_NUM_SPECULATIVE_TOKENS}"
   printf 'ENABLE_BATCH_INVARIANT=%s\n' "${ENABLE_BATCH_INVARIANT}"
   printf 'AFD_PROFILE_ENABLE=%s\n' "${AFD_PROFILE_ENABLE}"
   printf 'AFD_PROFILE_START_TIMEOUT_SECONDS=%s\n' \
@@ -2116,6 +2333,7 @@ case "${ACTION}" in
   start) start_action ;;
   status) status_action ;;
   smoke) functional_smoke_action ;;
+  verify-data-path) verify_data_path_action ;;
   record-control) record_control_action ;;
   validate) validate_action ;;
   profile-start) profile_start_action ;;

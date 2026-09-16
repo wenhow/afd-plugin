@@ -1,404 +1,355 @@
-# DeepSeek-V4 AFD 第一期 A5 Standalone AF 验证指导书
+# DeepSeek-V4 AFD 第一期 A5 PD 与 dSpark 验证指导书
 
-## 1. 适用范围
+## 1. 目标和当前状态
 
-本文只用于单台 8 卡 Ascend 950DT A5 的 **standalone Decode Attention/FFN 分离子阶段**。执行前提是原指导书第 2.2 节安装和第 3 节 H0 审计已经完成。不要重复安装 Python、CANN、vLLM 或 vLLM-Ascend，也不要在本机执行双 A3、多节点、A8F8、A8F4 或 A4F8 章节。
+本文只描述一期剩余的 A5 功能验证：
 
-本文的 runner 只启动 Decode Attention 和 Decode FFN。`run_pd_functional_smoke.py` 只是历史请求工具名，不代表已启动 Prefill、Mooncake KV producer/consumer 或 Proxy。因此本文结果不能记为 A5 PD 分离通过；A3 的双机 PD 证据也不能替代 A5 平台证据。
+1. 双 A5 的 Prefill/Decode 分离，确认 Mooncake KV 从 Prefill 节点传到 Decode Attention。
+2. Decode 节点内部 A4F4 Attention/FFN 分离，确认 HCCL、Graph 和 U2 同时成立。
+3. 在同一 PD + AFD 拓扑上叠加 dSpark，确认 draft 模型实际加载并产生、接受 draft token。
 
-本子阶段只做 MTP-off 功能门禁，不生成 golden，不进行逐 token 比对。A5 PD 组合验证是下一个独立功能阶段；MTP N1/N2/N3 后续在 dSpark 组合阶段重新纳入。最终精度测试在全部功能开发结束后另行执行。本次固定项如下：
+截至 2026-09-16，单 A5 已完成 no-AFD DP4、A4F4 eager/U1、A4F4 Graph/U2 和
+A2F4 Graph/U2。A4F2 仍标记为外部 HCCL 阻塞 `A5-HCCL-RS-001`。这些结果不需要
+重跑，也不能代替本文的 PD 和 dSpark 证据。
+
+本阶段不生成 golden，不进行逐 token 比对，不做精度、性能或 dSpark 加速比结论。
+最终精度测试仍在全部功能组合通过后单独执行。
+
+## 2. 固定环境和拓扑
 
 | 项目 | 固定值 |
 |---|---|
-| vLLM | `0fc695fc6d1d82e9a5ac6835ac8e4e1c83703665` |
-| vLLM-Ascend | `3da28f9414583d2d0b672a8f06d1fae142404bda` |
-| afd-plugin | 新包 `manifest/versions.env` 中的 `AFD_TARGET_COMMIT`/`AFD_TARGET_TREE` |
-| CANN | 只使用 `config.env` 指定的绝对路径；`EXPECTED_CANN_VERSION` 保持为空 |
-| 模型 | `/home/models/DeepSeek-V4-Flash` 的官方原始 `DeepSeek-V4-Flash` 配置 |
-| 硬件 | 单机 8 卡，device ordinal 为 0-7 |
-| AFD | `P2pHcclAFDConnector`、TP1、`ENABLE_MTP=0` |
-| Graph/U2 调度 | vLLM `async_scheduling=off`；不改变 Graph 多 stream 或同步 HCCL P2P 数据面 |
+| vLLM | `releases/v0.23.0`，`0fc695fc6d1d82e9a5ac6835ac8e4e1c83703665` |
+| vLLM-Ascend | `rfc/vllm_cann`，`3da28f9414583d2d0b672a8f06d1fae142404bda` |
+| afd-plugin | `feat/dsv4-afd-graph-u2-multistream-all-on-v1` 的当前交付提交 |
+| CANN | 只固定两台机器各自的绝对 `CANN_ROOT`，`CANN_VERSION` 保持为空 |
+| P 节点 | 8 卡 Prefill，DP2/TP4；同时运行 Proxy |
+| D 节点 | NPU 0-3 为 Decode Attention，NPU 4-7 为 Decode FFN；A4F4、DP4/TP1 |
+| Graph/U2 | `FULL_DECODE_ONLY`、U2、`AFD_ASYNC_SCHEDULING=off`、五个多流开关全开 |
 
-## 2. 本次要执行的项目
+两台 A5 各有 8 张 NPU。P 节点使用全部 8 卡运行 Prefill，D 节点使用全部 8 卡运行
+A4F4，因此不能把三个角色放到一台 A5，也不执行 A8F4/A8F8。
 
-按下列顺序执行。前四项是功能门禁，最后一项是容量项：
-
-| 顺序 | 项目 | NPU | 预期结论 | 当前状态（2026-09-16） |
-|---|---|---|---|---|
-| 1 | 官方 no-AFD、DP4、Graph、MTP-off | 0-3 | 模型加载、health、models 和请求成功 | **通过** |
-| 2 | A4F4 eager/U1/MTP-off | A: 0-3，F: 4-7 | AFD 基础门禁 | **通过**，两轮冷启动 |
-| 3 | A4F4 Graph/U2/MTP-off | A: 0-3，F: 4-7 | Graph 和真实 U2 门禁 | **通过**，两轮真实 two-stage |
-| 4 | A2F4 Graph/U2/MTP-off | A: 0-1，F: 2-5 | `F=kA` 门禁 | **通过**，两轮真实 two-stage |
-| 5 | A4F2 Graph/U2/MTP-off | A: 0-3，F: 4-5 | `A=kF` 容量项 | **HCCL 平台阻塞**，非 HBM/OOM，见第 7 节 |
-
-每个 AFD 点执行两次独立冷启动；每轮检查 ready、batch 1/8/32、取消请求后恢复、启动与请求 fatal、U2 实际执行、停服和 NPU 清理。所有请求只检查 HTTP 和输出结构，
-结果必须记录 `golden_checked=false`。
-
-A4F2 若成功加载并通过全部功能门禁，记录为通过；若 FFN EP2 在模型加载阶段 OOM，保留日志和 `npu-smi` 作为“容量阻塞”。不得降低模型、改权重或超卖来伪造通过。当前 A4F2 已进入 HCCL ReduceScatter 并由脱离模型的最小复现确认为平台阻塞，不属于“容量阻塞”。
-
-A5 总体功能路线不只有上述五项。当前分层状态为：
-
-| 层级 | 当前状态 | 剩余工作 |
-|---|---|---|
-| A5 standalone Decode-AF + microbatch + Graph | 三个必过 AFD 点已通过；A4F2 受 `A5-HCCL-RS-001` 阻塞 | HCCL 修复后复跑 A4F2 |
-| A5 PD + Decode-AF | **未验证** | 验证 Prefill 到 Decode Attention 的 Mooncake KV 传输与 Decode Attention 到 FFN 的 HCCL/U2 同时成立 |
-| dSpark 组合 | **未验证** | 在 dSpark 接入后验证 MTP N1/N2/N3 及对应 AF/Graph/U2 组合 |
-
-当前单机 A5 只有 8 卡，A4F4 Decode-AF 已占用全部 8 卡，无法再同机部署 Prefill。A5 PD 需要第二节点，或另行确认能同时容纳 Prefill 和 Decode-AF 的拓扑；未确认资源与网络前，本指导书不伪造单机 PD 操作命令。
-
-## 3. 用新包升级验证脚本
-
-将新 `slim-a5-reuse` 包复制到 A5。进入新包目录后，复用上一次已经验证过的`config.env`。下面的 `OLD_BUNDLE_ROOT` 只需替换为上一次 A5 包的实际目录：
-
-```bash
-sha256sum -c dsv4-afd-hccl-manual-install-slim-a5-reuse-*.tar.gz.sha256
-tar -xzf dsv4-afd-hccl-manual-install-slim-a5-reuse-*.tar.gz
-cd dsv4-afd-hccl-manual-install-slim-a5-reuse-*
-export BUNDLE_ROOT="$PWD"
-export OLD_BUNDLE_ROOT="/替换为上一次A5包目录"
-cp "$OLD_BUNDLE_ROOT/config.env" "$BUNDLE_ROOT/config.env"
-sed -i \
-  -e 's/^ENABLE_MTP=.*/ENABLE_MTP="0"/' \
-  -e 's/^MTP_NUM_SPECULATIVE_TOKENS=.*/MTP_NUM_SPECULATIVE_TOKENS="1"/' \
-  -e 's/^MTP_DRAFT_EXECUTION=.*/MTP_DRAFT_EXECUTION="eager"/' \
-  "$BUNDLE_ROOT/config.env"
-if grep -q '^AFD_ASYNC_SCHEDULING=' "$BUNDLE_ROOT/config.env"; then
-  sed -i 's/^AFD_ASYNC_SCHEDULING=.*/AFD_ASYNC_SCHEDULING="off"/' \
-    "$BUNDLE_ROOT/config.env"
-else
-  printf '\nAFD_ASYNC_SCHEDULING="off"\n' >>"$BUNDLE_ROOT/config.env"
-fi
-bash bin/00_print_config.sh
-bash bin/install_all.sh
-```
-
-`a5-reuse` 不重装 env、不安装 Python 依赖、不重建两个上游仓库，只升级干净的独立afd-plugin 目标目录。安装器只有在当前目标 tree 能匹配固定提交链时才会前进；有本地改动或来源不明时会停止，不会 reset 或覆盖。
-
-本次不需要再次执行 `install_a5_model_config.sh`。只有`bin/00_print_config.sh` 或后续预检报告模型配置不符时，才停止并先核对上次安装产物，不要直接覆盖模型配置。确认输出仍满足：
+网络数据面如下：
 
 ```text
-CANN_ROOT=/usr/local/Ascend/cann-9.2.0       # 以现场实际路径为准
-EXPECTED_CANN_VERSION=                       # 必须为空
-MODEL_PATH=/home/models/DeepSeek-V4-Flash
-SOC_VERSION=Ascend950DT_9582
-ATTENTION_DEVICES=0,1,2,3
-FFN_DEVICES=4,5,6,7
-AFD_ASYNC_SCHEDULING=off
-REUSE_VENV=1
-INSTALL_PYTHON_DEPS=0
-INSTALL_UPSTREAM_STACK=0
+client -> Proxy(P) -> Prefill(P8) --Mooncake KV--> Attention(D0-3)
+                                             Attention --HCCL/U2--> FFN(D4-7)
 ```
 
-升级后重新加载运行环境。后续命令都在同一个 shell 中执行：
+执行四个点：
+
+| 点名 | 权重 | target | microbatch | draft | 作用 |
+|---|---|---|---|---|---|
+| `pd_afd_eager_u1` | Flash | eager | U1 | off | PD + AFD 基础定位点 |
+| `pd_afd_graph_u2` | Flash | Graph | U2 | off | PD + AFD 一期必过点 |
+| `pd_afd_dspark_eager_u1` | dSpark | eager | U1 | eager | dSpark 基础定位点 |
+| `pd_afd_dspark_graph_u2` | dSpark | Graph | U2 | Graph | 最大组合，一期必过点 |
+
+先完整执行一轮四点。第一轮全部通过后，使用新的运行目录，对两个 Graph/U2 必过点
+再做一轮独立冷启动。
+
+## 3. 运行前检查
+
+### 3.1 两台机器使用同一代码提交
+
+P、D 两台机器分别执行：
 
 ```bash
-source "$BUNDLE_ROOT/bin/activate_runtime.sh"
-cd "$AFD_PLUGIN_ROOT"
-git status --short
-bash tools/dsv4/run_phase1_a5_matrix.sh list-smoke
-bash tools/dsv4/run_phase1_a5_matrix.sh list-diagnostic
+export AFD_PLUGIN_ROOT="/root/dsv4-afd-hccl/src/afd-plugin-phase1-a5-native"
+git -C "$AFD_PLUGIN_ROOT" rev-parse HEAD
+git -C "$AFD_PLUGIN_ROOT" status --short
+git -C /root/dsv4-afd-hccl/src/vllm-release-v0.23.0 rev-parse HEAD
+git -C /root/dsv4-afd-hccl/src/vllm-release-v0.23.0 status --short
+git -C /root/dsv4-afd-hccl/src/vllm-ascend-rfc-vllm-cann rev-parse HEAD
+git -C /root/dsv4-afd-hccl/src/vllm-ascend-rfc-vllm-cann status --short
+npu-smi info
 ```
 
-`git status --short` 必须为空；`list-smoke` 必须输出 4 个一期 MTP-off AFD case；
-`list-diagnostic` 必须输出以下 4 项，且都不进入正式 smoke 清单：
+通过条件：两台 afd-plugin HEAD 完全相同，三个工作树都干净，两个上游提交与第 2 节
+一致，NPU 健康且没有其他模型进程。不要临时屏蔽 dirty 检查。
+
+### 3.2 确认两套权重
+
+普通 `DeepSeek-V4-Flash` 权重不能通过一个启动参数变成 dSpark。两台机器都必须存在：
 
 ```text
-a4f4_graph_u1_mtp_off
-a4f4_eager_u2_mtp_off
-a4f4_eager_u2_serial_mtp_off
-a4f4_graph_u2_serial_mtp_off
+/home/models/DeepSeek-V4-Flash
+/home/models/DeepSeek-V4-Flash-DSpark
 ```
 
-## 4. 运行前预检
-
-停止其他 NPU 服务后执行：
+dSpark 权重的 `config.json` 必须包含有效的 `dspark_block_size` 和
+`dspark_target_layer_ids`。在两台机器分别执行：
 
 ```bash
-source "$BUNDLE_ROOT/bin/activate_runtime.sh"
-cd "$AFD_PLUGIN_ROOT"
-bash tools/dsv4/run_phase1_a5_native_smoke.sh preflight
-bash tools/dsv4/run_phase1_a5_matrix.sh preflight-smoke \
-  a4f4_eager_u1_mtp_off \
-  a4f4_graph_u2_mtp_off \
-  a2f4_graph_u2_mtp_off \
-  a4f2_graph_u2_mtp_off
+export VENV_ROOT="/root/dsv4-afd-hccl/venv"
+export MODEL_TOOL="$AFD_PLUGIN_ROOT/tools/dsv4/hccl_manual_install/bin/model_launch_args.py"
+
+"$VENV_ROOT/bin/python" "$MODEL_TOOL" \
+  --model-path /home/models/DeepSeek-V4-Flash \
+  --describe
+
+"$VENV_ROOT/bin/python" "$MODEL_TOOL" \
+  --model-path /home/models/DeepSeek-V4-Flash-DSpark \
+  --describe
 ```
 
-预检会核对两个固定上游提交、三个源码导入根、干净工作树、模型路径、custom ops、唯一 CANN 路径和空闲 NPU。它不依赖 `ss`，也不校验 A5 的 CANN 版本字符串。
+普通权重应显示 `dspark_block_size: null`；dSpark 权重应显示正整数
+`dspark_block_size` 和非空 `dspark_target_layer_ids`。当前官方 dSpark 权重的 block
+size 由权重配置决定，脚本会自动读取，不能再按旧 MTP 的 N1/N2/N3 手工选择。
 
-任一预检失败都不要继续启动模型。保存完整终端输出并回传。
+固定 v0.23 栈在内部将 speculative method 归一为 `mtp`，但会根据上述 dSpark 字段
+构造 dSpark proposer。这是当前固定栈的预期行为，不能仅凭日志中的 `method=mtp`
+判定 dSpark 未启用。
 
-## 5. 运行官方 no-AFD DP4 smoke
+## 4. 生成双机配置
 
-先建立本次统一输出根：
+以下操作在两台机器上执行，`SITE` 和 `CFG` 必须使用相同绝对路径。先创建第一轮现场
+配置：
 
 ```bash
-export A5_VALIDATION_ROOT="/data/validation/dsv4-phase1-a5-$(date +%Y%m%d_%H%M%S)"
-mkdir -p "$A5_VALIDATION_ROOT"
-export PHASE1_NATIVE_OUTPUT_ROOT="$A5_VALIDATION_ROOT/native-dp4"
-bash tools/dsv4/run_phase1_a5_native_smoke.sh run \
-  2>&1 | tee "$A5_VALIDATION_ROOT/native-dp4.console.log"
+export PD_DIR="$AFD_PLUGIN_ROOT/tools/dsv4/mooncake_pd_manual"
+export SITE="/root/dsv4-afd-hccl/a5-pd/site-r1.env"
+export CFG="/root/dsv4-afd-hccl/a5-pd/config-r1"
+
+mkdir -p "$(dirname "$SITE")"
+cp "$PD_DIR/a5_site.env.example" "$SITE"
+vi "$SITE"
 ```
 
-脚本使用 NPU 0-3、DP4/TP1，按官方风格启动 no-AFD Graph/MTP-off 服务一次。它检查`/health`、`/v1/models` 和一个 completion，然后停服并检查 NPU 清理。此前 MTP N1 的成功结果可以保留为附加证据，但不能替代本次 MTP-off 基线。通过时应出现：
+只需修改 `SITE` 中这些现场值：
 
 ```text
-[phase1-a5-native] completed: .../native-dp4
+CANN_ROOT=<本机实际绝对路径>
+PREFILL_IP=<P节点业务/HCCL地址>
+DECODE_IP=<D节点业务/HCCL地址>
+NIC_NAME=<上述IP所在网卡>
+A5_PD_RUN_BASE=/data/validation/dsv4-phase1-a5-pd-r1-<时间戳>
 ```
 
-关键结果位于：
+两台机器的 CANN 安装路径和网卡名可以不同，但 `CANN_VERSION=""` 必须保持为空。
+其余路径与现场不一致时一并修正。两台机器必须填写相同的 Prefill/Decode IP、模型
+路径和 `A5_PD_RUN_BASE`。
 
-```text
-native-dp4/runtime.env
-native-dp4/models.json
-native-dp4/functional_smoke.json
-native-dp4/summary.env
-native-dp4/server.log
-native-dp4/npu-before.txt
-native-dp4/npu-ready.txt
-native-dp4/npu-after-stop.txt
-```
-
-## 6. 运行 3 个必须通过的 AFD 点
+生成并检查 12 份角色配置：
 
 ```bash
-export PHASE1_OUTPUT_BASE="$A5_VALIDATION_ROOT/afd-required"
-bash tools/dsv4/run_phase1_a5_matrix.sh smoke \
-  a4f4_eager_u1_mtp_off \
-  a4f4_graph_u2_mtp_off \
-  a2f4_graph_u2_mtp_off \
-  2>&1 | tee "$A5_VALIDATION_ROOT/afd-required.console.log"
+bash "$PD_DIR/init_a5_pd_validation.sh" list
+bash "$PD_DIR/init_a5_pd_validation.sh" init "$CFG" "$SITE"
+
+for config in "$CFG"/*.env; do
+  bash "$PD_DIR/pd.sh" print-config "$config" \
+    >"${config%.env}.effective.txt"
+done
+sha256sum "$CFG"/*.env
 ```
 
-矩阵脚本会强制清除外层 `config.env` 的 MTP 默认值，三个 case 均不传`--enable-mtp`。这样旧配置中的 `ENABLE_MTP=1` 或 `MTP_DRAFT_EXECUTION=graph`也不能把当前 A5 门禁改成 MTP 路径。所有 Graph/U2 case 还会显式传`--async-scheduling off`；通用 runner 对固定栈中的 Graph/U2 + `auto/on` 直接 fail-fast，避免模型加载后才进入不受支持的捕获组合。
+两台机器的 12 个 env 文件 SHA256 必须相同。生成器会把当前 afd-plugin HEAD 固定到
+每个角色配置，并拒绝覆盖已有目录；需要重建时使用新的 `CFG`，不要修改生成的角色
+文件。
 
-矩阵固定 `VLLM_SHUTDOWN_TIMEOUT_SECONDS=20`。`0` 在当前 vLLM 中表示立即 abort。当前协调停机流程如下。
+## 5. 安装审计和预检
 
-新脚本使用 Attention shutdown payload 作为显式交接：先只请求 Attention 优雅停机，保持 FFN 存活；等 `ffn.log` 中全部 FFN DP rank 都出现 `AFD NPU FFN received Attention shutdown payload` 后，再请求 FFN 停机并等待两侧退出。A4F4 的预期 receipt 数为 4。handoff 等待预算为 `max(15, VLLM_SHUTDOWN_TIMEOUT_SECONDS + 15)` 秒；本矩阵固定 drain 20 秒，因此实际等待上限为 35 秒。此前固定 15 秒短于 Attention 的 drain 契约，会在最后一次 DP dummy batch 前误停 FFN。预算内未收齐时仍会停止 FFN 做清理，但 `ffn_handoff_gate.passed=false`，本轮失败。connector 释放保持幂等，`507035` 也直接列入 fatal marker，不做日志白名单。
+`install` 不重装 Python、CANN、vLLM 或 vLLM-Ascend，只确认现有 Mooncake，并将当前
+afd-plugin 以 editable 方式安装到既有 venv。
 
-取消请求改为流式请求。`curl=28` 后脚本立即从 `/metrics` 检查`vllm:num_requests_running` 和 `vllm:num_requests_waiting`，两项连续两次为 0 才执行恢复请求；恢复请求完成后再执行一次相同检查，然后才开始停服。这能区分“客户端已超时”与“服务端请求确实已取消并归零”。`507035` 仍保留为 fatal，不做日志白名单。
-
-2026-09-15 的正式复跑已关闭早期 async scheduling、Graph/U2 多流计算阻塞和停机交接问题。A4F4 Graph/U2 和 A2F4 Graph/U2 的 `validation_summary.json` 均为 `passed=true`，两轮均为 `execution_mode=full-decode-only`、`u_batches=2`、`enable_mtp=false`，并且 `ubatch_gate.observed_two_stages=true`。
-
-三项必须全部返回 0。每个 case 目录必须包含 `cycle_1`、`cycle_2` 和`validation_summary.json`；每轮必须包含：
-
-```text
-functional_smoke.json
-cancellation.exitcode
-cancellation_gate.json
-cancellation_quiescence.metrics
-cancellation_quiescence_gate.json
-recovery.json
-request_quiescence.metrics
-request_quiescence_gate.json
-cycle_summary.json
-attention.log
-ffn.log
-npu_ready.txt
-npu_after_cleanup.txt
-```
-
-`cancellation.exitcode` 的预期值为 28，两个 quiescence gate 必须分别为`passed=true`、`running=0`、`waiting=0`、`stable_samples=2`，随后 `recovery.json`必须通过。`cycle_summary.json` 中 `shutdown.coordinated` 和`shutdown.ffn_handoff_gate.passed` 必须为 `true`，handoff 的 `observed` 必须等于`expected`；`order` 必须为`attention_request, ffn_handoff_wait, ffn_request, attention_wait, ffn_wait`。Graph/U2 case 的`ubatch_gate.observed_two_stages` 必须为 `true`。
-
-失败证据目录不会被覆盖。截至 2026-09-16，no-AFD、A4F4 eager/U1、A4F4 Graph/U2 和 A2F4 Graph/U2 都已取得所需正式证据，不需要再重跑。两个 Graph/U2 结果收录在 `c30f5968a2c24a4d8dfac0c57d268eb4.zip`（SHA256 `3df1d7c2b7aea21fb73c106bcfad8ccf6b658f7ac8e7a3b29cfad59a42010dc5`）。
-
-以下内容只记录 2026-09-14 的历史隔离过程，其中的 serial 对照命令已完成，不再执行：
-
-- A4F4 Graph/U1 的请求、恢复、日志、停机交接和 NPU 清理通过；
-- A4F4 eager/U2 的 batch 1（U1 fallback）通过，batch 8 的全部 Attention rank 均观测到  `stage_count=2`，但请求约 300 秒无输出后由 EngineCore worker response timeout 终止；
-- eager/U2 超时前没有 `507014`、`507034`、`507035` 或 Python 首异常；FFN 的  `507035` 出现在 API 500 和 teardown 之后，是终止仍在执行的 HCCL/算子产生的次生错误。
-
-当时故障从“Graph 与 U2 组合”进一步收敛为 **A5 U2 数据面**，但尚不能区分 U2 消息协议与多 stream/event 执行，因此执行了两个 serial 单轮对照：
+P 节点：
 
 ```bash
-bash tools/dsv4/run_phase1_a5_matrix.sh list-diagnostic
-bash tools/dsv4/run_phase1_a5_matrix.sh preflight-diagnostic
-
-export PHASE1_OUTPUT_BASE="$A5_VALIDATION_ROOT/afd-isolation-r3"
-set +e
-bash tools/dsv4/run_phase1_a5_matrix.sh diagnostic \
-  a4f4_eager_u2_serial_mtp_off \
-  a4f4_graph_u2_serial_mtp_off \
-  2>&1 | tee "$A5_VALIDATION_ROOT/afd-isolation-r3.console.log"
-export A5_DIAGNOSTIC_EXITCODE=${PIPESTATUS[0]}
-set -e
-printf 'A5_DIAGNOSTIC_EXITCODE=%s\n' "$A5_DIAGNOSTIC_EXITCODE" \
-  | tee "$A5_VALIDATION_ROOT/afd-isolation-r3.exitcode"
+export PD="$AFD_PLUGIN_ROOT/tools/dsv4/mooncake_pd_manual/pd.sh"
+bash "$PD" install "$CFG/pd_afd_eager_u1-prefill.env"
+bash "$PD" check "$CFG/pd_afd_eager_u1-prefill.env"
+bash "$PD" check "$CFG/pd_afd_dspark_eager_u1-prefill.env"
+bash "$PD" check "$CFG/pd_afd_eager_u1-proxy.env"
 ```
 
-`diagnostic` 不属于一期正式门禁，固定一轮、MTP-off、batch 1/8/32；第一个失败后仍继续第二个。CANN 进程日志自动定向到`afd-isolation-r3/diagnostic/ascend-process-log`。两个 case 都保留 U2 和同一个 layer-major 调度，只分别关闭 eager 通信流重叠或 Graph 计算流重叠；不会退回旧的双线程 U2。两个 `runtime.json` 均必须为`async_scheduling=off`、`stage_diagnostics=on`，并分别满足：
+D 节点：
 
-| case | 必须记录的开关 |
+```bash
+export PD="$AFD_PLUGIN_ROOT/tools/dsv4/mooncake_pd_manual/pd.sh"
+bash "$PD" install "$CFG/pd_afd_eager_u1-decode.env"
+bash "$PD" check "$CFG/pd_afd_eager_u1-decode.env"
+bash "$PD" check "$CFG/pd_afd_graph_u2-decode.env"
+bash "$PD" check "$CFG/pd_afd_dspark_eager_u1-decode.env"
+bash "$PD" check "$CFG/pd_afd_dspark_graph_u2-decode.env"
+```
+
+预检会核对提交、工作树、模型契约、CANN 路径、Mooncake、本机端口、NPU 数量和本地
+NPU round-trip。它不依赖 `ss`，也不校验 A5 的 CANN 版本字符串。任一检查失败都先
+停止，不进入模型启动。
+
+## 6. 执行单个验证点
+
+每个点都按本节完整执行。以下把点名放在 `POINT` 中；第一轮依次替换为第 2 节四个
+点名。建议使用 P 节点两个终端和 D 节点一个终端。
+
+### 6.1 启动
+
+P 节点终端 1，先启动 Prefill：
+
+```bash
+export POINT="pd_afd_eager_u1"
+bash "$PD" start "$CFG/$POINT-prefill.env"
+bash "$PD" status "$CFG/$POINT-prefill.env"
+```
+
+D 节点，Prefill ready 后启动共置的 A4F4 Decode：
+
+```bash
+export POINT="pd_afd_eager_u1"
+bash "$PD" start "$CFG/$POINT-decode.env"
+bash "$PD" status "$CFG/$POINT-decode.env"
+```
+
+P 节点终端 2，最后启动 Proxy：
+
+```bash
+export POINT="pd_afd_eager_u1"
+bash "$PD" start "$CFG/$POINT-proxy.env"
+bash "$PD" status "$CFG/$POINT-proxy.env"
+```
+
+三个 `status` 都必须返回 0。dSpark 点的 Decode status 还必须显示：
+
+```text
+DSpark Attention drafter markers: 4/4
+```
+
+### 6.2 功能请求和数据面门禁
+
+P 节点 Proxy 终端执行 batch 1/8/32、取消和恢复请求：
+
+```bash
+bash "$PD" smoke "$CFG/$POINT-proxy.env"
+```
+
+D 节点随后执行数据面门禁：
+
+```bash
+bash "$PD" verify-data-path "$CFG/$POINT-decode.env"
+```
+
+`verify-data-path` 必须输出 `Data-path gate passed`，并检查：
+
+- Attention 日志至少有一次成功的 Mooncake KV transfer；
+- U2 点至少有一次在线 `stage_count=2`，不能只看到 Graph capture/warmup；
+- dSpark 点的 draft token 与 accepted token 指标都大于 0；
+- Attention/FFN 进程仍存活，health 正常，日志没有 fatal marker。
+
+证据写入：
+
+```text
+<RUN_ROOT>/output/<POINT>-decode-data-path/summary.env
+<RUN_ROOT>/output/<POINT>-decode-data-path/mooncake-kv.log
+<RUN_ROOT>/output/<POINT>-decode-data-path/online-u2.log       # U2 点
+<RUN_ROOT>/output/<POINT>-decode-data-path/dspark.metrics     # dSpark 点
+<RUN_ROOT>/output/<POINT>-decode-data-path/dspark-gate.env    # dSpark 点
+```
+
+### 6.3 收集和停服
+
+服务仍在运行时收集证据，以便保存 metrics。P 节点执行：
+
+```bash
+bash "$PD" collect "$CFG/$POINT-prefill.env"
+bash "$PD" collect "$CFG/$POINT-proxy.env"
+```
+
+D 节点执行：
+
+```bash
+bash "$PD" collect "$CFG/$POINT-decode.env"
+```
+
+按 Proxy、Decode、Prefill 顺序停服。
+
+P 节点：
+
+```bash
+bash "$PD" stop "$CFG/$POINT-proxy.env"
+```
+
+D 节点：
+
+```bash
+bash "$PD" stop "$CFG/$POINT-decode.env"
+npu-smi info
+```
+
+P 节点：
+
+```bash
+bash "$PD" stop "$CFG/$POINT-prefill.env"
+npu-smi info
+```
+
+两台机器的 NPU 进程表必须为空，才能进入下一个点。每个点都是独立冷启动，不能复用
+上一点的模型进程。
+
+## 7. 执行顺序和第二轮
+
+第一轮严格按以下顺序重复第 6 节：
+
+```text
+pd_afd_eager_u1
+pd_afd_graph_u2
+pd_afd_dspark_eager_u1
+pd_afd_dspark_graph_u2
+```
+
+第一轮四点全部通过后，在两台机器分别复制一份新的 `site-r2.env`，设置新的
+`A5_PD_RUN_BASE` 和 `config-r2`，重新运行生成器。第二轮只执行：
+
+```text
+pd_afd_graph_u2
+pd_afd_dspark_graph_u2
+```
+
+第二轮仍需完整执行启动、smoke、`verify-data-path`、collect、停服和 NPU 清理，不能
+直接复用第一轮日志。
+
+## 8. 通过标准
+
+每个点同时满足以下条件才记为通过：
+
+1. Prefill、Decode Attention、Decode FFN 和 Proxy 全部 ready，health 正常。
+2. batch 1/8/32 全部请求成功；取消请求得到预期超时，随后 recovery 请求成功。
+3. Decode 的 `verify-data-path` 返回 0，Mooncake KV marker 大于 0。
+4. Graph/U2 点记录在线 two-stage marker，配置为 `full-decode-only/U2`、async off、五个多流开关全开。
+5. dSpark 点加载四个 Attention rank 的完整 dSpark drafter，使用权重的准确 block size，并且 drafted/accepted token 都大于 0。
+6. 三个角色日志无 fatal marker；正常停服后两台机器的 NPU 进程表为空。
+7. `summary.env` 明确 `golden_checked=0`，不得据此声明精度通过。
+
+一期 A5 PD + dSpark 功能目标的关闭条件是：第一轮四点通过，第二轮两个 Graph/U2 点
+再次通过。A4F2 的 `A5-HCCL-RS-001` 继续单列，不影响 A4F4 PD + dSpark 组合的功能
+结论，但不能把它改记为 A4F2 已通过。
+
+## 9. 失败处理和回传内容
+
+任一点失败后不要继续下一个点。先在服务仍存活时尽量执行三个角色的 `collect`，再按
+第 6.3 节停服。不要 reset 工作树、屏蔽 dirty 检查、修改权重或降低门禁。
+
+每个 `collect` 会输出 `ARTIFACT` 和对应 SHA256。回传失败点的以下内容：
+
+```text
+P节点 prefill collect tar.gz 及 sha256
+P节点 proxy collect tar.gz 及 sha256
+D节点 decode collect tar.gz 及 sha256
+<POINT>-decode-data-path 目录
+三个角色的完整终端输出
+两台机器停服后的 npu-smi info
+```
+
+按失败位置初步分类：
+
+| 失败位置 | 优先检查 |
 |---|---|
-| `a4f4_eager_u2_serial_mtp_off` | `eager_u2_stream_overlap=off` |
-| `a4f4_graph_u2_serial_mtp_off` | `graph_u2_compute_overlap=off` |
+| `check` | 提交/dirty、CANN 路径、模型契约、Mooncake、本机 round-trip |
+| Prefill 启动 | dSpark 权重、P8 容量、CANN/算子加载 |
+| Decode 启动 | A4F4 HCCL、Graph capture、dSpark drafter、FFN connector loop |
+| Proxy 启动 | P/D health、IP/端口连通性 |
+| `smoke` | 请求路由、取消恢复、运行期 fatal |
+| `verify-data-path` | Mooncake KV、在线 U2 或 dSpark 指标中具体缺失的一项 |
 
-逐 stage 日志只在这两个诊断点启用，记录 Attention 首层/末层 exchange 和 FFN recv/send/device sync 的开始与返回。按下列方式判读：
-
-| eager/U2 serial | Graph/U2 serial | 结论 |
-|---|---|---|
-| 失败 | 不执行或失败 | 不依赖多流的 U2 协议/算子路径仍有问题；根据最后一条 stage marker 继续定位 |
-| 通过 | 失败 | eager U2 协议可用，问题收敛到 A5 Graph/U2 capture/replay 基线 |
-| 通过 | 通过 | U2 协议可用，故障收敛到 A5 的 HCCL/计算多 stream-event 执行 |
-| 失败 | 通过 | 结果矛盾，先核对两个 runtime 开关和日志，不能恢复正式门禁 |
-
-交付前已在本机 A3 用指定源码栈 vLLM `0fc695fc`、vLLM-Ascend `3da28f941`、CANN 9.0.0 做 A8F8/MTP-off/batch 1、8 单轮控制验证：eager/U2 serial 与Graph/U2 serial 的功能、取消恢复、真实 two-stage、fatal、shutdown receipt 和 NPU 清理均通过。
-eager 轮 8/8 receipt 用时 15.756 秒，验证了 handoff 上限必须覆盖 20 秒drain；Graph 轮 8/8 receipt 用时 0.403 秒。两个 `validation_summary.json` 的 SHA256分别为 `cce13a5aa77d255f4a7c8e8607a4174966c6c1f8eae1bc126f7e745e7fd1f2ba` 和`a23ec4f4e53646f1e73ff39f1ce00a9d760347b2c584e25f74a777b342ad5c4a`。
-这只证明诊断开关、U2 串行路径和验证工具在精确开发栈可执行，不能替代 A5 的 A4F4 结论。
-
-无论命令返回 0 或 1，都回传整个诊断目录和 console log：
-
-```bash
-tar -czf "$A5_VALIDATION_ROOT/afd-isolation-r3.tar.gz" \
-  -C "$A5_VALIDATION_ROOT" \
-  afd-isolation-r3 afd-isolation-r3.console.log afd-isolation-r3.exitcode
-sha256sum "$A5_VALIDATION_ROOT/afd-isolation-r3.tar.gz" \
-  >"$A5_VALIDATION_ROOT/afd-isolation-r3.tar.gz.sha256"
-```
-
-上述历史限制已解除；A4F4 Graph/U2 和 A2F4 Graph/U2 的正式结果均已通过。A4F2 的后续限制见第 7 节。
-
-若旧包仅在 `a4f4_eager_u1_mtp_off` 的退出阶段出现下列任一组合，升级后先只重跑该点：一是 Attention 等待 20 秒后强杀 peer，随后 FFN 报 `507035`；二是两侧同时停机后 FFN 日志干净，但 Attention 的 dummy batch 报 `Connection closed by peer`、EngineCore fatal 或 `507035`。这两种情况都不得用业务 smoke、进程返回码或 NPU 清理通过代替完整 fatal gate：
-
-```bash
-export PHASE1_OUTPUT_BASE="$A5_VALIDATION_ROOT/afd-eager-r2"
-bash tools/dsv4/run_phase1_a5_matrix.sh smoke \
-  a4f4_eager_u1_mtp_off \
-  2>&1 | tee "$A5_VALIDATION_ROOT/afd-eager-r2.console.log"
-```
-
-若新脚本在任一 quiescence gate 失败，先回传两个 gate JSON、metrics 和 Attention 日志；这表示请求生命周期未归零。若 Graph capture 不推进或出现 `507014`/`507034`，回传`runtime.json`、两侧完整日志及 A5 设备侧 plog/slog；若`ffn_handoff_gate` 失败，同样回传 `cycle_summary.json` 和两侧完整日志。不能以第二轮偶然通过覆盖第一轮失败。
-
-## 7. A4F2 当前结论与复跑条件
-
-A4F2 当前标记为 `A5-HCCL-RS-001`：**HCCL 平台阻塞**。它不是 HBM/OOM 容量阻塞，也不是 AFD Graph/U2 多流计算失败。当前证据链如下：
-
-- 正式 `a4f2_graph_u2_mtp_off` 首轮失败，未形成两轮通过的 `validation_summary.json`；
-- 后续 eager/U1 隔离复现了相同的 rank-size 2 BF16 ReduceScatter 路径，排除 Graph、U2 和多 stream 作为必要条件；
-- 脱离 vLLM、模型和 AFD 的两进程 `torch.distributed.reduce_scatter_tensor` 最小复现在 NPU 4/5 稳定失败：`world_size=2`、BF16、`output_count=16777216`、输入 64 MiB/输出 32 MiB；
-- HCCL 选择 `AicpuReduceScatterSoleMeshConcur_device`，两个 rank 的 `CompareOpExchangeInfos` 均成功，随后设备侧报 `PreSyncInterThreads subThreads size [2], notifyIdxMainToSub size [1] is not equal`，最终为 `507018`；
-- A4F4 在同一台机器且包含 NPU 4/5 的情况下已通过，因此现有证据不支持“单卡故障”。
-
-最小复现包为 `5b63a6a768124365abbf0aad45a631b0.gz`（SHA256 `6a2bb8f7972216c57c3607529dd83a57b4232617614cffb4311353dcb4f94e71`）。HCCL 团队给出修复版本或明确受支持的规避方案前，不再重复运行全模型 A4F2。
-
-HCCL 修复后，先使用同参数最小复现确认两个 rank 均通过，再执行下列正式两轮门禁：
-
-```bash
-export PHASE1_OUTPUT_BASE="$A5_VALIDATION_ROOT/afd-capacity"
-set +e
-bash tools/dsv4/run_phase1_a5_matrix.sh smoke a4f2_graph_u2_mtp_off \
-  2>&1 | tee "$A5_VALIDATION_ROOT/afd-capacity.console.log"
-export A4F2_EXITCODE=${PIPESTATUS[0]}
-set -e
-printf 'A4F2_EXITCODE=%s\n' "$A4F2_EXITCODE" \
-  | tee "$A5_VALIDATION_ROOT/a4f2-result.env"
-```
-
-修复后判定方法：
-
-- `A4F2_EXITCODE=0` 且两轮 summary 均通过：容量项通过。
-- 模型加载阶段出现明确 HBM/OOM，且日志和 NPU 快照完整：记录为容量阻塞。
-- HCCL、Graph、请求、U2、取消恢复、fatal 或清理失败：仍未通过，不能记为容量阻塞。
-
-脚本即使失败也会保留已经创建的输出目录、case 退出码、日志和最后一次 `npu-smi`。
-
-## 8. 快速检查结果
-
-用已安装 venv 解析所有 summary，不要求系统安装 `jq`：
-
-```bash
-"$DSV4_RUNTIME_VENV/bin/python" - "$A5_VALIDATION_ROOT" <<'PY'
-import json
-import sys
-from pathlib import Path
-
-root = Path(sys.argv[1])
-for path in sorted(root.rglob("validation_summary.json")):
-    data = json.loads(path.read_text())
-    print(path)
-    print("  passed=", data.get("passed"))
-    print("  validation_mode=", data.get("validation_mode"))
-    print("  golden_checked=", data.get("golden_checked"))
-    print("  async_scheduling=", data.get("async_scheduling"))
-    for cycle in data.get("cycles", []):
-        print(
-            "  cycle=", cycle.get("cycle"),
-            "passed=", cycle.get("passed"),
-            "cancel=", cycle.get("cancellation_gate", {}).get("passed"),
-            "cancel_idle=", cycle.get("cancellation_quiescence_gate", {}).get("passed"),
-            "recovery_idle=", cycle.get("request_quiescence_gate", {}).get("passed"),
-            "coordinated_shutdown=", cycle.get("shutdown", {}).get("coordinated"),
-            "handoff=", cycle.get("shutdown", {}).get("ffn_handoff_gate", {}).get("passed"),
-            "handoff_observed=", cycle.get("shutdown", {}).get("ffn_handoff_gate", {}).get("observed"),
-            "handoff_expected=", cycle.get("shutdown", {}).get("ffn_handoff_gate", {}).get("expected"),
-            "u2=", cycle.get("ubatch_gate", {}).get("observed_two_stages"),
-            "cleanup=", cycle.get("npu_cleanup_gate", {}).get("passed"),
-        )
-PY
-```
-
-原生 `runtime.env` 必须为 `enable_mtp=0`，`summary.env` 必须为 `passed=1`、
-`forced_stop=0`、`npu_cleanup_passed=1`。AFD summary 必须为
-`validation_mode=functional_smoke`、`golden_checked=false`、`enable_mtp=false`、
-`mtp_draft_execution=null`；Graph/U2 还必须为 `async_scheduling=off`。每个 AFD cycle 的
-handoff 必须为 `passed=true` 且
-`observed=expected`；A4F4 应为 `4/4`，A2F4 和 A4F2 应分别为 `4/4` 和 `2/2`。
-
-## 9. 收集并回传证据
-
-当前正式结果分布在多个时间戳目录，不要假定它们都在同一个 `A5_VALIDATION_ROOT` 下。等 A4F2 修复后的两轮复跑通过，再将下列五个变量替换为现场真实结果目录并做最终归档：
-
-```bash
-source "$BUNDLE_ROOT/bin/activate_runtime.sh"
-cd "$AFD_PLUGIN_ROOT"
-export NATIVE_RESULT_ROOT="/替换为no-AFD成功目录"
-export A4F4_EAGER_RESULT_ROOT="/替换为A4F4-eager-U1成功目录"
-export A4F4_GRAPH_RESULT_ROOT="/替换为A4F4-Graph-U2成功目录"
-export A2F4_GRAPH_RESULT_ROOT="/替换为A2F4-Graph-U2成功目录"
-export A4F2_GRAPH_RESULT_ROOT="/替换为A4F2-Graph-U2修复后成功目录"
-bash tools/dsv4/collect_phase1_validation.sh \
-  "$A5_VALIDATION_ROOT/dsv4-phase1-a5-evidence.tar.gz" \
-  "$NATIVE_RESULT_ROOT" \
-  "$A4F4_EAGER_RESULT_ROOT" \
-  "$A4F4_GRAPH_RESULT_ROOT" \
-  "$A2F4_GRAPH_RESULT_ROOT" \
-  "$A4F2_GRAPH_RESULT_ROOT"
-sha256sum -c "$A5_VALIDATION_ROOT/dsv4-phase1-a5-evidence.tar.gz.sha256"
-```
-
-回传以下文件：
-
-```text
-dsv4-phase1-a5-evidence.tar.gz
-dsv4-phase1-a5-evidence.tar.gz.sha256
-native-dp4.console.log
-此前成功的 A4F4 eager/U1 console log
-A4F4 Graph/U2 console log
-A2F4 Graph/U2 console log
-afd-capacity.console.log
-a4f2-result.env
-```
-
-若某一步在创建预期目录前失败，先回传 console log，不要为了让收集器运行而创建伪造
-summary。证据包会包含提交、CANN 路径、环境、Python 包、NPU 快照、结构化结果和截断
-日志；不会打包 profiler raw。
-
-## 10. Standalone AF 子阶段完成条件
-
-满足以下条件后，A5 standalone Decode-AF 子阶段才可关闭；这不等于 A5 PD 或 A5 总体功能验收关闭：
-
-1. 官方 no-AFD DP4 模型加载、health、models、请求和 NPU 清理通过。
-2. 3 个必须 AFD 点两轮全部通过，batch 1/8/32、取消恢复和 fatal 门禁通过。
-3. 2 个必过 Graph/U2 点都记录 `async_scheduling=off` 并观测到真实 two-stage，而不是只配置了 `U_BATCHES=2`。
-4. A4F2 得到“通过”或有完整 HBM 证据的“容量阻塞”结论。
-5. 所有功能报告均明确 `golden_checked=false`，没有逐 token 精度声明。
-
-截至 2026-09-16，第 1、2、3、5 项已完成，standalone AF 的三个必过功能点已全部关闭。第 4 项未按原验收口径完成：A4F2 既未通过，也不是 HBM 容量阻塞，而是已有最小复现的外部 HCCL 平台阻塞。
-
-因此当前结论为：**A5 standalone AF 的 A4F4/A2F4 功能门禁已完成，A4F2 仍受 `A5-HCCL-RS-001` 阻塞；A5 PD 尚未验证，后续 dSpark 组合也尚未验证，所以 A5 总体功能目标没有完成。**
-
-不需要重跑 no-AFD、A4F4 eager/U1、A4F4 Graph/U2 或 A2F4 Graph/U2。下一功能阶段应为 A5 PD + Decode-AF 的 MTP-off 验证，其后才是 dSpark + MTP N1/N2/N3；PD 所需双机/多节点资源不属于本单机指导书的可执行范围。
-
-最终精度、路径匹配 control、30/30 token exact、idle-resume、U3、正式性能和 12 卡
-A8F4 均不在本次 standalone AF 子阶段执行范围。MTP 只在后续 dSpark 组合阶段重新纳入，不能用
-本次 MTP-off 结果声明 dSpark + MTP 已通过。
+本阶段完成后，再安排最终精度测试；本文不包含性能 Profile、dSpark 加速比、A8F4、
+A8F8、U3 或逐 token exact。

@@ -38,8 +38,44 @@ def _is_native_a5(config: dict[str, Any]) -> bool:
     )
 
 
+def _dspark_contract(config: dict[str, Any]) -> tuple[int | None, list[int]]:
+    block_size = config.get("dspark_block_size")
+    target_layer_ids = config.get("dspark_target_layer_ids")
+    if block_size is None and target_layer_ids is None:
+        return None, []
+    if not isinstance(block_size, int) or isinstance(block_size, bool) or block_size <= 0:
+        raise ValueError(
+            "unsupported DeepSeek-V4 DSpark checkpoint contract: "
+            f"dspark_block_size={block_size!r} (expected a positive integer)"
+        )
+    if (
+        not isinstance(target_layer_ids, list)
+        or not target_layer_ids
+        or any(
+            not isinstance(layer_id, int) or isinstance(layer_id, bool)
+            for layer_id in target_layer_ids
+        )
+    ):
+        raise ValueError(
+            "unsupported DeepSeek-V4 DSpark checkpoint contract: "
+            "dspark_target_layer_ids must be a non-empty integer list"
+        )
+    num_hidden_layers = config.get("num_hidden_layers")
+    if isinstance(num_hidden_layers, int) and any(
+        layer_id < 0 or layer_id >= num_hidden_layers
+        for layer_id in target_layer_ids
+    ):
+        raise ValueError(
+            "unsupported DeepSeek-V4 DSpark checkpoint contract: "
+            f"dspark_target_layer_ids={target_layer_ids!r} exceed "
+            f"num_hidden_layers={num_hidden_layers}"
+        )
+    return block_size, target_layer_ids
+
+
 def _validate_native_a5(config: dict[str, Any]) -> None:
     quant_config = config.get("quantization_config")
+    _dspark_contract(config)
     expected = {
         "model_type": (config.get("model_type"), "deepseek_v4"),
         "architectures": (
@@ -103,6 +139,7 @@ def resolve_launch(
     kv_cache_dtype: str,
 ) -> tuple[list[str], dict[str, Any]]:
     config = _load_model_config(model_path)
+    dspark_block_size, dspark_target_layer_ids = _dspark_contract(config)
     checkpoint_quant = config.get("quantization_config")
     checkpoint_quant_method = (
         checkpoint_quant.get("quant_method")
@@ -195,6 +232,8 @@ def resolve_launch(
         "speculative_method": (
             "deepseek_mtp" if profile == NATIVE_A5_PROFILE else "mtp"
         ),
+        "dspark_block_size": dspark_block_size,
+        "dspark_target_layer_ids": dspark_target_layer_ids,
         "uses_hf_quantization_override": False,
     }
     return launch_args, description
@@ -214,7 +253,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--describe", action="store_true")
     parser.add_argument(
         "--get",
-        choices=("profile", "speculative_method"),
+        choices=("profile", "speculative_method", "dspark_block_size"),
         help="Print one resolved description field instead of launch arguments.",
     )
     return parser.parse_args()
@@ -235,7 +274,8 @@ def main() -> int:
         return 2
 
     if args.get:
-        print(description[args.get])
+        value = description[args.get]
+        print("" if value is None else value)
     elif args.describe:
         print(json.dumps(description, sort_keys=True, indent=2))
     else:

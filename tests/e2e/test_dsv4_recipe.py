@@ -289,6 +289,8 @@ def test_dsv4_hccl_recipe_owns_connector_specific_launchers():
         assert "recipe/npu/deepseek_v4/common/activate_role_runtime.sh" in script
         assert "CAMP2pAFDConnector" not in script
         assert 'ENABLE_MTP="${ENABLE_MTP:-0}"' in script
+        assert 'ENABLE_DSPARK="${ENABLE_DSPARK:-0}"' in script
+        assert 'DSPARK_NUM_SPECULATIVE_TOKENS="${DSPARK_NUM_SPECULATIVE_TOKENS:-auto}"' in script
         assert 'MTP_NUM_SPECULATIVE_TOKENS="${MTP_NUM_SPECULATIVE_TOKENS:-1}"' in (
             script
         )
@@ -297,6 +299,7 @@ def test_dsv4_hccl_recipe_owns_connector_specific_launchers():
         assert '"$MODEL_SPECULATIVE_METHOD"' in script
         assert '"num_speculative_tokens":%s' in script
         assert '"${MTP_ARGS[@]}"' in script
+        assert "ENABLE_DSPARK=1 requires a DSpark checkpoint" in script
         assert '--tensor-parallel-size "$TENSOR_PARALLEL_SIZE"' in script
 
     runner = (HCCL_RECIPE_DIR / "run_validation.py").read_text(encoding="utf-8")

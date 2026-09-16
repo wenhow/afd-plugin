@@ -333,6 +333,53 @@ def test_model_launch_args_accepts_official_a5_config_without_quantization_flag(
     assert method.stdout.strip() == "deepseek_mtp"
 
 
+def test_model_launch_args_accepts_native_a5_dspark_contract(tmp_path):
+    config = json.loads(
+        (INSTALLER / "model/DeepSeek-V4-Flash-config.json").read_text()
+    )
+    config.update(
+        {
+            "num_nextn_predict_layers": 1,
+            "dspark_block_size": 5,
+            "dspark_target_layer_ids": [40, 41, 42],
+        }
+    )
+    (tmp_path / "config.json").write_text(json.dumps(config), encoding="utf-8")
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(MODEL_ARGS),
+            "--model-path",
+            str(tmp_path),
+            "--get",
+            "dspark_block_size",
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.stdout.strip() == "5"
+
+
+def test_model_launch_args_rejects_incomplete_dspark_contract(tmp_path):
+    config = json.loads(
+        (INSTALLER / "model/DeepSeek-V4-Flash-config.json").read_text()
+    )
+    config["dspark_block_size"] = 5
+    (tmp_path / "config.json").write_text(json.dumps(config), encoding="utf-8")
+
+    result = subprocess.run(
+        [sys.executable, str(MODEL_ARGS), "--model-path", str(tmp_path)],
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 2
+    assert "dspark_target_layer_ids" in result.stderr
+
+
 def test_model_launch_args_rejects_non_official_mxfp8_alias(tmp_path):
     config = json.loads((INSTALLER / "model/DeepSeek-V4-Flash-config.json").read_text())
     config["expert_dtype"] = "fp4"

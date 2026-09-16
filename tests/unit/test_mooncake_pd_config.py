@@ -14,6 +14,7 @@ from tools.dsv4.mooncake_pd_config import build_mooncake_pd_config
 ROOT_DIR = Path(__file__).resolve().parents[2]
 CONFIG_TOOL = ROOT_DIR / "tools/dsv4/mooncake_pd_config.py"
 MANUAL_PD_DIR = ROOT_DIR / "tools/dsv4/mooncake_pd_manual"
+A5_CONFIG_GENERATOR = MANUAL_PD_DIR / "init_a5_pd_validation.sh"
 
 
 def test_build_mooncake_pd_config_is_role_and_topology_explicit():
@@ -153,6 +154,7 @@ def test_mooncake_pd_manual_entry_is_safe_and_size_capped():
         "start",
         "status",
         "smoke",
+        "verify-data-path",
         "record-control",
         "validate",
         "stop",
@@ -175,6 +177,7 @@ def test_mooncake_pd_manual_entry_is_safe_and_size_capped():
     assert 'tail -n 50 >"${temp_dir}/kv-transfer-evidence.txt"' in script
     assert 'tail -n 200 >"${temp_dir}/fatal-markers.txt"' in script
     assert 'grep -EHn "${FATAL_PATTERN}"' in script
+    assert "507014|507015|507018|507034|507035" in script
     assert "recipe/npu/deepseek_v4/common/validate_golden.py" in script
     assert "MOONCAKE_INSTALL_MODE:=wheel" in script
     assert 'MOONCAKE_INSTALL_MODE="existing"' in config
@@ -282,11 +285,11 @@ def test_mooncake_pd_manual_entry_is_safe_and_size_capped():
     assert 'ALLOW_COLOCATED_PD_CONTROL="0"' in config
     assert "device_lists_are_disjoint" in script
     check_npus = script.split("check_npus()", 1)[1].split("owned_pid_names()", 1)[0]
-    assert "local expected=8" in check_npus
-    assert '"${NODE_ROLE}" == "decode"' in check_npus
-    assert '"${NODE_ROLE}" == "prefill_ffn"' in check_npus
-    assert '"${NODE_ROLE}" == "attention"' in check_npus
-    assert "device_list_count" not in check_npus
+    assert "local expected" in check_npus
+    assert 'case "${NODE_ROLE}" in' in check_npus
+    assert "decode)" in check_npus
+    assert "device_list_union_count" in check_npus
+    assert "detect_npu_chip_count" in check_npus
     assert "validate_colocated_control_processes" in script
     assert "process_is_descendant_of" in script
     assert "validate_control_golden" in script
@@ -339,9 +342,11 @@ def test_mooncake_pd_recipes_accept_dp4_tp2_without_relaxing_other_modes():
         / "recipe/npu/P2pHcclAFDConnector/deepseek_v4/mooncake_pd/decode_control.sh"
     )
     manual_path = MANUAL_PD_DIR / "pd.sh"
+    config_path = MANUAL_PD_DIR / "config.env.example"
     attention = attention_path.read_text()
     control = control_path.read_text()
     manual = manual_path.read_text()
+    config = config_path.read_text()
 
     assert "Mooncake PD M9 baseline requires eager/U1" not in attention
     assert "Mooncake PD M9 baseline requires MTP off" not in attention
@@ -350,7 +355,17 @@ def test_mooncake_pd_recipes_accept_dp4_tp2_without_relaxing_other_modes():
     assert 'export TENSOR_PARALLEL_SIZE="${DECODE_TP_SIZE}"' in manual
     assert 'export EXECUTION_MODE="${DECODE_EXECUTION_MODE}"' in manual
     assert 'export U_BATCHES="${DECODE_U_BATCHES}"' in manual
+    assert "export AFD_ASYNC_SCHEDULING" in manual
+    assert 'AFD_ASYNC_SCHEDULING="auto"' in config
     assert 'export ENABLE_MTP="${DECODE_ENABLE_MTP}"' in manual
+    assert 'export ENABLE_DSPARK="${DECODE_ENABLE_DSPARK}"' in manual
+    assert "DECODE_ENABLE_MTP and DECODE_ENABLE_DSPARK cannot both be enabled" in manual
+    assert "dspark_block_size" in manual
+    assert "spec_decode_num_draft_tokens_total" in manual
+    assert "spec_decode_num_accepted_tokens_total" in manual
+    assert "No successful Mooncake KV transfer marker" in manual
+    assert "No live two-stage U2 marker" in manual
+    assert 'CANN version check skipped; using configured path ${CANN_ROOT}' in manual
     assert "--enable-dbo" in control
     assert "FULL_DECODE_ONLY" in control
     assert "--speculative-config" in control
@@ -381,6 +396,54 @@ def test_mooncake_pd_manual_print_config_preserves_variant_and_role(
 
     assert f"DEPLOYMENT_VARIANT={variant}" in output
     assert f"NODE_ROLE={role}" in output
+
+
+def test_a5_pd_generator_creates_four_a4f4_points(tmp_path):
+    site = tmp_path / "site.env"
+    config_dir = tmp_path / "configs"
+    site.write_text(
+        "\n".join(
+            (
+                f'AFD_PLUGIN_ROOT="{ROOT_DIR}"',
+                'FLASH_MODEL_PATH="/models/flash"',
+                'DSPARK_MODEL_PATH="/models/dspark"',
+                'PREFILL_IP="192.0.2.10"',
+                'DECODE_IP="192.0.2.11"',
+                'NIC_NAME="eth0"',
+                'CANN_ROOT="/opt/cann"',
+                'A5_PD_RUN_BASE="/data/validation/a5-pd-r1"',
+                'AFD_PD_COMMIT="auto"',
+            )
+        )
+        + "\n"
+    )
+
+    subprocess.run(["bash", "-n", str(A5_CONFIG_GENERATOR)], check=True)
+    subprocess.run(
+        [
+            "bash",
+            str(A5_CONFIG_GENERATOR),
+            "init",
+            str(config_dir),
+            str(site),
+        ],
+        check=True,
+    )
+
+    generated = sorted(config_dir.glob("*.env"))
+    assert len(generated) == 12
+    graph = (config_dir / "pd_afd_graph_u2-decode.env").read_text()
+    dspark = (config_dir / "pd_afd_dspark_graph_u2-decode.env").read_text()
+    for config in (graph, dspark):
+        assert "ATTENTION_DEVICES=0\\,1\\,2\\,3" in config
+        assert "FFN_DEVICES=4\\,5\\,6\\,7" in config
+        assert "DECODE_DP_SIZE=4" in config
+        assert "DECODE_EXECUTION_MODE=full-decode-only" in config
+        assert "DECODE_U_BATCHES=2" in config
+        assert "AFD_ASYNC_SCHEDULING=off" in config
+    assert "DECODE_ENABLE_DSPARK=0" in graph
+    assert "DECODE_ENABLE_DSPARK=1" in dspark
+    assert "DECODE_DSPARK_DRAFT_EXECUTION=graph" in dspark
 
 
 def test_generate_golden_metadata_rejects_duplicates():
