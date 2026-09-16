@@ -12,7 +12,22 @@ A5 单机可以验证 dSpark。本指导书先在一台 8 卡 A5 上验证 dSpar
 | D1 | PD + A4F4 Graph/U2 | 双 A5 | 确认 Mooncake KV 与 AFD Graph/U2 数据面 |
 | D2 | PD + A4F4 + dSpark Graph/U2 | 双 A5 | 确认一期最大功能组合 |
 
-单 A5 已完成的 no-AFD DP4、A4F4 eager/U1、A4F4 Graph/U2 和 A2F4 Graph/U2 MTP-off 结果不重跑。A4F2 保持外部 HCCL 阻塞 `A5-HCCL-RS-001`，不改记为通过。
+截至 2026-09-16，单 A5 已完成 no-AFD DP4、A4F4 eager/U1、A4F4 Graph/U2、A2F4 Graph/U2 和 A4F2 Graph/U2 MTP-off；这些结果不为后续 dSpark/PD 前置门禁重复执行。现场替换 HCCL 包后，A4F2 已取得两轮正式功能证据，原外部阻塞 `A5-HCCL-RS-001` 在当前环境关闭。
+
+A4F2 关闭证据如下：
+
+| 项目 | 记录 |
+|---|---|
+| 证据包 | `689a607d8f1043c0961395a5bf2596bc.gz`，SHA256 `5447a2a6999282777f0ded60f61eb190284194bad831a72720a2d82ec1f3cab0` |
+| 时间 | `2026-09-16T16:18:10+08:00` 至 `2026-09-16T16:23:25+08:00` |
+| 运行栈 | CANN `/usr/local/Ascend/cann-9.2.0`，`npu-smi 25.6.rc1.b188`；vLLM `0fc695fc6d1d82e9a5ac6835ac8e4e1c83703665`；vLLM-Ascend `3da28f9414583d2d0b672a8f06d1fae142404bda` |
+| afd-plugin | `c0e030f049b51c7bc85f78d7b21f37f163f13380` 加现场 tracked diff；`runtime.json` 记录的 diff SHA256 为 `fb59a1708f9723ae314cff20d191640ebe594454950cbd63365bef143031bb6e` |
+| 拓扑 | Attention DP4/NPU 0-3，FFN DP2/NPU 4-5，TP1，fan-in 2:1；Attention/FFN `max_num_batched_tokens=4096/8192` |
+| 模式 | `FULL_DECODE_ONLY`、Graph/U2、async off、MTP off，五个 Graph/U2 多流开关全开 |
+| 结果 | 两个独立冷启动 cycle 均 `passed=true`；启动耗时分别为 144.045 秒和 120.046 秒；batch 1/8/32、取消、请求归零、恢复、真实 two-stage、日志、协调停服和 NPU 清理门禁全部通过 |
+| 结论边界 | `golden_checked=false`；只关闭当前环境的 MTP-off 功能阻塞，不代表精度或性能通过 |
+
+证据包没有保存独立 HCCL 包的精确包名、版本或 build 查询输出，只能记录现场反馈“已替换当时最新 HCCL 包”。同时 afd-plugin 不是 clean tree，因此该结果证明旧 `507018`/`PreSyncInterThreads` 故障在当前组合中未复现并足以关闭功能阻塞，但不能单独归因到某个可审计的 HCCL build。FFN 在受控 SIGTERM 停服末尾仍打印 `KeyboardInterrupt: terminated` 和 `ERR99999 UNKNOWN applicaiton exception`；两轮 FFN/Attention 返回码均为 0，shutdown、fatal 和清理门禁均通过，故记录为停服噪声，而不是业务期 HCCL 失败。后续换包或换栈复测必须补录精确 HCCL 包标识。
 
 本阶段只做功能门禁，不生成 golden、不逐 token 比对、不做精度、性能或 dSpark 加速比结论。最终精度测试在上述功能组合通过后单独执行。
 
@@ -24,6 +39,7 @@ A5 单机可以验证 dSpark。本指导书先在一台 8 卡 A5 上验证 dSpar
 | vLLM-Ascend | `rfc/vllm_cann`，`3da28f9414583d2d0b672a8f06d1fae142404bda` |
 | afd-plugin | `feat/dsv4-afd-graph-u2-multistream-all-on-v1` 的当前交付提交 |
 | CANN | 只指定本机实际绝对 `CANN_ROOT`，不强校验版本字符串 |
+| HCCL | 使用现场已验证包；启动前保存精确包名、版本、build 和来源，不能用“最新”代替版本标识 |
 | Python | 使用已安装的 `/root/dsv4-afd-hccl/venv`，不重新安装环境 |
 
 每台机器执行：

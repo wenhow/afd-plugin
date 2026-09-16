@@ -82,12 +82,12 @@ DeepSeek-V4 的拆分边界放在远端 MoE，而不是把整个 FFN 子层搬�
 | TP2 | 已冻结功能基线 | 等量 A8F8、DP4/TP2、eager/U1 | CAMP2P TP2、非等量 TP2、TP3、最大 Graph+MTP 组合 |
 | PD 分离 | 第一期 A3 功能基线已冻结；A5 平台未验证 | Mooncake contract/runtime；双 A3 TP1、Graph/U2、A8F8 N2/N3 与 A4F8 N3 各两轮；smoke、取消恢复、P1 完整请求和全 rank 在线 U2 通过 | A5 Prefill/Decode + AF 组合；逐 token 精度、其他并行组合、U3 和正式性能 |
 | v0.23/plugin 工程底座 | 已冻结功能基线 | 同栈 golden、兼容层、部署和验证工具 | 旧栈性能数字不能作为 v0.23 基线 |
-| A5 原始权重适配 | 进行中 | 官方 `fp8`/`weight_block_size=[128,128]` 配置门禁；DP4 no-AFD/MTP-off 通过；A4F4 eager/U1、A4F4 Graph/U2、A2F4 Graph/U2 各两轮通过，Graph/U2 真实 two-stage；A4F2 为 `A5-HCCL-RS-001` | 先完成 A5 PD + Decode-AF/MTP-off 组合，并平行等待 HCCL 修复后复跑 A4F2；其后进入 dSpark + MTP N1/N2/N3，不能创建 A5 总体功能 tag |
+| A5 原始权重适配 | standalone Decode-AF 已完成，PD 未完成 | 官方 `fp8`/`weight_block_size=[128,128]` 配置门禁；DP4 no-AFD/MTP-off 通过；A4F4 eager/U1、A4F4 Graph/U2、A2F4 Graph/U2 各两轮通过；更新 HCCL 环境后的 A4F2 Graph/U2 也两轮通过，三个 Graph/U2 点均为真实 two-stage | A4F2 证据未记录精确 HCCL build 且 `golden_checked=false`；先完成 A5 PD + Decode-AF/MTP-off，再进入 dSpark + MTP N1/N2/N3，不能创建 A5 总体功能 tag |
 | 正式性能验收 | 未完成 | 已有 standalone 对照；PD Graph/U2 三拓扑三轮测量及 A8F8/A16F8 双侧 profile | split A8F8 CV 超限；缺路径匹配 PD control、MTP on/off、跨负载及固定收益阈值，尚无可发布性能 tag |
 
 ### 2.2.1 两阶段交付口径与第一阶段完成度（2026-09-16）
 
-第一阶段 A3 功能标签已经冻结，第二阶段仍交付 U3 和正式性能收益。A3 标签不生成 golden、不执行逐 token exact，也不要求路径匹配 native/PD control。A5 的 standalone Decode-AF 子阶段已完成 no-AFD DP4 和 3 个必过 AFD 点，A4F2 受 HCCL 平台问题阻塞。A5 平台的 Prefill/Decode PD + Decode-AF 尚未验证，因此 A5 总体功能目标不能关闭。下一阶段先完成 A5 PD/MTP-off，其后在 dSpark 组合阶段恢复 MTP N1/N2/N3。路径匹配 control、token exact 和 idle-resume 继续后移到最终精度阶段。
+第一阶段 A3 功能标签已经冻结，第二阶段仍交付 U3 和正式性能收益。A3 标签不生成 golden、不执行逐 token exact，也不要求路径匹配 native/PD control。A5 的 standalone Decode-AF 子阶段已完成 no-AFD DP4 和全部 4 个 AFD 点；更新 HCCL 环境后的 A4F2 Graph/U2 两轮通过，`A5-HCCL-RS-001` 在当前环境关闭。A5 平台的 Prefill/Decode PD + Decode-AF 尚未验证，因此 A5 总体功能目标不能关闭。下一阶段先完成 A5 PD/MTP-off，其后在 dSpark 组合阶段恢复 MTP N1/N2/N3。路径匹配 control、token exact 和 idle-resume 继续后移到最终精度阶段。
 
 第一阶段的 MTP 目标不是增加 checkpoint 中的 MTP layer 数，而是在模型
 `num_nextn_predict_layers=1` 的前提下，支持通过 `num_speculative_tokens=N` 配置每轮多个draft token。本轮已将对外最大值冻结为 `N=3`，复用同一个 MTP layer 执行多个speculative step，并完成 `N=1/2/3` 代码回归、N2/N3 本机 NPU 组件与 A8F8 N2 实模 smoke。
@@ -133,7 +133,7 @@ SHA256、截断日志且排除 profiler raw 的证据包。A5 当前操作见独
 | 2026-09-10 双 A3 一期 smoke | 3 个适用点单轮 batch 1/8/32 和取消恢复通过；原始明细见上述两个 2026-09-10 证据包 |
 | 2026-09-11 双 A3 两轮验证 | 6/6 次 smoke batch 1/8/32、取消恢复、P1 128/128 和在线 U2 均通过；A8F8 N2/N3、A4F8 N3 三点各两轮，第一阶段 A3 功能目标 3/3 完成；显式停服后的脚本 traceback 单列为非阻塞遗留项 |
 | 2026-09-12 至 09-14 A5 bring-up | 固定上游安装和 8 张 Ascend950DT 可见性已通过；官方原始权重 DP4 no-AFD/MTP-off 已通过。A4F4 eager/U1/MTP-off 升级 shutdown payload 交接后两轮完整门禁通过。A4F4 Graph/U1 单轮通过；streamed eager/U2 的 batch 1 通过，batch 8 全 rank 进入双 stage 后约 300 秒无输出，排除 Graph 为必要条件并把故障收敛到 U2 数据面 |
-| 2026-09-15 至 09-16 A5 standalone AF | A4F4 Graph/U2 和 A2F4 Graph/U2 均两轮通过，`async_scheduling=off`、MTP-off 且真实 two-stage；A4F2 通过 eager/U1 隔离和两进程 BF16 ReduceScatter 最小复现收敛为 `A5-HCCL-RS-001`。该阶段未启动 Prefill、Mooncake KV 或 Proxy，不是 A5 PD 验证 |
+| 2026-09-15 至 09-16 A5 standalone AF | A4F4 Graph/U2 和 A2F4 Graph/U2 均两轮通过；现场替换 HCCL 包后，A4F2 Graph/U2 也两轮通过，`async_scheduling=off`、MTP-off 且真实 two-stage，`A5-HCCL-RS-001` 在当前环境关闭。A4F2 证据包为 `689a607d8f1043c0961395a5bf2596bc.gz`，SHA256 `5447a2a6999282777f0ded60f61eb190284194bad831a72720a2d82ec1f3cab0`；包内未记录精确 HCCL build，且 `golden_checked=false`。该阶段未启动 Prefill、Mooncake KV 或 Proxy，不是 A5 PD 验证 |
 | A5 standalone AF 工具覆盖 | no-AFD DP4/MTP-off；A4F4 eager/U1/MTP-off；A4F4 Graph/U2/MTP-off；A2F4 Graph/U2/MTP-off；A4F2 Graph/U2/MTP-off 容量项；不包含 Prefill/Mooncake/Proxy；不做逐 token 比对 |
 | A5 退出门禁修正 | 串行等待会使 Attention/FFN 相互等待，同时请求又会使 FFN 早于 Attention 的最后一次 DP dummy batch 关闭。新 runner 先 TERM Attention，等待全部 FFN DP rank 记录收到 Attention shutdown payload，再 TERM FFN 并等待两侧退出；handoff 预算为 `max(15, drain+15)` 秒，本矩阵为 35 秒，避免旧 15 秒上限短于 20 秒 drain。未收齐仍执行清理但 handoff gate 失败。流式取消后、恢复后仍要求 `/metrics` 连续两次 running/waiting 为 0；HCCL connector close 保持幂等，`507035` 直接列入 fatal marker；A4F4 eager/U1 两轮已通过 |
 | A5 Graph/U2 调度控制 | A5 matrix 的 Graph/U2 case 显式传 `--async-scheduling off`；共享 runner 将该值传给角色脚本并写入 runtime/summary，固定栈 Graph/U2 的 `auto/on` 启动前 fail-fast。这只固定实验变量，不再记作 A5 capture 修复；`507014`、`507034` 均纳入 fatal marker |
@@ -2090,9 +2090,10 @@ fatal/强杀门禁未通过且没有独立进程 rc。该结果扩展了问题�
 - [x] 第一阶段 M10 本机开发门禁：保持单 MTP layer，泛化 `speculative_step`、MTP header、
   FFN draft 循环、Graph key/cache 与异常清理；N1/N2/N3 回归、N2/N3 eager/Graph U1/U2
   组件通过；A8F8 N2 在 U1/U2 下均与路径匹配 native N2 10/10 exact。
-- [ ] 当前 A5 轨道：standalone Decode-AF 的 no-AFD 和 3 个必过点已通过；A4F2
-  受 `A5-HCCL-RS-001` 阻塞。A5 PD + Decode-AF/MTP-off 尚未验证，需第二节点或
-  容量合格拓扑；完成后再进入 dSpark + MTP N1/N2/N3。
+- [x] A5 standalone Decode-AF：no-AFD 和全部 4 个 AFD 点已通过；更新 HCCL 环境后的
+  A4F2 Graph/U2 两轮通过，`A5-HCCL-RS-001` 在当前环境关闭。
+- [ ] A5 PD + Decode-AF/MTP-off 尚未验证，需第二节点或容量合格拓扑；完成后再进入
+  dSpark + MTP N1/N2/N3。
 - [x] 第一阶段 `num_speculative_tokens` 最大对外配置值冻结为 3，越界继续 fail-fast。
 - [x] 双机完成 PD + 多 speculative token/双向拓扑一期 A3 功能闭环：6/6 次 P1 请求及
   在线 U2 均通过，三个适用点各完成两轮；停止期脚本 traceback 不属于交付门禁，逐 token
@@ -2182,7 +2183,7 @@ DP4/TP2 eager/U1 功能 tag 保留，但不改变本次范围。
 | `2164240` | Graph/U2 三项新增物理流水默认全开；双 A3 R14 采集的代码基线 |
 | `71168312` | 第一阶段 M10/M11：单 MTP layer N1-N3、双向整数 A/F、组件/recipe/部署验证 |
 | `ec106f5b` | 第一期 A5/双机矩阵、路径匹配 control、证据收集器、安装补丁包与执行指导书 |
-| 本次更新 | A5 原始 `DeepSeek-V4-Flash` 配置契约、DP4 no-AFD/MTP-off、A4F4 eager/U1、A4F4 Graph/U2 和 A2F4 Graph/U2 功能证据；A4F2 最小复现收敛为 `A5-HCCL-RS-001`。现有 A5 runner 只启动 Decode Attention/FFN，所以上述结论是 standalone AF，不是 PD；A5 PD + Decode-AF/MTP-off 与后续 dSpark + MTP N1/N2/N3 均待验证 |
+| 本次更新 | A5 原始 `DeepSeek-V4-Flash` 配置契约、DP4 no-AFD/MTP-off，以及 A4F4 eager/U1、A4F4 Graph/U2、A2F4 Graph/U2 和更新 HCCL 环境后的 A4F2 Graph/U2 功能证据；`A5-HCCL-RS-001` 在当前环境关闭。A4F2 归档未记录精确 HCCL build，且不含 golden。现有 A5 runner 只启动 Decode Attention/FFN，所以上述结论是 standalone AF，不是 PD；A5 PD + Decode-AF/MTP-off 与后续 dSpark + MTP N1/N2/N3 均待验证 |
 
 ### 13.2 冻结 tag
 

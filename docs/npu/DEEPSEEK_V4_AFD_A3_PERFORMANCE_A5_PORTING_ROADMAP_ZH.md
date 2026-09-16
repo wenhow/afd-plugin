@@ -68,16 +68,14 @@ vLLM `0fc695fc`、vLLM-Ascend `3da28f941`、CANN 9.0.0 的本机 A3 A8F8 上验�
 serial 控制项：功能、取消恢复、真实 U2、退出和清理均通过；该结果只证明控制项可执行，
 不能替代 A5 A4F4 的现场结论。
 
-2026-09-16 A5 的 no-AFD DP4/MTP-off 已通过；A4F4 eager/U1、A4F4 Graph/U2 和
-A2F4 Graph/U2 三个 AFD 必过点均完成两轮 batch 1/8/32、取消恢复、fatal、
-协调停机和 NPU 清理。两个 Graph/U2 点都固定 `async_scheduling=off`，每轮均观测到真实
-two-stage，早期 A5 Graph/U2 多流计算阻塞已关闭。A4F2 Graph/U2 未通过，但已由
-eager/U1 隔离和脱离 vLLM/模型/AFD 的两进程最小复现收敛为 rank-size 2 BF16
-ReduceScatter 的 HCCL 平台故障 `A5-HCCL-RS-001`：HCCL 选择
-`AicpuReduceScatterSoleMeshConcur_device` 后在设备侧报
-`PreSyncInterThreads subThreads size [2], notifyIdxMainToSub size [1] is not equal`和 `507018`。
-该结果不是 HBM/OOM 容量阻塞，也不是 AFD Graph/U2 故障。A5 standalone Decode-AF
-的三个必过点已完成，但不能据此声明 A5 总体功能完成：A4F2 仍等待 HCCL 修复，
+2026-09-16 A5 的 no-AFD DP4/MTP-off 已通过；A4F4 eager/U1、A4F4 Graph/U2、
+A2F4 Graph/U2 和 A4F2 Graph/U2 四个 AFD 点均完成两轮 batch 1/8/32、取消恢复、
+fatal、协调停机和 NPU 清理。三个 Graph/U2 点都固定 `async_scheduling=off`，每轮均
+观测到真实 two-stage，早期 A5 Graph/U2 多流计算阻塞已关闭。A4F2 曾由 eager/U1
+隔离和脱离 vLLM/模型/AFD 的两进程最小复现收敛为 rank-size 2 BF16 ReduceScatter
+平台故障 `A5-HCCL-RS-001`；现场替换 HCCL 包后的正式两轮未再出现
+`AicpuReduceScatterSoleMeshConcur_device`、`PreSyncInterThreads` 或 `507018`，故该
+阻塞在当前环境关闭。A5 standalone Decode-AF 已完成，但不能据此声明 A5 总体功能完成：
 A5 平台的 Prefill/Decode PD + Decode-AF 组合尚未验证，dSpark + MTP N1/N2/N3 为后续组合阶段。
 权重和单机参数以 [vLLM-Ascend v0.23.0 官方指导](https://docs.vllm.ai/projects/ascend/en/v0.23.0/tutorials/models/DeepSeek-V4-Flash.html#single-node-online-deployment) 为准。
 
@@ -181,7 +179,7 @@ A3 验收通过只说明实现语义和 A3 性能成立，不等于 A5 已支持
   -> 第一阶段 A3 功能 tag（已冻结）
 
 后续功能/精度范围
-  单 A5 8 卡：MTP-off A4F4/A4F2/A2F4 实模（A4F2 先做 HBM 预检）
+  单 A5 8 卡：MTP-off A4F4/A4F2/A2F4 实模（已完成）
   -> A5 PD + Decode-AF/MTP-off 组合（需第二节点或容量合格拓扑）
   -> 至少 12 卡环境：完整 A8F4 实模
   -> 路径匹配 control、逐 token F1 和启停脚本改进
@@ -196,19 +194,21 @@ A3 验收通过只说明实现语义和 A3 性能成立，不等于 A5 已支持
 `F=kA` 已冻结为 scatter/gather 语义：一个 Attention rank 将连续 token 均衡切给连续的`k` 个 FFN rank，各 FFN 均参与计算，Attention 按相同 slice 顺序 gather output。若本地token 数小于 `k`，传输层补零使每个 FFN 至少收到一个 token，gather 后仅保留真实 token。
 控制面从该 Attention source 向全部 FFN peer 发送同一 stage metadata；MTP header、FFN count 投影与 Graph key/cache 使用同一 per-peer layout。非整数比例继续 fail-fast。
 
-2026-09-08 已补齐外部验证交付物；2026-09-11 双 A3 的一期功能硬件证据已完成；2026-09-12 A5 已进入独立 bring-up：
+2026-09-08 已补齐外部验证交付物；2026-09-11 双 A3 的一期功能硬件证据已完成；2026-09-12 A5 进入独立 bring-up，并于 2026-09-16 完成 standalone Decode-AF：
 
 - A5 standalone AF 子阶段固定 MTP-off：用 NPU 0-3、DP4 启动一次 no-AFD 服务；该基线已完成，
   此前 Graph/MTP N1 的成功结果只作附加证据。AFD 执行 A4F4 eager/U1、A4F4
   Graph/U2、A2F4 Graph/U2 和 A4F2 Graph/U2 容量项，均显式关闭 MTP。AFD 每点
   两次冷启动并检查 batch 1/8/32、取消恢复、真实 U2、fatal 和 cleanup，不生成或比较
-  golden。no-AFD 和 3 个 AFD 必过点已通过；A4F2 已收敛为 `A5-HCCL-RS-001`。
+  golden。no-AFD 和 4 个 AFD 点均已通过；更新 HCCL 环境后的 A4F2 两轮通过，
+  `A5-HCCL-RS-001` 在当前环境关闭。
   这些结果只覆盖 Decode-AF，未覆盖 A5 PD。
-- 2026-09-14 现场 DP4 no-AFD/MTP-off 与 A4F4 eager/U1 两轮完整门禁已通过。A4F4
+- 2026-09-14 的历史现场结果中，DP4 no-AFD/MTP-off 与 A4F4 eager/U1 两轮完整门禁已通过。A4F4
   Graph/U2 在 async scheduling on/off 下均卡在启动 U2 capture，四个 FFN rank 约 9 分钟
   后报 grouped/quant matmul `507014`/`507034`；这不是请求取消、停机或单卡问题。新增
   `diagnostic` 单轮运行 A4F4 Graph/U1 与 eager/U2 并定向收集 CANN plog；收到隔离结论前
-  暂停重复 A4F4/A2F4 Graph/U2 和 A4F2 容量项。
+  当时暂停重复 A4F4/A2F4 Graph/U2 和 A4F2 容量项；该限制已由 2026-09-15 至 09-16
+  的正式通过结果解除。
 - 双机 PD 一期实际验收 A8F8 N2/N3、A4F8 N3 三个适用点，均完成两轮功能验证；A8F4 N3 受 A3 HBM 限制排除。3 个路径匹配 no-AFD control 和逐 token F1 延期，control golden 仍须按 Attention DP、target/draft execution、U 数和 MTP N 隔离，不能跨路径复用。
 - 上述双机 PD 是 A3 平台证据，不能代替 A5 PD。A5 尚需在第二节点或容量合格拓扑上组合 Prefill、Mooncake KV、Decode Attention/FFN 和 Proxy，先做 MTP-off PD 功能门禁，再进入 dSpark + MTP N1/N2/N3。
 - `pd.sh` 的部署约束已同步为双向整数 A/F 和 N1-N3，矩阵按拓扑动态生成 device list 与 FFN capacity；A5 当前执行和证据回传步骤见 `DEEPSEEK_V4_AFD_PHASE1_A5_VALIDATION_GUIDE_ZH.md`。
@@ -1356,7 +1356,7 @@ uname -m
 - 服务器完整 SKU；
 - 实际 SoC 名称和 `SOC_VERSION`；
 - 单机 NPU 数、每卡 HBM 和健康状态；
-- 驱动、固件、CANN 和 torch-npu 版本；
+- 驱动、固件、CANN、HCCL 和 torch-npu 版本；HCCL 必须保存精确包名、build 和来源，不能只写“最新包”；
 - A5 对应 ops 包；
 - CPU 架构、socket、NUMA 与 NIC/NPU 亲和关系；
 - 单机还是跨机 A/F 拓扑。
@@ -1410,8 +1410,22 @@ AFD 执行 A4F4 eager/U1、A4F4 Graph/U2、A2F4 Graph/U2，以及 A4F2 Graph/U2
 
 2026-09-15 至 09-16 的现场结果已取代早期隔离结论：A4F4 Graph/U2 和 A2F4
 Graph/U2 正式两轮通过，所以 Graph/U2 多流问题已关闭，不再执行 serial 对照。
-A4F2 失败由脱离 Graph/U2 与模型的 rank-size 2 BF16 ReduceScatter 最小复现收敛为
-`A5-HCCL-RS-001`。Standalone AF 结果不含 Prefill、Mooncake KV 或 Proxy，不能关闭 A5 PD。
+现场替换 HCCL 包后，A4F2 Graph/U2/MTP-off 也于 2026-09-16 正式两轮通过，
+`A5-HCCL-RS-001` 在当前运行环境关闭。证据包
+`689a607d8f1043c0961395a5bf2596bc.gz` 的 SHA256 为
+`5447a2a6999282777f0ded60f61eb190284194bad831a72720a2d82ec1f3cab0`：两个 cycle
+均通过 batch 1/8/32、取消与请求归零、恢复、真实 two-stage、fatal、协调停服和 NPU
+清理门禁，启动耗时分别为 144.045 秒和 120.046 秒。运行栈记录为 CANN 9.2.0、
+`npu-smi 25.6.rc1.b188`、vLLM `0fc695fc`、vLLM-Ascend `3da28f941`、
+afd-plugin `c0e030f` 加 tracked diff SHA256
+`fb59a1708f9723ae314cff20d191640ebe594454950cbd63365bef143031bb6e`。
+
+本次归档未记录独立 HCCL 包的精确包名/version/build，afd-plugin 也不是 clean tree，
+因此可以确认旧 `507018`/`PreSyncInterThreads` 故障在当前组合不再复现，并关闭当前
+功能阻塞，但不能把修复精确归因到某个 HCCL build。FFN 受控停服尾部的
+`KeyboardInterrupt: terminated`/`ERR99999` 在双方返回码为 0、shutdown/fatal/cleanup
+门禁全部通过的上下文中记为停服噪声。该结果仍为 `golden_checked=false`；Standalone
+AF 结果不含 Prefill、Mooncake KV 或 Proxy，不能关闭精度、性能或 A5 PD。
 
 全部计划功能完成后才进入最终精度阶段。届时 A5 必须先生成同平台非 AFD golden，
 不能只拿 A3 token 文件代替 A5 基线，并依次验证：
@@ -1425,7 +1439,7 @@ A4F2 失败由脱离 Graph/U2 与模型的 rank-size 2 BF16 ReduceScatter 最小
 7. 等量和双向整数非等量 A/F 的 HCCL P2P Graph/U1、Graph/U2 回归；Graph/U3 另立里程碑。
 8. MTP 不进入当前单 A5 最终精度矩阵；后续叠加 dSpark 时重新生成同平台、同组合的原生 MTP golden，再回归 HCCL P2P 等量与非等量的 eager/Graph、U1/U2 和 N1/N2/N3。不得直接复用 A3 MTP token 文件，也不得用 A3 组件结果替代 dSpark + MTP 实模结果。
 
-现场 A5 单机已确认为 8 个 NPU：先验证 A4F4，再验证 A2F4；A4F2 必须先做 HBM 容量预检。A8F8 需要 16 卡，A8F4/A4F8 需要 12 卡，均不在单 A5 执行。非等量候选必须满足较大侧是较小侧的整数倍。实际角色映射必须根据 `npu-smi` 拓扑和 NUMA/NIC 关系决定，不能只按 device ordinal 对半切分，也不能在未测 HBM 前假定更少 FFN rank 一定可行。
+现场 A5 单机已确认为 8 个 NPU；A4F4、A2F4 和 A4F2 的当前 MTP-off 功能门禁均已完成，除运行栈或代码变化后的定向回归外不再重跑。A8F8 需要 16 卡，A8F4/A4F8 需要 12 卡，均不在单 A5 执行。非等量候选必须满足较大侧是较小侧的整数倍。实际角色映射必须根据 `npu-smi` 拓扑和 NUMA/NIC 关系决定，不能只按 device ordinal 对半切分，也不能在未测 HBM 前假定更少 FFN rank 一定可行。
 
 ### 8.5 A5-H4：重新调优和性能验收
 
@@ -1765,12 +1779,11 @@ NPU、吞吐、token/s/NPU、TPOT、CV、HBM、FFN `Free/wall`、`Bubble/wall`�
     10/10 exact，A4F8 eager/U1/N2 实模 smoke 通过。组件证据位于
     `/mnt/workspace/validation/phase1_cann900_exact_3e88ad2`；恢复时不得退回单 token、
     `A>=F` 或跨 target/draft/MTP 路径复用 golden 的假设；
-19. A5 standalone Decode-AF 的 no-AFD DP4/MTP-off 和三个 AFD 必过点已完成；A4F4 Graph/U2 与
-    A2F4 Graph/U2 均两轮观测到真实 two-stage。A4F2 已标记为非 OOM 的
-    HCCL 平台阻塞 `A5-HCCL-RS-001`，两进程 rank-size 2 BF16 ReduceScatter 最小
-    复现在 `AicpuReduceScatterSoleMeshConcur_device` 路径返回 `507018`。不重跑
-    已通过项；等待 HCCL 修复后先跑最小复现，再补 A4F2 两轮和证据归档。A5 PD +
-    Decode-AF 尚未验证，需第二节点/容量合格拓扑；通过后再进入 dSpark + MTP N1/N2/N3；
+19. A5 standalone Decode-AF 的 no-AFD DP4/MTP-off 和全部四个 AFD 点已完成；A4F4 Graph/U2、
+    A2F4 Graph/U2 和更新 HCCL 环境后的 A4F2 Graph/U2 均两轮观测到真实 two-stage。
+    `A5-HCCL-RS-001` 已在当前环境关闭；A4F2 证据仍为 `golden_checked=false`，且未记录
+    独立 HCCL build，所以不外推为精度、性能或任意 HCCL 版本结论。A5 PD + Decode-AF
+    尚未验证，需第二节点/容量合格拓扑；通过后再进入 dSpark + MTP N1/N2/N3；
 20. 每次阶段完成都保存日志、原始数据、解析结果和清理证据。
 
 ## 13. 一句话路线
@@ -1781,8 +1794,9 @@ Graph/U1/U2、单 token MTP M0-M7、双向整数比例组件与 TP2/M8 历史基
 的 U1/U2 输出均与路径匹配 native N2 达到 10/10 exact，A4F8 eager/U1/N2 实模 smoke
 通过。M9 的 TP1/MTP off/Graph U2 已完成双 A3 三拓扑运行和 Profile 观测，但动态路由、
 优雅退出和路径匹配 F1 未冻结。第一阶段 A3 功能标签已经完成；A5 standalone
-Decode-AF 的 no-AFD 和三个 AFD 必过点已通过，Graph/U2 多流问题已关闭。A4F2
-仍受 `A5-HCCL-RS-001` 阻塞。A5 PD + Decode-AF 尚未验证，需第二节点/容量合格
+Decode-AF 的 no-AFD 和四个 AFD 点已通过，Graph/U2 多流问题已关闭；更新 HCCL
+环境后的 A4F2 两轮功能门禁通过，`A5-HCCL-RS-001` 在当前环境关闭，但 exact HCCL
+build、golden、精度和性能仍未形成结论。A5 PD + Decode-AF 尚未验证，需第二节点/容量合格
 拓扑；该组合通过后再进入 dSpark + MTP N1/N2/N3。完整 A8F4
 留给至少 12 张可用 NPU 且容量足够的环境。A5 PD 和 dSpark 组合闭环后，再进入最终精度；第二阶段再做 U3 和正式性能
 收益；TP/SP/CP/DCP/PP、TP3、非等量 TP2 和 TP2 最大 Graph+MTP 不作为第一阶段门禁。
