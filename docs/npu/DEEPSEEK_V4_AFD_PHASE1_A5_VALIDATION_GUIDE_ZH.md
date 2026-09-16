@@ -29,7 +29,7 @@ A5 单机可以验证 dSpark。本指导书先在一台 8 卡 A5 上验证 dSpar
 每台机器执行：
 
 ```bash
-export AFD_PLUGIN_ROOT="/root/dsv4-afd-hccl/src/afd-plugin-phase1-a5-native"
+export AFD_PLUGIN_ROOT="/root/dsv4-afd-hccl/src/afd-plugin-phase1-a5-dspark-66ec72f"
 export VENV_ROOT="/root/dsv4-afd-hccl/venv"
 
 git -C "$AFD_PLUGIN_ROOT" rev-parse HEAD
