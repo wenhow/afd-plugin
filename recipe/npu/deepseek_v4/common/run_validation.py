@@ -32,6 +32,9 @@ SHUTDOWN_HANDOFF_MIN_TIMEOUT_SECONDS = 15
 SHUTDOWN_HANDOFF_GRACE_SECONDS = 15
 SHUTDOWN_HANDOFF_POLL_SECONDS = 0.1
 FFN_SHUTDOWN_RECEIPT_MARKER = "AFD NPU FFN received Attention shutdown payload"
+DSPARK_DRAFTER_MARKER = (
+    "DeepSeek-V4 AFD keeps the complete DSpark draft model on the Attention worker"
+)
 FATAL_LOG_MARKERS = (
     "AFD NPU FFN worker loop failed",
     "EngineCore encountered a fatal error",
@@ -362,6 +365,72 @@ def _wait_for_request_quiescence(
     if last_error is not None:
         gate["last_error"] = f"{type(last_error).__name__}: {last_error}"
     (output_dir / f"{artifact_stem}_gate.json").write_text(
+        json.dumps(gate, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    return gate
+
+
+def _spec_decode_token_counts(text: str) -> tuple[float, float]:
+    counts: dict[str, list[float]] = {"draft": [], "accepted": []}
+    pattern = re.compile(
+        r"^vllm:spec_decode_num_(draft|accepted)_tokens(?:_total)?"
+        r"(?:\{[^}]*\})?\s+"
+        r"([-+]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][-+]?\d+)?)\s*$"
+    )
+    for line in text.splitlines():
+        match = pattern.match(line)
+        if match is not None:
+            counts[match.group(1)].append(float(match.group(2)))
+    if not counts["draft"] or not counts["accepted"]:
+        raise ValueError("speculative decode token metrics are missing")
+    return sum(counts["draft"]), sum(counts["accepted"])
+
+
+def _dspark_execution_gate(
+    *,
+    api_port: int,
+    output_dir: Path,
+    expected_attention_ranks: int,
+) -> dict[str, Any]:
+    endpoint = f"http://127.0.0.1:{api_port}/metrics"
+    metrics = ""
+    drafted: float | None = None
+    accepted: float | None = None
+    error: str | None = None
+    try:
+        with urllib.request.urlopen(endpoint, timeout=10) as response:
+            metrics = response.read().decode("utf-8", errors="replace")
+        drafted, accepted = _spec_decode_token_counts(metrics)
+    except (OSError, ValueError, urllib.error.URLError) as exc:
+        error = f"{type(exc).__name__}: {exc}"
+    (output_dir / "dspark.metrics").write_text(metrics, encoding="utf-8")
+
+    attention_log = output_dir / "attention.log"
+    attention_text = (
+        attention_log.read_text(encoding="utf-8", errors="replace")
+        if attention_log.is_file()
+        else ""
+    )
+    drafter_markers = attention_text.count(DSPARK_DRAFTER_MARKER)
+    gate: dict[str, Any] = {
+        "passed": bool(
+            error is None
+            and drafted is not None
+            and drafted > 0
+            and accepted is not None
+            and accepted > 0
+            and drafter_markers >= expected_attention_ranks
+        ),
+        "draft_tokens": drafted,
+        "accepted_tokens": accepted,
+        "drafter_marker": DSPARK_DRAFTER_MARKER,
+        "drafter_markers": drafter_markers,
+        "expected_attention_ranks": expected_attention_ranks,
+    }
+    if error is not None:
+        gate["error"] = error
+    (output_dir / "dspark_gate.json").write_text(
         json.dumps(gate, indent=2, sort_keys=True) + "\n",
         encoding="utf-8",
     )
@@ -711,6 +780,9 @@ def _runtime_manifest(
     enable_mtp: bool = False,
     mtp_num_speculative_tokens: int = 1,
     mtp_draft_execution: str = "eager",
+    enable_dspark: bool = False,
+    dspark_num_speculative_tokens: int = 0,
+    dspark_draft_execution: str = "eager",
     topology: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     venv_path = os.environ.get(
@@ -789,6 +861,11 @@ def _runtime_manifest(
         "enable_mtp": enable_mtp,
         "mtp_num_speculative_tokens": mtp_num_speculative_tokens,
         "mtp_draft_execution": mtp_draft_execution if enable_mtp else None,
+        "enable_dspark": enable_dspark,
+        "dspark_num_speculative_tokens": (
+            dspark_num_speculative_tokens if enable_dspark else None
+        ),
+        "dspark_draft_execution": (dspark_draft_execution if enable_dspark else None),
         "profile": profile,
         "profile_role_ranks": [0] if profile else [],
         "profile_role_rank_selection": profile_role_rank_selection,
@@ -932,6 +1009,81 @@ def _set_mtp_environment(
     )
 
 
+def _set_dspark_environment(
+    *,
+    enable_dspark: bool,
+    dspark_num_speculative_tokens: int,
+    dspark_draft_execution: str = "eager",
+) -> None:
+    os.environ.update(
+        {
+            "ENABLE_DSPARK": "1" if enable_dspark else "0",
+            "DSPARK_NUM_SPECULATIVE_TOKENS": str(dspark_num_speculative_tokens),
+            "DSPARK_DRAFT_EXECUTION": dspark_draft_execution,
+        }
+    )
+
+
+def _resolve_dspark_num_speculative_tokens(
+    model_path: Path,
+    requested: str,
+) -> int:
+    config_path = model_path / "config.json"
+    try:
+        config = json.loads(config_path.read_text(encoding="utf-8"))
+    except FileNotFoundError as exc:
+        raise ValueError(f"DSpark model config does not exist: {config_path}") from exc
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"DSpark model config is invalid JSON: {config_path}") from exc
+    if not isinstance(config, dict):
+        raise ValueError("DSpark model config must contain a JSON object")
+    block_size = config.get("dspark_block_size")
+    target_layer_ids = config.get("dspark_target_layer_ids")
+    if (
+        not isinstance(block_size, int)
+        or isinstance(block_size, bool)
+        or block_size <= 0
+    ):
+        raise ValueError(
+            "DSpark checkpoint requires a positive integer dspark_block_size"
+        )
+    if (
+        not isinstance(target_layer_ids, list)
+        or not target_layer_ids
+        or any(
+            not isinstance(layer_id, int) or isinstance(layer_id, bool)
+            for layer_id in target_layer_ids
+        )
+    ):
+        raise ValueError(
+            "DSpark checkpoint requires non-empty integer dspark_target_layer_ids"
+        )
+    num_hidden_layers = config.get("num_hidden_layers")
+    if isinstance(num_hidden_layers, int) and any(
+        layer_id < 0 or layer_id >= num_hidden_layers for layer_id in target_layer_ids
+    ):
+        raise ValueError(
+            "DSpark checkpoint target layers must be within num_hidden_layers"
+        )
+    if requested != "auto":
+        try:
+            requested_tokens = int(requested)
+        except ValueError as exc:
+            raise ValueError(
+                "DSpark num_speculative_tokens must be auto or a positive integer"
+            ) from exc
+        if requested_tokens <= 0:
+            raise ValueError(
+                "DSpark num_speculative_tokens must be auto or a positive integer"
+            )
+        if requested_tokens != block_size:
+            raise ValueError(
+                "DSpark num_speculative_tokens must match checkpoint "
+                f"dspark_block_size={block_size}"
+            )
+    return block_size
+
+
 def _set_execution_environment(
     *,
     async_scheduling: str,
@@ -987,6 +1139,9 @@ def _validate_execution_topology(
     enable_mtp: bool = False,
     mtp_num_speculative_tokens: int = 1,
     mtp_draft_execution: str = "eager",
+    enable_dspark: bool = False,
+    dspark_num_speculative_tokens: int = 0,
+    dspark_draft_execution: str = "eager",
     topology: dict[str, Any],
 ) -> None:
     tensor_parallel_size = int(topology.get("tensor_parallel_size", 1))
@@ -1012,18 +1167,40 @@ def _validate_execution_topology(
         raise ValueError(
             "DeepSeek-V4 graph U2 requires async scheduling off on the pinned stack",
         )
-    if not enable_mtp:
+    if enable_mtp and enable_dspark:
+        raise ValueError("DeepSeek-V4 MTP and DSpark cannot both be enabled")
+    if not enable_mtp and not enable_dspark:
         return
     if connector != "P2pHcclAFDConnector":
-        raise ValueError("DeepSeek-V4 MTP requires P2pHcclAFDConnector")
+        mode = "DSpark" if enable_dspark else "MTP"
+        raise ValueError(f"DeepSeek-V4 {mode} requires P2pHcclAFDConnector")
     if execution_mode not in {"eager", "full-decode-only"}:
-        raise ValueError("DeepSeek-V4 MTP requires eager or full-decode-only execution")
-    if not 1 <= mtp_num_speculative_tokens <= 3:
-        raise ValueError("DeepSeek-V4 MTP supports num_speculative_tokens in [1, 3]")
-    if mtp_draft_execution not in {"eager", "graph"}:
-        raise ValueError("DeepSeek-V4 MTP draft execution must be eager or graph")
-    if mtp_draft_execution == "graph" and execution_mode != "full-decode-only":
-        raise ValueError("DeepSeek-V4 MTP draft Graph requires target full-decode-only")
+        raise ValueError(
+            "DeepSeek-V4 speculative decode requires eager or "
+            "full-decode-only execution"
+        )
+    if enable_mtp:
+        if not 1 <= mtp_num_speculative_tokens <= 3:
+            raise ValueError(
+                "DeepSeek-V4 MTP supports num_speculative_tokens in [1, 3]"
+            )
+        if mtp_draft_execution not in {"eager", "graph"}:
+            raise ValueError("DeepSeek-V4 MTP draft execution must be eager or graph")
+        if mtp_draft_execution == "graph" and execution_mode != "full-decode-only":
+            raise ValueError(
+                "DeepSeek-V4 MTP draft Graph requires target full-decode-only"
+            )
+    if enable_dspark:
+        if dspark_num_speculative_tokens <= 0:
+            raise ValueError("DeepSeek-V4 DSpark requires positive speculative tokens")
+        if dspark_draft_execution not in {"eager", "graph"}:
+            raise ValueError(
+                "DeepSeek-V4 DSpark draft execution must be eager or graph"
+            )
+        if dspark_draft_execution == "graph" and execution_mode != "full-decode-only":
+            raise ValueError(
+                "DeepSeek-V4 DSpark draft Graph requires target full-decode-only"
+            )
 
 
 def main() -> None:
@@ -1146,13 +1323,34 @@ def main() -> None:
         choices=("eager", "graph"),
         default=os.environ.get("MTP_DRAFT_EXECUTION", "eager"),
     )
+    parser.add_argument(
+        "--enable-dspark",
+        action="store_true",
+        default=os.environ.get("ENABLE_DSPARK", "0") == "1",
+    )
+    parser.add_argument(
+        "--dspark-num-speculative-tokens",
+        default=os.environ.get("DSPARK_NUM_SPECULATIVE_TOKENS", "auto"),
+    )
+    parser.add_argument(
+        "--dspark-draft-execution",
+        choices=("eager", "graph"),
+        default=os.environ.get("DSPARK_DRAFT_EXECUTION", "eager"),
+    )
     args = parser.parse_args()
 
     if args.dbo_decode_token_threshold < 0:
         parser.error("--dbo-decode-token-threshold must be non-negative")
     if args.dbo_prefill_token_threshold < 0:
         parser.error("--dbo-prefill-token-threshold must be non-negative")
+    dspark_num_speculative_tokens = 0
     try:
+        if args.enable_dspark:
+            model_path = Path(os.environ.get("MODEL_PATH", ""))
+            dspark_num_speculative_tokens = _resolve_dspark_num_speculative_tokens(
+                model_path,
+                args.dspark_num_speculative_tokens,
+            )
         topology = _resolve_topology(
             connector=args.connector,
             attention_devices=args.attention_devices,
@@ -1169,6 +1367,9 @@ def main() -> None:
             enable_mtp=args.enable_mtp,
             mtp_num_speculative_tokens=args.mtp_num_speculative_tokens,
             mtp_draft_execution=args.mtp_draft_execution,
+            enable_dspark=args.enable_dspark,
+            dspark_num_speculative_tokens=dspark_num_speculative_tokens,
+            dspark_draft_execution=args.dspark_draft_execution,
             topology=topology,
         )
     except ValueError as exc:
@@ -1188,6 +1389,11 @@ def main() -> None:
         enable_mtp=args.enable_mtp,
         mtp_num_speculative_tokens=args.mtp_num_speculative_tokens,
         mtp_draft_execution=args.mtp_draft_execution,
+    )
+    _set_dspark_environment(
+        enable_dspark=args.enable_dspark,
+        dspark_num_speculative_tokens=dspark_num_speculative_tokens,
+        dspark_draft_execution=args.dspark_draft_execution,
     )
 
     for port in (args.attention_port, args.ffn_port, args.afd_port):
@@ -1214,6 +1420,9 @@ def main() -> None:
                 enable_mtp=args.enable_mtp,
                 mtp_num_speculative_tokens=args.mtp_num_speculative_tokens,
                 mtp_draft_execution=args.mtp_draft_execution,
+                enable_dspark=args.enable_dspark,
+                dspark_num_speculative_tokens=dspark_num_speculative_tokens,
+                dspark_draft_execution=args.dspark_draft_execution,
                 topology=topology,
             ),
             indent=2,
@@ -1349,6 +1558,17 @@ def main() -> None:
                             batch_sizes=[1],
                             prompt_indices=args.prompt_indices,
                         )
+                if args.enable_dspark:
+                    dspark_gate = _dspark_execution_gate(
+                        api_port=args.attention_port,
+                        output_dir=cycle_dir,
+                        expected_attention_ranks=topology["attention_ranks"],
+                    )
+                    cycle_result["dspark_gate"] = dspark_gate
+                    if not dspark_gate["passed"]:
+                        raise RuntimeError(
+                            "DSpark drafter or speculative token metric gate failed"
+                        )
                 cycle_result["passed"] = True
             finally:
                 cycle_result["shutdown"] = _shutdown_roles(
@@ -1382,6 +1602,7 @@ def main() -> None:
                     and cycle_result.get("cancellation_quiescence_gate", {}).get(
                         "passed", True
                     )
+                    and cycle_result.get("dspark_gate", {}).get("passed", True)
                     and profile_passed
                 )
                 cycle_result["npu_cleanup_gate"] = _wait_for_npu_cleanup(
@@ -1424,6 +1645,13 @@ def main() -> None:
             "mtp_num_speculative_tokens": args.mtp_num_speculative_tokens,
             "mtp_draft_execution": (
                 args.mtp_draft_execution if args.enable_mtp else None
+            ),
+            "enable_dspark": args.enable_dspark,
+            "dspark_num_speculative_tokens": (
+                dspark_num_speculative_tokens if args.enable_dspark else None
+            ),
+            "dspark_draft_execution": (
+                args.dspark_draft_execution if args.enable_dspark else None
             ),
             "topology": topology,
         }

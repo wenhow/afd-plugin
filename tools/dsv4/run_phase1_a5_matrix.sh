@@ -27,6 +27,10 @@ SMOKE_CASES=(
   a2f4_graph_u2_mtp_off
   a4f2_graph_u2_mtp_off
 )
+DSPARK_CASES=(
+  a4f4_dspark_eager_u1
+  a4f4_dspark_graph_u2
+)
 DIAGNOSTIC_CASES=(
   a4f4_graph_u1_mtp_off
   a4f4_eager_u2_mtp_off
@@ -41,14 +45,17 @@ Usage:
   bash tools/dsv4/run_phase1_a5_matrix.sh list
   bash tools/dsv4/run_phase1_a5_matrix.sh list-smoke
   bash tools/dsv4/run_phase1_a5_matrix.sh list-diagnostic
+  bash tools/dsv4/run_phase1_a5_matrix.sh list-dspark
   bash tools/dsv4/run_phase1_a5_matrix.sh list-deferred-exact
   bash tools/dsv4/run_phase1_a5_matrix.sh preflight-native
   bash tools/dsv4/run_phase1_a5_matrix.sh preflight [case ...]
   bash tools/dsv4/run_phase1_a5_matrix.sh preflight-smoke [case ...]
   bash tools/dsv4/run_phase1_a5_matrix.sh preflight-diagnostic [case ...]
+  bash tools/dsv4/run_phase1_a5_matrix.sh preflight-dspark [case ...]
   bash tools/dsv4/run_phase1_a5_matrix.sh preflight-deferred-exact [case ...]
   bash tools/dsv4/run_phase1_a5_matrix.sh smoke [case ...]
   bash tools/dsv4/run_phase1_a5_matrix.sh diagnostic [case ...]
+  bash tools/dsv4/run_phase1_a5_matrix.sh dspark [case ...]
   bash tools/dsv4/run_phase1_a5_matrix.sh f0 [case ...]
   bash tools/dsv4/run_phase1_a5_matrix.sh f1 [case ...]
 
@@ -56,13 +63,16 @@ Required environment for f0/f1 only:
   PHASE1_GOLDEN_ROOT  Five same-stack, path-matched native controls
   PHASE1_ENABLE_DEFERRED_EXACT=1  Explicit acknowledgement of deferred scope
 
-Required environment for smoke/f0/f1:
+Required environment for smoke/dspark/f0/f1:
   PHASE1_OUTPUT_BASE  Fresh output root (default includes a timestamp)
 
 Smoke is the MTP-off A5 phase-one functional gate. It runs two cold cycles,
 batch 1/8/32, cancellation recovery, U2/log/cleanup gates, and no golden
 comparison. F0/F1 retain the deferred standalone exact matrix, but are not
 part of the current A5 gate; MTP validation resumes only with dSpark.
+DSpark runs the standalone A4F4 eager/U1 and Graph/U2 functional gates for two
+cold cycles. MODEL_PATH must point to a DSpark checkpoint; the runner verifies
+its checkpoint contract, Attention drafter markers, and speculative metrics.
 Diagnostic runs one cold cycle for the MTP-off A4F4 Graph/U1, streamed U2,
 serial U2, and Graph compute-only isolation points. It is evidence for fault
 localization, not a phase-one gate.
@@ -85,6 +95,14 @@ contains_exact_case() {
 contains_smoke_case() {
   local requested="$1" candidate
   for candidate in "${SMOKE_CASES[@]}"; do
+    [[ "${candidate}" == "${requested}" ]] && return 0
+  done
+  return 1
+}
+
+contains_dspark_case() {
+  local requested="$1" candidate
+  for candidate in "${DSPARK_CASES[@]}"; do
     [[ "${candidate}" == "${requested}" ]] && return 0
   done
   return 1
@@ -295,6 +313,25 @@ activate_and_audit_diagnostic() {
   done
 }
 
+activate_and_audit_dspark() {
+  audit_stack
+  local model_tool="${SCRIPT_DIR}/hccl_manual_install/bin/model_launch_args.py"
+  local checkpoint_tokens requested_cases=("$@") case_name
+  checkpoint_tokens="$(
+    "${DSV4_RUNTIME_VENV}/bin/python" "${model_tool}" \
+      --model-path "${MODEL_PATH}" --get dspark_block_size
+  )"
+  [[ "${checkpoint_tokens}" =~ ^[1-9][0-9]*$ ]] \
+    || die "MODEL_PATH must point to a DSpark checkpoint with dspark_block_size"
+  if (( ${#requested_cases[@]} == 0 )); then
+    requested_cases=("${DSPARK_CASES[@]}")
+  fi
+  for case_name in "${requested_cases[@]}"; do
+    contains_dspark_case "${case_name}" \
+      || die "Case is not in the A5 DSpark matrix: ${case_name}"
+  done
+}
+
 case_arguments() {
   local case_name="$1"
   CASE_ARGS=(
@@ -307,6 +344,12 @@ case_arguments() {
       ;;
     a4f4_graph_u2_mtp_off)
       CASE_ARGS+=(--attention-devices 0,1,2,3 --ffn-devices 4,5,6,7 --ffn-max-num-batched-tokens 4096 --execution-mode full-decode-only --u-batches 2 --async-scheduling off --eager-u2-stream-overlap off --graph-u2-compute-overlap on --graph-u2-hybrid-dag on --graph-u2-attention-three-stream on --graph-u2-ffn-recv-stream on --graph-u2-ffn-cross-layer on)
+      ;;
+    a4f4_dspark_eager_u1)
+      CASE_ARGS+=(--attention-devices 0,1,2,3 --ffn-devices 4,5,6,7 --ffn-max-num-batched-tokens 4096 --execution-mode eager --u-batches 1 --enable-dspark --dspark-num-speculative-tokens auto --dspark-draft-execution eager)
+      ;;
+    a4f4_dspark_graph_u2)
+      CASE_ARGS+=(--attention-devices 0,1,2,3 --ffn-devices 4,5,6,7 --ffn-max-num-batched-tokens 4096 --execution-mode full-decode-only --u-batches 2 --async-scheduling off --eager-u2-stream-overlap off --graph-u2-compute-overlap on --graph-u2-hybrid-dag on --graph-u2-attention-three-stream on --graph-u2-ffn-recv-stream on --graph-u2-ffn-cross-layer on --enable-dspark --dspark-num-speculative-tokens auto --dspark-draft-execution graph)
       ;;
     a4f4_graph_u1_mtp_off)
       CASE_ARGS+=(--attention-devices 0,1,2,3 --ffn-devices 4,5,6,7 --ffn-max-num-batched-tokens 4096 --execution-mode full-decode-only --u-batches 1 --async-scheduling off)
@@ -366,7 +409,7 @@ run_matrix() {
   local cycles rounds idle_seconds output_root case_name golden_path case_rc matrix_rc
   local diagnostic_ascend_log_root=""
   case "${phase}" in
-    smoke)
+    smoke|dspark)
       cycles=2
       rounds=1
       idle_seconds=0
@@ -402,14 +445,14 @@ run_matrix() {
     printf 'afd_commit=%s\n' "$(git -C "${REPO_ROOT}" rev-parse HEAD)"
     printf 'cann_root=%s\n' "$(readlink -f "${DSV4_CANN_ROOT}")"
     printf 'golden_checked=%s\n' \
-      "$([[ "${phase}" == "smoke" || "${phase}" == "diagnostic" ]] && printf 0 || printf 1)"
+      "$([[ "${phase}" == "smoke" || "${phase}" == "diagnostic" || "${phase}" == "dspark" ]] && printf 0 || printf 1)"
     printf 'vllm_shutdown_timeout_seconds=%s\n' \
       "${PHASE1_VLLM_SHUTDOWN_TIMEOUT_SECONDS}"
     if [[ "${phase}" == "diagnostic" ]]; then
       printf 'ascend_process_log_path=%s\n' \
         "$(readlink -f "${diagnostic_ascend_log_root}")"
     fi
-    if [[ "${phase}" != "smoke" && "${phase}" != "diagnostic" ]]; then
+    if [[ "${phase}" != "smoke" && "${phase}" != "diagnostic" && "${phase}" != "dspark" ]]; then
       printf 'golden_root=%s\n' "$(readlink -f "${PHASE1_GOLDEN_ROOT}")"
     fi
   } >"${output_root}/matrix.env"
@@ -418,6 +461,8 @@ run_matrix() {
   if (( $# == 0 )); then
     if [[ "${phase}" == "smoke" ]]; then
       set -- "${SMOKE_CASES[@]}"
+    elif [[ "${phase}" == "dspark" ]]; then
+      set -- "${DSPARK_CASES[@]}"
     elif [[ "${phase}" == "diagnostic" ]]; then
       set -- "${DIAGNOSTIC_CASES[@]}"
     else
@@ -429,6 +474,9 @@ run_matrix() {
     if [[ "${phase}" == "smoke" ]]; then
       contains_smoke_case "${case_name}" \
         || die "Case is not in the A5 phase-one smoke matrix: ${case_name}"
+    elif [[ "${phase}" == "dspark" ]]; then
+      contains_dspark_case "${case_name}" \
+        || die "Case is not in the A5 DSpark matrix: ${case_name}"
     elif [[ "${phase}" == "diagnostic" ]]; then
       contains_diagnostic_case "${case_name}" \
         || die "Case is not in the A5 diagnostic matrix: ${case_name}"
@@ -445,18 +493,21 @@ run_matrix() {
       --batch-sizes 1 8 32 \
       "${CASE_ARGS[@]}"
     )
-    if [[ "${phase}" == "smoke" || "${phase}" == "diagnostic" ]]; then
+    if [[ "${phase}" == "smoke" || "${phase}" == "diagnostic" || "${phase}" == "dspark" ]]; then
       runner_args+=(--functional-smoke)
     else
       golden_path="$(golden_for_case "${case_name}")"
       runner_args+=(--golden "${golden_path}")
     fi
     set +e
-    # Case arguments are authoritative; do not inherit MTP defaults from config.env.
+    # Case arguments are authoritative; do not inherit speculative defaults.
     env \
       ENABLE_MTP=0 \
       MTP_NUM_SPECULATIVE_TOKENS=1 \
       MTP_DRAFT_EXECUTION=eager \
+      ENABLE_DSPARK=0 \
+      DSPARK_NUM_SPECULATIVE_TOKENS=auto \
+      DSPARK_DRAFT_EXECUTION=eager \
       VLLM_SHUTDOWN_TIMEOUT_SECONDS="${PHASE1_VLLM_SHUTDOWN_TIMEOUT_SECONDS}" \
       "${DSV4_RUNTIME_VENV}/bin/python" "${RUNNER}" "${runner_args[@]}"
     case_rc=$?
@@ -486,6 +537,7 @@ case "${ACTION}" in
   help|-h|--help) usage ;;
   list|list-smoke) printf '%s\n' "${SMOKE_CASES[@]}" ;;
   list-diagnostic) printf '%s\n' "${DIAGNOSTIC_CASES[@]}" ;;
+  list-dspark) printf '%s\n' "${DSPARK_CASES[@]}" ;;
   list-deferred-exact) printf '%s\n' "${EXACT_CASES[@]}" ;;
   preflight-native) audit_stack; printf '[phase1-a5] native preflight passed\n' ;;
   preflight|preflight-smoke)
@@ -496,6 +548,10 @@ case "${ACTION}" in
     activate_and_audit_diagnostic "$@"
     printf '[phase1-a5] diagnostic preflight passed\n'
     ;;
+  preflight-dspark)
+    activate_and_audit_dspark "$@"
+    printf '[phase1-a5] DSpark preflight passed\n'
+    ;;
   preflight-deferred-exact)
     [[ "${PHASE1_ENABLE_DEFERRED_EXACT:-0}" == "1" ]] \
       || die "exact preflight is deferred; MTP validation resumes with dSpark"
@@ -505,6 +561,10 @@ case "${ACTION}" in
   smoke) activate_and_audit_smoke "$@"; run_matrix "${ACTION}" "$@" ;;
   diagnostic)
     activate_and_audit_diagnostic "$@"
+    run_matrix "${ACTION}" "$@"
+    ;;
+  dspark)
+    activate_and_audit_dspark "$@"
     run_matrix "${ACTION}" "$@"
     ;;
   f0|f1)

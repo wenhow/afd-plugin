@@ -12,7 +12,9 @@ usage() {
   cat <<'EOF'
 Usage:
   bash tools/dsv4/run_phase1_a5_native_smoke.sh preflight
+  bash tools/dsv4/run_phase1_a5_native_smoke.sh preflight-dspark
   bash tools/dsv4/run_phase1_a5_native_smoke.sh run
+  bash tools/dsv4/run_phase1_a5_native_smoke.sh run-dspark
 
 Required for run:
   PHASE1_NATIVE_OUTPUT_ROOT  Fresh evidence directory.
@@ -22,9 +24,9 @@ Optional:
   PHASE1_NATIVE_API_PORT=8900
   PHASE1_NATIVE_READY_TIMEOUT_SECONDS=3600
 
-This starts one official-style no-AFD DP4 Graph/MTP-off service, checks health,
-the model list and one completion, then stops it. It never creates or compares
-golden tokens.
+Run starts one official-style no-AFD DP4 Graph/MTP-off service. Run-dspark
+starts a no-AFD DP4 eager/DSpark service and also requires positive draft and
+accepted token metrics. Neither action creates or compares golden tokens.
 EOF
 }
 
@@ -55,13 +57,39 @@ wait_for_empty_npus() {
 }
 
 run_smoke() {
+  local validation_kind="$1"
   local output_root="${PHASE1_NATIVE_OUTPUT_ROOT:-}"
   [[ -n "${output_root}" ]] || die "PHASE1_NATIVE_OUTPUT_ROOT is required"
   [[ ! -e "${output_root}" ]] || die "Output root already exists: ${output_root}"
 
-  bash "${MATRIX_RUNNER}" preflight-native
+  local execution_mode enable_dspark dspark_draft_execution batch_sizes
+  case "${validation_kind}" in
+    mtp-off)
+      execution_mode=full-decode-only
+      enable_dspark=0
+      dspark_draft_execution=eager
+      batch_sizes=1
+      bash "${MATRIX_RUNNER}" preflight-native
+      ;;
+    dspark)
+      execution_mode=eager
+      enable_dspark=1
+      dspark_draft_execution=eager
+      batch_sizes="1 8"
+      bash "${MATRIX_RUNNER}" preflight-dspark
+      ;;
+    *) die "Unknown native validation kind: ${validation_kind}" ;;
+  esac
   source "${SCRIPT_DIR}/activate_v023_vllm_cann_runtime.sh"
   export PYTHONPATH="${REPO_ROOT}:${DSV4_VLLM_ROOT}:${DSV4_VLLM_ASCEND_ROOT}${PYTHONPATH:+:${PYTHONPATH}}"
+  local dspark_num_speculative_tokens=0
+  if [[ "${enable_dspark}" == "1" ]]; then
+    dspark_num_speculative_tokens="$(
+      "${DSV4_RUNTIME_VENV}/bin/python" \
+        "${SCRIPT_DIR}/hccl_manual_install/bin/model_launch_args.py" \
+        --model-path "${MODEL_PATH}" --get dspark_block_size
+    )"
+  fi
 
   local devices="${PHASE1_NATIVE_DEVICES:-${ATTENTION_DEVICES:-0,1,2,3}}"
   local api_port="${PHASE1_NATIVE_API_PORT:-8900}"
@@ -98,10 +126,15 @@ PY
     printf 'devices=%s\n' "${devices}"
     printf 'data_parallel_size=4\n'
     printf 'tensor_parallel_size=1\n'
-    printf 'execution_mode=full-decode-only\n'
+    printf 'execution_mode=%s\n' "${execution_mode}"
     printf 'enable_mtp=0\n'
     printf 'mtp_num_speculative_tokens=0\n'
     printf 'mtp_draft_execution=off\n'
+    printf 'enable_dspark=%s\n' "${enable_dspark}"
+    printf 'dspark_num_speculative_tokens=%s\n' \
+      "${dspark_num_speculative_tokens}"
+    printf 'dspark_draft_execution=%s\n' \
+      "$([[ "${enable_dspark}" == "1" ]] && printf '%s' "${dspark_draft_execution}" || printf off)"
     printf 'model_path=%s\n' "${MODEL_PATH}"
     printf 'model_config_sha256=%s\n' "$(sha256sum "${MODEL_PATH}/config.json" | awk '{print $1}')"
     printf 'cann_root=%s\n' "$(readlink -f "${DSV4_CANN_ROOT}")"
@@ -153,10 +186,13 @@ PY
     MASTER_PORT=$((api_port + 20001)) \
     HCCL_IF_BASE_PORT=$((api_port + 44000)) \
     ASCEND_RT_VISIBLE_DEVICES="${devices}" \
-    EXECUTION_MODE=full-decode-only \
+    EXECUTION_MODE="${execution_mode}" \
     ENABLE_MTP=0 \
     MTP_NUM_SPECULATIVE_TOKENS=1 \
     MTP_DRAFT_EXECUTION=eager \
+    ENABLE_DSPARK="${enable_dspark}" \
+    DSPARK_NUM_SPECULATIVE_TOKENS="${dspark_num_speculative_tokens}" \
+    DSPARK_DRAFT_EXECUTION="${dspark_draft_execution}" \
     TENSOR_PARALLEL_SIZE=1 \
     bash "${NATIVE_LAUNCHER}" \
     >"${output_root}/server.log" 2>&1 &
@@ -184,8 +220,50 @@ PY
   "${DSV4_RUNTIME_VENV}/bin/python" "${FUNCTIONAL_SMOKE_TOOL}" \
     --endpoint "http://127.0.0.1:${api_port}/v1/completions" \
     --model dsv4-v023-native \
-    --batch-sizes "1" \
+    --batch-sizes "${batch_sizes}" \
     --output "${output_root}/functional_smoke.json"
+
+  if [[ "${enable_dspark}" == "1" ]]; then
+    curl --noproxy '*' -fsS --max-time 30 \
+      "http://127.0.0.1:${api_port}/metrics" \
+      >"${output_root}/dspark.metrics"
+    "${DSV4_RUNTIME_VENV}/bin/python" - \
+      "${output_root}/dspark.metrics" \
+      "${output_root}/dspark_gate.json" <<'PY'
+import json
+import re
+import sys
+from pathlib import Path
+
+metrics_path = Path(sys.argv[1])
+output_path = Path(sys.argv[2])
+counts = {"draft": [], "accepted": []}
+pattern = re.compile(
+    r"^vllm:spec_decode_num_(draft|accepted)_tokens(?:_total)?"
+    r"(?:\{[^}]*\})?\s+"
+    r"([-+]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][-+]?\d+)?)\s*$"
+)
+for line in metrics_path.read_text(encoding="utf-8").splitlines():
+    match = pattern.match(line)
+    if match:
+        counts[match.group(1)].append(float(match.group(2)))
+drafted = sum(counts["draft"]) if counts["draft"] else None
+accepted = sum(counts["accepted"]) if counts["accepted"] else None
+report = {
+    "passed": bool(
+        drafted is not None
+        and drafted > 0
+        and accepted is not None
+        and accepted > 0
+    ),
+    "draft_tokens": drafted,
+    "accepted_tokens": accepted,
+}
+output_path.write_text(json.dumps(report, indent=2, sort_keys=True) + "\n")
+if not report["passed"]:
+    raise SystemExit("DSpark did not draft and accept tokens")
+PY
+  fi
 
   cleanup_native
   (( forced_stop == 0 )) || die "Native service required SIGKILL"
@@ -206,6 +284,8 @@ PY
 case "${ACTION}" in
   help|-h|--help) usage ;;
   preflight) bash "${MATRIX_RUNNER}" preflight-native ;;
-  run) run_smoke ;;
+  preflight-dspark) bash "${MATRIX_RUNNER}" preflight-dspark ;;
+  run) run_smoke mtp-off ;;
+  run-dspark) run_smoke dspark ;;
   *) usage; die "Unknown action: ${ACTION}" ;;
 esac

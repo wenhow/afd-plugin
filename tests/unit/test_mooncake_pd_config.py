@@ -365,7 +365,7 @@ def test_mooncake_pd_recipes_accept_dp4_tp2_without_relaxing_other_modes():
     assert "spec_decode_num_accepted_tokens_total" in manual
     assert "No successful Mooncake KV transfer marker" in manual
     assert "No live two-stage U2 marker" in manual
-    assert 'CANN version check skipped; using configured path ${CANN_ROOT}' in manual
+    assert "CANN version check skipped; using configured path ${CANN_ROOT}" in manual
     assert "--enable-dbo" in control
     assert "FULL_DECODE_ONLY" in control
     assert "--speculative-config" in control
@@ -398,7 +398,7 @@ def test_mooncake_pd_manual_print_config_preserves_variant_and_role(
     assert f"NODE_ROLE={role}" in output
 
 
-def test_a5_pd_generator_creates_four_a4f4_points(tmp_path):
+def test_a5_pd_generator_creates_two_graph_u2_integration_points(tmp_path):
     site = tmp_path / "site.env"
     config_dir = tmp_path / "configs"
     site.write_text(
@@ -431,7 +431,12 @@ def test_a5_pd_generator_creates_four_a4f4_points(tmp_path):
     )
 
     generated = sorted(config_dir.glob("*.env"))
-    assert len(generated) == 12
+    assert len(generated) == 6
+    assert {path.name for path in generated} == {
+        f"{point}-{role}.env"
+        for point in ("pd_afd_graph_u2", "pd_afd_dspark_graph_u2")
+        for role in ("prefill", "decode", "proxy")
+    }
     graph = (config_dir / "pd_afd_graph_u2-decode.env").read_text()
     dspark = (config_dir / "pd_afd_dspark_graph_u2-decode.env").read_text()
     for config in (graph, dspark):

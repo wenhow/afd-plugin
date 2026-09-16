@@ -13,9 +13,7 @@ CONFIG_DIR="${2:-}"
 SITE_CONFIG="${3:-}"
 
 POINTS=(
-  pd_afd_eager_u1
   pd_afd_graph_u2
-  pd_afd_dspark_eager_u1
   pd_afd_dspark_graph_u2
 )
 ROLES=(prefill decode proxy)
@@ -26,7 +24,7 @@ Usage:
   bash init_a5_pd_validation.sh list
   bash init_a5_pd_validation.sh init <config-dir> <absolute-site.env>
 
-The init action creates four validation points with prefill, decode, and proxy
+The init action creates two Graph/U2 integration points with prefill, decode, and proxy
 role configs. It refuses to overwrite an existing config directory.
 EOF
 }
@@ -38,9 +36,7 @@ die() {
 
 list_points() {
   cat <<'EOF'
-pd_afd_eager_u1              Flash checkpoint, PD + A4F4, eager/U1
 pd_afd_graph_u2              Flash checkpoint, PD + A4F4, Graph/U2
-pd_afd_dspark_eager_u1       DSpark checkpoint, PD + A4F4, eager/U1
 pd_afd_dspark_graph_u2       DSpark checkpoint, PD + A4F4, Graph/U2 + draft Graph
 EOF
 }
@@ -58,14 +54,9 @@ point_spec() {
   POINT_ENABLE_DSPARK=0
   POINT_DSPARK_DRAFT_EXECUTION=eager
   case "${point}" in
-    pd_afd_eager_u1) ;;
     pd_afd_graph_u2)
       POINT_EXECUTION_MODE=full-decode-only
       POINT_U_BATCHES=2
-      ;;
-    pd_afd_dspark_eager_u1)
-      POINT_MODEL_PATH="${DSPARK_MODEL_PATH}"
-      POINT_ENABLE_DSPARK=1
       ;;
     pd_afd_dspark_graph_u2)
       POINT_MODEL_PATH="${DSPARK_MODEL_PATH}"

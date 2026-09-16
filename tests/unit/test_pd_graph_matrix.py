@@ -196,9 +196,7 @@ def test_matrix_refreshes_legacy_prompt_source_without_commit_change(tmp_path):
 
     assert result.returncode == 0, result.stderr
     config = _source_config(common)
-    assert config["NATIVE_GOLDEN_PATH"] == (
-        f"{ROOT}/tools/dsv4/phase1_prompts.json"
-    )
+    assert config["NATIVE_GOLDEN_PATH"] == (f"{ROOT}/tools/dsv4/phase1_prompts.json")
     assert "Refreshed legacy A5 prompt dependency" in result.stdout
 
 
@@ -216,7 +214,7 @@ def test_matrix_generates_split_a16f8_contract(tmp_path):
     common_config = _source_config(tmp_path / "common.env")
     assert common_config["AFD_PD_COMMIT"] == repo_head
     assert common_config["NATIVE_GOLDEN_PATH"] == (
-        f'{common_config["AFD_PLUGIN_ROOT"]}/tools/dsv4/phase1_prompts.json'
+        f"{common_config['AFD_PLUGIN_ROOT']}/tools/dsv4/phase1_prompts.json"
     )
 
     for role in ("prefill_ffn", "attention", "proxy"):
@@ -264,9 +262,7 @@ def test_matrix_init_accepts_site_common_template(tmp_path):
     env = os.environ.copy()
     env["PD_GRAPH_MATRIX_COMMON_TEMPLATE"] = str(template)
 
-    subprocess.run(
-        ["bash", str(MATRIX), "init", str(config_dir)], env=env, check=True
-    )
+    subprocess.run(["bash", str(MATRIX), "init", str(config_dir)], env=env, check=True)
 
     config = _source_config(config_dir / "common.env")
     assert config["AFD_PLUGIN_ROOT"].endswith("/afd-plugin-phase1-a5")
@@ -362,12 +358,11 @@ def test_phase1_points_match_control_and_topology_contract(
     assert config["DECODE_EXECUTION_MODE"] == control["DECODE_EXECUTION_MODE"]
     assert config["DECODE_U_BATCHES"] == control["DECODE_U_BATCHES"]
     assert config["DECODE_ENABLE_MTP"] == control["DECODE_ENABLE_MTP"]
-    assert config["DECODE_MTP_NUM_SPECULATIVE_TOKENS"] == control[
-        "DECODE_MTP_NUM_SPECULATIVE_TOKENS"
-    ]
-    assert config["DECODE_MTP_DRAFT_EXECUTION"] == control[
-        "DECODE_MTP_DRAFT_EXECUTION"
-    ]
+    assert (
+        config["DECODE_MTP_NUM_SPECULATIVE_TOKENS"]
+        == control["DECODE_MTP_NUM_SPECULATIVE_TOKENS"]
+    )
+    assert config["DECODE_MTP_DRAFT_EXECUTION"] == control["DECODE_MTP_DRAFT_EXECUTION"]
 
 
 def test_a5_matrix_lists_the_deferred_exact_cases_explicitly():
@@ -383,7 +378,7 @@ def test_a5_matrix_lists_the_deferred_exact_cases_explicitly():
     assert "PHASE1_GOLDEN=" not in script
     assert "control_key_for_case" in script
     assert "graph_target_draft_graph_mtp_n3" in script
-    assert '.metadata.cann_root == $cann_root' in script
+    assert ".metadata.cann_root == $cann_root" in script
     assert '.metadata.cann_version == "9.0.0"' not in script
     assert output.splitlines() == [
         "a4f4_eager_u1_mtp_off",
@@ -408,6 +403,8 @@ def test_a5_matrix_lists_the_deferred_exact_cases_explicitly():
         ("a4f4_graph_u2_serial_mtp_off", "0,1,2,3", "4,5,6,7", "4096"),
         ("a4f4_graph_u2_compute_only_mtp_off", "0,1,2,3", "4,5,6,7", "4096"),
         ("a4f4_graph_u2_mtp_off", "0,1,2,3", "4,5,6,7", "4096"),
+        ("a4f4_dspark_eager_u1", "0,1,2,3", "4,5,6,7", "4096"),
+        ("a4f4_dspark_graph_u2", "0,1,2,3", "4,5,6,7", "4096"),
         ("a4f4_graph_u2_n2", "0,1,2,3", "4,5,6,7", "4096"),
         ("a4f4_graph_u2_n3", "0,1,2,3", "4,5,6,7", "4096"),
         ("a2f4_graph_u2_mtp_off", "0,1", "2,3,4,5", "2048"),
@@ -461,9 +458,9 @@ def test_a5_phase1_smoke_matrix_is_functional_only():
         "a2f4_graph_u2_mtp_off",
         "a4f2_graph_u2_mtp_off",
     ]
-    assert subprocess.check_output(
-        ["bash", str(A5_MATRIX), "list"], text=True
-    ) == output
+    assert (
+        subprocess.check_output(["bash", str(A5_MATRIX), "list"], text=True) == output
+    )
     assert "smoke) activate_and_audit_smoke" in script
     assert "preflight|preflight-smoke)" in script
     assert "runner_args+=(--functional-smoke)" in script
@@ -478,16 +475,70 @@ source "$matrix_path" >/dev/null
 case_arguments "$case_name"
 printf '%s\\0' "${CASE_ARGS[@]}"
 """
-        args = subprocess.check_output(
-            ["bash", "-c", command, "bash", str(A5_MATRIX), case_name]
-        ).decode().rstrip("\0").split("\0")
+        args = (
+            subprocess.check_output(
+                ["bash", "-c", command, "bash", str(A5_MATRIX), case_name]
+            )
+            .decode()
+            .rstrip("\0")
+            .split("\0")
+        )
         assert "--enable-mtp" not in args
         if "graph_u2" in case_name:
             assert args[args.index("--async-scheduling") + 1] == "off"
 
 
+def test_a5_dspark_matrix_pins_checkpoint_driven_a4f4_cases():
+    output = subprocess.check_output(
+        ["bash", str(A5_MATRIX), "list-dspark"],
+        text=True,
+    )
+    assert output.splitlines() == [
+        "a4f4_dspark_eager_u1",
+        "a4f4_dspark_graph_u2",
+    ]
+
+    expected = {
+        "a4f4_dspark_eager_u1": ("eager", "1", "eager"),
+        "a4f4_dspark_graph_u2": ("full-decode-only", "2", "graph"),
+    }
+    for case_name, (execution_mode, u_batches, draft_execution) in expected.items():
+        command = """
+matrix_path="$1"
+case_name="$2"
+set -- help
+source "$matrix_path" >/dev/null
+case_arguments "$case_name"
+printf '%s\\0' "${CASE_ARGS[@]}"
+"""
+        args = (
+            subprocess.check_output(
+                ["bash", "-c", command, "bash", str(A5_MATRIX), case_name]
+            )
+            .decode()
+            .rstrip("\0")
+            .split("\0")
+        )
+        assert "--enable-dspark" in args
+        assert "--enable-mtp" not in args
+        assert args[args.index("--dspark-num-speculative-tokens") + 1] == "auto"
+        assert args[args.index("--dspark-draft-execution") + 1] == draft_execution
+        assert args[args.index("--execution-mode") + 1] == execution_mode
+        assert args[args.index("--u-batches") + 1] == u_batches
+    graph_args = args
+    assert graph_args[graph_args.index("--async-scheduling") + 1] == "off"
+    for flag in (
+        "--graph-u2-compute-overlap",
+        "--graph-u2-hybrid-dag",
+        "--graph-u2-attention-three-stream",
+        "--graph-u2-ffn-recv-stream",
+        "--graph-u2-ffn-cross-layer",
+    ):
+        assert graph_args[graph_args.index(flag) + 1] == "on"
+
+
 def test_a5_preflight_parses_current_npu_smi_process_table():
-    command = r'''
+    command = r"""
 npu-smi() {
   printf '%s\n' \
     '| NPU ID | Name | Health |' \
@@ -500,7 +551,7 @@ matrix_path="$1"
 set -- help
 source "$matrix_path" >/dev/null
 printf '%s\n' "$(npu_process_count)"
-'''
+"""
     result = subprocess.check_output(
         ["bash", "-c", command, "bash", str(A5_MATRIX)],
         text=True,
@@ -594,13 +645,13 @@ def test_a5_diagnostic_matrix_continues_after_first_failure(tmp_path):
         "#!/usr/bin/env bash\n"
         "output_dir=\n"
         "previous=\n"
-        "for arg in \"$@\"; do\n"
-        "  if [[ \"$previous\" == --output-dir ]]; then output_dir=\"$arg\"; fi\n"
-        "  previous=\"$arg\"\n"
+        'for arg in "$@"; do\n'
+        '  if [[ "$previous" == --output-dir ]]; then output_dir="$arg"; fi\n'
+        '  previous="$arg"\n'
         "done\n"
-        "mkdir -p \"$output_dir\"\n"
-        "basename \"$output_dir\" >>\"$CAPTURE_CASES\"\n"
-        "[[ \"$(basename \"$output_dir\")\" != a4f4_graph_u1_mtp_off ]]\n"
+        'mkdir -p "$output_dir"\n'
+        'basename "$output_dir" >>"$CAPTURE_CASES"\n'
+        '[[ "$(basename "$output_dir")" != a4f4_graph_u1_mtp_off ]]\n'
     )
     fake_python.chmod(0o755)
 
@@ -680,7 +731,7 @@ def test_a5_deferred_exact_requires_explicit_opt_in():
     assert "MTP validation resumes with dSpark" in result.stderr
 
 
-def test_a5_matrix_does_not_inherit_mtp_defaults(tmp_path):
+def test_a5_matrix_does_not_inherit_speculative_defaults(tmp_path):
     fake_bin = tmp_path / "bin"
     fake_bin.mkdir()
     fake_npu_smi = fake_bin / "npu-smi"
@@ -692,13 +743,18 @@ def test_a5_matrix_does_not_inherit_mtp_defaults(tmp_path):
     fake_python = venv / "bin/python"
     fake_python.write_text(
         "#!/usr/bin/env bash\n"
-        "printf 'ENABLE_MTP=%s\\n' \"${ENABLE_MTP-}\" >\"$CAPTURE_ENV\"\n"
+        'printf \'ENABLE_MTP=%s\\n\' "${ENABLE_MTP-}" >"$CAPTURE_ENV"\n'
         "printf 'MTP_NUM_SPECULATIVE_TOKENS=%s\\n' "
-        "\"${MTP_NUM_SPECULATIVE_TOKENS-}\" >>\"$CAPTURE_ENV\"\n"
+        '"${MTP_NUM_SPECULATIVE_TOKENS-}" >>"$CAPTURE_ENV"\n'
         "printf 'MTP_DRAFT_EXECUTION=%s\\n' "
-        "\"${MTP_DRAFT_EXECUTION-}\" >>\"$CAPTURE_ENV\"\n"
+        '"${MTP_DRAFT_EXECUTION-}" >>"$CAPTURE_ENV"\n'
+        'printf \'ENABLE_DSPARK=%s\\n\' "${ENABLE_DSPARK-}" >>"$CAPTURE_ENV"\n'
+        "printf 'DSPARK_NUM_SPECULATIVE_TOKENS=%s\\n' "
+        '"${DSPARK_NUM_SPECULATIVE_TOKENS-}" >>"$CAPTURE_ENV"\n'
+        "printf 'DSPARK_DRAFT_EXECUTION=%s\\n' "
+        '"${DSPARK_DRAFT_EXECUTION-}" >>"$CAPTURE_ENV"\n'
         "printf 'VLLM_SHUTDOWN_TIMEOUT_SECONDS=%s\\n' "
-        "\"${VLLM_SHUTDOWN_TIMEOUT_SECONDS-}\" >>\"$CAPTURE_ENV\"\n"
+        '"${VLLM_SHUTDOWN_TIMEOUT_SECONDS-}" >>"$CAPTURE_ENV"\n'
     )
     fake_python.chmod(0o755)
     capture = tmp_path / "runner.env"
@@ -732,6 +788,9 @@ run_matrix smoke a4f4_eager_u1_mtp_off
             "ENABLE_MTP": "1",
             "MTP_NUM_SPECULATIVE_TOKENS": "3",
             "MTP_DRAFT_EXECUTION": "graph",
+            "ENABLE_DSPARK": "1",
+            "DSPARK_NUM_SPECULATIVE_TOKENS": "5",
+            "DSPARK_DRAFT_EXECUTION": "graph",
             "VLLM_SHUTDOWN_TIMEOUT_SECONDS": "0",
         },
         capture_output=True,
@@ -743,6 +802,9 @@ run_matrix smoke a4f4_eager_u1_mtp_off
         "ENABLE_MTP=0",
         "MTP_NUM_SPECULATIVE_TOKENS=1",
         "MTP_DRAFT_EXECUTION=eager",
+        "ENABLE_DSPARK=0",
+        "DSPARK_NUM_SPECULATIVE_TOKENS=auto",
+        "DSPARK_DRAFT_EXECUTION=eager",
         "VLLM_SHUTDOWN_TIMEOUT_SECONDS=20",
     ]
 
@@ -753,19 +815,22 @@ def test_a5_native_smoke_and_guide_do_not_require_golden():
     )
     guide = A5_GUIDE.read_text(encoding="utf-8")
 
-    assert "ASCEND_RT_VISIBLE_DEVICES=\"${devices}\"" in native
+    assert 'ASCEND_RT_VISIBLE_DEVICES="${devices}"' in native
     assert "ENABLE_MTP=0" in native
     assert "ENABLE_MTP=1" not in native
     assert "MTP_NUM_SPECULATIVE_TOKENS=1" in native
     assert "mtp_num_speculative_tokens=0" in native
     assert "mtp_draft_execution=off" in native
-    assert "--batch-sizes \"1\"" in native
+    assert 'batch_sizes="1 8"' in native
+    assert "run-dspark" in native
+    assert "dspark_gate.json" in native
     assert "GOLDEN_GENERATOR" not in native
     assert "trap - EXIT TERM INT" in native
     assert "finalize 0" in native
-    assert "2.2 节安装和第 3 节" in guide
     assert "不生成 golden" in guide
-    assert "run_phase1_a5_matrix.sh smoke" in guide
+    assert "run_phase1_a5_matrix.sh dspark" in guide
+    assert "run_phase1_a5_native_smoke.sh run-dspark" in guide
+    assert "单 A5 dSpark 验证" in guide
 
 
 def test_phase1_native_control_generator_lists_path_matched_controls():
@@ -1193,9 +1258,7 @@ def test_phase1_guide_separates_platforms_and_uses_valid_matrix_roles(tmp_path):
     for _action, point, role in commands:
         assert (tmp_path / f"{point}-{role}.env").is_file(), (point, role)
 
-    benchmark_pattern = re.compile(
-        r'bash "\$MATRIX" benchmark "\$CFG" ([a-z0-9_]+) p1'
-    )
+    benchmark_pattern = re.compile(r'bash "\$MATRIX" benchmark "\$CFG" ([a-z0-9_]+) p1')
     benchmark_points = benchmark_pattern.findall(guide)
     assert set(benchmark_points) == set(run_pd_performance.PHASE1_MTP_POINT_ORDER)
     for point in benchmark_points:

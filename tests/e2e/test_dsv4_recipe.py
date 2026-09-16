@@ -155,12 +155,12 @@ def test_dsv4_request_quiescence_requires_stable_zero_metrics(monkeypatch, tmp_p
     runner = _load_runner()
     metrics = iter(
         [
-            "vllm:num_requests_running{engine=\"0\"} 1\n"
-            "vllm:num_requests_waiting{engine=\"0\"} 0\n",
-            "vllm:num_requests_running{engine=\"0\"} 0\n"
-            "vllm:num_requests_waiting{engine=\"0\"} 0\n",
-            "vllm:num_requests_running{engine=\"0\"} 0\n"
-            "vllm:num_requests_waiting{engine=\"0\"} 0\n",
+            'vllm:num_requests_running{engine="0"} 1\n'
+            'vllm:num_requests_waiting{engine="0"} 0\n',
+            'vllm:num_requests_running{engine="0"} 0\n'
+            'vllm:num_requests_waiting{engine="0"} 0\n',
+            'vllm:num_requests_running{engine="0"} 0\n'
+            'vllm:num_requests_waiting{engine="0"} 0\n',
         ]
     )
 
@@ -290,7 +290,10 @@ def test_dsv4_hccl_recipe_owns_connector_specific_launchers():
         assert "CAMP2pAFDConnector" not in script
         assert 'ENABLE_MTP="${ENABLE_MTP:-0}"' in script
         assert 'ENABLE_DSPARK="${ENABLE_DSPARK:-0}"' in script
-        assert 'DSPARK_NUM_SPECULATIVE_TOKENS="${DSPARK_NUM_SPECULATIVE_TOKENS:-auto}"' in script
+        assert (
+            "DSPARK_NUM_SPECULATIVE_TOKENS="
+            '"${DSPARK_NUM_SPECULATIVE_TOKENS:-auto}"' in script
+        )
         assert 'MTP_NUM_SPECULATIVE_TOKENS="${MTP_NUM_SPECULATIVE_TOKENS:-1}"' in (
             script
         )
@@ -331,8 +334,7 @@ def test_dsv4_shared_recipe_is_connector_neutral():
     assert (COMMON_RECIPE_DIR / "activate_role_runtime.sh").is_file()
     assert 'export PYTHONPATH="${ROOT_DIR}:${DSV4_VLLM_ROOT}' in role_runtime
     assert (
-        'export HCCL_OP_EXPANSION_MODE="${HCCL_OP_EXPANSION_MODE:-AIV}"'
-        in role_runtime
+        'export HCCL_OP_EXPANSION_MODE="${HCCL_OP_EXPANSION_MODE:-AIV}"' in role_runtime
     )
 
     camp_runner = (CAMP_RECIPE_DIR / "run_validation.py").read_text(encoding="utf-8")
@@ -341,7 +343,7 @@ def test_dsv4_shared_recipe_is_connector_neutral():
     assert "P2pHcclAFDConnector" not in camp_runner
 
 
-def test_dsv4_v023_native_baseline_has_explicit_mtp_switch():
+def test_dsv4_v023_native_baseline_has_explicit_speculative_switches():
     script = (REPO_ROOT / "tools/dsv4/run_v023_native_baseline.sh").read_text(
         encoding="utf-8"
     )
@@ -349,10 +351,18 @@ def test_dsv4_v023_native_baseline_has_explicit_mtp_switch():
     assert 'ENABLE_MTP="${ENABLE_MTP:-0}"' in script
     assert 'MTP_NUM_SPECULATIVE_TOKENS="${MTP_NUM_SPECULATIVE_TOKENS:-1}"' in script
     assert 'MTP_DRAFT_EXECUTION="${MTP_DRAFT_EXECUTION:-eager}"' in script
+    assert 'ENABLE_DSPARK="${ENABLE_DSPARK:-0}"' in script
+    assert (
+        'DSPARK_NUM_SPECULATIVE_TOKENS="${DSPARK_NUM_SPECULATIVE_TOKENS:-auto}"'
+        in script
+    )
+    assert 'DSPARK_DRAFT_EXECUTION="${DSPARK_DRAFT_EXECUTION:-eager}"' in script
     assert 'EXECUTION_MODE="${EXECUTION_MODE:-eager}"' in script
     assert '\\"method\\":\\"${MODEL_SPECULATIVE_METHOD}\\"' in script
     assert '\\"num_speculative_tokens\\":${MTP_NUM_SPECULATIVE_TOKENS}' in script
     assert '\\"enforce_eager\\":${mtp_draft_enforce_eager}' in script
+    assert '\\"draft_sample_method\\":\\"greedy\\"' in script
+    assert "--get dspark_block_size" in script
     assert "--speculative-config" in script
     assert '"cudagraph_mode":"FULL_DECODE_ONLY"' in script
     assert '"${EXECUTION_ARGS[@]}"' in script
@@ -657,6 +667,99 @@ def test_dsv4_hccl_mtp_m4_topology_gate_and_environment(monkeypatch):
         runner._validate_execution_topology(
             **{**defaults, "mtp_num_speculative_tokens": speculative_tokens}
         )
+
+
+def test_dsv4_dspark_checkpoint_topology_environment_and_metrics(monkeypatch, tmp_path):
+    runner = _load_runner()
+    model_path = tmp_path / "dspark-model"
+    model_path.mkdir()
+    (model_path / "config.json").write_text(
+        json.dumps(
+            {
+                "dspark_block_size": 5,
+                "dspark_target_layer_ids": [40, 41, 42],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    assert runner._resolve_dspark_num_speculative_tokens(model_path, "auto") == 5
+    assert runner._resolve_dspark_num_speculative_tokens(model_path, "5") == 5
+    with pytest.raises(ValueError, match="must match checkpoint"):
+        runner._resolve_dspark_num_speculative_tokens(model_path, "4")
+
+    topology = {"attention_ranks": 4, "ffn_ranks": 4}
+    runner._validate_execution_topology(
+        connector="P2pHcclAFDConnector",
+        execution_mode="eager",
+        enable_dspark=True,
+        dspark_num_speculative_tokens=5,
+        dspark_draft_execution="eager",
+        topology=topology,
+    )
+    runner._validate_execution_topology(
+        connector="P2pHcclAFDConnector",
+        execution_mode="full-decode-only",
+        u_batches=2,
+        async_scheduling="off",
+        enable_dspark=True,
+        dspark_num_speculative_tokens=5,
+        dspark_draft_execution="graph",
+        topology=topology,
+    )
+    with pytest.raises(ValueError, match="cannot both be enabled"):
+        runner._validate_execution_topology(
+            connector="P2pHcclAFDConnector",
+            execution_mode="eager",
+            enable_mtp=True,
+            enable_dspark=True,
+            dspark_num_speculative_tokens=5,
+            topology=topology,
+        )
+
+    runner._set_dspark_environment(
+        enable_dspark=True,
+        dspark_num_speculative_tokens=5,
+        dspark_draft_execution="graph",
+    )
+    assert runner.os.environ["ENABLE_DSPARK"] == "1"
+    assert runner.os.environ["DSPARK_NUM_SPECULATIVE_TOKENS"] == "5"
+    assert runner.os.environ["DSPARK_DRAFT_EXECUTION"] == "graph"
+
+    metrics = """\
+vllm:spec_decode_num_draft_tokens_total{model_name="dsv4-afd"} 20
+vllm:spec_decode_num_accepted_tokens_total{model_name="dsv4-afd"} 12
+"""
+    assert runner._spec_decode_token_counts(metrics) == (20.0, 12.0)
+
+    class Response:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return None
+
+        def read(self):
+            return metrics.encode()
+
+    monkeypatch.setattr(
+        runner.urllib.request,
+        "urlopen",
+        lambda *_args, **_kwargs: Response(),
+    )
+    (tmp_path / "attention.log").write_text(
+        (runner.DSPARK_DRAFTER_MARKER + "\n") * 4,
+        encoding="utf-8",
+    )
+    gate = runner._dspark_execution_gate(
+        api_port=8910,
+        output_dir=tmp_path,
+        expected_attention_ranks=4,
+    )
+    assert gate["passed"] is True
+    assert gate["draft_tokens"] == 20.0
+    assert gate["accepted_tokens"] == 12.0
+    assert gate["drafter_markers"] == 4
 
 
 def test_dsv4_performance_command_locks_workload_and_fixed_python(tmp_path):
@@ -1327,12 +1430,14 @@ def test_dsv4_shutdown_gate_requires_both_roles_to_exit_cleanly(monkeypatch):
     monkeypatch.setattr(
         runner,
         "_wait_for_log_occurrences",
-        lambda **kwargs: calls.append(("handoff", kwargs))
-        or {
-            "passed": True,
-            "observed": kwargs["expected"],
-            "expected": kwargs["expected"],
-        },
+        lambda **kwargs: (
+            calls.append(("handoff", kwargs))
+            or {
+                "passed": True,
+                "observed": kwargs["expected"],
+                "expected": kwargs["expected"],
+            }
+        ),
     )
 
     clean = runner._shutdown_roles(
