@@ -2,13 +2,9 @@
 
 ## 1. 适用范围
 
-本文只用于单台 8 卡 Ascend 950DT A5。执行前提是原指导书第 2.2 节安装和第 3 节
-H0 审计已经完成。不要重复安装 Python、CANN、vLLM 或 vLLM-Ascend，也不要在本机
-执行双 A3、多节点、A8F8、A8F4 或 A4F8 章节。
+本文只用于单台 8 卡 Ascend 950DT A5。执行前提是原指导书第 2.2 节安装和第 3 节H0 审计已经完成。不要重复安装 Python、CANN、vLLM 或 vLLM-Ascend，也不要在本机执行双 A3、多节点、A8F8、A8F4 或 A4F8 章节。
 
-第一期只做 MTP-off 功能门禁，不生成 golden，不进行逐 token 比对。MTP N1/N2/N3
-不在本次单 A5 范围，后续叠加 dSpark 时另行制定组合验证矩阵；最终精度测试在全部
-功能开发结束后另行执行。本次固定项如下：
+第一期只做 MTP-off 功能门禁，不生成 golden，不进行逐 token 比对。MTP N1/N2/N3不在本次单 A5 范围，后续叠加 dSpark 时另行制定组合验证矩阵；最终精度测试在全部功能开发结束后另行执行。本次固定项如下：
 
 | 项目 | 固定值 |
 |---|---|
@@ -25,25 +21,22 @@ H0 审计已经完成。不要重复安装 Python、CANN、vLLM 或 vLLM-Ascend�
 
 按下列顺序执行。前四项是功能门禁，最后一项是容量项：
 
-| 顺序 | 项目 | NPU | 预期结论 |
-|---|---|---|---|
-| 1 | 官方 no-AFD、DP4、Graph、MTP-off | 0-3 | 模型加载、health、models 和请求成功 |
-| 2 | A4F4 eager/U1/MTP-off | A: 0-3，F: 4-7 | AFD 基础门禁 |
-| 3 | A4F4 Graph/U2/MTP-off | A: 0-3，F: 4-7 | Graph 和真实 U2 门禁 |
-| 4 | A2F4 Graph/U2/MTP-off | A: 0-1，F: 2-5 | `F=kA` 门禁 |
-| 5 | A4F2 Graph/U2/MTP-off | A: 0-3，F: 4-5 | `A=kF` 容量项 |
+| 顺序 | 项目 | NPU | 预期结论 | 当前状态（2026-09-16） |
+|---|---|---|---|---|
+| 1 | 官方 no-AFD、DP4、Graph、MTP-off | 0-3 | 模型加载、health、models 和请求成功 | **通过** |
+| 2 | A4F4 eager/U1/MTP-off | A: 0-3，F: 4-7 | AFD 基础门禁 | **通过**，两轮冷启动 |
+| 3 | A4F4 Graph/U2/MTP-off | A: 0-3，F: 4-7 | Graph 和真实 U2 门禁 | **通过**，两轮真实 two-stage |
+| 4 | A2F4 Graph/U2/MTP-off | A: 0-1，F: 2-5 | `F=kA` 门禁 | **通过**，两轮真实 two-stage |
+| 5 | A4F2 Graph/U2/MTP-off | A: 0-3，F: 4-5 | `A=kF` 容量项 | **HCCL 平台阻塞**，非 HBM/OOM，见第 7 节 |
 
-每个 AFD 点执行两次独立冷启动；每轮检查 ready、batch 1/8/32、取消请求后恢复、
-启动与请求 fatal、U2 实际执行、停服和 NPU 清理。所有请求只检查 HTTP 和输出结构，
+每个 AFD 点执行两次独立冷启动；每轮检查 ready、batch 1/8/32、取消请求后恢复、启动与请求 fatal、U2 实际执行、停服和 NPU 清理。所有请求只检查 HTTP 和输出结构，
 结果必须记录 `golden_checked=false`。
 
-A4F2 若成功加载并通过全部功能门禁，记录为通过；若 FFN EP2 在模型加载阶段 OOM，
-保留日志和 `npu-smi` 作为“容量阻塞”。不得降低模型、改权重或超卖来伪造通过。
+A4F2 若成功加载并通过全部功能门禁，记录为通过；若 FFN EP2 在模型加载阶段 OOM，保留日志和 `npu-smi` 作为“容量阻塞”。不得降低模型、改权重或超卖来伪造通过。当前 A4F2 已进入 HCCL ReduceScatter 并由脱离模型的最小复现确认为平台阻塞，不属于“容量阻塞”。
 
 ## 3. 用新包升级验证脚本
 
-将新 `slim-a5-reuse` 包复制到 A5。进入新包目录后，复用上一次已经验证过的
-`config.env`。下面的 `OLD_BUNDLE_ROOT` 只需替换为上一次 A5 包的实际目录：
+将新 `slim-a5-reuse` 包复制到 A5。进入新包目录后，复用上一次已经验证过的`config.env`。下面的 `OLD_BUNDLE_ROOT` 只需替换为上一次 A5 包的实际目录：
 
 ```bash
 sha256sum -c dsv4-afd-hccl-manual-install-slim-a5-reuse-*.tar.gz.sha256
@@ -67,13 +60,9 @@ bash bin/00_print_config.sh
 bash bin/install_all.sh
 ```
 
-`a5-reuse` 不重装 env、不安装 Python 依赖、不重建两个上游仓库，只升级干净的独立
-afd-plugin 目标目录。安装器只有在当前目标 tree 能匹配固定提交链时才会前进；有本地
-改动或来源不明时会停止，不会 reset 或覆盖。
+`a5-reuse` 不重装 env、不安装 Python 依赖、不重建两个上游仓库，只升级干净的独立afd-plugin 目标目录。安装器只有在当前目标 tree 能匹配固定提交链时才会前进；有本地改动或来源不明时会停止，不会 reset 或覆盖。
 
-本次不需要再次执行 `install_a5_model_config.sh`。只有
-`bin/00_print_config.sh` 或后续预检报告模型配置不符时，才停止并先核对上次安装产物，
-不要直接覆盖模型配置。确认输出仍满足：
+本次不需要再次执行 `install_a5_model_config.sh`。只有`bin/00_print_config.sh` 或后续预检报告模型配置不符时，才停止并先核对上次安装产物，不要直接覆盖模型配置。确认输出仍满足：
 
 ```text
 CANN_ROOT=/usr/local/Ascend/cann-9.2.0       # 以现场实际路径为准
@@ -171,15 +160,13 @@ bash tools/dsv4/run_phase1_a5_matrix.sh smoke \
 
 矩阵脚本会强制清除外层 `config.env` 的 MTP 默认值，三个 case 均不传`--enable-mtp`。这样旧配置中的 `ENABLE_MTP=1` 或 `MTP_DRAFT_EXECUTION=graph`也不能把当前 A5 门禁改成 MTP 路径。所有 Graph/U2 case 还会显式传`--async-scheduling off`；通用 runner 对固定栈中的 Graph/U2 + `auto/on` 直接 fail-fast，避免模型加载后才进入不受支持的捕获组合。
 
-矩阵固定 `VLLM_SHUTDOWN_TIMEOUT_SECONDS=20`。`0` 在当前 vLLM 中表示立即 abort；但 20 秒本身不能修复角色串行停机：若脚本等待 Attention 完全退出后才通知 FFN，Attention 超时强杀 peer 时，仍在 `torch.npu.synchronize()` 的 FFN 会报 `507035`。提交 `8325c18` 改为同时请求两侧停机后，FFN 的错误已消失，但两轮 Attention 都在进入 drain 时执行了最后一次 DP dummy batch；此时 FFN 已关闭 Gloo，Attention 因 `Connection closed by peer` 进入 EngineCore fatal，并在 connector close 时出现 `507035`。两次请求归零门禁均通过，因此该结果不是取消请求残留。
+矩阵固定 `VLLM_SHUTDOWN_TIMEOUT_SECONDS=20`。`0` 在当前 vLLM 中表示立即 abort。当前协调停机流程如下。
 
 新脚本使用 Attention shutdown payload 作为显式交接：先只请求 Attention 优雅停机，保持 FFN 存活；等 `ffn.log` 中全部 FFN DP rank 都出现 `AFD NPU FFN received Attention shutdown payload` 后，再请求 FFN 停机并等待两侧退出。A4F4 的预期 receipt 数为 4。handoff 等待预算为 `max(15, VLLM_SHUTDOWN_TIMEOUT_SECONDS + 15)` 秒；本矩阵固定 drain 20 秒，因此实际等待上限为 35 秒。此前固定 15 秒短于 Attention 的 drain 契约，会在最后一次 DP dummy batch 前误停 FFN。预算内未收齐时仍会停止 FFN 做清理，但 `ffn_handoff_gate.passed=false`，本轮失败。connector 释放保持幂等，`507035` 也直接列入 fatal marker，不做日志白名单。
 
 取消请求改为流式请求。`curl=28` 后脚本立即从 `/metrics` 检查`vllm:num_requests_running` 和 `vllm:num_requests_waiting`，两项连续两次为 0 才执行恢复请求；恢复请求完成后再执行一次相同检查，然后才开始停服。这能区分“客户端已超时”与“服务端请求确实已取消并归零”。`507035` 仍保留为 fatal，不做日志白名单。
 
-2026-09-14 的首次 A4F4 Graph/U2 失败包中，两侧日志均为`Asynchronous scheduling is enabled`。U1 capture 完成后，四个 FFN rank 在 U2 capture 同时停止推进；约 9 分钟后 grouped matmul/AIVEC 首报 `507014`，随后才出现 HCCL 和 connector close 的级联错误。该失败发生在 API ready 前，与业务取消和停机交接无关。`507014` 已加入 fatal marker；`runtime.json` 和`validation_summary.json` 均记录 `async_scheduling`。
-
-提交 `2cda995` 关闭 async scheduling 后，A5 在相同 U2 capture 点再次停止，约 9 分钟后四个 FFN rank 报 `aclnnGroupedMatmulWeightNz`/`aclnnQuantMatmulV5` 的`507014`/`507034`。这证明同步调度是需要固定的实验变量，但不是充分修复。`507034` 也已加入 fatal marker。A3 的 CANN 9.0.0、Ascend 量化权重、A8F8 回归只证明通用插件路径，不能代替 A5 官方 FP8、CANN 9.2.0、A4F4 的硬件结论。
+2026-09-15 的正式复跑已关闭早期 async scheduling、Graph/U2 多流计算阻塞和停机交接问题。A4F4 Graph/U2 和 A2F4 Graph/U2 的 `validation_summary.json` 均为 `passed=true`，两轮均为 `execution_mode=full-decode-only`、`u_batches=2`、`enable_mtp=false`，并且 `ubatch_gate.observed_two_stages=true`。
 
 三项必须全部返回 0。每个 case 目录必须包含 `cycle_1`、`cycle_2` 和`validation_summary.json`；每轮必须包含：
 
@@ -201,18 +188,15 @@ npu_after_cleanup.txt
 
 `cancellation.exitcode` 的预期值为 28，两个 quiescence gate 必须分别为`passed=true`、`running=0`、`waiting=0`、`stable_samples=2`，随后 `recovery.json`必须通过。`cycle_summary.json` 中 `shutdown.coordinated` 和`shutdown.ffn_handoff_gate.passed` 必须为 `true`，handoff 的 `observed` 必须等于`expected`；`order` 必须为`attention_request, ffn_handoff_wait, ffn_request, attention_wait, ffn_wait`。Graph/U2 case 的`ubatch_gate.observed_two_stages` 必须为 `true`。
 
-失败证据目录不会被覆盖。已经通过的 no-AFD 和 A4F4 eager/U1 不需要重跑。
-2026-09-14 的 A5 隔离结果已经证明：
+失败证据目录不会被覆盖。截至 2026-09-16，no-AFD、A4F4 eager/U1、A4F4 Graph/U2 和 A2F4 Graph/U2 都已取得所需正式证据，不需要再重跑。两个 Graph/U2 结果收录在 `c30f5968a2c24a4d8dfac0c57d268eb4.zip`（SHA256 `3df1d7c2b7aea21fb73c106bcfad8ccf6b658f7ac8e7a3b29cfad59a42010dc5`）。
+
+以下内容只记录 2026-09-14 的历史隔离过程，其中的 serial 对照命令已完成，不再执行：
 
 - A4F4 Graph/U1 的请求、恢复、日志、停机交接和 NPU 清理通过；
-- A4F4 eager/U2 的 batch 1（U1 fallback）通过，batch 8 的全部 Attention rank 均观测到
-  `stage_count=2`，但请求约 300 秒无输出后由 EngineCore worker response timeout 终止；
-- eager/U2 超时前没有 `507014`、`507034`、`507035` 或 Python 首异常；FFN 的
-  `507035` 出现在 API 500 和 teardown 之后，是终止仍在执行的 HCCL/算子产生的次生错误。
+- A4F4 eager/U2 的 batch 1（U1 fallback）通过，batch 8 的全部 Attention rank 均观测到  `stage_count=2`，但请求约 300 秒无输出后由 EngineCore worker response timeout 终止；
+- eager/U2 超时前没有 `507014`、`507034`、`507035` 或 Python 首异常；FFN 的  `507035` 出现在 API 500 和 teardown 之后，是终止仍在执行的 HCCL/算子产生的次生错误。
 
-因此故障已经从“Graph 与 U2 组合”进一步收敛为 **A5 U2 数据面**，但尚不能区分 U2
-消息协议与多 stream/event 执行。正式 Graph/U2 门禁继续暂停；升级新包后只执行两个
-serial 单轮对照：
+当时故障从“Graph 与 U2 组合”进一步收敛为 **A5 U2 数据面**，但尚不能区分 U2 消息协议与多 stream/event 执行，因此执行了两个 serial 单轮对照：
 
 ```bash
 bash tools/dsv4/run_phase1_a5_matrix.sh list-diagnostic
@@ -237,8 +221,7 @@ printf 'A5_DIAGNOSTIC_EXITCODE=%s\n' "$A5_DIAGNOSTIC_EXITCODE" \
 | `a4f4_eager_u2_serial_mtp_off` | `eager_u2_stream_overlap=off` |
 | `a4f4_graph_u2_serial_mtp_off` | `graph_u2_compute_overlap=off` |
 
-逐 stage 日志只在这两个诊断点启用，记录 Attention 首层/末层 exchange 和 FFN
-recv/send/device sync 的开始与返回。按下列方式判读：
+逐 stage 日志只在这两个诊断点启用，记录 Attention 首层/末层 exchange 和 FFN recv/send/device sync 的开始与返回。按下列方式判读：
 
 | eager/U2 serial | Graph/U2 serial | 结论 |
 |---|---|---|
@@ -247,14 +230,9 @@ recv/send/device sync 的开始与返回。按下列方式判读：
 | 通过 | 通过 | U2 协议可用，故障收敛到 A5 的 HCCL/计算多 stream-event 执行 |
 | 失败 | 通过 | 结果矛盾，先核对两个 runtime 开关和日志，不能恢复正式门禁 |
 
-交付前已在本机 A3 用指定源码栈 vLLM `0fc695fc`、vLLM-Ascend `3da28f941`、
-CANN 9.0.0 做 A8F8/MTP-off/batch 1、8 单轮控制验证：eager/U2 serial 与
-Graph/U2 serial 的功能、取消恢复、真实 two-stage、fatal、shutdown receipt 和 NPU
-清理均通过。eager 轮 8/8 receipt 用时 15.756 秒，验证了 handoff 上限必须覆盖 20 秒
-drain；Graph 轮 8/8 receipt 用时 0.403 秒。两个 `validation_summary.json` 的 SHA256
-分别为 `cce13a5aa77d255f4a7c8e8607a4174966c6c1f8eae1bc126f7e745e7fd1f2ba` 和
-`a23ec4f4e53646f1e73ff39f1ce00a9d760347b2c584e25f74a777b342ad5c4a`。这只证明
-诊断开关、U2 串行路径和验证工具在精确开发栈可执行，不能替代 A5 的 A4F4 结论。
+交付前已在本机 A3 用指定源码栈 vLLM `0fc695fc`、vLLM-Ascend `3da28f941`、CANN 9.0.0 做 A8F8/MTP-off/batch 1、8 单轮控制验证：eager/U2 serial 与Graph/U2 serial 的功能、取消恢复、真实 two-stage、fatal、shutdown receipt 和 NPU 清理均通过。
+eager 轮 8/8 receipt 用时 15.756 秒，验证了 handoff 上限必须覆盖 20 秒drain；Graph 轮 8/8 receipt 用时 0.403 秒。两个 `validation_summary.json` 的 SHA256分别为 `cce13a5aa77d255f4a7c8e8607a4174966c6c1f8eae1bc126f7e745e7fd1f2ba` 和`a23ec4f4e53646f1e73ff39f1ce00a9d760347b2c584e25f74a777b342ad5c4a`。
+这只证明诊断开关、U2 串行路径和验证工具在精确开发栈可执行，不能替代 A5 的 A4F4 结论。
 
 无论命令返回 0 或 1，都回传整个诊断目录和 console log：
 
@@ -266,7 +244,7 @@ sha256sum "$A5_VALIDATION_ROOT/afd-isolation-r3.tar.gz" \
   >"$A5_VALIDATION_ROOT/afd-isolation-r3.tar.gz.sha256"
 ```
 
-收到诊断证据并完成对应修复前，不要继续 A2F4 Graph/U2 或 A4F2 容量项。
+上述历史限制已解除；A4F4 Graph/U2 和 A2F4 Graph/U2 的正式结果均已通过。A4F2 的后续限制见第 7 节。
 
 若旧包仅在 `a4f4_eager_u1_mtp_off` 的退出阶段出现下列任一组合，升级后先只重跑该点：一是 Attention 等待 20 秒后强杀 peer，随后 FFN 报 `507035`；二是两侧同时停机后 FFN 日志干净，但 Attention 的 dummy batch 报 `Connection closed by peer`、EngineCore fatal 或 `507035`。这两种情况都不得用业务 smoke、进程返回码或 NPU 清理通过代替完整 fatal gate：
 
@@ -279,10 +257,19 @@ bash tools/dsv4/run_phase1_a5_matrix.sh smoke \
 
 若新脚本在任一 quiescence gate 失败，先回传两个 gate JSON、metrics 和 Attention 日志；这表示请求生命周期未归零。若 Graph capture 不推进或出现 `507014`/`507034`，回传`runtime.json`、两侧完整日志及 A5 设备侧 plog/slog；若`ffn_handoff_gate` 失败，同样回传 `cycle_summary.json` 和两侧完整日志。不能以第二轮偶然通过覆盖第一轮失败。
 
-## 7. 单独运行 A4F2 容量项
+## 7. A4F2 当前结论与复跑条件
 
-本节保留为故障修复后的正式步骤。当前 Graph/U2 启动问题尚未关闭，本轮隔离诊断不要执行
-A4F2；否则算子超时不能判为容量阻塞。
+A4F2 当前标记为 `A5-HCCL-RS-001`：**HCCL 平台阻塞**。它不是 HBM/OOM 容量阻塞，也不是 AFD Graph/U2 多流计算失败。当前证据链如下：
+
+- 正式 `a4f2_graph_u2_mtp_off` 首轮失败，未形成两轮通过的 `validation_summary.json`；
+- 后续 eager/U1 隔离复现了相同的 rank-size 2 BF16 ReduceScatter 路径，排除 Graph、U2 和多 stream 作为必要条件；
+- 脱离 vLLM、模型和 AFD 的两进程 `torch.distributed.reduce_scatter_tensor` 最小复现在 NPU 4/5 稳定失败：`world_size=2`、BF16、`output_count=16777216`、输入 64 MiB/输出 32 MiB；
+- HCCL 选择 `AicpuReduceScatterSoleMeshConcur_device`，两个 rank 的 `CompareOpExchangeInfos` 均成功，随后设备侧报 `PreSyncInterThreads subThreads size [2], notifyIdxMainToSub size [1] is not equal`，最终为 `507018`；
+- A4F4 在同一台机器且包含 NPU 4/5 的情况下已通过，因此现有证据不支持“单卡故障”。
+
+最小复现包为 `5b63a6a768124365abbf0aad45a631b0.gz`（SHA256 `6a2bb8f7972216c57c3607529dd83a57b4232617614cffb4311353dcb4f94e71`）。HCCL 团队给出修复版本或明确受支持的规避方案前，不再重复运行全模型 A4F2。
+
+HCCL 修复后，先使用同参数最小复现确认两个 rank 均通过，再执行下列正式两轮门禁：
 
 ```bash
 export PHASE1_OUTPUT_BASE="$A5_VALIDATION_ROOT/afd-capacity"
@@ -295,11 +282,11 @@ printf 'A4F2_EXITCODE=%s\n' "$A4F2_EXITCODE" \
   | tee "$A5_VALIDATION_ROOT/a4f2-result.env"
 ```
 
-判定方法：
+修复后判定方法：
 
 - `A4F2_EXITCODE=0` 且两轮 summary 均通过：容量项通过。
 - 模型加载阶段出现明确 HBM/OOM，且日志和 NPU 快照完整：记录为容量阻塞。
-- HCCL、Graph、请求、U2、取消恢复、fatal 或清理失败：这是功能失败，不能记为容量阻塞。
+- HCCL、Graph、请求、U2、取消恢复、fatal 或清理失败：仍未通过，不能记为容量阻塞。
 
 脚本即使失败也会保留已经创建的输出目录、case 退出码、日志和最后一次 `npu-smi`。
 
@@ -347,15 +334,23 @@ handoff 必须为 `passed=true` 且
 
 ## 9. 收集并回传证据
 
+当前正式结果分布在多个时间戳目录，不要假定它们都在同一个 `A5_VALIDATION_ROOT` 下。等 A4F2 修复后的两轮复跑通过，再将下列五个变量替换为现场真实结果目录并做最终归档：
+
 ```bash
 source "$BUNDLE_ROOT/bin/activate_runtime.sh"
 cd "$AFD_PLUGIN_ROOT"
+export NATIVE_RESULT_ROOT="/替换为no-AFD成功目录"
+export A4F4_EAGER_RESULT_ROOT="/替换为A4F4-eager-U1成功目录"
+export A4F4_GRAPH_RESULT_ROOT="/替换为A4F4-Graph-U2成功目录"
+export A2F4_GRAPH_RESULT_ROOT="/替换为A2F4-Graph-U2成功目录"
+export A4F2_GRAPH_RESULT_ROOT="/替换为A4F2-Graph-U2修复后成功目录"
 bash tools/dsv4/collect_phase1_validation.sh \
   "$A5_VALIDATION_ROOT/dsv4-phase1-a5-evidence.tar.gz" \
-  "$A5_VALIDATION_ROOT/native-dp4" \
-  "/替换为此前成功的eager目录/smoke" \
-  "$A5_VALIDATION_ROOT/afd-graph-sync-r1/smoke" \
-  "$A5_VALIDATION_ROOT/afd-capacity/smoke"
+  "$NATIVE_RESULT_ROOT" \
+  "$A4F4_EAGER_RESULT_ROOT" \
+  "$A4F4_GRAPH_RESULT_ROOT" \
+  "$A2F4_GRAPH_RESULT_ROOT" \
+  "$A4F2_GRAPH_RESULT_ROOT"
 sha256sum -c "$A5_VALIDATION_ROOT/dsv4-phase1-a5-evidence.tar.gz.sha256"
 ```
 
@@ -365,8 +360,9 @@ sha256sum -c "$A5_VALIDATION_ROOT/dsv4-phase1-a5-evidence.tar.gz.sha256"
 dsv4-phase1-a5-evidence.tar.gz
 dsv4-phase1-a5-evidence.tar.gz.sha256
 native-dp4.console.log
-此前成功的 eager console log
-afd-graph-sync-r1.console.log
+此前成功的 A4F4 eager/U1 console log
+A4F4 Graph/U2 console log
+A2F4 Graph/U2 console log
 afd-capacity.console.log
 a4f2-result.env
 ```
@@ -384,6 +380,10 @@ summary。证据包会包含提交、CANN 路径、环境、Python 包、NPU 快
 3. 2 个必过 Graph/U2 点都记录 `async_scheduling=off` 并观测到真实 two-stage，而不是只配置了 `U_BATCHES=2`。
 4. A4F2 得到“通过”或有完整 HBM 证据的“容量阻塞”结论。
 5. 所有功能报告均明确 `golden_checked=false`，没有逐 token 精度声明。
+
+截至 2026-09-16，第 1、2、3、5 项已完成，AFD 三个必过功能点已全部关闭。第 4 项未按原验收口径完成：A4F2 既未通过，也不是 HBM 容量阻塞，而是已有最小复现的外部 HCCL 平台阻塞。因此当前结论为：**AFD 一期必过功能目标已完成；A5 第一期严格整体验收尚未完成，只剩 `A5-HCCL-RS-001` 解决后的 A4F2 复跑和证据归档。**
+
+不需要重跑 no-AFD、A4F4 eager/U1、A4F4 Graph/U2 或 A2F4 Graph/U2；也不需要在本阶段追加 MTP、golden、逐 token 比对、A8F4 或双机/多机验证。
 
 最终精度、路径匹配 control、30/30 token exact、idle-resume、U3、正式性能和 12 卡
 A8F4 均不在本次 A5 第一期执行范围。MTP 只在后续 dSpark 组合阶段重新纳入，不能用
