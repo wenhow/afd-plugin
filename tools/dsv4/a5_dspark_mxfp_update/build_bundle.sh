@@ -46,7 +46,6 @@ git -C "${REPO_ROOT}" bundle create \
     README_ZH.md \
     DEEPSEEK_V4_AFD_PHASE1_A5_VALIDATION_GUIDE_ZH.md \
     VERSION.env \
-    config.env \
     install.sh \
     payload/afd-plugin.bundle \
     payload/vllm-ascend.bundle \
