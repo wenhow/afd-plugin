@@ -47,15 +47,35 @@ A4F2 关闭证据如下：
 ```bash
 export AFD_PLUGIN_ROOT="/root/dsv4-afd-hccl/src/afd-plugin-phase1-a5-dspark-66ec72f"
 export VENV_ROOT="/root/dsv4-afd-hccl/venv"
+export VLLM_ROOT="/root/dsv4-afd-hccl/src/vllm-release-v0.23.0"
+export VLLM_ASCEND_ROOT="/root/dsv4-afd-hccl/src/vllm-ascend-rfc-vllm-cann"
+export CANN_ROOT="/usr/local/Ascend/cann-9.2.0"
+
+# A5 必须覆盖脚本内仅供开发机使用的 /mnt/workspace 默认值。
+export DSV4_RUNTIME_VENV="$VENV_ROOT"
+export DSV4_VLLM_VENV="$VENV_ROOT"
+export DSV4_VLLM_ROOT="$VLLM_ROOT"
+export DSV4_VLLM_ASCEND_ROOT="$VLLM_ASCEND_ROOT"
+export DSV4_CANN_ROOT="$CANN_ROOT"
+export DSV4_CANN_VERSION=""
+unset DSV4_ATB_ROOT
+
+test -f "$DSV4_CANN_ROOT/set_env.sh"
+test -x "$DSV4_RUNTIME_VENV/bin/python"
+printf 'CANN=%s\nPython=%s\n' \
+  "$(readlink -f "$DSV4_CANN_ROOT")" \
+  "$(readlink -f "$DSV4_RUNTIME_VENV/bin/python")"
 
 git -C "$AFD_PLUGIN_ROOT" rev-parse HEAD
 git -C "$AFD_PLUGIN_ROOT" status --short
-git -C /root/dsv4-afd-hccl/src/vllm-release-v0.23.0 rev-parse HEAD
-git -C /root/dsv4-afd-hccl/src/vllm-release-v0.23.0 status --short
-git -C /root/dsv4-afd-hccl/src/vllm-ascend-rfc-vllm-cann rev-parse HEAD
-git -C /root/dsv4-afd-hccl/src/vllm-ascend-rfc-vllm-cann status --short
+git -C "$VLLM_ROOT" rev-parse HEAD
+git -C "$VLLM_ROOT" status --short
+git -C "$VLLM_ASCEND_ROOT" rev-parse HEAD
+git -C "$VLLM_ASCEND_ROOT" status --short
 npu-smi info
 ```
+
+`CANN_ROOT` 只要求指向本机实际存在、且直接包含 `set_env.sh` 的绝对目录；若现场路径不同，只修改该路径。`DSV4_CANN_VERSION` 保持为空，不校验版本字符串。不要让 A5 验证回退到 `/mnt/workspace/code/.ascend/cann-9.0.0`。
 
 三个工作树必须干净，两个上游提交必须与表中一致，NPU 健康且没有残留模型进程。不要屏蔽 dirty 检查。
 
