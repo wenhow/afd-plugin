@@ -69,19 +69,33 @@ install_vllm_ascend_patch() {
 }
 
 install_afd_patch() {
-  local patch_file="${SCRIPT_DIR}/patches/afd-plugin-66ec72f-to-mxfp.patch"
+  local patch_file source_commit source_tree
 
   if [[ -e "${AFD_TARGET_ROOT}" ]]; then
     require_clean_tree "${AFD_TARGET_ROOT}" "${AFD_PLUGIN_TARGET_TREE}" "afd-plugin target"
     return
   fi
 
-  [[ "$(git_in "${AFD_SOURCE_ROOT}" rev-parse HEAD)" == "${AFD_PLUGIN_BASE_COMMIT}" ]] \
-    || die "afd-plugin source must be ${AFD_PLUGIN_BASE_COMMIT}"
-  require_clean_tree "${AFD_SOURCE_ROOT}" "${AFD_PLUGIN_BASE_TREE}" "afd-plugin source"
+  git_in "${AFD_SOURCE_ROOT}" rev-parse --is-inside-work-tree >/dev/null 2>&1 \
+    || die "afd-plugin source is not a git checkout: ${AFD_SOURCE_ROOT}"
+  [[ -z "$(git_in "${AFD_SOURCE_ROOT}" status --short --untracked-files=all)" ]] \
+    || die "afd-plugin source worktree is dirty: ${AFD_SOURCE_ROOT}"
+  source_commit="$(git_in "${AFD_SOURCE_ROOT}" rev-parse HEAD)"
+  source_tree="$(git_in "${AFD_SOURCE_ROOT}" show -s --format=%T HEAD)"
+  case "${source_tree}" in
+    "${AFD_PLUGIN_BASE_TREE}")
+      patch_file="${SCRIPT_DIR}/patches/afd-plugin-66ec72f-to-mxfp.patch"
+      ;;
+    "${AFD_PLUGIN_GUIDE_BASE_TREE}")
+      patch_file="${SCRIPT_DIR}/patches/afd-plugin-1720b71-to-mxfp.patch"
+      ;;
+    *)
+      die "afd-plugin source tree is unsupported: commit=${source_commit} tree=${source_tree}"
+      ;;
+  esac
   mkdir -p "$(dirname "${AFD_TARGET_ROOT}")"
   git_in "${AFD_SOURCE_ROOT}" worktree add --detach \
-    "${AFD_TARGET_ROOT}" "${AFD_PLUGIN_BASE_COMMIT}"
+    "${AFD_TARGET_ROOT}" "${source_commit}"
   git_in "${AFD_TARGET_ROOT}" apply --check "${patch_file}"
   git_in "${AFD_TARGET_ROOT}" apply --index "${patch_file}"
   [[ "$(git_in "${AFD_TARGET_ROOT}" write-tree)" == "${AFD_PLUGIN_TARGET_TREE}" ]] \

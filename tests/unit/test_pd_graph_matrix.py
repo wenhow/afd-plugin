@@ -857,6 +857,8 @@ def test_a5_dspark_mxfp_update_package_is_auditable():
     assert "sha256sum -c SHA256SUMS" in installer_text
     assert "apply --check" in installer_text
     assert "commit-tree" in installer_text
+    assert "AFD_PLUGIN_GUIDE_BASE_TREE" in installer_text
+    assert "afd-plugin-1720b71-to-mxfp.patch" in installer_text
     assert "afd-plugin-phase1-a5-dspark-mxfp" in config
     assert "afd-plugin-phase1-a5-dspark-66ec72f" in config
     assert "不会重装 Python/CANN/HCCL" in readme

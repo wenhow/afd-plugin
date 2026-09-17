@@ -7,8 +7,8 @@
 ## 安装
 
 ```bash
-tar -xzf dsv4-a5-dspark-compressed-mxfp-patch-20260917.tar.gz
-cd dsv4-a5-dspark-compressed-mxfp-patch-20260917
+tar -xzf dsv4-a5-dspark-compressed-mxfp-patch-20260917-r2.tar.gz
+cd dsv4-a5-dspark-compressed-mxfp-patch-20260917-r2
 
 # 仅当实际路径不同才修改。
 vi config.env
@@ -19,7 +19,7 @@ bash install.sh check
 安装器要求：
 
 - vLLM-Ascend HEAD 是包内记录的基线或目标提交，且工作树干净；
-- afd-plugin 源目录是此前安装的 clean `66ec72f` 工作树；
+- afd-plugin 源目录是此前安装的 clean `66ec72f` 工作树，或已应用“指导书路径修正”补丁、tree 与 `1720b71` 相同的工作树；现场通过 `git am` 生成的提交哈希可以不同，例如此前采集到的 `90f39082`；
 - 新 afd-plugin 目标目录不存在，或已是包内固定目标 tree 且工作树干净；
 - checkpoint 的 `config.json` 和 `model.safetensors.index.json` SHA256 与现场已收集值一致；
 - 旧 vLLM-Ascend checkout 中已经存在编译好的 custom ops。

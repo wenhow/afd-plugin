@@ -6,16 +6,18 @@ REPO_ROOT="$(cd "${SCRIPT_DIR}/../../.." && pwd)"
 WORKSPACE_ROOT="${WORKSPACE_ROOT:-/mnt/workspace}"
 VLLM_ASCEND_SOURCE_ROOT="${VLLM_ASCEND_SOURCE_ROOT:-${WORKSPACE_ROOT}/code/vllm-ascend-rfc-vllm-cann-3da28f941}"
 OUTPUT_DIR="${OUTPUT_DIR:-${WORKSPACE_ROOT}/delivery}"
-PACKAGE_NAME="dsv4-a5-dspark-compressed-mxfp-patch-20260917"
+PACKAGE_NAME="dsv4-a5-dspark-compressed-mxfp-patch-20260917-r2"
 VLLM_ASCEND_BASE_COMMIT=3da28f9414583d2d0b672a8f06d1fae142404bda
 VLLM_ASCEND_PATCH_COMMIT=18a0709c88a6c1abed792f0f071bb0f9e8a5fc07
 AFD_PLUGIN_BASE_COMMIT=66ec72fdea87cd3b6dfa483cc252305245c220c7
+AFD_PLUGIN_GUIDE_BASE_COMMIT=1720b714b90f190cb6097bdf35f69f960c6ad798
 
 [[ "$(git -C "${VLLM_ASCEND_SOURCE_ROOT}" rev-parse HEAD)" == "${VLLM_ASCEND_PATCH_COMMIT}" ]]
 [[ -z "$(git -C "${VLLM_ASCEND_SOURCE_ROOT}" status --short --untracked-files=all)" ]]
 [[ -z "$(git -C "${REPO_ROOT}" status --short --untracked-files=all)" ]]
 AFD_PLUGIN_COMMIT="$(git -C "${REPO_ROOT}" rev-parse HEAD)"
 AFD_PLUGIN_BASE_TREE="$(git -C "${REPO_ROOT}" show -s --format=%T "${AFD_PLUGIN_BASE_COMMIT}")"
+AFD_PLUGIN_GUIDE_BASE_TREE="$(git -C "${REPO_ROOT}" show -s --format=%T "${AFD_PLUGIN_GUIDE_BASE_COMMIT}")"
 AFD_PLUGIN_TARGET_TREE="$(git -C "${REPO_ROOT}" show -s --format=%T "${AFD_PLUGIN_COMMIT}")"
 VLLM_ASCEND_PATCH_TREE="$(git -C "${VLLM_ASCEND_SOURCE_ROOT}" show -s --format=%T "${VLLM_ASCEND_PATCH_COMMIT}")"
 
@@ -39,6 +41,9 @@ git -C "${VLLM_ASCEND_SOURCE_ROOT}" cat-file commit \
 git -C "${REPO_ROOT}" diff --binary \
   "${AFD_PLUGIN_BASE_COMMIT}" "${AFD_PLUGIN_COMMIT}" -- \
   >"${package_root}/patches/afd-plugin-66ec72f-to-mxfp.patch"
+git -C "${REPO_ROOT}" diff --binary \
+  "${AFD_PLUGIN_GUIDE_BASE_COMMIT}" "${AFD_PLUGIN_COMMIT}" -- \
+  >"${package_root}/patches/afd-plugin-1720b71-to-mxfp.patch"
 
 {
   printf 'VLLM_ASCEND_BASE_COMMIT=%q\n' "${VLLM_ASCEND_BASE_COMMIT}"
@@ -52,6 +57,8 @@ git -C "${REPO_ROOT}" diff --binary \
   printf 'VLLM_ASCEND_COMMIT_TZ=%q\n' +0800
   printf 'AFD_PLUGIN_BASE_COMMIT=%q\n' "${AFD_PLUGIN_BASE_COMMIT}"
   printf 'AFD_PLUGIN_BASE_TREE=%q\n' "${AFD_PLUGIN_BASE_TREE}"
+  printf 'AFD_PLUGIN_GUIDE_BASE_COMMIT=%q\n' "${AFD_PLUGIN_GUIDE_BASE_COMMIT}"
+  printf 'AFD_PLUGIN_GUIDE_BASE_TREE=%q\n' "${AFD_PLUGIN_GUIDE_BASE_TREE}"
   printf 'AFD_PLUGIN_TARGET_SOURCE_COMMIT=%q\n' "${AFD_PLUGIN_COMMIT}"
   printf 'AFD_PLUGIN_TARGET_TREE=%q\n' "${AFD_PLUGIN_TARGET_TREE}"
   printf 'MODEL_CONFIG_SHA256=%q\n' db3e4addebd459d7cc67b09790abf147edb963e1dd49dcf90c7332bbdb8bee26
@@ -65,6 +72,7 @@ git -C "${REPO_ROOT}" diff --binary \
     DEEPSEEK_V4_AFD_PHASE1_A5_VALIDATION_GUIDE_ZH.md \
     VERSION.env \
     install.sh \
+    patches/afd-plugin-1720b71-to-mxfp.patch \
     patches/afd-plugin-66ec72f-to-mxfp.patch \
     patches/vllm-ascend-18a0709.message \
     patches/vllm-ascend-3da28f9-to-18a0709.patch \
