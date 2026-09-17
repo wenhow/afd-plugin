@@ -22,7 +22,7 @@ require_clean_tree() {
     || die "${label} is not a git checkout: ${root}"
   [[ -z "$(git_in "${root}" status --short --untracked-files=all)" ]] \
     || die "${label} worktree is dirty: ${root}"
-  [[ "$(git_in "${root}" show -s --format=%T HEAD)" == "${expected_tree}" ]] \
+  [[ "$(git_in "${root}" rev-parse 'HEAD^{tree}')" == "${expected_tree}" ]] \
     || die "${label} tree mismatch: expected ${expected_tree}"
 }
 
@@ -67,7 +67,7 @@ install_afd_patch() {
   [[ -z "$(git_in "${AFD_SOURCE_ROOT}" status --short --untracked-files=all)" ]] \
     || die "afd-plugin source worktree is dirty: ${AFD_SOURCE_ROOT}"
   source_commit="$(git_in "${AFD_SOURCE_ROOT}" rev-parse HEAD)"
-  source_tree="$(git_in "${AFD_SOURCE_ROOT}" show -s --format=%T HEAD)"
+  source_tree="$(git_in "${AFD_SOURCE_ROOT}" rev-parse 'HEAD^{tree}')"
   case "${source_tree}" in
     "${AFD_PLUGIN_BASE_TREE}")
       patch_file="${SCRIPT_DIR}/patches/afd-plugin-66ec72f-to-official.patch"

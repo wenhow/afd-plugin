@@ -21,12 +21,12 @@ AFD_PLUGIN_R2_COMMIT=7e58cc58e5d90c4558e3ea0fcfbe9a889668fea3
 [[ -z "$(git -C "${VLLM_ASCEND_SOURCE_ROOT}" status --short --untracked-files=all)" ]]
 [[ -z "$(git -C "${REPO_ROOT}" status --short --untracked-files=all)" ]]
 AFD_PLUGIN_COMMIT="$(git -C "${REPO_ROOT}" rev-parse HEAD)"
-VLLM_TREE="$(git -C "${VLLM_SOURCE_ROOT}" show -s --format=%T "${VLLM_COMMIT}")"
-VLLM_ASCEND_BASE_TREE="$(git -C "${VLLM_ASCEND_SOURCE_ROOT}" show -s --format=%T "${VLLM_ASCEND_BASE_COMMIT}")"
-AFD_PLUGIN_BASE_TREE="$(git -C "${REPO_ROOT}" show -s --format=%T "${AFD_PLUGIN_BASE_COMMIT}")"
-AFD_PLUGIN_GUIDE_BASE_TREE="$(git -C "${REPO_ROOT}" show -s --format=%T "${AFD_PLUGIN_GUIDE_BASE_COMMIT}")"
-AFD_PLUGIN_R2_TREE="$(git -C "${REPO_ROOT}" show -s --format=%T "${AFD_PLUGIN_R2_COMMIT}")"
-AFD_PLUGIN_TARGET_TREE="$(git -C "${REPO_ROOT}" show -s --format=%T "${AFD_PLUGIN_COMMIT}")"
+VLLM_TREE="$(git -C "${VLLM_SOURCE_ROOT}" rev-parse "${VLLM_COMMIT}^{tree}")"
+VLLM_ASCEND_BASE_TREE="$(git -C "${VLLM_ASCEND_SOURCE_ROOT}" rev-parse "${VLLM_ASCEND_BASE_COMMIT}^{tree}")"
+AFD_PLUGIN_BASE_TREE="$(git -C "${REPO_ROOT}" rev-parse "${AFD_PLUGIN_BASE_COMMIT}^{tree}")"
+AFD_PLUGIN_GUIDE_BASE_TREE="$(git -C "${REPO_ROOT}" rev-parse "${AFD_PLUGIN_GUIDE_BASE_COMMIT}^{tree}")"
+AFD_PLUGIN_R2_TREE="$(git -C "${REPO_ROOT}" rev-parse "${AFD_PLUGIN_R2_COMMIT}^{tree}")"
+AFD_PLUGIN_TARGET_TREE="$(git -C "${REPO_ROOT}" rev-parse "${AFD_PLUGIN_COMMIT}^{tree}")"
 
 staging_root="$(mktemp -d)"
 trap 'rm -rf "${staging_root}"' EXIT
