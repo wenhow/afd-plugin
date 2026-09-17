@@ -1427,17 +1427,15 @@ afd-plugin `c0e030f` 加 tracked diff SHA256
 门禁全部通过的上下文中记为停服噪声。该结果仍为 `golden_checked=false`；Standalone
 AF 结果不含 Prefill、Mooncake KV 或 Proxy，不能关闭精度、性能或 A5 PD。
 
-2026-09-17 首次执行单 A5 no-AFD DP4 dSpark 时，四个 DP worker 均在构造首个
-`wq_a` Linear 层时退出，尚未进入真实权重加载、请求或 AFD。checkpoint 的
-`config.json` SHA256 为 `db3e4addebd459d7cc67b09790abf147edb963e1dd49dcf90c7332bbdb8bee26`，
-其 compressed-tensors 契约为 `Linear=W8A8 MXFP8/block 128x128/group 128` 和
-`MoEGMM=W4A8 MXFP/group 32`；固定 vLLM-Ascend `3da28f941` 已有对应 kernel scheme，
-但检测器不能从该配置选择它们，且 FusedMoE 原先会回退到 `Linear` 组，最终报
-`No compressed-tensors compatible quantization type was found`。修复提交
-`18a0709c88a6c1abed792f0f071bb0f9e8a5fc07` 增加严格格式识别并让 FusedMoE 优先采用
-`MoEGMM`，完整现场配置解析为 `Linear -> W8A8_MXFP8`、`MoEGMM -> W4A8_MXFP`，
-上游定向单测 `13/13` 通过。A5 尚未用该提交复跑，因此 S1/S2/S3 状态仍是待验证，
-不得写成 dSpark 已通过。
+2026-09-17 首次执行单 A5 no-AFD DP4 dSpark 时，现场 `config.json` 为
+`compressed-tensors`，四个 DP worker 均在构造首个 `wq_a` Linear 层时退出。曾用实验性
+vLLM-Ascend 提交 `18a0709c` 验证格式识别，但该方案已按交付约束撤回，不进入正式基线；
+vLLM 和 vLLM-Ascend 分别恢复 clean `0fc695fc`、`3da28f941`，后续不修改上游源码。
+随后现场模型配置又被手工改为 `fp8`，配置 SHA256 从 `db3e4add...` 变为
+`6c8f3d2d...`；新一轮启动虽通过网络和量化配置阶段，但四个 worker 在读取权重时均报
+`SafetensorError: incomplete metadata, file not fully covered`。当前阻塞归为模型制品：
+必须恢复与权重配套的原始 DSpark 配置，并校验每个 safetensors 分片的声明长度与实际
+长度。S1/S2/S3 仍待验证，不得写成 dSpark 已通过，也不得用修改上游代码规避模型契约。
 
 全部计划功能完成后才进入最终精度阶段。届时 A5 必须先生成同平台非 AFD golden，
 不能只拿 A3 token 文件代替 A5 基线，并依次验证：
@@ -1794,9 +1792,10 @@ NPU、吞吐、token/s/NPU、TPOT、CV、HBM、FFN `Free/wall`、`Bubble/wall`�
 19. A5 standalone Decode-AF 的 no-AFD DP4/MTP-off 和全部四个 AFD 点已完成；A4F4 Graph/U2、
     A2F4 Graph/U2 和更新 HCCL 环境后的 A4F2 Graph/U2 均两轮观测到真实 two-stage。
     `A5-HCCL-RS-001` 已在当前环境关闭；A4F2 证据仍为 `golden_checked=false`，且未记录
-    独立 HCCL build，所以不外推为精度、性能或任意 HCCL 版本结论。单 A5 dSpark 首次
-    no-AFD 启动已定位为上游 compressed MX 格式识别缺口，代码修复和交付包已完成但尚待
-    A5 复跑 S1/S2/S3；A5 PD D1/D2 仍需第二节点/容量合格拓扑，MTP N1/N2/N3 后移；
+    独立 HCCL build，所以不外推为精度、性能或任意 HCCL 版本结论。单 A5 dSpark 当前
+    阻塞在被修改的模型配置和 safetensors 分片长度异常；实验性上游修改已撤回，正式栈
+    保持 vLLM `0fc695fc`、vLLM-Ascend `3da28f941` clean。恢复可信模型制品后再执行
+    S1/S2/S3；A5 PD D1/D2 仍需第二节点/容量合格拓扑，MTP N1/N2/N3 后移；
 20. 每次阶段完成都保存日志、原始数据、解析结果和清理证据。
 
 ## 13. 一句话路线
@@ -1809,8 +1808,9 @@ Graph/U1/U2、单 token MTP M0-M7、双向整数比例组件与 TP2/M8 历史基
 优雅退出和路径匹配 F1 未冻结。第一阶段 A3 功能标签已经完成；A5 standalone
 Decode-AF 的 no-AFD 和四个 AFD 点已通过，Graph/U2 多流问题已关闭；更新 HCCL
 环境后的 A4F2 两轮功能门禁通过，`A5-HCCL-RS-001` 在当前环境关闭，但 exact HCCL
-build、golden、精度和性能仍未形成结论。单 A5 dSpark 的 compressed MX 启动缺口已由
-vLLM-Ascend `18a0709c` 修复，但 S1/S2/S3 尚待 A5 复跑；A5 PD D1/D2 尚未验证，需第二
+build、golden、精度和性能仍未形成结论。单 A5 dSpark 当前阻塞在模型配置被修改和
+safetensors 分片长度异常；实验性 vLLM-Ascend 修改已撤回，正式验证不修改 vLLM 或
+vLLM-Ascend。恢复可信模型制品后再执行 S1/S2/S3；A5 PD D1/D2 尚未验证，需第二
 节点/容量合格拓扑。完整 A8F4 留给至少 12 张可用 NPU 且容量足够的环境。A5 PD 和
 dSpark 组合闭环后，再进入最终精度；MTP N1/N2/N3、U3 和正式性能属于后续阶段，
 TP/SP/CP/DCP/PP、TP3、非等量 TP2 和 TP2 最大 Graph+MTP 不作为第一阶段门禁。

@@ -837,10 +837,11 @@ def test_a5_native_smoke_and_guide_do_not_require_golden():
     assert "run_phase1_a5_matrix.sh dspark" in guide
     assert "run_phase1_a5_native_smoke.sh run-dspark" in guide
     assert "单 A5 dSpark 验证" in guide
-    patched_ascend_commit = "18a0709c88a6c1abed792f0f071bb0f9e8a5fc07"
-    assert patched_ascend_commit in matrix
-    assert patched_ascend_commit in site
-    assert patched_ascend_commit in guide
+    upstream_ascend_commit = "3da28f9414583d2d0b672a8f06d1fae142404bda"
+    assert upstream_ascend_commit in matrix
+    assert upstream_ascend_commit in site
+    assert upstream_ascend_commit in guide
+    assert "不叠加代码补丁" in guide
 
 
 def test_a5_dspark_mxfp_update_package_is_auditable():
@@ -854,15 +855,21 @@ def test_a5_dspark_mxfp_update_package_is_auditable():
     assert os.access(installer, os.X_OK)
     assert os.access(builder, os.X_OK)
     installer_text = installer.read_text(encoding="utf-8")
+    builder_text = builder.read_text(encoding="utf-8")
     assert "sha256sum -c SHA256SUMS" in installer_text
-    assert "apply --check" in installer_text
-    assert "commit-tree" in installer_text
+    assert "checkout --detach" in installer_text
+    assert "VLLM_ASCEND_REVERTABLE_COMMIT" in installer_text
     assert "AFD_PLUGIN_GUIDE_BASE_TREE" in installer_text
-    assert "afd-plugin-1720b71-to-mxfp.patch" in installer_text
+    assert "AFD_PLUGIN_R2_TREE" in installer_text
+    assert "afd-plugin-1720b71-to-official.patch" in installer_text
+    assert "afd-plugin-7e58cc5-to-official.patch" in installer_text
+    assert "afd-plugin-phase1-a5-dspark-official" in config
     assert "afd-plugin-phase1-a5-dspark-mxfp" in config
-    assert "afd-plugin-phase1-a5-dspark-66ec72f" in config
     assert "不会重装 Python/CANN/HCCL" in readme
-    assert "不再携带完整 Git bundle" in readme
+    assert "不携带完整 Git bundle" in readme
+    assert "不会应用任何 vLLM 或 vLLM-Ascend 代码补丁" in readme
+    assert "patches/vllm-" not in builder_text
+    assert "patches/vllm-ascend" not in builder_text
 
 
 def test_phase1_native_control_generator_lists_path_matched_controls():
