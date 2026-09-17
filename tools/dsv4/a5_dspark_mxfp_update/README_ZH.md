@@ -1,0 +1,36 @@
+# A5 dSpark compressed MX 兼容修复包
+
+该包修复固定 vLLM-Ascend `3da28f941` 无法识别 DeepSeek-V4-Flash-DSpark checkpoint 中 `W8A8 MXFP8` 和 `W4A8 MXFP` compressed-tensors 配置的问题。
+
+安装不会重装 Python/CANN/HCCL，不修改模型权重，不覆盖现有 afd-plugin 目录。它只把干净的 vLLM-Ascend 基线 fast-forward 到固定修复提交，并创建新的干净 afd-plugin 工作树。
+
+## 安装
+
+```bash
+tar -xzf dsv4-a5-dspark-compressed-mxfp-fix-20260917.tar.gz
+cd dsv4-a5-dspark-compressed-mxfp-fix-20260917
+
+# 仅当实际路径不同才修改。
+vi config.env
+bash install.sh install 2>&1 | tee install.log
+bash install.sh check
+```
+
+安装器要求：
+
+- vLLM-Ascend HEAD 是包内记录的基线或目标提交，且工作树干净；
+- 新 afd-plugin 目标目录不存在，或已是包内固定提交且工作树干净；
+- checkpoint 的 `config.json` 和 `model.safetensors.index.json` SHA256 与现场已收集值一致；
+- 旧 vLLM-Ascend checkout 中已经存在编译好的 custom ops。
+
+安装成功后使用输出中的 `AFD_PLUGIN_ROOT`、`DSV4_VLLM_ASCEND_ROOT` 和 `MODEL_PATH`。其余 A5 环境变量及验证步骤见 `DEEPSEEK_V4_AFD_PHASE1_A5_VALIDATION_GUIDE_ZH.md`。
+
+先重跑 no-AFD 门禁：
+
+```bash
+cd "$AFD_PLUGIN_ROOT"
+export PHASE1_NATIVE_OUTPUT_ROOT="/data/validation/dsv4-phase1-a5-dspark-mxfp-$(date +%Y%m%d_%H%M%S)/native-dp4-dspark"
+bash tools/dsv4/run_phase1_a5_native_smoke.sh run-dspark
+```
+
+失败时保留整个 `PHASE1_NATIVE_OUTPUT_ROOT`；不要修改 checkpoint 配置或屏蔽 clean-tree 审计。

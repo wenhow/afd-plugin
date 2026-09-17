@@ -5,6 +5,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 RUNNER="${REPO_ROOT}/recipe/npu/deepseek_v4/common/run_validation.py"
 readonly PHASE1_VLLM_SHUTDOWN_TIMEOUT_SECONDS=20
+readonly PHASE1_VLLM_ASCEND_COMMIT=18a0709c88a6c1abed792f0f071bb0f9e8a5fc07
 ACTION="${1:-help}"
 if (( $# > 0 )); then
   shift
@@ -120,7 +121,7 @@ audit_stack() {
   source "${SCRIPT_DIR}/activate_v023_vllm_cann_runtime.sh"
   export PYTHONPATH="${REPO_ROOT}:${DSV4_VLLM_ROOT}:${DSV4_VLLM_ASCEND_ROOT}${PYTHONPATH:+:${PYTHONPATH}}"
   local expected_vllm=0fc695fc6d1d82e9a5ac6835ac8e4e1c83703665
-  local expected_ascend=3da28f9414583d2d0b672a8f06d1fae142404bda
+  local expected_ascend="${PHASE1_VLLM_ASCEND_COMMIT}"
   [[ "$(git -C "${DSV4_VLLM_ROOT}" rev-parse HEAD)" == "${expected_vllm}" ]] \
     || die "vLLM commit mismatch"
   [[ "$(git -C "${DSV4_VLLM_ASCEND_ROOT}" rev-parse HEAD)" == "${expected_ascend}" ]] \
@@ -265,7 +266,7 @@ validate_golden_for_case() {
     and .metadata.control_key == $control_key
     and .metadata.cann_root == $cann_root
     and .metadata.vllm_commit == "0fc695fc6d1d82e9a5ac6835ac8e4e1c83703665"
-    and .metadata.vllm_ascend_commit == "3da28f9414583d2d0b672a8f06d1fae142404bda"
+    and .metadata.vllm_ascend_commit == "18a0709c88a6c1abed792f0f071bb0f9e8a5fc07"
     and .metadata.target_execution_mode == $target_execution
     and .metadata.mtp_draft_execution == $draft_execution
     and .metadata.enable_mtp == $enable_mtp

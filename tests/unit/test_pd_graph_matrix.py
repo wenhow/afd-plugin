@@ -813,6 +813,12 @@ def test_a5_native_smoke_and_guide_do_not_require_golden():
     native = (ROOT / "tools/dsv4/run_phase1_a5_native_smoke.sh").read_text(
         encoding="utf-8"
     )
+    matrix = (ROOT / "tools/dsv4/run_phase1_a5_matrix.sh").read_text(
+        encoding="utf-8"
+    )
+    site = (
+        ROOT / "tools/dsv4/mooncake_pd_manual/a5_site.env.example"
+    ).read_text(encoding="utf-8")
     guide = A5_GUIDE.read_text(encoding="utf-8")
 
     assert 'ASCEND_RT_VISIBLE_DEVICES="${devices}"' in native
@@ -831,6 +837,26 @@ def test_a5_native_smoke_and_guide_do_not_require_golden():
     assert "run_phase1_a5_matrix.sh dspark" in guide
     assert "run_phase1_a5_native_smoke.sh run-dspark" in guide
     assert "单 A5 dSpark 验证" in guide
+    patched_ascend_commit = "18a0709c88a6c1abed792f0f071bb0f9e8a5fc07"
+    assert patched_ascend_commit in matrix
+    assert patched_ascend_commit in site
+    assert patched_ascend_commit in guide
+
+
+def test_a5_dspark_mxfp_update_package_is_auditable():
+    package_tools = ROOT / "tools/dsv4/a5_dspark_mxfp_update"
+    installer = package_tools / "install.sh"
+    builder = package_tools / "build_bundle.sh"
+    config = (package_tools / "config.env.example").read_text(encoding="utf-8")
+    readme = (package_tools / "README_ZH.md").read_text(encoding="utf-8")
+
+    subprocess.run(["bash", "-n", str(installer), str(builder)], check=True)
+    assert os.access(installer, os.X_OK)
+    assert os.access(builder, os.X_OK)
+    assert "sha256sum -c SHA256SUMS" in installer.read_text(encoding="utf-8")
+    assert "merge --ff-only" in installer.read_text(encoding="utf-8")
+    assert "afd-plugin-phase1-a5-dspark-mxfp" in config
+    assert "不会重装 Python/CANN/HCCL" in readme
 
 
 def test_phase1_native_control_generator_lists_path_matched_controls():

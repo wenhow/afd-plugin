@@ -36,7 +36,7 @@ A4F2 关闭证据如下：
 | 项目 | 固定值 |
 |---|---|
 | vLLM | `releases/v0.23.0`，`0fc695fc6d1d82e9a5ac6835ac8e4e1c83703665` |
-| vLLM-Ascend | `rfc/vllm_cann`，`3da28f9414583d2d0b672a8f06d1fae142404bda` |
+| vLLM-Ascend | `rfc/vllm_cann` 基线 `3da28f9414583d2d0b672a8f06d1fae142404bda`，叠加 compressed MX 格式识别提交 `18a0709c88a6c1abed792f0f071bb0f9e8a5fc07` |
 | afd-plugin | `feat/dsv4-afd-graph-u2-multistream-all-on-v1` 的当前交付提交 |
 | CANN | 只指定本机实际绝对 `CANN_ROOT`，不强校验版本字符串 |
 | HCCL | 使用现场已验证包；启动前保存精确包名、版本、build 和来源，不能用“最新”代替版本标识 |
@@ -45,7 +45,7 @@ A4F2 关闭证据如下：
 每台机器执行：
 
 ```bash
-export AFD_PLUGIN_ROOT="/root/dsv4-afd-hccl/src/afd-plugin-phase1-a5-dspark-66ec72f"
+export AFD_PLUGIN_ROOT="/root/dsv4-afd-hccl/src/afd-plugin-phase1-a5-dspark-mxfp"
 export VENV_ROOT="/root/dsv4-afd-hccl/venv"
 export VLLM_ROOT="/root/dsv4-afd-hccl/src/vllm-release-v0.23.0"
 export VLLM_ASCEND_ROOT="/root/dsv4-afd-hccl/src/vllm-ascend-rfc-vllm-cann"
@@ -91,7 +91,7 @@ npu-smi info
 
 `CANN_ROOT` 只要求指向本机实际存在、且直接包含 `set_env.sh` 的绝对目录；若现场路径不同，只修改该路径。`DSV4_CANN_VERSION` 保持为空，不校验版本字符串。不要让 A5 验证回退到 `/mnt/workspace/code/.ascend/cann-9.0.0`。`NIC_NAME` 必须是容器网络命名空间内可见的接口名，不要根据宿主机名称猜测；`GLOO_SOCKET_IFNAME`、`HCCL_SOCKET_IFNAME` 和 `HCCL_IF_IP` 必须在执行验证脚本的同一个终端导出。
 
-三个工作树必须干净，两个上游提交必须与表中一致，NPU 健康且没有残留模型进程。不要屏蔽 dirty 检查。
+三个工作树必须干净，两个上游提交必须与表中一致，NPU 健康且没有残留模型进程。不要屏蔽 dirty 检查。dSpark checkpoint 的 `compressed-tensors` 配置要求 `Linear=W8A8 MXFP8/block 128x128`、`MoEGMM=W4A8 MXFP/group 32`；基线 `3da28f941` 尚不能识别该组合，必须使用表中的 `18a0709c` 修复提交。该修复只改源码，无需重装 Python 依赖或重编 custom ops。
 
 dSpark 使用独立权重，普通 `DeepSeek-V4-Flash` 不能通过启动参数变成 dSpark：
 
