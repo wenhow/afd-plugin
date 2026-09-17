@@ -145,6 +145,10 @@ class AFDNPUFFNModelRunner(NPUModelRunner):
     def profile_run(self) -> None:
         return None
 
+    def _requires_afd_mtp(self) -> bool:
+        """Return whether the connector owns a remote AFD MTP phase."""
+        return bool(getattr(self.connector, "requires_mtp", False))
+
     def load_model(self) -> None:
         if self.speculative_config is None:
             super().load_model()
@@ -160,6 +164,8 @@ class AFDNPUFFNModelRunner(NPUModelRunner):
             super().load_model()
         finally:
             self.drafter = drafter
+        if not self._requires_afd_mtp():
+            return
         if self.vllm_config.quant_config is not None:
             patch_load_weights(self.vllm_config)
         with get_tp_context(drafter):
@@ -289,6 +295,8 @@ class AFDNPUFFNModelRunner(NPUModelRunner):
         self,
         dp_metadata_list: dict[int, DPMetadata | AFDDPMetadata],
     ) -> None:
+        if not self._requires_afd_mtp():
+            return
         control_enabled = bool(
             getattr(self.connector, "mtp_phase_control_enabled", False),
         )
@@ -323,7 +331,7 @@ class AFDNPUFFNModelRunner(NPUModelRunner):
             )
 
     def _recv_mtp_phase_ready(self) -> bool:
-        if self.vllm_config.speculative_config is None:
+        if self.vllm_config.speculative_config is None or not self._requires_afd_mtp():
             return False
         if not bool(
             getattr(self.connector, "mtp_phase_control_enabled", False),
@@ -409,7 +417,8 @@ class AFDNPUFFNModelRunner(NPUModelRunner):
     def _draft_uses_aclgraph(self) -> bool:
         speculative_config = getattr(self.vllm_config, "speculative_config", None)
         return bool(
-            self.use_aclgraph
+            self._requires_afd_mtp()
+            and self.use_aclgraph
             and speculative_config is not None
             and getattr(speculative_config, "method", None) == "mtp"
             and not bool(getattr(speculative_config, "enforce_eager", False))
@@ -769,7 +778,7 @@ class AFDNPUFFNModelRunner(NPUModelRunner):
         header: Any | None = None,
         expected_speculative_step: int | None = None,
     ) -> torch.Tensor | None:
-        if self.vllm_config.speculative_config is None:
+        if self.vllm_config.speculative_config is None or not self._requires_afd_mtp():
             return None
         if stage_ids not in ([0], [0, 1]):
             raise RuntimeError(
@@ -949,7 +958,7 @@ class AFDNPUFFNModelRunner(NPUModelRunner):
                 # Warmup remains end-to-end; only the actual target capture
                 # omits the eager draft phase.
                 speculative_config = getattr(self, "speculative_config", None)
-                if speculative_config is not None:
+                if speculative_config is not None and self._requires_afd_mtp():
                     for speculative_step in range(
                         int(speculative_config.num_speculative_tokens)
                     ):

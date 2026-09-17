@@ -107,6 +107,7 @@ class _FakeFFNConnector:
         role_rank=0,
         world_rank=0,
         requires_input_ids=False,
+        requires_mtp=True,
     ):
         self.dp_metadata_list = {}
         self.attn_outputs = deque()
@@ -116,6 +117,7 @@ class _FakeFFNConnector:
         self.ffn_size = ffn_size
         self.world_rank = world_rank
         self.requires_input_ids = requires_input_ids
+        self.requires_mtp = requires_mtp
         self.received_input_ids = []
         self.mtp_phase_ready = deque()
         self.mtp_phase_control_enabled = True
@@ -1786,6 +1788,32 @@ def test_npu_attention_load_model_keeps_dspark_drafter_local(monkeypatch):
     assert calls == ["parent"]
 
 
+def test_npu_ffn_load_model_keeps_dspark_drafter_off_ffn(monkeypatch):
+    _require_npu_runtime()
+    from afd_plugin.v1.worker.npu import ffn_model_runner
+
+    calls = []
+    monkeypatch.setattr(
+        ffn_model_runner.NPUModelRunner,
+        "load_model",
+        lambda self: calls.append(("parent", self.drafter)),
+    )
+    runner = object.__new__(ffn_model_runner.AFDNPUFFNModelRunner)
+    runner.speculative_config = _dspark_speculative_config()
+    runner.connector = SimpleNamespace(requires_mtp=False)
+    runner.drafter = SimpleNamespace(
+        _get_model=lambda: pytest.fail("FFN must not load the DSpark draft model"),
+    )
+    runner.mtp_ffn_model = None
+
+    drafter = runner.drafter
+    runner.load_model()
+
+    assert calls == [("parent", None)]
+    assert runner.drafter is drafter
+    assert runner.mtp_ffn_model is None
+
+
 def test_npu_attention_full_draft_graph_enables_replay_synchronization():
     _require_npu_runtime()
     from vllm_ascend.compilation.acl_graph import ACLGraphWrapper
@@ -2337,6 +2365,39 @@ def test_npu_ffn_runner_dummy_mtp_does_not_wait_for_phase_marker():
     )
 
     assert runner._recv_mtp_phase_ready() is True
+
+
+def test_npu_ffn_runner_dspark_does_not_enter_remote_mtp_phase(monkeypatch):
+    _patch_ffn_forward_context(monkeypatch)
+    runner = _new_ffn_runner()
+    runner.vllm_config = _vllm_config(
+        role="ffn",
+        connector="P2pHcclAFDConnector",
+        speculative_config=_dspark_speculative_config(),
+    )
+    runner.connector = _FakeFFNConnector(requires_mtp=False)
+    runner.model = _FakeModel()
+    runner.mtp_ffn_model = _FakeModel()
+    runner.num_layers = 1
+    runner.max_num_tokens = 1
+    runner.use_aclgraph = False
+    runner._acl_graphs = {}
+    decoder_metadata = AFDTransferMetadata.create_attention_metadata(
+        layer_idx=0,
+        stage_idx=0,
+        seq_len=1,
+    )
+    runner.connector.attn_outputs.append(("decoder-hidden", decoder_metadata))
+    runner.connector.recv_mtp_header = lambda **_kwargs: pytest.fail(
+        "DSpark keeps its draft on Attention and must not receive an AFD MTP header",
+    )
+
+    runner.execute_model(dp_metadata_list={0: _FakeDPMetadata([1])})
+
+    assert runner.connector.ffn_outputs == [
+        ("npu-ffn(decoder-hidden, layer=0)", decoder_metadata, {"ubatch_idx": 0}),
+    ]
+    assert runner._recv_mtp_phase_ready() is False
 
 
 def test_npu_ffn_runner_dummy_mtp_graph_miss_runs_eager(monkeypatch):
