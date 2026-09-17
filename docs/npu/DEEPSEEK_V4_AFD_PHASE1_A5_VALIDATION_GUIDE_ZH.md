@@ -60,10 +60,14 @@ export DSV4_CANN_ROOT="$CANN_ROOT"
 export DSV4_CANN_VERSION=""
 unset DSV4_ATB_ROOT
 
-# 从 `ip -o -4 addr show up` 选择 A5 容器内真实存在且有 IPv4 的网卡。
+# 从 `ip -o -4 addr show up` 或 `ifconfig -a` 选择 A5 容器内真实存在且有 IPv4 的网卡。
 # 不要沿用脚本内仅适用于旧环境的 eth0/192.169.91.106 默认值。
 export NIC_NAME="<A5容器内实际网卡>"
-export HCCL_IF_IP="$(ip -o -4 addr show dev "$NIC_NAME" scope global | awk 'NR == 1 {split($4, a, "/"); print a[1]}')"
+if command -v ip >/dev/null 2>&1; then
+  export HCCL_IF_IP="$(ip -o -4 addr show dev "$NIC_NAME" scope global | awk 'NR == 1 {split($4, a, "/"); print a[1]}')"
+else
+  export HCCL_IF_IP="$(ifconfig "$NIC_NAME" | awk '/inet / {for (i = 1; i <= NF; i++) if ($i == "inet") {value = $(i + 1); sub(/^addr:/, "", value); print value; exit}}')"
+fi
 export GLOO_SOCKET_IFNAME="$NIC_NAME"
 export HCCL_SOCKET_IFNAME="$NIC_NAME"
 
