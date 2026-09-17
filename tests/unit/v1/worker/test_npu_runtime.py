@@ -400,6 +400,42 @@ def test_npu_ubatch_dsa_ratio_metadata_is_stage_local():
     )
 
 
+def test_npu_dspark_uses_its_cache_group_without_step35_metadata(monkeypatch):
+    _require_npu_runtime()
+    from afd_plugin.v1.worker.npu import attention_model_runner
+
+    class FakeDSparkProposer:
+        kv_cache_gid = 2
+
+        def set_per_group_attn_metadata(self, *_args):
+            pytest.fail("DSpark does not implement Step3.5 per-group metadata")
+
+    monkeypatch.setattr(
+        attention_model_runner,
+        "AscendDSparkProposer",
+        FakeDSparkProposer,
+    )
+    drafter = FakeDSparkProposer()
+
+    attention_model_runner._set_speculative_group_metadata(
+        drafter,
+        2,
+        object(),
+        object(),
+    )
+
+    assert attention_model_runner._speculative_drafter_matches_cache_group(
+        drafter,
+        2,
+        {"draft.swa_cache"},
+    )
+    assert not attention_model_runner._speculative_drafter_matches_cache_group(
+        drafter,
+        1,
+        {"target.mla_cache"},
+    )
+
+
 @pytest.mark.parametrize(
     ("request_slice", "num_reqs", "expected"),
     [

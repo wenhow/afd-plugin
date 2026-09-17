@@ -748,9 +748,10 @@ vllm:spec_decode_num_accepted_tokens_total{model_name="dsv4-afd"} 12
         lambda *_args, **_kwargs: Response(),
     )
     (tmp_path / "attention.log").write_text(
-        (runner.DSPARK_DRAFTER_MARKER + "\n") * 4,
+        (runner.DSPARK_DRAFT_LOADED_MARKER + " 99 params\n") * 4,
         encoding="utf-8",
     )
+    (tmp_path / "ffn.log").write_text("", encoding="utf-8")
     gate = runner._dspark_execution_gate(
         api_port=8910,
         output_dir=tmp_path,
@@ -759,7 +760,19 @@ vllm:spec_decode_num_accepted_tokens_total{model_name="dsv4-afd"} 12
     assert gate["passed"] is True
     assert gate["draft_tokens"] == 20.0
     assert gate["accepted_tokens"] == 12.0
-    assert gate["drafter_markers"] == 4
+    assert gate["attention_draft_load_markers"] == 4
+    assert gate["ffn_draft_load_markers"] == 0
+
+    (tmp_path / "ffn.log").write_text(
+        runner.DSPARK_DRAFT_LOADED_MARKER + " 99 params\n",
+        encoding="utf-8",
+    )
+    gate = runner._dspark_execution_gate(
+        api_port=8910,
+        output_dir=tmp_path,
+        expected_attention_ranks=4,
+    )
+    assert gate["passed"] is False
 
 
 def test_dsv4_performance_command_locks_workload_and_fixed_python(tmp_path):

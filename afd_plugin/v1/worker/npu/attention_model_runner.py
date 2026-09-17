@@ -119,6 +119,35 @@ _ASCEND_COMMON_METADATA_FIELDS = frozenset(
 )
 
 
+def _set_speculative_group_metadata(
+    drafter: Any,
+    kv_cache_gid: int,
+    block_table_tensor: torch.Tensor,
+    slot_mapping: torch.Tensor,
+) -> None:
+    if isinstance(drafter, AscendStep3p5MTPProposer):
+        drafter.set_per_group_attn_metadata(
+            kv_cache_gid,
+            block_table_tensor,
+            slot_mapping,
+        )
+
+
+def _speculative_drafter_matches_cache_group(
+    drafter: Any,
+    kv_cache_gid: int,
+    layer_names: set[str],
+) -> bool:
+    if isinstance(drafter, AscendDSparkProposer):
+        return int(drafter.kv_cache_gid) == kv_cache_gid
+    if isinstance(
+        drafter,
+        AscendEagleProposer | AscendDraftModelProposer | AscendDflashProposer,
+    ):
+        return drafter.attn_layer_names[0] in layer_names
+    return True
+
+
 class _AFDMTPPhaseAwareRunnable:
     """Announce a live draft phase at the exact runnable boundary."""
 
@@ -901,27 +930,23 @@ class AFDNPUAttentionModelRunner(NPUModelRunner):
                 )
                 if "slot_mapping_cpu" in _ASCEND_COMMON_METADATA_FIELDS:
                     cm.slot_mapping_cpu = slot_mapping_cpu
-            if self.speculative_config and isinstance(
-                self.drafter,
-                AscendStep3p5MTPProposer | AscendDSparkProposer,
-            ):
-                self.drafter.set_per_group_attn_metadata(
+            if self.speculative_config:
+                _set_speculative_group_metadata(
+                    self.drafter,
                     kv_cache_gid,
                     cm.block_table_tensor,
                     cm.slot_mapping,
                 )
-            if self.speculative_config and spec_decode_common_attn_metadata is None:
-                if isinstance(
+            if (
+                self.speculative_config
+                and spec_decode_common_attn_metadata is None
+                and _speculative_drafter_matches_cache_group(
                     self.drafter,
-                    AscendEagleProposer
-                    | AscendDraftModelProposer
-                    | AscendDflashProposer
-                    | AscendDSparkProposer,
-                ):
-                    if self.drafter.attn_layer_names[0] in kv_cache_group.layer_names:
-                        spec_decode_common_attn_metadata = cm
-                else:
-                    spec_decode_common_attn_metadata = cm
+                    kv_cache_gid,
+                    kv_cache_group.layer_names,
+                )
+            ):
+                spec_decode_common_attn_metadata = cm
             for attn_gid in range(len(self.attn_groups[kv_cache_gid])):
                 # ### PATCH START: AFD common-metadata split
                 ubatch_common_metadata = split_attn_metadata(

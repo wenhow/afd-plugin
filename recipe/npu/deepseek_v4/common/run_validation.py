@@ -35,6 +35,7 @@ FFN_SHUTDOWN_RECEIPT_MARKER = "AFD NPU FFN received Attention shutdown payload"
 DSPARK_DRAFTER_MARKER = (
     "DeepSeek-V4 AFD keeps the complete DSpark draft model on the Attention worker"
 )
+DSPARK_DRAFT_LOADED_MARKER = "DSpark draft model loaded:"
 FATAL_LOG_MARKERS = (
     "AFD NPU FFN worker loop failed",
     "EngineCore encountered a fatal error",
@@ -412,7 +413,15 @@ def _dspark_execution_gate(
         if attention_log.is_file()
         else ""
     )
+    ffn_log = output_dir / "ffn.log"
+    ffn_text = (
+        ffn_log.read_text(encoding="utf-8", errors="replace")
+        if ffn_log.is_file()
+        else ""
+    )
     drafter_markers = attention_text.count(DSPARK_DRAFTER_MARKER)
+    attention_draft_load_markers = attention_text.count(DSPARK_DRAFT_LOADED_MARKER)
+    ffn_draft_load_markers = ffn_text.count(DSPARK_DRAFT_LOADED_MARKER)
     gate: dict[str, Any] = {
         "passed": bool(
             error is None
@@ -420,12 +429,16 @@ def _dspark_execution_gate(
             and drafted > 0
             and accepted is not None
             and accepted > 0
-            and drafter_markers >= expected_attention_ranks
+            and attention_draft_load_markers >= expected_attention_ranks
+            and ffn_draft_load_markers == 0
         ),
         "draft_tokens": drafted,
         "accepted_tokens": accepted,
         "drafter_marker": DSPARK_DRAFTER_MARKER,
         "drafter_markers": drafter_markers,
+        "draft_loaded_marker": DSPARK_DRAFT_LOADED_MARKER,
+        "attention_draft_load_markers": attention_draft_load_markers,
+        "ffn_draft_load_markers": ffn_draft_load_markers,
         "expected_attention_ranks": expected_attention_ranks,
     }
     if error is not None:
