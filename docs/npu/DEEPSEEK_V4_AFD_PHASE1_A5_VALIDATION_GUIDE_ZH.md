@@ -60,11 +60,21 @@ export DSV4_CANN_ROOT="$CANN_ROOT"
 export DSV4_CANN_VERSION=""
 unset DSV4_ATB_ROOT
 
+# 从 `ip -o -4 addr show up` 选择 A5 容器内真实存在且有 IPv4 的网卡。
+# 不要沿用脚本内仅适用于旧环境的 eth0/192.169.91.106 默认值。
+export NIC_NAME="<A5容器内实际网卡>"
+export HCCL_IF_IP="$(ip -o -4 addr show dev "$NIC_NAME" scope global | awk 'NR == 1 {split($4, a, "/"); print a[1]}')"
+export GLOO_SOCKET_IFNAME="$NIC_NAME"
+export HCCL_SOCKET_IFNAME="$NIC_NAME"
+
 test -f "$DSV4_CANN_ROOT/set_env.sh"
 test -x "$DSV4_RUNTIME_VENV/bin/python"
+test -d "/sys/class/net/$NIC_NAME"
+test -n "$HCCL_IF_IP"
 printf 'CANN=%s\nPython=%s\n' \
   "$(readlink -f "$DSV4_CANN_ROOT")" \
   "$(readlink -f "$DSV4_RUNTIME_VENV/bin/python")"
+printf 'NIC=%s\nHCCL_IF_IP=%s\n' "$NIC_NAME" "$HCCL_IF_IP"
 
 git -C "$AFD_PLUGIN_ROOT" rev-parse HEAD
 git -C "$AFD_PLUGIN_ROOT" status --short
@@ -75,7 +85,7 @@ git -C "$VLLM_ASCEND_ROOT" status --short
 npu-smi info
 ```
 
-`CANN_ROOT` 只要求指向本机实际存在、且直接包含 `set_env.sh` 的绝对目录；若现场路径不同，只修改该路径。`DSV4_CANN_VERSION` 保持为空，不校验版本字符串。不要让 A5 验证回退到 `/mnt/workspace/code/.ascend/cann-9.0.0`。
+`CANN_ROOT` 只要求指向本机实际存在、且直接包含 `set_env.sh` 的绝对目录；若现场路径不同，只修改该路径。`DSV4_CANN_VERSION` 保持为空，不校验版本字符串。不要让 A5 验证回退到 `/mnt/workspace/code/.ascend/cann-9.0.0`。`NIC_NAME` 必须是容器网络命名空间内可见的接口名，不要根据宿主机名称猜测；`GLOO_SOCKET_IFNAME`、`HCCL_SOCKET_IFNAME` 和 `HCCL_IF_IP` 必须在执行验证脚本的同一个终端导出。
 
 三个工作树必须干净，两个上游提交必须与表中一致，NPU 健康且没有残留模型进程。不要屏蔽 dirty 检查。
 
