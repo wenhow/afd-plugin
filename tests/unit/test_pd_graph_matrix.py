@@ -853,10 +853,14 @@ def test_a5_dspark_mxfp_update_package_is_auditable():
     subprocess.run(["bash", "-n", str(installer), str(builder)], check=True)
     assert os.access(installer, os.X_OK)
     assert os.access(builder, os.X_OK)
-    assert "sha256sum -c SHA256SUMS" in installer.read_text(encoding="utf-8")
-    assert "merge --ff-only" in installer.read_text(encoding="utf-8")
+    installer_text = installer.read_text(encoding="utf-8")
+    assert "sha256sum -c SHA256SUMS" in installer_text
+    assert "apply --check" in installer_text
+    assert "commit-tree" in installer_text
     assert "afd-plugin-phase1-a5-dspark-mxfp" in config
+    assert "afd-plugin-phase1-a5-dspark-66ec72f" in config
     assert "不会重装 Python/CANN/HCCL" in readme
+    assert "不再携带完整 Git bundle" in readme
 
 
 def test_phase1_native_control_generator_lists_path_matched_controls():
