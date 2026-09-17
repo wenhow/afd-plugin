@@ -76,7 +76,7 @@ fatal、协调停机和 NPU 清理。三个 Graph/U2 点都固定 `async_schedul
 平台故障 `A5-HCCL-RS-001`；现场替换 HCCL 包后的正式两轮未再出现
 `AicpuReduceScatterSoleMeshConcur_device`、`PreSyncInterThreads` 或 `507018`，故该
 阻塞在当前环境关闭。A5 standalone Decode-AF 已完成，但不能据此声明 A5 总体功能完成：
-A5 平台的 Prefill/Decode PD + Decode-AF 组合尚未验证，dSpark + MTP N1/N2/N3 为后续组合阶段。
+A5 单机 dSpark S1-S3 和双机 Prefill/Decode PD + Decode-AF D1-D2 尚未验证，MTP N1/N2/N3 为后续组合阶段。
 权重和单机参数以 [vLLM-Ascend v0.23.0 官方指导](https://docs.vllm.ai/projects/ascend/en/v0.23.0/tutorials/models/DeepSeek-V4-Flash.html#single-node-online-deployment) 为准。
 
 M9 在 2026-09-04 完成双 A3 的 TP1、MTP off、Graph/U2 数据面与性能/Profile 测量：
@@ -210,7 +210,7 @@ A3 验收通过只说明实现语义和 A3 性能成立，不等于 A5 已支持
   当时暂停重复 A4F4/A2F4 Graph/U2 和 A4F2 容量项；该限制已由 2026-09-15 至 09-16
   的正式通过结果解除。
 - 双机 PD 一期实际验收 A8F8 N2/N3、A4F8 N3 三个适用点，均完成两轮功能验证；A8F4 N3 受 A3 HBM 限制排除。3 个路径匹配 no-AFD control 和逐 token F1 延期，control golden 仍须按 Attention DP、target/draft execution、U 数和 MTP N 隔离，不能跨路径复用。
-- 上述双机 PD 是 A3 平台证据，不能代替 A5 PD。A5 尚需在第二节点或容量合格拓扑上组合 Prefill、Mooncake KV、Decode Attention/FFN 和 Proxy，先做 MTP-off PD 功能门禁，再进入 dSpark + MTP N1/N2/N3。
+- 上述双机 PD 是 A3 平台证据，不能代替 A5 PD。A5 先在单机完成 no-AFD、AFD eager/U1 和 AFD Graph/U2 三个 dSpark 门禁，再在第二节点或容量合格拓扑上组合 Prefill、Mooncake KV、Decode Attention/FFN 和 Proxy，分别执行 MTP-off 与 dSpark PD；MTP N1/N2/N3 保留给后续组合阶段。
 - `pd.sh` 的部署约束已同步为双向整数 A/F 和 N1-N3，矩阵按拓扑动态生成 device list 与 FFN capacity；A5 当前执行和证据回传步骤见 `DEEPSEEK_V4_AFD_PHASE1_A5_VALIDATION_GUIDE_ZH.md`。
 - 已按双 A3 历史实跑配置提供 `dual-a3-reuse` 安装 profile：复用 CANN 9.0.0、固定 venv 和两个上游源码，不重装依赖或重建上游；从旧 `2164240` 仓库通过包内增量 Git bundle 创建独立的一期 afd-plugin 路径，并附带双机 PD common 模板。旧 seed 仓库保持不动，本地 tracked diff 自动留档且不会进入新目标；seed HEAD、目标/上游工作树、custom ops 和 Python 导入根不一致时 fail-fast。
 - A5 新增 `a5-reuse` profile，复用已经安装完成的 venv 和固定上游源码，只创建新的 afd-plugin 路径。包内附官方 `DeepSeek-V4-Flash` 配置和显式恢复脚本；恢复前先备份现场 config，预检严格拒绝 `mxfp8` 别名，不通过修改上游或 `hf-overrides` 隐藏权重契约差异。
@@ -1427,6 +1427,18 @@ afd-plugin `c0e030f` 加 tracked diff SHA256
 门禁全部通过的上下文中记为停服噪声。该结果仍为 `golden_checked=false`；Standalone
 AF 结果不含 Prefill、Mooncake KV 或 Proxy，不能关闭精度、性能或 A5 PD。
 
+2026-09-17 首次执行单 A5 no-AFD DP4 dSpark 时，四个 DP worker 均在构造首个
+`wq_a` Linear 层时退出，尚未进入真实权重加载、请求或 AFD。checkpoint 的
+`config.json` SHA256 为 `db3e4addebd459d7cc67b09790abf147edb963e1dd49dcf90c7332bbdb8bee26`，
+其 compressed-tensors 契约为 `Linear=W8A8 MXFP8/block 128x128/group 128` 和
+`MoEGMM=W4A8 MXFP/group 32`；固定 vLLM-Ascend `3da28f941` 已有对应 kernel scheme，
+但检测器不能从该配置选择它们，且 FusedMoE 原先会回退到 `Linear` 组，最终报
+`No compressed-tensors compatible quantization type was found`。修复提交
+`18a0709c88a6c1abed792f0f071bb0f9e8a5fc07` 增加严格格式识别并让 FusedMoE 优先采用
+`MoEGMM`，完整现场配置解析为 `Linear -> W8A8_MXFP8`、`MoEGMM -> W4A8_MXFP`，
+上游定向单测 `13/13` 通过。A5 尚未用该提交复跑，因此 S1/S2/S3 状态仍是待验证，
+不得写成 dSpark 已通过。
+
 全部计划功能完成后才进入最终精度阶段。届时 A5 必须先生成同平台非 AFD golden，
 不能只拿 A3 token 文件代替 A5 基线，并依次验证：
 
@@ -1782,8 +1794,9 @@ NPU、吞吐、token/s/NPU、TPOT、CV、HBM、FFN `Free/wall`、`Bubble/wall`�
 19. A5 standalone Decode-AF 的 no-AFD DP4/MTP-off 和全部四个 AFD 点已完成；A4F4 Graph/U2、
     A2F4 Graph/U2 和更新 HCCL 环境后的 A4F2 Graph/U2 均两轮观测到真实 two-stage。
     `A5-HCCL-RS-001` 已在当前环境关闭；A4F2 证据仍为 `golden_checked=false`，且未记录
-    独立 HCCL build，所以不外推为精度、性能或任意 HCCL 版本结论。A5 PD + Decode-AF
-    尚未验证，需第二节点/容量合格拓扑；通过后再进入 dSpark + MTP N1/N2/N3；
+    独立 HCCL build，所以不外推为精度、性能或任意 HCCL 版本结论。单 A5 dSpark 首次
+    no-AFD 启动已定位为上游 compressed MX 格式识别缺口，代码修复和交付包已完成但尚待
+    A5 复跑 S1/S2/S3；A5 PD D1/D2 仍需第二节点/容量合格拓扑，MTP N1/N2/N3 后移；
 20. 每次阶段完成都保存日志、原始数据、解析结果和清理证据。
 
 ## 13. 一句话路线
@@ -1796,7 +1809,8 @@ Graph/U1/U2、单 token MTP M0-M7、双向整数比例组件与 TP2/M8 历史基
 优雅退出和路径匹配 F1 未冻结。第一阶段 A3 功能标签已经完成；A5 standalone
 Decode-AF 的 no-AFD 和四个 AFD 点已通过，Graph/U2 多流问题已关闭；更新 HCCL
 环境后的 A4F2 两轮功能门禁通过，`A5-HCCL-RS-001` 在当前环境关闭，但 exact HCCL
-build、golden、精度和性能仍未形成结论。A5 PD + Decode-AF 尚未验证，需第二节点/容量合格
-拓扑；该组合通过后再进入 dSpark + MTP N1/N2/N3。完整 A8F4
-留给至少 12 张可用 NPU 且容量足够的环境。A5 PD 和 dSpark 组合闭环后，再进入最终精度；第二阶段再做 U3 和正式性能
-收益；TP/SP/CP/DCP/PP、TP3、非等量 TP2 和 TP2 最大 Graph+MTP 不作为第一阶段门禁。
+build、golden、精度和性能仍未形成结论。单 A5 dSpark 的 compressed MX 启动缺口已由
+vLLM-Ascend `18a0709c` 修复，但 S1/S2/S3 尚待 A5 复跑；A5 PD D1/D2 尚未验证，需第二
+节点/容量合格拓扑。完整 A8F4 留给至少 12 张可用 NPU 且容量足够的环境。A5 PD 和
+dSpark 组合闭环后，再进入最终精度；MTP N1/N2/N3、U3 和正式性能属于后续阶段，
+TP/SP/CP/DCP/PP、TP3、非等量 TP2 和 TP2 最大 Graph+MTP 不作为第一阶段门禁。
