@@ -76,7 +76,7 @@ set +a
 : "${VLLM_ASCEND_ROOT:=${CODE_ROOT}/vllm-ascend-rfc-vllm-cann}"
 : "${AFD_PLUGIN_ROOT:=${CODE_ROOT}/afd-plugin}"
 : "${CANN_ROOT:=/usr/local/Ascend/cann-9.0.0}"
-: "${CANN_VERSION:=9.0.0}"
+: "${CANN_VERSION=9.0.0}"
 : "${ATB_ROOT:=}"
 : "${MODEL_PATH:=/data/z00569729/models/DeepSeek-V4-Flash-w8a8-mtp}"
 : "${MODEL_QUANTIZATION:=auto}"

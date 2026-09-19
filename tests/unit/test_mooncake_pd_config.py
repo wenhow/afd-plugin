@@ -365,6 +365,8 @@ def test_mooncake_pd_recipes_accept_dp4_tp2_without_relaxing_other_modes():
     assert "spec_decode_num_accepted_tokens_total" in manual
     assert "No successful Mooncake KV transfer marker" in manual
     assert "No live two-stage U2 marker" in manual
+    assert ': "${CANN_VERSION=9.0.0}"' in manual
+    assert ': "${CANN_VERSION:=9.0.0}"' not in manual
     assert "CANN version check skipped; using configured path ${CANN_ROOT}" in manual
     assert "--enable-dbo" in control
     assert "FULL_DECODE_ONLY" in control
@@ -399,6 +401,9 @@ def test_mooncake_pd_manual_print_config_preserves_variant_and_role(
 
 
 def test_a5_pd_generator_creates_two_graph_u2_integration_points(tmp_path):
+    site_template = (MANUAL_PD_DIR / "a5_site.env.example").read_text()
+    assert 'MOONCAKE_JEMALLOC=""' in site_template
+
     site = tmp_path / "site.env"
     config_dir = tmp_path / "configs"
     site.write_text(
