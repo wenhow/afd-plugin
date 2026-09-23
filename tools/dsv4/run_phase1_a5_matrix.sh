@@ -5,7 +5,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 RUNNER="${REPO_ROOT}/recipe/npu/deepseek_v4/common/run_validation.py"
 readonly PHASE1_VLLM_SHUTDOWN_TIMEOUT_SECONDS=20
-readonly PHASE1_VLLM_ASCEND_COMMIT=3da28f9414583d2d0b672a8f06d1fae142404bda
+readonly PHASE1_VLLM_ASCEND_COMMIT="${PHASE1_VLLM_ASCEND_COMMIT:-3da28f9414583d2d0b672a8f06d1fae142404bda}"
 ACTION="${1:-help}"
 if (( $# > 0 )); then
   shift

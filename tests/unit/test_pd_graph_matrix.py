@@ -839,6 +839,10 @@ def test_a5_native_smoke_and_guide_do_not_require_golden():
     assert "单 A5 dSpark 验证" in guide
     upstream_ascend_commit = "3da28f9414583d2d0b672a8f06d1fae142404bda"
     assert upstream_ascend_commit in matrix
+    assert (
+        'PHASE1_VLLM_ASCEND_COMMIT="${PHASE1_VLLM_ASCEND_COMMIT:-'
+        in matrix
+    )
     assert upstream_ascend_commit in site
     assert upstream_ascend_commit in guide
     assert "不叠加代码补丁" in guide
