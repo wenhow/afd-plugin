@@ -174,6 +174,7 @@ DEPLOYMENT_SLUG="${DEPLOYMENT_VARIANT//_/-}"
 : "${AFD_HCCL_GRAPH_U2_ATTENTION_THREE_STREAM:=1}"
 : "${AFD_HCCL_GRAPH_U2_FFN_RECV_STREAM:=1}"
 : "${AFD_HCCL_GRAPH_U2_FFN_CROSS_LAYER:=1}"
+: "${AFD_HCCL_GRAPH_U2_STABLE_REPLAY:=1}"
 : "${ARTIFACT_LOG_TAIL_BYTES:=262144}"
 : "${ARTIFACT_MAX_BYTES:=2097152}"
 : "${PORT_SNAPSHOT_TIMEOUT_SECONDS:=10}"
@@ -534,7 +535,8 @@ validate_common_config() {
     AFD_HCCL_GRAPH_U2_HYBRID_DAG \
     AFD_HCCL_GRAPH_U2_ATTENTION_THREE_STREAM \
     AFD_HCCL_GRAPH_U2_FFN_RECV_STREAM \
-    AFD_HCCL_GRAPH_U2_FFN_CROSS_LAYER; do
+    AFD_HCCL_GRAPH_U2_FFN_CROSS_LAYER \
+    AFD_HCCL_GRAPH_U2_STABLE_REPLAY; do
     [[ "${!graph_u2_flag}" == "0" || "${!graph_u2_flag}" == "1" ]] \
       || die "${graph_u2_flag} must be 0 or 1"
   done
@@ -1046,6 +1048,7 @@ export_runtime_env() {
   export AFD_HCCL_GRAPH_U2_ATTENTION_THREE_STREAM
   export AFD_HCCL_GRAPH_U2_FFN_RECV_STREAM
   export AFD_HCCL_GRAPH_U2_FFN_CROSS_LAYER
+  export AFD_HCCL_GRAPH_U2_STABLE_REPLAY
 }
 
 wait_http() {
@@ -2148,6 +2151,8 @@ collect_action() {
       "${AFD_HCCL_GRAPH_U2_FFN_RECV_STREAM}"
     printf 'graph_u2_ffn_cross_layer=%s\n' \
       "${AFD_HCCL_GRAPH_U2_FFN_CROSS_LAYER}"
+    printf 'graph_u2_stable_replay=%s\n' \
+      "${AFD_HCCL_GRAPH_U2_STABLE_REPLAY}"
     printf 'vllm_ascend_worktree_mode=%s\n' "${VLLM_ASCEND_WORKTREE_MODE}"
     if [[ "${MOONCAKE_INSTALL_MODE}" == "wheel" ]]; then
       printf 'mooncake_wheel_sha256=%s\n' "${MOONCAKE_WHEEL_SHA256}"
@@ -2322,6 +2327,7 @@ print_config_action() {
   printf 'AFD_HCCL_GRAPH_U2_ATTENTION_THREE_STREAM=%s\n' "${AFD_HCCL_GRAPH_U2_ATTENTION_THREE_STREAM}"
   printf 'AFD_HCCL_GRAPH_U2_FFN_RECV_STREAM=%s\n' "${AFD_HCCL_GRAPH_U2_FFN_RECV_STREAM}"
   printf 'AFD_HCCL_GRAPH_U2_FFN_CROSS_LAYER=%s\n' "${AFD_HCCL_GRAPH_U2_FFN_CROSS_LAYER}"
+  printf 'AFD_HCCL_GRAPH_U2_STABLE_REPLAY=%s\n' "${AFD_HCCL_GRAPH_U2_STABLE_REPLAY}"
   printf 'ALLOW_COLOCATED_PD_CONTROL=%s\n' "${ALLOW_COLOCATED_PD_CONTROL}"
   printf 'VLLM_ASCEND_WORKTREE_MODE=%s\n' "${VLLM_ASCEND_WORKTREE_MODE}"
   printf 'STATE_ROOT=%s\n' "${STATE_ROOT}"

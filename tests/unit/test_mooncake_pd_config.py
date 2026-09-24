@@ -405,6 +405,8 @@ def test_mooncake_pd_recipes_accept_dp4_tp2_without_relaxing_other_modes():
     assert 'export U_BATCHES="${DECODE_U_BATCHES}"' in manual
     assert "export AFD_ASYNC_SCHEDULING" in manual
     assert 'AFD_ASYNC_SCHEDULING="auto"' in config
+    assert 'AFD_HCCL_GRAPH_U2_STABLE_REPLAY="1"' in config
+    assert "export AFD_HCCL_GRAPH_U2_STABLE_REPLAY" in manual
     assert 'export ENABLE_MTP="${DECODE_ENABLE_MTP}"' in manual
     assert 'export ENABLE_DSPARK="${DECODE_ENABLE_DSPARK}"' in manual
     assert "DECODE_ENABLE_MTP and DECODE_ENABLE_DSPARK cannot both be enabled" in manual

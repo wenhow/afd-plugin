@@ -110,6 +110,7 @@ write_role_config() {
     write_value AFD_HCCL_GRAPH_U2_ATTENTION_THREE_STREAM 1
     write_value AFD_HCCL_GRAPH_U2_FFN_RECV_STREAM 1
     write_value AFD_HCCL_GRAPH_U2_FFN_CROSS_LAYER 1
+    write_value AFD_HCCL_GRAPH_U2_STABLE_REPLAY 1
   } >"${output}"
 }
 

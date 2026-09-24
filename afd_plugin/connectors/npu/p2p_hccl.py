@@ -42,6 +42,7 @@ import torch.distributed as dist
 import torch.distributed.distributed_c10d as c10d
 from torch.distributed.distributed_c10d import ProcessGroup
 from vllm.forward_context import DPMetadata, get_forward_context
+from vllm.logger import init_logger
 from vllm_ascend.utils import is_dspark_config
 
 from afd_plugin.config import AFDConfig
@@ -65,6 +66,8 @@ from afd_plugin.v1.worker.dbo import maybe_apply_dbo_yield
 
 if TYPE_CHECKING:
     from vllm.config import VllmConfig
+
+logger = init_logger(__name__)
 
 
 # torch-npu 2.10.0.post2 source:
@@ -240,6 +243,7 @@ _GRAPH_U2_HYBRID_DAG_ENV = "AFD_HCCL_GRAPH_U2_HYBRID_DAG"
 _GRAPH_U2_ATTENTION_THREE_STREAM_ENV = "AFD_HCCL_GRAPH_U2_ATTENTION_THREE_STREAM"
 _GRAPH_U2_FFN_RECV_STREAM_ENV = "AFD_HCCL_GRAPH_U2_FFN_RECV_STREAM"
 _GRAPH_U2_FFN_CROSS_LAYER_ENV = "AFD_HCCL_GRAPH_U2_FFN_CROSS_LAYER"
+_GRAPH_U2_STABLE_REPLAY_ENV = "AFD_HCCL_GRAPH_U2_STABLE_REPLAY"
 
 
 def _strict_binary_env_enabled(name: str, *, default: str = "1") -> bool:
@@ -283,6 +287,13 @@ def _graph_u2_ffn_cross_layer_enabled() -> bool:
     return _strict_binary_env_enabled(
         _GRAPH_U2_FFN_CROSS_LAYER_ENV,
         default="1",
+    )
+
+
+def _graph_u2_stable_replay_enabled() -> bool:
+    return _strict_binary_env_enabled(
+        _GRAPH_U2_STABLE_REPLAY_ENV,
+        default="0",
     )
 
 
@@ -367,20 +378,44 @@ class P2pHcclAFDConnector(AFDConnectorBase):
             self.stream_overlap_enabled and _eager_u2_stream_overlap_enabled()
         )
         self.stage_diagnostics_enabled = _stage_diagnostics_enabled()
-        self.graph_u2_compute_overlap_enabled = _graph_u2_compute_overlap_enabled()
-        self.graph_u2_hybrid_dag_enabled = _graph_u2_hybrid_dag_enabled()
-        self.graph_u2_attention_three_stream_enabled = (
+        requested_graph_u2_compute_overlap = _graph_u2_compute_overlap_enabled()
+        requested_graph_u2_hybrid_dag = _graph_u2_hybrid_dag_enabled()
+        requested_graph_u2_attention_three_stream = (
             _graph_u2_attention_three_stream_enabled()
         )
-        self.graph_u2_ffn_recv_stream_enabled = _graph_u2_ffn_recv_stream_enabled()
-        self.graph_u2_ffn_cross_layer_enabled = _graph_u2_ffn_cross_layer_enabled()
+        requested_graph_u2_ffn_recv_stream = _graph_u2_ffn_recv_stream_enabled()
+        requested_graph_u2_ffn_cross_layer = _graph_u2_ffn_cross_layer_enabled()
         if (
-            self.graph_u2_ffn_cross_layer_enabled
-            and not self.graph_u2_ffn_recv_stream_enabled
+            requested_graph_u2_ffn_cross_layer
+            and not requested_graph_u2_ffn_recv_stream
         ):
             raise RuntimeError(
                 f"{_GRAPH_U2_FFN_CROSS_LAYER_ENV}=1 requires "
                 f"{_GRAPH_U2_FFN_RECV_STREAM_ENV}=1"
+            )
+        self.graph_u2_stable_replay_enabled = _graph_u2_stable_replay_enabled()
+        graph_u2_multistream_enabled = not self.graph_u2_stable_replay_enabled
+        self.graph_u2_compute_overlap_enabled = bool(
+            requested_graph_u2_compute_overlap and graph_u2_multistream_enabled
+        )
+        self.graph_u2_hybrid_dag_enabled = bool(
+            requested_graph_u2_hybrid_dag and graph_u2_multistream_enabled
+        )
+        self.graph_u2_attention_three_stream_enabled = bool(
+            requested_graph_u2_attention_three_stream
+            and graph_u2_multistream_enabled
+        )
+        self.graph_u2_ffn_recv_stream_enabled = bool(
+            requested_graph_u2_ffn_recv_stream and graph_u2_multistream_enabled
+        )
+        self.graph_u2_ffn_cross_layer_enabled = bool(
+            requested_graph_u2_ffn_cross_layer and graph_u2_multistream_enabled
+        )
+        if self.stream_overlap_enabled and self.graph_u2_stable_replay_enabled:
+            logger.warning(
+                "AFD Graph U2 stable replay is active; using the single-stream "
+                "Graph transport baseline and disabling experimental Graph "
+                "compute/communication overlap"
             )
 
         self.data_pg_list: list[ProcessGroup] = []

@@ -242,6 +242,7 @@ def test_matrix_generates_split_a16f8_contract(tmp_path):
             "AFD_HCCL_GRAPH_U2_FFN_CROSS_LAYER",
         ):
             assert config[flag] == "1"
+        assert config["AFD_HCCL_GRAPH_U2_STABLE_REPLAY"] == "1"
 
 
 def test_matrix_init_accepts_site_common_template(tmp_path):

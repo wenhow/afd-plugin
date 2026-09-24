@@ -1725,6 +1725,7 @@ def test_p2p_hccl_rejects_invalid_graph_hybrid_dag_value(monkeypatch):
         "AFD_HCCL_GRAPH_U2_ATTENTION_THREE_STREAM",
         "AFD_HCCL_GRAPH_U2_FFN_RECV_STREAM",
         "AFD_HCCL_GRAPH_U2_FFN_CROSS_LAYER",
+        "AFD_HCCL_GRAPH_U2_STABLE_REPLAY",
     ],
 )
 def test_p2p_hccl_rejects_invalid_graph_physical_pipeline_values(
@@ -1749,6 +1750,19 @@ def test_p2p_hccl_graph_physical_pipeline_defaults_are_enabled(monkeypatch):
     assert connector.graph_u2_attention_three_stream_enabled is True
     assert connector.graph_u2_ffn_recv_stream_enabled is True
     assert connector.graph_u2_ffn_cross_layer_enabled is True
+
+
+def test_p2p_hccl_graph_stable_replay_disables_multistream_dag(monkeypatch):
+    monkeypatch.setenv("AFD_HCCL_GRAPH_U2_STABLE_REPLAY", "1")
+
+    connector = _connector(role="attention", num_ubatches=2)
+
+    assert connector.graph_u2_stable_replay_enabled is True
+    assert connector.graph_u2_compute_overlap_enabled is False
+    assert connector.graph_u2_hybrid_dag_enabled is False
+    assert connector.graph_u2_attention_three_stream_enabled is False
+    assert connector.graph_u2_ffn_recv_stream_enabled is False
+    assert connector.graph_u2_ffn_cross_layer_enabled is False
 
 
 def test_p2p_hccl_ffn_cross_layer_requires_receive_stream(monkeypatch):
