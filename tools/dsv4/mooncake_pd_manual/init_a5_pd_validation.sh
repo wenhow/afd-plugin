@@ -89,8 +89,8 @@ write_role_config() {
     write_value PREFILL_DEVICES 0,1,2,3,4,5,6,7
     write_value ATTENTION_DEVICES 0,1,2,3
     write_value FFN_DEVICES 4,5,6,7
-    write_value PREFILL_DP_SIZE 2
-    write_value PREFILL_TP_SIZE 4
+    write_value PREFILL_DP_SIZE 8
+    write_value PREFILL_TP_SIZE 1
     write_value ATTENTION_RANKS 4
     write_value FFN_RANKS 4
     write_value DECODE_DP_SIZE 4

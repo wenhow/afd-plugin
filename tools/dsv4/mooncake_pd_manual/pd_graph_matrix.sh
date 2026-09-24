@@ -566,8 +566,8 @@ source_and_validate_config() {
     || die "DEPLOYMENT_VARIANT mismatch for ${POINT}"
   [[ "${DECODE_DP_SIZE}:${DECODE_TP_SIZE}" == "${MATRIX_ATTENTION_RANKS}:1" ]] \
     || die "Decode DP/TP mismatch for ${POINT}"
-  [[ "${PREFILL_DP_SIZE}:${PREFILL_TP_SIZE}" == "2:4" ]] \
-    || die "The primary PD Graph matrix is fixed to Prefill DP2/TP4"
+  [[ "${PREFILL_DP_SIZE}:${PREFILL_TP_SIZE}" == "8:1" ]] \
+    || die "The A5 PD Graph matrix requires Prefill DP8/TP1"
   [[ "${PREFILL_IP}" != "${DECODE_IP}" ]] \
     || die "The primary PD Graph matrix requires separate Prefill and Decode hosts"
   [[ "${ALLOW_COLOCATED_PD_CONTROL}" == "0" ]] \

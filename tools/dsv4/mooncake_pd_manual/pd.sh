@@ -120,8 +120,8 @@ DEPLOYMENT_SLUG="${DEPLOYMENT_VARIANT//_/-}"
 : "${PREFILL_DEVICES:=0,1,2,3,4,5,6,7}"
 : "${ATTENTION_DEVICES:=0,1,2,3,4,5,6,7}"
 : "${FFN_DEVICES:=8,9,10,11,12,13,14,15}"
-: "${PREFILL_DP_SIZE:=2}"
-: "${PREFILL_TP_SIZE:=4}"
+: "${PREFILL_DP_SIZE:=8}"
+: "${PREFILL_TP_SIZE:=1}"
 : "${ATTENTION_RANKS:=8}"
 : "${FFN_RANKS:=8}"
 : "${DECODE_DP_SIZE:=8}"
@@ -441,8 +441,8 @@ validate_common_config() {
   done
   [[ "${NATIVE_GOLDEN_PATH}" != "${PD_CONTROL_GOLDEN_PATH}" ]] \
     || die "Native and PD control golden paths must be different"
-  [[ "${PREFILL_DP_SIZE}" == "2" && "${PREFILL_TP_SIZE}" == "4" ]] \
-    || die "M9 baseline requires Prefill DP2/TP4"
+  [[ "${PREFILL_DP_SIZE}" == "8" && "${PREFILL_TP_SIZE}" == "1" ]] \
+    || die "A5 DeepSeek-V4 DSA requires Prefill DP8/TP1 (64 local query heads)"
   if [[ "${DEPLOYMENT_VARIANT}" == "pd_control" ]]; then
     case "${DECODE_DP_SIZE}:${DECODE_TP_SIZE}" in
       8:1|4:1|4:2) ;;

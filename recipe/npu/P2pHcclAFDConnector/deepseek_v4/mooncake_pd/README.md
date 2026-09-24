@@ -43,7 +43,7 @@ of reusing this binary there.
 Start the services in this order:
 
 ```bash
-# Prefill node, NPU 0-7, DP2/TP4 by default.
+# A5 Prefill node, NPU 0-7, DP8/TP1 by default.
 bash recipe/npu/P2pHcclAFDConnector/deepseek_v4/mooncake_pd/prefill.sh
 
 # Decode node: FFN first, then Attention with Mooncake enabled.

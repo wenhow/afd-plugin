@@ -51,8 +51,9 @@ control golden 只在 A3-P 生成并保存：
 
 Decode 拓扑支持两组固定值：首轮外部拓扑冒烟使用 `DECODE_DP_SIZE=8`、
 `DECODE_TP_SIZE=1`；TP1 通过后使用 `DECODE_DP_SIZE=4`、
-`DECODE_TP_SIZE=2` 验证 M8 冻结的 TP2 契约。Prefill 两种情况下都保持
-DP2/TP4，Attention/FFN 都保持各 8 个物理 rank。
+`DECODE_TP_SIZE=2` 验证 M8 冻结的 TP2 契约。A5 Prefill 两种情况下都保持
+DP8/TP1，确保每个 rank 使用 64 个本地 query heads；Attention/FFN 都保持各
+8 个物理 rank。
 
 脚本还提供 `DECODE_EXECUTION_MODE`、`DECODE_U_BATCHES`、
 `DECODE_ENABLE_MTP` 和 `DECODE_MTP_DRAFT_EXECUTION`。它们用于在 TP1/TP2 基线

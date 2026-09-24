@@ -173,7 +173,7 @@ S1、S2、S3 全部通过后，才能进入双机 PD。任何一点失败都停�
 
 ## 4. 双 A5 PD 集成配置
 
-PD 不能在一台 8 卡 A5 上完整验证：P 节点使用 8 卡 Prefill DP2/TP4，D 节点使用 8 卡 A4F4 Decode。网络路径为：
+PD 不能在一台 8 卡 A5 上完整验证：P 节点使用 8 卡 Prefill DP8/TP1，D 节点使用 8 卡 A4F4 Decode。DP8/TP1 保证每个 Prefill rank 保留 64 个本地 query heads，满足 A5 DSA metadata 算子的约束。网络路径为：
 
 ```text
 client -> Proxy(P) -> Prefill(P8) --Mooncake KV--> Attention(D0-3)

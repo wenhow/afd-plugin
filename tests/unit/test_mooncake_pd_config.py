@@ -269,6 +269,9 @@ def test_mooncake_pd_manual_entry_is_safe_and_size_capped():
     assert 'CANN_VERSION="9.0.0"' in config
     assert 'MOONCAKE_LIBRARY_DIR=""' in config
     assert 'ATB_ROOT=""' in config
+    assert 'PREFILL_DP_SIZE="8"' in config
+    assert 'PREFILL_TP_SIZE="1"' in config
+    assert "A5 DeepSeek-V4 DSA requires Prefill DP8/TP1" in script
     assert "validate_cann_version" in script
     assert 'kill -TERM "${pid}"' in script
     assert "wait_for_profile_raw_completion" in script
@@ -496,6 +499,8 @@ def test_a5_pd_generator_creates_two_graph_u2_integration_points(tmp_path):
     graph = (config_dir / "pd_afd_graph_u2-decode.env").read_text()
     dspark = (config_dir / "pd_afd_dspark_graph_u2-decode.env").read_text()
     for config in (graph, dspark):
+        assert "PREFILL_DP_SIZE=8" in config
+        assert "PREFILL_TP_SIZE=1" in config
         assert "ATTENTION_DEVICES=0\\,1\\,2\\,3" in config
         assert "FFN_DEVICES=4\\,5\\,6\\,7" in config
         assert "DECODE_DP_SIZE=4" in config

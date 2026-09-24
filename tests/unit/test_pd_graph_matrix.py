@@ -213,6 +213,8 @@ def test_matrix_generates_split_a16f8_contract(tmp_path):
     ).stdout.strip()
     common_config = _source_config(tmp_path / "common.env")
     assert common_config["AFD_PD_COMMIT"] == repo_head
+    assert common_config["PREFILL_DP_SIZE"] == "8"
+    assert common_config["PREFILL_TP_SIZE"] == "1"
     assert common_config["NATIVE_GOLDEN_PATH"] == (
         f"{common_config['AFD_PLUGIN_ROOT']}/tools/dsv4/phase1_prompts.json"
     )

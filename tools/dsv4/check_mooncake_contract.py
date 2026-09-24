@@ -38,7 +38,7 @@ def main() -> int:
     assert request.num_external_tokens == 128
 
     topologies = {
-        "prefill": {"dp_size": 2, "tp_size": 4},
+        "prefill": {"dp_size": 8, "tp_size": 1},
         "decode": {"dp_size": 8, "tp_size": 1},
     }
     config = SimpleNamespace(
@@ -48,8 +48,8 @@ def main() -> int:
     )
     worker = object.__new__(MooncakeConnectorWorker)
     worker._get_prefill_decode_size(config)
-    assert worker._prefill_dp_size == 2
-    assert worker._prefill_tp_size == 4
+    assert worker._prefill_dp_size == 8
+    assert worker._prefill_tp_size == 1
     assert worker._decode_dp_size == 8
     assert worker._decode_tp_size == 1
     assert worker._decode_pp_size == 1
