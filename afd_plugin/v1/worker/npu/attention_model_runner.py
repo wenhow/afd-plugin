@@ -1985,15 +1985,12 @@ class AFDNPUAttentionModelRunner(NPUModelRunner):
             return self.model.unwrap()
         return super().get_model()
 
-    def initialize_attn_backend(
-        self,
-        kv_cache_config: KVCacheConfig,
-        is_profiling: bool = False,
-    ) -> None:
-        super().initialize_attn_backend(
-            kv_cache_config,
-            is_profiling=is_profiling,
-        )
+    # Upstream source: vllm_ascend.worker.model_runner_v1.NPUModelRunner.
+    # Patch reason: AFD adds a second metadata builder for ubatching.
+    # Signature: matches the pinned vLLM-Ascend f87f909 hook exactly.
+    def initialize_attn_backend(self, kv_cache_config: KVCacheConfig) -> None:
+        super().initialize_attn_backend(kv_cache_config)
+        # ### PATCH START: AFD dual metadata builders
         if (
             bool(
                 self.vllm_config.parallel_config.use_ubatching,
@@ -2001,6 +1998,7 @@ class AFDNPUAttentionModelRunner(NPUModelRunner):
             or self.afd_async_extra_info.async_moe_ubatching
         ):
             self._ensure_two_metadata_builders()
+        # ### PATCH END: AFD dual metadata builders
 
     def _ensure_two_metadata_builders(self) -> None:
         for attn_groups in self.attn_groups:

@@ -215,17 +215,19 @@ def test_npu_attention_backend_override_matches_native_call_contract():
         if isinstance(node, ast.FunctionDef)
         and node.name == "initialize_attn_backend"
     )
-    assert [argument.arg for argument in method.args.args][-2:] == [
+    assert [argument.arg for argument in method.args.args] == [
+        "self",
         "kv_cache_config",
-        "is_profiling",
     ]
-    assert isinstance(method.args.defaults[-1], ast.Constant)
-    assert method.args.defaults[-1].value is False
-    assert any(
-        keyword.arg == "is_profiling"
-        and isinstance(keyword.value, ast.Name)
-        and keyword.value.id == "is_profiling"
+    assert method.args.defaults == []
+    parent_call = next(
+        call
         for call in ast.walk(method)
         if isinstance(call, ast.Call)
-        for keyword in call.keywords
+        and isinstance(call.func, ast.Attribute)
+        and call.func.attr == "initialize_attn_backend"
     )
+    assert len(parent_call.args) == 1
+    assert isinstance(parent_call.args[0], ast.Name)
+    assert parent_call.args[0].id == "kv_cache_config"
+    assert parent_call.keywords == []
