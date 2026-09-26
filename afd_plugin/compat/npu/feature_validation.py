@@ -48,7 +48,10 @@ def fail_if_unsupported_npu_afd_features(
         )
         return
 
-    if afd_config.compute_gate_on_attention:
+    if (
+        afd_config.compute_gate_on_attention
+        and afd_config.connector != "WindowAFDConnector"
+    ):
         raise RuntimeError(
             "AFD NPU runtime does not support compute_gate_on_attention=true yet",
         )
@@ -150,10 +153,12 @@ def _fail_if_unsupported_deepseek_v4_features(
     supported_connectors = {
         "CAMP2pAFDConnector",
         "P2pHcclAFDConnector",
+        "WindowAFDConnector",
     }
     if afd_config.connector not in supported_connectors:
         raise RuntimeError(
-            "DeepSeek-V4 AFD supports only CAMP2pAFDConnector or P2pHcclAFDConnector"
+            "DeepSeek-V4 AFD supports only CAMP2pAFDConnector, "
+            "P2pHcclAFDConnector, or WindowAFDConnector"
         )
     if (
         afd_config.connector == "CAMP2pAFDConnector"
@@ -199,17 +204,47 @@ def _fail_if_unsupported_deepseek_v4_features(
         )
     if parallel_config.use_sequence_parallel_moe:
         raise RuntimeError("DeepSeek-V4 AFD does not support sequence-parallel MoE")
-    if afd_config.compute_gate_on_attention:
+    if (
+        afd_config.compute_gate_on_attention
+        and afd_config.connector != "WindowAFDConnector"
+    ):
         raise RuntimeError("DeepSeek-V4 AFD requires FFN-side gate computation")
+    if afd_config.connector == "WindowAFDConnector":
+        from vllm_ascend.ascend_config import get_ascend_config
+
+        if not afd_config.compute_gate_on_attention:
+            raise RuntimeError(
+                "DeepSeek-V4 Window AFD requires compute_gate_on_attention=true"
+            )
+        role_ranks = (
+            afd_config.num_attention_ranks
+            if afd_config.role == "attention"
+            else afd_config.num_ffn_ranks
+        )
+        if role_ranks != int(parallel_config.data_parallel_size):
+            raise RuntimeError(
+                "DeepSeek-V4 Window AFD requires the current role rank count "
+                "to equal data_parallel_size: "
+                f"role={afd_config.role}, ranks={role_ranks}, "
+                f"DP={int(parallel_config.data_parallel_size)}"
+            )
+        if parallel_config.enable_eplb:
+            raise RuntimeError("DeepSeek-V4 Window AFD does not support EPLB")
+        if bool(getattr(get_ascend_config(), "mix_placement", False)):
+            raise RuntimeError(
+                "DeepSeek-V4 Window AFD with a dedicated shared-expert rank "
+                "requires mix_placement=false"
+            )
     speculative_config = vllm_config.speculative_config
     if speculative_config is not None:
         uses_dspark = is_dspark_config(vllm_config)
-        speculative_feature = "DSpark" if uses_dspark else "MTP"
-        if afd_config.connector != "P2pHcclAFDConnector":
+        if uses_dspark and afd_config.role != "attention":
             raise RuntimeError(
-                f"DeepSeek-V4 AFD {speculative_feature} supports only "
-                "P2pHcclAFDConnector"
+                "DeepSeek-V4 AFD DSpark speculative config belongs only to "
+                "the Attention service"
             )
+        if not uses_dspark and afd_config.connector != "P2pHcclAFDConnector":
+            raise RuntimeError("DeepSeek-V4 AFD MTP supports only P2pHcclAFDConnector")
         if getattr(speculative_config, "method", None) != "mtp":
             raise RuntimeError("DeepSeek-V4 AFD supports only MTP speculative method")
         draft_enforce_eager = bool(getattr(speculative_config, "enforce_eager", False))
@@ -279,10 +314,14 @@ def _fail_if_unsupported_deepseek_v4_features(
             )
         if (
             parallel_config.use_ubatching
-            and afd_config.connector != "P2pHcclAFDConnector"
+            and afd_config.connector not in {
+                "P2pHcclAFDConnector",
+                "WindowAFDConnector",
+            }
         ):
             raise RuntimeError(
-                "DeepSeek-V4 AFD graph U2 supports only P2pHcclAFDConnector"
+                "DeepSeek-V4 AFD graph U2 supports only P2pHcclAFDConnector "
+                "or WindowAFDConnector"
             )
     _fail_if_unsupported_deepseek_v4_pd(vllm_config, afd_config)
 

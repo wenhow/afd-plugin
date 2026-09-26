@@ -19,6 +19,7 @@ from afd_plugin.compat.npu import (
     fix_all2all_backend_for_afd,
     npu_afd_num_ubatches,
 )
+from afd_plugin.config import parse_afd_config
 from afd_plugin.connectors import AFDControlPlaneClosedError
 from afd_plugin.model_executor.models.model_utils import (
     get_afd_model_config,
@@ -67,6 +68,17 @@ class AFDNPUFFNWorker(NPUWorker):
             raise RuntimeError("AFD NPU FFN supports only vllm-ascend MRv1")
 
         self.device = self._init_device()
+        afd_config = parse_afd_config(self.vllm_config, validate=False)
+        if afd_config.connector == "WindowAFDConnector":
+            # Materialize MC2 before Window ranks specialize by expert kind.
+            from vllm_ascend.distributed.parallel_state import get_mc2_group
+
+            mc2_device_group = get_mc2_group().device_group
+            mc2_rank = torch.distributed.get_rank(group=mc2_device_group)
+            mc2_backend = mc2_device_group._get_backend(torch.device("npu"))
+            logger.info("Materializing Window FFN MC2 communicator")
+            mc2_backend.get_hccl_comm_name(mc2_rank)
+            logger.info("Materialized Window FFN MC2 communicator")
         init_workspace_manager(
             self.device,
             npu_afd_num_ubatches(self.vllm_config),
@@ -144,12 +156,13 @@ class AFDNPUFFNWorker(NPUWorker):
         while not event.is_set():
             if self.model_runner.connector.control_plane is None:
                 self.model_runner.execute_connector_driven_step()
-                torch.npu.synchronize()
+                if not self.model_runner.window_ffn_stream_overlap_enabled:
+                    torch.npu.synchronize()
                 continue
 
             payload = self.model_runner.connector.control_plane.recv_dp_metadata_list()
             if payload.shutdown:
-                logger.warning("AFD NPU FFN received Attention shutdown payload")
+                logger.info("AFD NPU FFN received Attention shutdown payload")
                 event.set()
                 return
             # Preserve the complete Attention-side control contract. Rebuilding

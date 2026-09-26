@@ -27,6 +27,7 @@ from vllm.forward_context import (
 )
 from vllm.sequence import IntermediateTensors
 from vllm.v1.worker.gpu_ubatch_wrapper import UbatchMetadata, UBatchWrapper
+from vllm_ascend.attention.dsa_v1 import AscendDSAMetadata
 from vllm_ascend.compilation.acl_graph import (
     ACLGraphWrapper,
     GraphParams,
@@ -325,6 +326,43 @@ class AscendUBatchWrapper(UBatchWrapper):
                     positions,
                 )
             else:
+                # DSA ubatch splitting allocates new length tensors. Replay must
+                # retain capture addresses while refreshing their contents.
+                updated_metadata: set[int] = set()
+                for stage, saved_ubatch in enumerate(
+                    cudagraph_metadata.ubatch_metadata
+                ):
+                    saved_dict = saved_ubatch.context.forward_context.attn_metadata
+                    for layer, saved in (saved_dict or {}).items():
+                        if (
+                            not isinstance(saved, AscendDSAMetadata)
+                            or saved.decode is None
+                            or id(saved) in updated_metadata
+                        ):
+                            continue
+                        live_dict = (
+                            attn_metadata[stage]
+                            if stage < len(attn_metadata)
+                            else None
+                        )
+                        if not isinstance(live_dict, dict):
+                            continue
+                        live = live_dict.get(layer)
+                        if not isinstance(live, AscendDSAMetadata):
+                            continue
+                        assert live.decode is not None
+                        assert saved.num_decodes == live.num_decodes
+                        assert saved.num_decode_tokens == live.num_decode_tokens
+                        assert saved.num_prefills == live.num_prefills
+                        updated_metadata.add(id(saved))
+                        for target, source in (
+                            (saved.decode.seq_lens, live.decode.seq_lens),
+                            (saved.decode.query_start_loc, live.decode.query_start_loc),
+                        ):
+                            assert target.shape == source.shape
+                            assert target.dtype == source.dtype
+                            if target.data_ptr() != source.data_ptr():
+                                target.copy_(source)
                 torch.npu.current_stream().synchronize()
                 cudagraph_metadata.aclgraph.replay()
             forward_context.dbo_enabled = True

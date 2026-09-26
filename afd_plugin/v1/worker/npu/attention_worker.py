@@ -65,6 +65,15 @@ class AFDNPUAttentionWorker(NPUWorker):
             self.device,
         )
 
+    # Online idle DP ranks still need the MTP phase handshake, but startup
+    # capture must not advertise a live draft phase to the FFN worker.
+    def execute_dummy_batch(self) -> None:
+        self.model_runner._afd_live_dummy_execution = True
+        try:
+            super().execute_dummy_batch()
+        finally:
+            self.model_runner._afd_live_dummy_execution = False
+
     # Upstream source: vLLM-Ascend 3da28f94, NPUWorker.execute_dummy_batch.
     # Patch reason: online idle DP ranks also need the MTP phase handshake;
     # FFN must not post draft device receives before target sampling completes.

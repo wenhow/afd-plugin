@@ -50,10 +50,124 @@ class AFDRankMapping:
         return self.world_rank < self.ffn_size or self.is_attention_top_min_size_rank
 
 
+@dataclass(frozen=True, slots=True)
+class AFDWindowRankMapping:
+    """M2N rank mapping used by the Window connector."""
+
+    world_rank: int
+    attention_size: int
+    ffn_size: int
+    peer_ranks: tuple[int, ...]
+
+    @property
+    def world_size(self) -> int:
+        return self.attention_size + self.ffn_size
+
+
+@dataclass(frozen=True, slots=True)
+class AFDWindowExpertLayout:
+    """Fixed expert slots owned by one Window FFN role rank."""
+
+    kind: str
+    local_expert_start: int
+    local_expert_count: int
+
+    @property
+    def is_shared(self) -> bool:
+        return self.kind == "shared"
+
+
+def build_window_expert_layout(
+    *,
+    routed_expert_num: int,
+    ffn_size: int,
+    ffn_rank: int,
+) -> AFDWindowExpertLayout:
+    """Return the deterministic shared-first Window expert layout."""
+
+    if routed_expert_num <= 0:
+        raise ValueError(
+            f"Window AFD requires routed_expert_num > 0, got {routed_expert_num}"
+        )
+    if ffn_size < 2:
+        raise ValueError(
+            "Window AFD requires one shared and at least one routed FFN rank, "
+            f"got ffn_size={ffn_size}"
+        )
+    if not 0 <= ffn_rank < ffn_size:
+        raise ValueError(
+            f"Window FFN rank {ffn_rank} is outside configured size {ffn_size}"
+        )
+
+    routed_rank_num = ffn_size - 1
+    if routed_rank_num > routed_expert_num:
+        raise ValueError(
+            "Window AFD requires every routed FFN rank to own at least one "
+            f"expert, got {routed_rank_num} ranks for {routed_expert_num} experts"
+        )
+    if ffn_rank == 0:
+        return AFDWindowExpertLayout(
+            kind="shared",
+            local_expert_start=routed_expert_num,
+            local_expert_count=1,
+        )
+
+    routed_rank = ffn_rank - 1
+    base_count, extra_rank_num = divmod(routed_expert_num, routed_rank_num)
+    local_expert_count = base_count + int(routed_rank < extra_rank_num)
+    local_expert_start = routed_rank * base_count + min(routed_rank, extra_rank_num)
+    return AFDWindowExpertLayout(
+        kind="routed",
+        local_expert_start=local_expert_start,
+        local_expert_count=local_expert_count,
+    )
+
+
 def topology_from_config(config: AFDConfig) -> tuple[int, int]:
     """Return ``(attention_size, ffn_size)`` for an AFD config."""
 
     return config.num_attention_ranks, config.num_ffn_ranks
+
+
+def build_window_rank_mapping(
+    config: AFDConfig,
+    role_rank: int,
+) -> AFDWindowRankMapping:
+    """Build FFN-first global ranks and opposite-role Window peers."""
+
+    attention_size, ffn_size = topology_from_config(config)
+    if attention_size <= 0 or ffn_size <= 0:
+        raise ValueError(
+            "Window AFD requires positive num_attention_ranks and "
+            f"num_ffn_ranks, got {attention_size} and {ffn_size}"
+        )
+    if role_rank < 0:
+        raise ValueError(f"AFD role rank must be non-negative, got {role_rank}")
+
+    if config.role == "ffn":
+        if role_rank >= ffn_size:
+            raise ValueError(
+                f"FFN role rank {role_rank} is outside configured size {ffn_size}"
+            )
+        world_rank = role_rank
+        peer_ranks = tuple(range(ffn_size, ffn_size + attention_size))
+    elif config.role == "attention":
+        if role_rank >= attention_size:
+            raise ValueError(
+                "Attention role rank "
+                f"{role_rank} is outside configured size {attention_size}"
+            )
+        world_rank = ffn_size + role_rank
+        peer_ranks = tuple(range(ffn_size))
+    else:
+        raise ValueError(f"unknown AFD role {config.role!r}")
+
+    return AFDWindowRankMapping(
+        world_rank=world_rank,
+        attention_size=attention_size,
+        ffn_size=ffn_size,
+        peer_ranks=peer_ranks,
+    )
 
 
 def validate_p2p_topology(config: AFDConfig) -> None:
@@ -212,7 +326,11 @@ def build_rank_mapping(
 
 __all__ = [
     "AFDRankMapping",
+    "AFDWindowExpertLayout",
+    "AFDWindowRankMapping",
     "build_rank_mapping",
+    "build_window_expert_layout",
+    "build_window_rank_mapping",
     "resolve_role_rank",
     "topology_from_config",
     "validate_p2p_topology",
