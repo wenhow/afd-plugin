@@ -73,7 +73,30 @@ python3 -B tools/collect_dsv41_environment.py > a5-host-environment.json
 可先返回 `a5-image.txt`、`a5-container-environment.json` 和 `a5-host-environment.json`，
 再补模型及部署参数。未知路径不会阻止第一轮采集。
 
-## A3 只读探测结果
+## A5 权重张量明细补采
+
+已提供过配置和索引摘要的环境，只需补采完整索引及 safetensors 文件头。
+更新仓库后，在能读取模型文件的 A5 容器内执行：
+
+```bash
+git pull --ff-only
+python3 -B tools/collect_dsv41_tensor_metadata.py \
+  --model /home/models/DeepSeek-V4.1-Flash \
+  --output /tmp/dsv41-tensor-metadata-$(date +%Y%m%d-%H%M%S).json.gz
+```
+
+命令末行会显示输出路径。返回该 `.json.gz` 文件即可，无需传输权重数据。
+脚本仅需 Python 3.10+ 标准库，不导入推理框架、不使用 NPU；只读模型配置、完整
+索引以及各分片的 8 字节长度前缀和 JSON header，不读取张量数据区。
+报告保留张量全名、dtype、shape、offset 和分片归属；字节数按 offset 差值统计，
+不将 FP4 或 packed U8 误当作 BF16。
+
+只接受 `DeepseekV41ForCausalLM`，防止混用 V4 或 DSpark checkpoint。
+输出必须位于模型目录之外，且不会覆盖已有文件。缺片、非法 header、索引归属或
+总量不一致时，输出 `complete=false` 并退出 1；该报告仍可用于定位需要补采的分片。
+config/index 无法读取或架构不符时直接报错。采集成功不代表模型或数值验收通过。
+
+## A3 初次只读探测结果
 
 使用用户提供的 SSH 别名从本机 PowerShell 登录成功。
 首次 SSH 指纹保存在本仓库本地 artifacts 中，未修改全局 known_hosts。
@@ -106,7 +129,7 @@ env LD_LIBRARY_PATH=/usr/local/Ascend/driver/lib64/common:/usr/local/Ascend/driv
 `a3-environment.json`、`a3-npu-smi.txt`、`a3-npu-smi-driver-path.txt`。
 该目录受 Git 忽略；后续分享证据需明确附带文件。
 
-## 采集工具验证
+## 初版环境采集工具验证
 
 本地完成 Python 3.10 语法兼容检查、JSON 输出、模型配置哈希/索引摘要、Git 源码
 采集、缺失路径处理和文档链接检查，结果通过。夹具配置不是真实 checkpoint。
