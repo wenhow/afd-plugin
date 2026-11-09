@@ -5,8 +5,8 @@
 A5 操作说明；更新分支后即可使用当前源码，无需再上传旧的源码快照包。
 
 **当前完成 C2 核心实现及组件验证，完整 checkpoint 的原生/AFD 文本推理仍待验收。
-V4.1 AFD 模型 guard 保持关闭；C3 DSpark 契约、C4 布局与多 stage CPU 协议已并行推进，
-完整模型和 U2 尚未硬件验收。**
+V4.1 AFD 模型 guard 保持关闭；C3 DSpark 契约和 C4 多 stage 传输组件已并行推进，
+完整模型和模型侧 U2 尚未硬件验收。**
 
 ## 在 A5 上更新
 
@@ -55,11 +55,14 @@ draft 和 Engram 绑定，loader 按实际请求的模型身份选择类，不�
 此准备工作不改变下方控制组命令，验证时记录实际插件 SHA。
 当前不提供绕开模型 guard 的 AFD 完整服务命令。
 
-C4 已完成等配对、聚合和 fanout 的行布局，以及独立 v3 parent plan、能力协商和
-事务状态机：冻结 stage/peer 计划，校验全部 peer 的计划摘要，按 layer-major 顺序推进，
-处理空 stage、padding-only、重复事务和 STOP。新增 129 项 CPU 契约测试及独立审查通过。
-生产 wire 仍为 v2/U1；v3 的网络握手、多 peer tensor 收发、V2 U2 调度和
-V4.1 stage 状态隔离尚待接入。当前源码更新不会启用这些运行模式。
+C4 已实现独立 v3 网络握手、全体计划 ACK、按 stage 隔离的真实 HCCL 收发、聚合/fanout
+及完成/退出协议。A3 的 1A1F、2A1F、1A2F、2A2F/TP1 和 2A2F/TP2 组件均完成 U1/U2、
+两层、六个连续 parent；使用受控算术验证 BF16、独立 FP32、IDs 和返回去 padding。
+组件探针为 [tests/npu/hccl_staged_probe.py](../../tests/npu/hccl_staged_probe.py)，
+不构造 native MoE 或加载模型权重。它也验证提前 COMPLETE、错误 stage、重放和 active STOP 拒绝，
+以及 HELLO 能力不匹配、坏 ACK 摘要时的全 rank 拒绝和正常回收。
+生产 connector factory 仍为 v2/U1；V2 U2 调度和 V4.1 stage 状态隔离尚待接入，
+更新源码不会自动切换到 v3 或启用模型侧 U2。
 本轮没有新增 A5 操作步骤，继续优先验证关闭 DSpark 的完整模型控制组。
 
 ## 交付的代码边界
@@ -78,11 +81,12 @@ Ascend `7e37e29a7803d6897a7113088e2b771f83205bc0`。
 分支名 `rfc/vllm_cann` 不代表自动采用其最新提交。
 插件基线是 `39017a137d7809bd0ab7cda4a86697e2a6b7a522`，不能用该基线 SHA 代替本轮交付 SHA。
 
-本轮本地无 torch/vLLM 的 CPU unit 回归为 1034 passed、287 skipped、35 subtests passed。
+本轮本地无 torch/vLLM 的 CPU unit 回归为 1034 passed、288 skipped、35 subtests passed；
+新增 transport 构造/关闭模块在本机跳过，在 A3 实际依赖下 13 passed。
 A3 恢复后已补跑此前跳过的 C3 loader、模型配置、target/draft context 等六文件：
 456 passed，无 skip；首轮暴露并修复了共享测试 fake 缺少 TP 字段的问题。
-加入本轮 C4 五文件后的 A3 connector/distributed 回归为 854 passed、4 deselected、无 skip；
-其中新增 plan/state 129 项也单独全通过。各测试组存在重叠，不累加为唯一测试数。
+最新 A3 connector/distributed 回归为 867 passed、4 deselected、无 skip，含新增 13 项构造用例；
+此前 plan/state 129 项也单独全通过。各测试组存在重叠，不累加为唯一测试数。
 四进程 eager/U1 TP2 HCCL 组件在设备 0、2、4、6 通过，覆盖两层、五事务、FP32/IDs、
 STOP 和 native TP 组保留；验证后全部设备无运行进程。FastAPI 0.123.10 路由 smoke
 通过，未启动 listener、引擎或模型。这些结果均不代替完整模型和 U2 验收。

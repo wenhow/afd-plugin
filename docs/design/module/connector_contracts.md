@@ -25,6 +25,7 @@ validation_paths:
   - "tests/e2e/models/qwen3_moe/test_qwen3_moe_multi_pod.py"
   - "tests/unit/distributed/**"
   - "tests/gpu/**"
+  - "tests/npu/**"
 upstream_refs:
   - "vLLM vllm.forward_context.DPMetadata"
   - "vLLM vllm.distributed.parallel_state"
@@ -82,9 +83,17 @@ and [global scheduling contract](../../../afd_plugin/distributed/hccl_session.py
 cover bounded stage/capacity negotiation, plan-digest ACKs, layer-major peer
 order, aggregate/fanout/native-TP readiness, parent completion and terminal
 shutdown. Tests mirror these modules under `tests/unit/distributed/`. These CPU
-components are not imported by the current version-2 transport. The global ACK
-contract still needs a network adapter and stage-group lifecycle before runtime
-integration; it does not establish U2 model support.
+components are not imported by the current version-2 transport. The separate
+transport below implements the synchronous rank-local counterpart; model-runner
+integration and stage-state isolation are still required for U2 model support.
+
+The separate [v3 eager transport](../../../afd_plugin/connectors/npu/hccl_staged_transport.py)
+implements the rank-local Gloo handshake and per-stage HCCL domains. Its
+[NPU component probe](../../../tests/npu/hccl_staged_probe.py) checks actual
+aggregation/fanout, stage-local transfer, native TP ownership and shutdown
+using controlled arithmetic, without constructing a model. The production
+connector factory still selects the guarded v2/U1 path. Graph, overlap, model
+continuations and failure supervision remain separate integration work.
 
 ## Factory and construction
 
