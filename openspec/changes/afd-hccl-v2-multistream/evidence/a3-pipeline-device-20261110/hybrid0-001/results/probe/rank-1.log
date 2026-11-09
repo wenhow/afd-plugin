@@ -1,0 +1,41 @@
+INFO 11-10 06:41:26 [__init__.py:52] Available plugins for group vllm.platform_plugins:
+INFO 11-10 06:41:26 [__init__.py:54] - ascend -> vllm_ascend:register
+INFO 11-10 06:41:26 [__init__.py:66] Loading plugin ascend
+INFO 11-10 06:41:26 [__init__.py:272] Platform plugin ascend is activated
+INFO 11-10 06:41:26 [platform.py:74] Breakable CUDAGraph on Ascend is opt-in; using VLLM_USE_BREAKABLE_CUDAGRAPH=0.
+WARNING 11-10 06:41:32 [indexer_topk.py:29] Failed to import the DeepSelect extension (vllm._deepselect_C): No module named 'vllm._deepselect_C'
+INFO 11-10 06:41:33 [patch_indexer_kv_dtype.py:102] Patched AttentionConfig.indexer_kv_dtype to accept 'int8' (DeepSeek V4 Ascend indexer K cache dtype).
+INFO 11-10 06:41:33 [patch_kv_cache_dtype.py:117] Patched CacheConfig.cache_dtype to accept 'int8' and 'mxfp8' (Ascend KV cache dtypes).
+INFO 11-10 06:41:33 [__init__.py:112] Registered model loader `<class 'vllm_ascend.model_loader.netloader.netloader.ModelNetLoaderElastic'>` with load format `netloader`
+INFO 11-10 06:41:33 [__init__.py:112] Registered model loader `<class 'vllm_ascend.model_loader.rfork.rfork_loader.RForkModelLoader'>` with load format `rfork`
+WARNING 11-10 06:41:35 [patch_triton.py:332] NPU Triton causal_conv1d_update is unavailable (cannot import name 'causal_conv1d_update_npu' from 'vllm_ascend.ops.triton.mamba.causal_conv1d' (/mnt/workspace/code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/vllm_ascend/ops/triton/mamba/causal_conv1d.py)); falling back to the PyTorch implementation, which syncs per request and therefore stalls ACL graph capture at decode-FULL.
+INFO 11-10 06:41:35 [config.py:849] Detected quantization_config.scale_fmt=ue8m0; enabling UE8M0 for DeepGEMM.
+INFO 11-10 06:41:35 [model.py:692] Resolved architecture: DeepseekV41ForCausalLM
+INFO 11-10 06:41:35 [model.py:715] Defaulting to tokenizer_mode='deepseek_v41' for DeepseekV41ForCausalLM
+INFO 11-10 06:41:35 [model.py:2030] Using max model len 128
+INFO 11-10 06:41:35 [registry.py:146] All limits of multimodal modalities supported by the model are set to 0, running in text-only mode.
+INFO 11-10 06:41:35 [model.py:900] Disabled mm_prefix attention mode because multimodal inputs are configuration-disabled. Attention backends without mm_prefix support may now be selected.
+INFO 11-10 06:41:35 [scheduler.py:288] Chunked prefill is enabled with max_num_batched_tokens=2048.
+WARNING 11-10 06:41:35 [vllm.py:1547] Enforce eager set, disabling torch.compile and CUDAGraphs. This is equivalent to setting -cc.mode=none -cc.cudagraph_mode=none
+WARNING 11-10 06:41:35 [vllm.py:1570] Inductor compilation was disabled by user settings, optimizations settings that are only active during inductor compilation will be ignored.
+INFO 11-10 06:41:35 [kernel.py:416] Final IR op priority after setting platform defaults: IrOpPriorityConfig(rms_norm=['native'], fused_add_rms_norm=['native'], gelu_and_mul_sparse=['native'])
+INFO 11-10 06:41:35 [vllm.py:1780] Cudagraph is disabled under eager mode
+INFO 11-10 06:41:35 [compilation.py:336] Enabled custom fusions: norm_quant, act_quant
+INFO 11-10 06:41:35 [ascend_config.py:359] Dynamic EPLB is False and convert moe's weights to list is False
+INFO 11-10 06:41:35 [ascend_config.py:363] The number of redundant experts is 0
+INFO 11-10 06:41:35 [ascend_config.py:796] FlashComm1 is disabled. Using flashinfer_all2allv as the all2all backend.
+INFO 11-10 06:41:35 [utils.py:40] Wrapping torch.cuda with torch.npu.
+INFO 11-10 06:41:35 [parallel_state.py:1827] world_size=1 rank=0 local_rank=2 distributed_init_method=tcp://127.0.0.1:45295 backend=hccl
+[W1110 06:41:35.279563363 ProcessGroupHCCL.cpp:1294] Warning: The watchdog timeout 45000ms(which is set by init_process_group) is less than or equal to HCCL execution timeout 1836000ms! The plog may not be recorded. (function ProcessGroupHCCL)
+[Gloo] Rank 0 is connected to 0 peer ranks. Expected number of connected peer ranks is : 0
+[Gloo] Rank 0 is connected to 0 peer ranks. Expected number of connected peer ranks is : 0
+[Gloo] Rank 0 is connected to 0 peer ranks. Expected number of connected peer ranks is : 0
+[Gloo] Rank 0 is connected to 0 peer ranks. Expected number of connected peer ranks is : 0
+[Gloo] Rank 0 is connected to 0 peer ranks. Expected number of connected peer ranks is : 0
+[Gloo] Rank 0 is connected to 0 peer ranks. Expected number of connected peer ranks is : 0
+[Gloo] Rank 0 is connected to 0 peer ranks. Expected number of connected peer ranks is : 0
+[rank0]:[W1110 06:41:35.383213232 NPUCachingAllocator.cpp:202] Warning: The current CANN and HDK(driver) versions require processing for 32 padding size, with memory allocation. (function operator())
+[Gloo] Rank 1 is connected to 1 peer ranks. Expected number of connected peer ranks is : 1
+[rank0]:[W1110 06:41:36.724322973 ProcessGroupHCCL.cpp:1294] Warning: The watchdog timeout 45000ms(which is set by init_process_group) is less than or equal to HCCL execution timeout 1836000ms! The plog may not be recorded. (function ProcessGroupHCCL)
+[rank0]:[W1110 06:41:36.726485472 ProcessGroupHCCL.cpp:1294] Warning: The watchdog timeout 45000ms(which is set by init_process_group) is less than or equal to HCCL execution timeout 1836000ms! The plog may not be recorded. (function ProcessGroupHCCL)
+AFD paired component (FULL):   0%|          | 0/4 [00:00<?, ?it/s]AFD paired component (FULL):  25%|██▌       | 1/4 [00:02<00:06,  2.15s/it]AFD paired component (FULL):  50%|█████     | 2/4 [00:02<00:02,  1.19s/it]AFD paired component (FULL): 100%|██████████| 4/4 [00:02<00:00,  1.97it/s]AFD paired component (FULL): 100%|██████████| 4/4 [00:02<00:00,  1.39it/s]

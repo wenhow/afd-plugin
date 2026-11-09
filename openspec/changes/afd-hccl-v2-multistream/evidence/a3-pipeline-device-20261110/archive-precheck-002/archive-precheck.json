@@ -1,0 +1,12 @@
+{
+  "scope": "local archive construction self-check; SSH intercepted before network",
+  "unique_tar_members": 134,
+  "manifest_entries": 133,
+  "expected_upstream_sources": 31,
+  "source_expected_in_manifest": true,
+  "installed_api_raw_in_manifest": true,
+  "all_archive_member_hashes_match": true,
+  "device_started": false,
+  "probe_sha256": "d2e780a99f080236a85fd3cbba1844d1b7077fac07c0dca62c52754433cccb87",
+  "harness_sha256": "746be9cebc107cf5b57957fe8af407a502b1a929b7b3654d7c2bd13c5e81d963"
+}

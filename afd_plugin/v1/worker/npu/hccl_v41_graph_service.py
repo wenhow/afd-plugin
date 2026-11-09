@@ -26,6 +26,10 @@ from afd_plugin.config import HCCL_P2P_CONNECTOR, parse_afd_config
 from afd_plugin.connectors.metadata import AFDForwardContextMetadata
 from afd_plugin.connectors.npu.hccl_config import DEEPSEEK_V41_ARCHITECTURES
 from afd_plugin.connectors.npu.hccl_graph_cache import HcclGraphCache, HcclReplayGraph
+from afd_plugin.connectors.npu.hccl_graph_pipeline import (
+    HcclGraphComputePipeline,
+    HcclGraphPipelinePolicy,
+)
 from afd_plugin.connectors.npu.hccl_graph_stage import HcclGraphStageBank
 from afd_plugin.connectors.npu.hccl_staged_transport import HcclStagedTransport
 from afd_plugin.distributed.hccl_graph import HcclGraphCandidate, HcclGraphReport
@@ -45,6 +49,7 @@ class HcclV41FFNGraphResources:
     bank: HcclGraphStageBank
     contexts: tuple[ForwardContext, ...]
     body: HcclV41FFNGraph
+    pipeline: HcclGraphComputePipeline | None = None
 
 
 class HcclV41GraphService:
@@ -63,12 +68,14 @@ class HcclV41GraphService:
         cache: HcclGraphCache[HcclV41FFNGraphResources],
         generation: Callable[[], int],
         *,
+        pipeline_policy: HcclGraphPipelinePolicy | None = None,
         graph_factory: Callable[[], HcclReplayGraph] | None = None,
         graph_capture: Callable[[HcclReplayGraph], AbstractContextManager[None]]
         | None = None,
     ) -> None:
         self.runner, self.transport, self.cache = runner, transport, cache
         self.generation = generation
+        self._pipeline_policy = pipeline_policy
         self.graph_factory = graph_factory or torch.npu.NPUGraph
         self.graph_capture = graph_capture or (
             lambda graph: torch.npu.graph(graph, pool=runner.graph_pool)
@@ -83,6 +90,11 @@ class HcclV41GraphService:
         self._session_model: AFDDeepseekV41FFNForCausalLM | None = None
         self._acknowledged_stop = self._failed = False
         self._validate_binding()
+
+    @property
+    def pipeline_policy(self) -> HcclGraphPipelinePolicy | None:
+        """Capture policy fixed for the lifetime of this exclusive cache."""
+        return self._pipeline_policy
 
     @property
     def acknowledged_stop(self) -> bool:
@@ -205,6 +217,8 @@ class HcclV41GraphService:
 
     def _validate_resources(self, resources: HcclV41FFNGraphResources) -> None:
         bank = resources.bank
+        pipeline = resources.body.pipeline
+        policy = self.pipeline_policy
         if (
             bank.role != "ffn"
             or bank.role_rank != self.transport.role_rank
@@ -213,6 +227,16 @@ class HcclV41GraphService:
             or resources.body.bank is not bank
             or resources.body.contexts is not resources.contexts
             or resources.body.model is not self._model()
+            or pipeline is not resources.pipeline
+            or (pipeline is None) != (policy is None)
+            or (
+                pipeline is not None
+                and (
+                    policy is None
+                    or pipeline.bank is not bank
+                    or pipeline.hybrid != policy.hybrid
+                )
+            )
             or len(self.transport.data_groups) < len(bank.exchanges)
             or any(
                 exchange is not None
@@ -306,12 +330,22 @@ class HcclV41GraphService:
                 )
                 contexts.append(context)
         retained_contexts = tuple(contexts)
+        pipeline = (
+            HcclGraphComputePipeline.allocate(bank, hybrid=self.pipeline_policy.hybrid)
+            if self.pipeline_policy is not None
+            else None
+        )
         resources = HcclV41FFNGraphResources(
             bank,
             retained_contexts,
             HcclV41FFNGraph(
-                model, retained_contexts, bank, self.runner.vllm_config.parallel_config
+                model,
+                retained_contexts,
+                bank,
+                self.runner.vllm_config.parallel_config,
+                pipeline=pipeline,
             ),
+            pipeline=pipeline,
         )
         self._active_resources = resources
         self._validate_resources(resources)

@@ -47,6 +47,10 @@ from afd_plugin.connectors.npu.hccl_graph_cache import (
     HcclGraphCacheEntry,
     HcclReplayGraph,
 )
+from afd_plugin.connectors.npu.hccl_graph_pipeline import (
+    HcclGraphComputePipeline,
+    HcclGraphPipelinePolicy,
+)
 from afd_plugin.connectors.npu.hccl_graph_stage import HcclGraphStageBank
 from afd_plugin.distributed.hccl_graph import (
     HcclGraphCandidate,
@@ -94,6 +98,7 @@ class HcclV41GraphResources:
     hidden_states: torch.Tensor | None
     auxiliary: tuple[torch.Tensor, ...]
     intermediate_tensors: IntermediateTensors | None
+    pipeline: HcclGraphComputePipeline | None = None
 
 
 class HcclV41GraphCoordinator:
@@ -114,6 +119,7 @@ class HcclV41GraphCoordinator:
         session: HcclV41GraphSession,
         *,
         next_transaction_id: Callable[[], str],
+        pipeline_policy: HcclGraphPipelinePolicy | None = None,
     ) -> None:
         manager = owner.cudagraph_manager
         transport = control.transport
@@ -185,10 +191,17 @@ class HcclV41GraphCoordinator:
         self.control, self.session = control, session
         self.transport = transport
         self.next_transaction_id = next_transaction_id
+        # Scheduling is a capture constant. Changing it requires a fresh
+        # session/cache; a generation miss does not permit same-key recapture.
+        self._pipeline_policy = pipeline_policy
         self.current_execution: HcclV41GraphExecution | None = None
         self._u1_context: ForwardContext | None = None
         self._preflight_done = self._capture_enabled = self._capture_started = False
         self._runtime_active = False
+
+    @property
+    def pipeline_policy(self) -> HcclGraphPipelinePolicy | None:
+        return self._pipeline_policy
 
     def _require_storage(self) -> None:
         owner, manager = self.owner, self.manager
@@ -398,6 +411,7 @@ class HcclV41GraphCoordinator:
             manager.hidden_states,
             tuple(manager.aux_hidden_states),
             manager.intermediate_tensors,
+            pipeline=execution.pipeline,
         )
 
     def _finish_phase(self) -> None:
@@ -442,6 +456,11 @@ class HcclV41GraphCoordinator:
         bank = HcclGraphStageBank.allocate(
             self.transport, reservation.decision.key, device=self.owner.device
         )
+        pipeline = (
+            HcclGraphComputePipeline.allocate(bank, hybrid=self.pipeline_policy.hybrid)
+            if self.pipeline_policy is not None
+            else None
+        )
         execution = HcclV41GraphExecution(
             self.owner.vllm_config,
             self.owner.model,
@@ -449,6 +468,7 @@ class HcclV41GraphCoordinator:
             self.control,
             reservation,
             bank,
+            pipeline=pipeline,
         )
         self.current_execution = execution
         self.session.arm(execution)
@@ -546,10 +566,23 @@ class HcclV41GraphCoordinator:
     ) -> None:
         resources = entry.resources
         captured = resources.execution
+        pipeline = captured.pipeline
+        policy = self.pipeline_policy
         if (
             captured.bank is not resources.bank
+            or pipeline is not resources.pipeline
+            or (pipeline is None) != (policy is None)
+            or (
+                pipeline is not None
+                and (
+                    policy is None
+                    or pipeline.bank is not resources.bank
+                    or pipeline.hybrid != policy.hybrid
+                )
+            )
             or captured.parent_body is None
             or captured.parent_body.stages.bank is not resources.bank
+            or captured.parent_body.stages.pipeline is not pipeline
             or captured.parent_body.stages.model is not self.model.language_model.model
             or captured.model is not self.model
             or captured.model_state is not self.model_state
@@ -676,6 +709,7 @@ class HcclV41GraphCoordinator:
                     self.control,
                     reservation,
                     cached.resources.bank,
+                    pipeline=cached.resources.execution.pipeline,
                 )
                 self.current_execution = execution
                 self.session.arm(execution)

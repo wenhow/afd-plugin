@@ -1,0 +1,15 @@
+{
+  "command": [
+    "ssh",
+    "-F",
+    "C:/Users/zq/.atomgitdevenv/.ssh/config",
+    "-o",
+    "BatchMode=yes",
+    "-o",
+    "ConnectTimeout=15",
+    "devenvc_rissvg.4ff038c993bf40219c03182f786a9def.atomgit.0",
+    "python3 -B -"
+  ],
+  "returncode": 0,
+  "source": "import json,os,subprocess,sys\nfrom pathlib import Path\nfrom datetime import datetime,timezone\nsetup='set -e\\nsource /mnt/workspace/code/.ascend/cann-9.0.1/ascend-toolkit/set_env.sh >/dev/null\\nexport LD_LIBRARY_PATH=/opt/buildtools/python-3.12.9/lib:/usr/local/Ascend/driver/lib64/driver:/usr/local/Ascend/driver/lib64/common:${LD_LIBRARY_PATH}\\nexport PATH=/mnt/workspace/code/.venvs/afd-v030-dsv41-c0/bin:${PATH}\\nsource /mnt/workspace/code/.ascend/cann-9.0.1/cann-9.0.1/nnal/atb/set_env.sh >/dev/null\\nenv -0\\n'\nprepared=subprocess.run(['bash','-c',setup],capture_output=True,timeout=30,check=True)\nenv={k.decode():v.decode() for field in prepared.stdout.split(b'\\0') if field for k,v in [field.split(b'=',1)]}\nstatus=subprocess.run(['npu-smi','info'],env=env,capture_output=True,timeout=30)\nprocesses=[]\nfor path in Path('/proc').iterdir():\n    if not path.name.isdigit():continue\n    try:\n        command=(path/'cmdline').read_bytes().replace(b'\\0',b' ').decode(errors='replace')\n        if any(name in command for name in ['hccl_graph_manager_probe.py','hccl_graph_probe.py','-m pytest']):\n            processes.append({'pid':int(path.name),'command':command})\n    except (FileNotFoundError,PermissionError,ProcessLookupError):pass\nprint(json.dumps({'scope':'read-only standalone stdlib preflight; no torch import or NPU workload','collected_at_utc':datetime.now(timezone.utc).isoformat(),'torch_imported':'torch' in sys.modules,'torch_npu_imported':'torch_npu' in sys.modules,'npu_smi_returncode':status.returncode,'npu_smi_stdout':status.stdout.decode(errors='replace'),'npu_smi_stderr':status.stderr.decode(errors='replace'),'idle_boards':status.stdout.count(b'No running processes found in NPU'),'matching_processes':processes,'environment':{key:env.get(key) for key in ['PYTHONPATH','LD_LIBRARY_PATH','ASCEND_HOME_PATH','ATB_HOME_PATH']}},indent=2))\n"
+}

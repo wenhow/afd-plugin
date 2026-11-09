@@ -13,6 +13,7 @@ primary_code_paths:
   - "afd_plugin/compat/npu/forward_context.py"
   - "afd_plugin/compat/npu/runtime.py"
   - "afd_plugin/compat/npu/runtime_config.py"
+  - "afd_plugin/compat/npu/stream.py"
   - "afd_plugin/compat/patches/**/*.py"
 related_code_paths:
   - "afd_plugin/__init__.py"
@@ -43,6 +44,13 @@ last_reviewed: 2026-10-13
 ---
 
 # Compatibility and patches
+
+The NPU current-stream scope keeps actual NPU stream selection and vLLM's
+existing thread-local current-stream cache aligned for side compute. It restores
+the prior value or absent field on normal and exceptional exit and creates no
+new registry. Its public-query CPU seams live in
+[`test_stream.py`](../../../tests/unit/compat/npu/test_stream.py); NPU event,
+allocator and graph behavior require separate device validation.
 
 The NPU V4.1 loader hook in
 [`model_loader.py`](../../../afd_plugin/compat/patches/npu/model_loader.py)

@@ -1,0 +1,122 @@
+{
+  "scope": "four consumer source review only; no execution",
+  "reviewed_at_utc": "2026-11-09T22:09:58.118765+00:00",
+  "finding": {
+    "capture_pipeline_identity": "closed by source inspection and actual-dependency CPU public cache replacement regressions in 002/003"
+  },
+  "sources": {
+    "afd_plugin/v1/worker/npu/hccl_v41_ffn_graph.py": {
+      "sha256": "3c708b4912fd8e72c6e16fa3ef59d9769440629c9673dfeacf1c5e26aaa84f37",
+      "methods": {
+        "run": {
+          "line_start": 83,
+          "line_end": 128
+        }
+      }
+    },
+    "afd_plugin/v1/worker/npu/hccl_v41_graph_execution.py": {
+      "sha256": "04e165ae223c85214939c5ca40d8f45a8e8ec0488742c7e6619c8e61f546f662",
+      "methods": {
+        "prepared": {
+          "line_start": 137,
+          "line_end": 216
+        }
+      }
+    },
+    "afd_plugin/v1/worker/npu/hccl_v41_graph_coordinator.py": {
+      "sha256": "1bc37e501d6600f8c627dc56703b4cef9fff0d6eed59cade9dc77f2a72c9ac4e",
+      "methods": {
+        "_retain": {
+          "line_start": 398,
+          "line_end": 415
+        },
+        "_finish_phase": {
+          "line_start": 417,
+          "line_end": 437
+        },
+        "_before_factory": {
+          "line_start": 439,
+          "line_end": 474
+        },
+        "_require_cached_resources": {
+          "line_start": 562,
+          "line_end": 625
+        },
+        "execution_scope": {
+          "line_start": 628,
+          "line_end": 777
+        }
+      }
+    },
+    "afd_plugin/v1/worker/npu/hccl_v41_graph_service.py": {
+      "sha256": "d070ab4fa1410139dbd1548ce9497387f25735ba38cd6a7a46a8af2faadf117a",
+      "methods": {
+        "_validate_resources": {
+          "line_start": 218,
+          "line_end": 245
+        },
+        "_prepare_resources": {
+          "line_start": 285,
+          "line_end": 350
+        },
+        "execute_step": {
+          "line_start": 353,
+          "line_end": 415
+        }
+      }
+    }
+  },
+  "probe_static_candidates": {
+    "tests/npu/hccl_graph_manager_probe.py": "702a9809a2bbc129b4823a86812b41ddc57392f0823f50d6bee5d3f275448808",
+    "openspec/changes/afd-hccl-v2-graph/evidence/a3-native-manager-20261109/run_a3_graph_manager.py": "a52f56a68605955eb340686f4f4e6b6ba2dfb2f0ab1561402770319039a4e15c"
+  },
+  "actual_dependency_cpu_follow_up": {
+    "consumers-002": {
+      "passed": 130,
+      "failed": 0,
+      "errors": 0,
+      "skipped": 0,
+      "elapsed_seconds_junit": 3.785,
+      "snapshot_manifest_sha256": "90a6099351021b0b4ba5a1cd8bc1ecaab610d09f44c2da3c32c0c7b5455760f8",
+      "rechecked_cpu_sources": {
+        "afd_plugin/v1/worker/npu/hccl_v41_ffn_graph.py": {
+          "initial_review_sha256": "3c708b4912fd8e72c6e16fa3ef59d9769440629c9673dfeacf1c5e26aaa84f37",
+          "executed_and_rechecked_sha256": "3c708b4912fd8e72c6e16fa3ef59d9769440629c9673dfeacf1c5e26aaa84f37"
+        },
+        "afd_plugin/v1/worker/npu/hccl_v41_graph_service.py": {
+          "initial_review_sha256": "d070ab4fa1410139dbd1548ce9497387f25735ba38cd6a7a46a8af2faadf117a",
+          "executed_and_rechecked_sha256": "7fc9f30544143f61321feda08141d9bdabffb2d01543a39c44c0cd8bdaab6531"
+        }
+      },
+      "device_probe_started": false,
+      "pipeline_negative_cases": [
+        "test_same_bank_pipeline_replacement_rejects_before_replay[False]",
+        "test_same_bank_pipeline_replacement_rejects_before_replay[True]"
+      ]
+    },
+    "native-consumers-003": {
+      "passed": 240,
+      "failed": 0,
+      "errors": 0,
+      "skipped": 0,
+      "elapsed_seconds_junit": 4.113,
+      "snapshot_manifest_sha256": "362b7dd86680baabb90fbb66e383da391fb1b01b1ca0cdfe1a29755946e7e266",
+      "rechecked_cpu_sources": {
+        "afd_plugin/v1/worker/npu/hccl_v41_graph_execution.py": {
+          "initial_review_sha256": "04e165ae223c85214939c5ca40d8f45a8e8ec0488742c7e6619c8e61f546f662",
+          "executed_and_rechecked_sha256": "04e165ae223c85214939c5ca40d8f45a8e8ec0488742c7e6619c8e61f546f662"
+        },
+        "afd_plugin/v1/worker/npu/hccl_v41_graph_coordinator.py": {
+          "initial_review_sha256": "1bc37e501d6600f8c627dc56703b4cef9fff0d6eed59cade9dc77f2a72c9ac4e",
+          "executed_and_rechecked_sha256": "33e2e84ca5cddfd85c26a3ba88aaaa129e2262dacd3f82ecc765b5a3394e0e20"
+        }
+      },
+      "device_probe_started": false,
+      "pipeline_negative_cases": [
+        "test_same_bank_pipeline_or_policy_replacement_rejects_before_new_payload[pipeline]",
+        "test_same_bank_pipeline_or_policy_replacement_rejects_before_new_payload[policy]"
+      ]
+    }
+  },
+  "later_parent_tls_model_revision_not_covered_by_003": "a3140845755cae90d5f7927596c5a50248d829db15aac8c7d9230ef4d37a92fb"
+}

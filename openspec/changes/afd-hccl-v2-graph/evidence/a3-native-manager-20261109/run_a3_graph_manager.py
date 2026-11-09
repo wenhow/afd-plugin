@@ -27,6 +27,10 @@ SOURCE_IDENTITY = (
     "openspec/changes/afd-hccl-v2-graph/evidence/"
     "a3-static-graph-20261109/native-002/identity.json"
 )
+STREAM_API_IDENTITY = (
+    "openspec/changes/afd-hccl-v2-multistream/evidence/"
+    "a3-pipeline-cpu-20261110/torch-npu-stream-api-20261110.json"
+)
 LOCKED_NATIVE_FILES = (
     ("vllm", "vllm/v1/worker/gpu/cudagraph_utils.py"),
     ("vllm", "vllm/v1/worker/gpu/ubatch_utils.py"),
@@ -164,6 +168,10 @@ def remote_run(args):
     ]
     if args.stage_bank:
         command.append("--stage-bank")
+    if args.compute_pipeline:
+        command.extend(
+            ["--compute-pipeline", "--pipeline-hybrid", str(args.pipeline_hybrid)]
+        )
     timed_out, owned, killed = False, {}, []
     started = time.monotonic()
     with (results / "probe.log").open("wb") as output:
@@ -204,6 +212,8 @@ def remote_run(args):
     summary = {
         "scope": "native base manager/UBR + HCCL phase/cache; controlled arithmetic",
         "stage_bank": args.stage_bank,
+        "compute_pipeline": args.compute_pipeline,
+        "pipeline_hybrid": args.pipeline_hybrid,
         "remote": str(remote),
         "command": command,
         "source_files_match": all(checks.values()),
@@ -235,7 +245,16 @@ def main():
     parser.add_argument("--model", default="/mnt/workspace/models/DeepSeek-V4.1-Flash")
     parser.add_argument("--remote-root")
     parser.add_argument("--stage-bank", action="store_true")
+    parser.add_argument("--compute-pipeline", action="store_true")
+    parser.add_argument("--pipeline-hybrid", type=int, choices=(0, 1))
+    parser.add_argument("--evidence-dir", type=Path)
     args = parser.parse_args()
+    if args.compute_pipeline and not args.stage_bank:
+        parser.error("--compute-pipeline requires --stage-bank")
+    if args.pipeline_hybrid is not None and not args.compute_pipeline:
+        parser.error("--pipeline-hybrid requires --compute-pipeline")
+    if args.compute_pipeline and args.pipeline_hybrid is None:
+        args.pipeline_hybrid = 1
     if args.remote_root:
         return remote_run(args)
     if not args.label or any(
@@ -245,6 +264,11 @@ def main():
         parser.error("label requires lowercase letters, digits and hyphens")
     evidence = Path(__file__).resolve().parent
     root = evidence.parents[4]
+    if args.evidence_dir is not None:
+        evidence = (root / args.evidence_dir).resolve()
+        if not evidence.is_relative_to(root / "openspec/changes"):
+            parser.error("evidence directory must stay under openspec/changes")
+        evidence.mkdir(parents=True, exist_ok=True)
     base = load_base(root)
     destination = evidence / args.label
     destination.mkdir(exist_ok=False)
@@ -265,6 +289,24 @@ def main():
             "commit": source["commit"],
             "sha256": digest,
         }
+    if args.compute_pipeline:
+        source = lock["repositories"]["vllm"]
+        name = "vllm/utils/torch_utils.py"
+        data = subprocess.check_output(
+            ["git", "-C", source["path"], "show", source["commit"] + ":" + name]
+        )
+        digest = hashlib.sha256(data).hexdigest()
+        expected[name] = digest
+        locked_objects[name] = {
+            "repo": "vllm",
+            "commit": source["commit"],
+            "sha256": digest,
+        }
+        installed_api = json.loads(
+            (root / STREAM_API_IDENTITY).read_text(encoding="utf-8")
+        )
+        for name in ("torch_npu/npu/streams.py", "torch_npu/npu/utils.py"):
+            expected[name] = installed_api["sources"][name]["sha256"]
     files = sorted((root / "afd_plugin").rglob("*.py")) + [
         root / PROBE,
         root / ORACLE,
@@ -273,7 +315,10 @@ def main():
         root / "tests/__init__.py",
         root / ".agents/dsv41/sources.lock.json",
     ]
+    if args.compute_pipeline:
+        files.append(root / STREAM_API_IDENTITY)
     contents = {path.relative_to(root).as_posix(): path.read_bytes() for path in files}
+    contents["source-expected.json"] = (json.dumps(expected, indent=2) + "\n").encode()
     manifest = {
         name: hashlib.sha256(data).hexdigest() for name, data in contents.items()
     }
@@ -283,9 +328,6 @@ def main():
             contents
             | {
                 "manifest.json": (json.dumps(manifest, indent=2) + "\n").encode(),
-                "source-expected.json": (
-                    json.dumps(expected, indent=2) + "\n"
-                ).encode(),
             }
         ).items():
             info = tarfile.TarInfo(name)
@@ -315,6 +357,9 @@ def main():
         ).strip(),
         "remote": remote,
         "stage_bank": args.stage_bank,
+        "compute_pipeline": args.compute_pipeline,
+        "pipeline_hybrid": args.pipeline_hybrid,
+        "evidence_directory": destination.relative_to(root).as_posix(),
         "manifest": manifest,
         "snapshot_manifest_sha256": hashlib.sha256(
             json.dumps(manifest, sort_keys=True, separators=(",", ":")).encode()
@@ -323,6 +368,9 @@ def main():
         "source_expected": expected,
         "source_identity_origin": SOURCE_IDENTITY,
         "locked_git_object_sources": locked_objects,
+        "installed_stream_source_origin": (
+            STREAM_API_IDENTITY if args.compute_pipeline else None
+        ),
     }
     (destination / "identity.json").write_text(json.dumps(identity, indent=2) + "\n")
     remote_command = "python3 -B " + shlex.quote(remote + "/run_a3_graph_manager.py")
@@ -331,6 +379,10 @@ def main():
     )
     if args.stage_bank:
         remote_command += " --stage-bank"
+    if args.compute_pipeline:
+        remote_command += " --compute-pipeline --pipeline-hybrid " + str(
+            args.pipeline_hybrid
+        )
     command = [
         "ssh",
         "-F",

@@ -1,5 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: Copyright contributors to the AFD plugin project
+# ruff: noqa: E402
 """Actual control/native slicing/model-wrapper seams with CPU arithmetic."""
 
 from dataclasses import replace
@@ -19,6 +20,10 @@ from vllm.forward_context import (  # noqa: E402
     override_forward_context,
 )
 
+from afd_plugin.connectors.npu import (
+    hccl_graph_pipeline as pipeline_module,  # noqa: E402
+)
+from tests.unit.fakes.hccl_graph_pipeline import attach_pipeline  # noqa: E402
 from tests.unit.fakes.hccl_v41_graph_execution import (  # noqa: E402
     make_graph_execution_case,
 )
@@ -39,10 +44,19 @@ def graph_case(monkeypatch):
 
 @pytest.mark.parametrize("warmup", [True, False])
 @pytest.mark.parametrize("engram", [False, True])
+@pytest.mark.parametrize("pipelined", [False, True])
 def test_native_parent_callback_uses_actual_counts_and_one_unsliced_producer(
-    graph_case, warmup, engram
+    graph_case, warmup, engram, pipelined, monkeypatch
 ):
-    case = graph_case(warmup=warmup, engram=engram)
+    case = graph_case(
+        warmup=warmup,
+        engram=engram,
+        pipeline_factory=(
+            lambda bank: attach_pipeline(monkeypatch, pipeline_module, bank).pipeline
+        )
+        if pipelined
+        else None,
+    )
     prepared = case.runner.prepare(
         case.batch, (), torch.zeros(1, 4, dtype=torch.int32), CUDAGraphMode.FULL, True
     )

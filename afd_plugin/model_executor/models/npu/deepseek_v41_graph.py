@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: Copyright contributors to the AFD plugin project
-"""Synchronous V4.1 tensor body for an explicitly owned static graph.
+"""V4.1 tensor body for an explicitly owned static graph and compute DAG.
 
 The owner constructs this object, child metadata and exchange storage before
 capture. Python stage bindings select the addresses recorded by the graph;
@@ -19,9 +19,13 @@ from vllm.config import CUDAGraphMode
 from vllm.forward_context import ForwardContext, override_forward_context
 from vllm_ascend.models.deepseek_v41.model import AscendParallelEngramEmbedding
 
+from afd_plugin.compat.npu.stream import use_npu_current_stream
+from afd_plugin.connectors.npu.hccl_graph_pipeline import HcclGraphComputePipeline
 from afd_plugin.connectors.npu.hccl_graph_stage import HcclGraphStageBank
 from afd_plugin.model_executor.models.npu.deepseek_v41 import (
+    AFDDeepseekV41AttentionDecoderLayer,
     AFDDeepseekV41AttentionModel,
+    DeepseekV41FFNContinuation,
 )
 from afd_plugin.model_executor.models.npu.deepseek_v41_stage_state import (
     DeepseekV41StageAttentionStates,
@@ -38,14 +42,16 @@ class _GraphStageExecution:
     pre_mix: torch.Tensor
     mask_ready_event: torch.npu.Event | None
     auxiliary: list[torch.Tensor]
+    continuation: DeepseekV41FFNContinuation | None = None
+    ffn_output: torch.Tensor | None = None
 
 
 class DeepseekV41GraphStages:
     """One retained static layout, using native layer continuations.
 
     Each stage has independent shared-Attention views and native metadata. Its
-    exchange storage is reused across layers only on the owning compute stream,
-    after the preceding continuation has consumed the returned output.
+    parent-stream exchange reuses storage only after the fenced side-compute
+    continuation has consumed the preceding returned output.
     """
 
     def __init__(
@@ -54,6 +60,8 @@ class DeepseekV41GraphStages:
         contexts: tuple[ForwardContext, ...],
         token_slices: tuple[slice, ...],
         bank: HcclGraphStageBank,
+        *,
+        pipeline: HcclGraphComputePipeline | None = None,
     ) -> None:
         layers = tuple(model.layers)
         if model.use_sequence_parallel or model.start_layer != 0:
@@ -65,6 +73,8 @@ class DeepseekV41GraphStages:
             or not len(contexts) == len(token_slices) == len(bank.stage_rows)
         ):
             raise ValueError("V4.1 graph stages require one complete static layout")
+        if pipeline is not None and pipeline.bank is not bank:
+            raise ValueError("V4.1 graph pipeline must retain this exact stage bank")
         # This validates contiguous bounds and creates stable parent-buffer
         # views before any graph body or producer is entered.
         bindings = DeepseekV41StageAttentionStates(model, token_slices)
@@ -80,6 +90,7 @@ class DeepseekV41GraphStages:
         self.model, self.contexts = model, contexts
         self.token_slices, self.bank = token_slices, bank
         self.bindings, self.layers = bindings, layers
+        self.pipeline = pipeline
 
     # Upstream: DeepseekV41Model.forward @ Ascend 7e37e29a:1561-1651.
     # Reason: native full-model child forwards cannot record layer-major A/F
@@ -146,46 +157,26 @@ class DeepseekV41GraphStages:
         # ### PATCH END: fixed stage inputs, without eager plan cursors
 
         # ### PATCH START: graph records layer-major tensor exchange
-        for layer in self.layers:
-            for index, (stage, context, execution) in enumerate(
-                zip(stages, self.contexts, executions, strict=True)
-            ):
-                with override_forward_context(context), self.bindings.bind(index):
-                    hidden = execution.hidden_states
-                    if layer.layer_idx + 1 in model.aux_hidden_state_layers:
-                        execution.auxiliary.append(hidden.mean(dim=1))
-                    if layer.engram is not None and stage.engram.mask.numel():
-                        if execution.mask_ready_event is not None:
-                            AscendParallelEngramEmbedding.wait_lookup(
-                                execution.mask_ready_event, external=False
+        if self.pipeline is None:
+            for layer in self.layers:
+                for index, (stage, context, execution) in enumerate(
+                    zip(stages, self.contexts, executions, strict=True)
+                ):
+                    with override_forward_context(context), self.bindings.bind(index):
+                        prepared = self._prepare_stage(layer, stage, execution)
+                        if prepared is not None:
+                            x, x_fp32, continuation = prepared
+                            output = bank.attention_exchange(
+                                index,
+                                x.contiguous(),
+                                x_fp32.contiguous(),
+                                stage.input_ids,
                             )
-                            execution.mask_ready_event = None
-                        if (
-                            stage.engram.pending is not None
-                            and layer.layer_idx in stage.engram.pending
-                        ):
-                            AscendParallelEngramEmbedding.wait_lookup(
-                                stage.engram.pending[layer.layer_idx], external=False
+                            execution.hidden_states, execution.pre_mix = (
+                                layer.complete_remote_ffn(output, continuation)
                             )
-                        hidden[:] = layer.engram(
-                            hidden,
-                            stage.engram.lookups[layer.layer_idx],
-                            stage.engram.mask,
-                            model.engram_rotation if model.engram_rotated else None,
-                        )
-                    if hidden.shape[0]:
-                        x, x_fp32, continuation = layer.prepare_remote_ffn(
-                            stage.positions, hidden, execution.pre_mix
-                        )
-                        output = bank.attention_exchange(
-                            index, x.contiguous(), x_fp32.contiguous(), stage.input_ids
-                        )
-                        execution.hidden_states, execution.pre_mix = (
-                            layer.complete_remote_ffn(output, continuation)
-                        )
-                    # A static zero-row stage records no payload on either
-                    # peer. Runtime empty/padded stages still use their fixed
-                    # positive extent and device-valid masks in the bank.
+        else:
+            self._run_pipelined(stages, executions)
         # ### PATCH END: graph records layer-major tensor exchange
 
         # ### PATCH START: native parent aux, MTP and delayed HC collapse
@@ -205,6 +196,158 @@ class DeepseekV41GraphStages:
         # ### PATCH END: native parent aux, MTP and delayed HC collapse
         return (hidden, auxiliary) if auxiliary else hidden
 
+    def _prepare_stage(
+        self,
+        layer: AFDDeepseekV41AttentionDecoderLayer,
+        stage: DeepseekV41StageInputs,
+        execution: _GraphStageExecution,
+    ) -> tuple[torch.Tensor, torch.Tensor, DeepseekV41FFNContinuation] | None:
+        """Observe native layer entry before Engram, then retain its HC state."""
+        model, hidden = self.model, execution.hidden_states
+        if layer.layer_idx + 1 in model.aux_hidden_state_layers:
+            execution.auxiliary.append(hidden.mean(dim=1))
+        if layer.engram is not None and stage.engram.mask.numel():
+            if execution.mask_ready_event is not None:
+                AscendParallelEngramEmbedding.wait_lookup(
+                    execution.mask_ready_event, external=False
+                )
+                execution.mask_ready_event = None
+            if (
+                stage.engram.pending is not None
+                and layer.layer_idx in stage.engram.pending
+            ):
+                AscendParallelEngramEmbedding.wait_lookup(
+                    stage.engram.pending[layer.layer_idx], external=False
+                )
+            hidden[:] = layer.engram(
+                hidden,
+                stage.engram.lookups[layer.layer_idx],
+                stage.engram.mask,
+                model.engram_rotation if model.engram_rotated else None,
+            )
+        if not hidden.shape[0]:
+            # Preserve zero-row aux coordinates without kernels or wire/events.
+            return None
+        return layer.prepare_remote_ffn(stage.positions, hidden, execution.pre_mix)
+
+    @staticmethod
+    def _stage_tensors(
+        stage: DeepseekV41StageInputs,
+        execution: _GraphStageExecution,
+        layer_idx: int | None = None,
+    ) -> tuple[torch.Tensor, ...]:
+        """Name every allocation crossing into the selected compute stream."""
+        tensors = (
+            stage.positions,
+            stage.input_ids,
+            stage.engram.mask,
+            execution.hidden_states,
+            execution.pre_mix,
+        )
+        if stage.inputs_embeds is not None:
+            tensors += (stage.inputs_embeds,)
+        if layer_idx is not None and layer_idx in stage.engram.lookups:
+            tensors += (stage.engram.lookups[layer_idx],)
+        if execution.ffn_output is not None:
+            tensors += (execution.ffn_output,)
+        if execution.continuation is not None:
+            continuation = execution.continuation
+            tensors += (
+                continuation.residual,
+                continuation.post,
+                continuation.comb,
+                continuation.pre_mix,
+            )
+        return tensors
+
+    # Donor source: deepseek_v4.py:1067-1244 @ 4ddd69a3. New composition,
+    # not a replacement signature: preserve whole-layer host construction, but
+    # use native V4.1 HC/pre_mix and ordinary parent Engram event dependencies.
+    # Communication stays on the parent; final graph joins precede all merges.
+    def _run_pipelined(
+        self,
+        stages: tuple[DeepseekV41StageInputs, ...],
+        executions: list[_GraphStageExecution],
+    ) -> None:
+        pipeline = self.pipeline
+        assert pipeline is not None
+        # ### PATCH START: delayed stage continuations with parent HCCL
+        with pipeline.run():
+            for layer_offset, layer in enumerate(self.layers):
+                prepared: dict[
+                    int, tuple[torch.Tensor, torch.Tensor, torch.Tensor]
+                ] = {}
+                for index, (stage, context, execution) in enumerate(
+                    zip(stages, self.contexts, executions, strict=True)
+                ):
+                    with override_forward_context(context), self.bindings.bind(index):
+                        if not self.bank.stage_rows[index]:
+                            self._prepare_stage(layer, stage, execution)
+                            continue
+                        with pipeline.compute(
+                            layer.layer_idx,
+                            index,
+                            inputs=self._stage_tensors(
+                                stage, execution, layer.layer_idx
+                            ),
+                        ):
+                            if layer_offset:
+                                self._complete_stage(
+                                    self.layers[layer_offset - 1], execution
+                                )
+                            inputs = self._prepare_stage(layer, stage, execution)
+                            assert inputs is not None
+                            x, x_fp32, execution.continuation = inputs
+                            prepared[index] = (x, x_fp32, stage.input_ids)
+                # Queue every stage's wire before any next-layer compute. In
+                # hybrid mode the recorded DAG still waits only its own receive.
+                for index, tensors in prepared.items():
+                    with (
+                        override_forward_context(self.contexts[index]),
+                        pipeline.attention_exchange(
+                            layer.layer_idx, index, tensors=tensors
+                        ),
+                    ):
+                        x, x_fp32, ids = tensors
+                        executions[index].ffn_output = self.bank.attention_exchange(
+                            index, x.contiguous(), x_fp32.contiguous(), ids
+                        )
+            for index, (stage, context, execution) in enumerate(
+                zip(stages, self.contexts, executions, strict=True)
+            ):
+                if not self.bank.stage_rows[index]:
+                    continue
+                with (
+                    override_forward_context(context),
+                    self.bindings.bind(index),
+                    pipeline.final_compute(
+                        index, inputs=self._stage_tensors(stage, execution)
+                    ),
+                ):
+                    self._complete_stage(self.layers[-1], execution)
+            pipeline.join(
+                outputs=tuple(
+                    tensor
+                    for execution in executions
+                    for tensor in (
+                        execution.hidden_states,
+                        execution.pre_mix,
+                        *execution.auxiliary,
+                    )
+                )
+            )
+        # ### PATCH END: delayed stage continuations with parent HCCL
+
+    @staticmethod
+    def _complete_stage(
+        layer: AFDDeepseekV41AttentionDecoderLayer, execution: _GraphStageExecution
+    ) -> None:
+        assert execution.ffn_output is not None and execution.continuation is not None
+        execution.hidden_states, execution.pre_mix = layer.complete_remote_ffn(
+            execution.ffn_output, execution.continuation
+        )
+        execution.ffn_output = execution.continuation = None
+
 
 class DeepseekV41GraphParent:
     """Use one native captured Engram producer for the unsliced parent.
@@ -218,6 +361,17 @@ class DeepseekV41GraphParent:
         self.stages = stages
 
     def __call__(
+        self, model_inputs: dict[str, Any]
+    ) -> torch.Tensor | tuple[torch.Tensor, list[torch.Tensor]]:
+        if self.stages.pipeline is None:
+            return self._run_parent(model_inputs)
+        # Native graph entry can change the actual parent stream without
+        # updating vLLM's stream TLS. Cover both U1 and U2 around the unsliced
+        # producer and the parent work outside the side-compute DAG.
+        with use_npu_current_stream(torch.npu.current_stream()):
+            return self._run_parent(model_inputs)
+
+    def _run_parent(
         self, model_inputs: dict[str, Any]
     ) -> torch.Tensor | tuple[torch.Tensor, list[torch.Tensor]]:
         model = self.stages.model

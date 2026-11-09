@@ -156,6 +156,11 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--label")
     parser.add_argument("--remote-root")
+    parser.add_argument(
+        "--evidence-dir",
+        type=Path,
+        help="local output parent under openspec/changes (defaults to this harness)",
+    )
     parser.add_argument("--factory-seams", action="store_true")
     parser.add_argument("--endpoint-seams", action="store_true")
     parser.add_argument("--consumer-seams", action="store_true")
@@ -211,6 +216,11 @@ def main():
         parser.error("label requires lowercase letters, digits and hyphens")
     evidence = Path(__file__).resolve().parent
     root = evidence.parents[4]
+    if args.evidence_dir is not None:
+        evidence = (root / args.evidence_dir).resolve()
+        if not evidence.is_relative_to(root / "openspec/changes"):
+            parser.error("evidence directory must stay under openspec/changes")
+        evidence.mkdir(parents=True, exist_ok=True)
     base = load_base(root)
     destination = evidence / args.label
     destination.mkdir(exist_ok=False)
@@ -279,6 +289,7 @@ def main():
         "manifest": manifest,
         "targets": targets,
         "snapshot_exclusions": exclusions,
+        "evidence_directory": destination.relative_to(root).as_posix(),
         "snapshot_manifest_sha256": hashlib.sha256(
             json.dumps(manifest, sort_keys=True, separators=(",", ":")).encode()
         ).hexdigest(),

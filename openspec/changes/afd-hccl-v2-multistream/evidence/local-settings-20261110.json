@@ -1,0 +1,49 @@
+{
+  "schema_version": 1,
+  "recorded_at_utc": "2026-11-09 22:43:18 UTC",
+  "scope": "Pure stdlib overlap settings and diagnostic snapshot behavior only",
+  "evidence_kind": "delegated local execution tool result transcription",
+  "raw_log_file_captured": false,
+  "provenance": "The command, exit code and stdout below are transcribed from the completed functions.exec / exec_command tool result. No original stdout file was saved. Tests were not rerun to create this artifact.",
+  "working_directory": "D:/openSource/afd-plugin-dsv41-flash-v030",
+  "source_files": {
+    "afd_plugin/connectors/npu/hccl_overlap.py": "ce0ff4b993dce0af6d0332ca296f18be84a9323a4f4b431f1a6312ca07513fc4",
+    "tests/unit/connectors/npu/test_hccl_overlap.py": "29862c66e04e23644c17f6b9c685acbe2e501d26fa85aa26cd50097f3225ca90"
+  },
+  "execution": {
+    "command": ".venv/Scripts/python.exe -m pytest -o addopts= -q tests/unit/connectors/npu/test_hccl_overlap.py",
+    "exit_code": 0,
+    "tool_chunk_id": "d3fc52",
+    "stdout": "........................................................................ [ 93%]\n.....                                                                    [100%]\n77 passed in 0.27s\n",
+    "summary": {
+      "passed": 77,
+      "failed": 0,
+      "errors": 0,
+      "skipped": 0
+    }
+  },
+  "host_versions": {
+    "collection_note": "Collected afterwards using read-only version commands; no tests were rerun.",
+    "python_sys_version": "3.14.3 (tags/v3.14.3:323c59a, Feb  3 2026, 16:04:56) [MSC v.1944 64 bit (AMD64)]",
+    "platform": "Windows-11-10.0.26300-SP0",
+    "pytest": "9.2.0"
+  },
+  "additional_checks": {
+    "ruff_check": "All checks passed!",
+    "ruff_format": "unchanged after formatting",
+    "python_3_11_grammar": "ast.parse(feature_version=(3, 11)) passed for the final source and 77-case mirror snapshot",
+    "diff_check": "passed"
+  },
+  "boundaries": {
+    "source_module_imports_stdlib_only": true,
+    "actual_test_load": "The actual standalone module is loaded directly because parent connector namespaces import device runtimes.",
+    "shared_fake_added": false,
+    "environment_registry_changed": false,
+    "runtime_scheduling_wired": false,
+    "upstream_modified": false,
+    "device_job_started": false,
+    "npu_acceptance": false,
+    "model_acceptance": false,
+    "overlap_or_performance_acceptance": false
+  }
+}

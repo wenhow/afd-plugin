@@ -1,0 +1,428 @@
+{
+  "scope": "C6 production compute pipeline + native base manager/UBR/InputBatch/GraphControl + controlled arithmetic with actual NPU/HCCL capture/replay; no native model execution",
+  "sessions": {
+    "hybrid1-001": {
+      "hybrid": 1,
+      "head_commit": "e8557317dd66efd8971566c758456ad2308c6e00",
+      "snapshot_manifest_sha256": "ae1b03e598476991dc259b321c0b487cb3a0e936b10e44efce4b5b27a1ae08d7",
+      "remote": "/mnt/workspace/tmp/afd-c0-20261104.hVgsIf/c5-native-manager-20261109-1hco31yb",
+      "returncode": 0,
+      "elapsed_seconds": 30.703767248429358,
+      "upstream_files_checked": 31,
+      "source_files_match": true,
+      "idle_boards_before": 8,
+      "idle_boards_after": 8,
+      "timed_out": false,
+      "outer_killed_owned_pids": [],
+      "supervisor_cleanup": [],
+      "ranks": {
+        "ffn": {
+          "phase_counts": {
+            "warmup": 4,
+            "capture": 4,
+            "replay": 12,
+            "eager": 6
+          },
+          "pipeline_phase_owners": 8,
+          "native_tp_before_after": [
+            1.0
+          ],
+          "replay_schedules": [
+            {
+              "key": "e5347fe97597cc9eb8f24162af790c653f20ca569c85264ab758f2f38e2198e5",
+              "padded_tokens": [
+                8
+              ],
+              "valid_tokens": [
+                [
+                  8
+                ],
+                [
+                  1
+                ],
+                [
+                  7
+                ]
+              ]
+            },
+            {
+              "key": "9c765bb87c311dafb9d10151213143e7cd86a7fcd6b24c01e4d45e0556d4305f",
+              "padded_tokens": [
+                4,
+                4
+              ],
+              "valid_tokens": [
+                [
+                  4,
+                  4
+                ],
+                [
+                  1,
+                  0
+                ],
+                [
+                  4,
+                  3
+                ]
+              ]
+            },
+            {
+              "key": "5651035d435596fefc68b2aae0f80a16675c9243d39afa310eb87ad67990bfd9",
+              "padded_tokens": [
+                4
+              ],
+              "valid_tokens": [
+                [
+                  4
+                ],
+                [
+                  1
+                ],
+                [
+                  3
+                ]
+              ]
+            },
+            {
+              "key": "88359666a93d218989ed1a68654af2b6be08400596df3aa05781aaac0588a4bb",
+              "padded_tokens": [
+                2,
+                2
+              ],
+              "valid_tokens": [
+                [
+                  2,
+                  2
+                ],
+                [
+                  1,
+                  0
+                ],
+                [
+                  2,
+                  1
+                ]
+              ]
+            }
+          ]
+        },
+        "attention": {
+          "phase_counts": {
+            "warmup": 4,
+            "capture": 4,
+            "replay": 12,
+            "eager": 6
+          },
+          "pipeline_phase_owners": 8,
+          "native_tp_before_after": [
+            1.0
+          ],
+          "replay_schedules": [
+            {
+              "key": "e5347fe97597cc9eb8f24162af790c653f20ca569c85264ab758f2f38e2198e5",
+              "padded_tokens": [
+                8
+              ],
+              "valid_tokens": [
+                [
+                  8
+                ],
+                [
+                  1
+                ],
+                [
+                  7
+                ]
+              ]
+            },
+            {
+              "key": "9c765bb87c311dafb9d10151213143e7cd86a7fcd6b24c01e4d45e0556d4305f",
+              "padded_tokens": [
+                4,
+                4
+              ],
+              "valid_tokens": [
+                [
+                  4,
+                  4
+                ],
+                [
+                  1,
+                  0
+                ],
+                [
+                  4,
+                  3
+                ]
+              ]
+            },
+            {
+              "key": "5651035d435596fefc68b2aae0f80a16675c9243d39afa310eb87ad67990bfd9",
+              "padded_tokens": [
+                4
+              ],
+              "valid_tokens": [
+                [
+                  4
+                ],
+                [
+                  1
+                ],
+                [
+                  3
+                ]
+              ]
+            },
+            {
+              "key": "88359666a93d218989ed1a68654af2b6be08400596df3aa05781aaac0588a4bb",
+              "padded_tokens": [
+                2,
+                2
+              ],
+              "valid_tokens": [
+                [
+                  2,
+                  2
+                ],
+                [
+                  1,
+                  0
+                ],
+                [
+                  2,
+                  1
+                ]
+              ]
+            }
+          ]
+        }
+      }
+    },
+    "hybrid0-001": {
+      "hybrid": 0,
+      "head_commit": "e8557317dd66efd8971566c758456ad2308c6e00",
+      "snapshot_manifest_sha256": "ae1b03e598476991dc259b321c0b487cb3a0e936b10e44efce4b5b27a1ae08d7",
+      "remote": "/mnt/workspace/tmp/afd-c0-20261104.hVgsIf/c5-native-manager-20261109-m5s8p8ka",
+      "returncode": 0,
+      "elapsed_seconds": 30.292230401188135,
+      "upstream_files_checked": 31,
+      "source_files_match": true,
+      "idle_boards_before": 8,
+      "idle_boards_after": 8,
+      "timed_out": false,
+      "outer_killed_owned_pids": [],
+      "supervisor_cleanup": [],
+      "ranks": {
+        "ffn": {
+          "phase_counts": {
+            "warmup": 4,
+            "capture": 4,
+            "replay": 12,
+            "eager": 6
+          },
+          "pipeline_phase_owners": 8,
+          "native_tp_before_after": [
+            1.0
+          ],
+          "replay_schedules": [
+            {
+              "key": "e5347fe97597cc9eb8f24162af790c653f20ca569c85264ab758f2f38e2198e5",
+              "padded_tokens": [
+                8
+              ],
+              "valid_tokens": [
+                [
+                  8
+                ],
+                [
+                  1
+                ],
+                [
+                  7
+                ]
+              ]
+            },
+            {
+              "key": "9c765bb87c311dafb9d10151213143e7cd86a7fcd6b24c01e4d45e0556d4305f",
+              "padded_tokens": [
+                4,
+                4
+              ],
+              "valid_tokens": [
+                [
+                  4,
+                  4
+                ],
+                [
+                  1,
+                  0
+                ],
+                [
+                  4,
+                  3
+                ]
+              ]
+            },
+            {
+              "key": "5651035d435596fefc68b2aae0f80a16675c9243d39afa310eb87ad67990bfd9",
+              "padded_tokens": [
+                4
+              ],
+              "valid_tokens": [
+                [
+                  4
+                ],
+                [
+                  1
+                ],
+                [
+                  3
+                ]
+              ]
+            },
+            {
+              "key": "88359666a93d218989ed1a68654af2b6be08400596df3aa05781aaac0588a4bb",
+              "padded_tokens": [
+                2,
+                2
+              ],
+              "valid_tokens": [
+                [
+                  2,
+                  2
+                ],
+                [
+                  1,
+                  0
+                ],
+                [
+                  2,
+                  1
+                ]
+              ]
+            }
+          ]
+        },
+        "attention": {
+          "phase_counts": {
+            "warmup": 4,
+            "capture": 4,
+            "replay": 12,
+            "eager": 6
+          },
+          "pipeline_phase_owners": 8,
+          "native_tp_before_after": [
+            1.0
+          ],
+          "replay_schedules": [
+            {
+              "key": "e5347fe97597cc9eb8f24162af790c653f20ca569c85264ab758f2f38e2198e5",
+              "padded_tokens": [
+                8
+              ],
+              "valid_tokens": [
+                [
+                  8
+                ],
+                [
+                  1
+                ],
+                [
+                  7
+                ]
+              ]
+            },
+            {
+              "key": "9c765bb87c311dafb9d10151213143e7cd86a7fcd6b24c01e4d45e0556d4305f",
+              "padded_tokens": [
+                4,
+                4
+              ],
+              "valid_tokens": [
+                [
+                  4,
+                  4
+                ],
+                [
+                  1,
+                  0
+                ],
+                [
+                  4,
+                  3
+                ]
+              ]
+            },
+            {
+              "key": "5651035d435596fefc68b2aae0f80a16675c9243d39afa310eb87ad67990bfd9",
+              "padded_tokens": [
+                4
+              ],
+              "valid_tokens": [
+                [
+                  4
+                ],
+                [
+                  1
+                ],
+                [
+                  3
+                ]
+              ]
+            },
+            {
+              "key": "88359666a93d218989ed1a68654af2b6be08400596df3aa05781aaac0588a4bb",
+              "padded_tokens": [
+                2,
+                2
+              ],
+              "valid_tokens": [
+                [
+                  2,
+                  2
+                ],
+                [
+                  1,
+                  0
+                ],
+                [
+                  2,
+                  1
+                ]
+              ]
+            }
+          ]
+        }
+      }
+    }
+  },
+  "devices": [
+    0,
+    2
+  ],
+  "topology": {
+    "attention": 1,
+    "ffn": 1,
+    "native_tp_size": 1
+  },
+  "new_device_attempts": 2,
+  "not_validated": [
+    "native ModelState/ModelAclGraphManager execution",
+    "Attention/HC/indexer/Engram/MoE kernels or model weights",
+    "production A/F graph-service native model path",
+    "runtime request geometry switching into a fixed graph",
+    "long-run allocator pressure",
+    "timeline overlap or performance",
+    "six overlap settings runtime integration"
+  ],
+  "same_source_manifest_for_both_sessions": true,
+  "source_pins": {
+    "tests/npu/hccl_graph_manager_probe.py": "d2e780a99f080236a85fd3cbba1844d1b7077fac07c0dca62c52754433cccb87",
+    "openspec/changes/afd-hccl-v2-graph/evidence/a3-native-manager-20261109/run_a3_graph_manager.py": "746be9cebc107cf5b57957fe8af407a502b1a929b7b3654d7c2bd13c5e81d963",
+    "afd_plugin/connectors/npu/hccl_graph_pipeline.py": "6473cc7ad538ddeaf45a5a9233eef7d5bae79b1cb1e6c95b883953ef05db73cd",
+    "afd_plugin/compat/npu/stream.py": "6a881fa579e9c775f3b7142c7c456936e3d05c2ea37f9a87f3bcc386e7656771",
+    "afd_plugin/connectors/npu/hccl_graph_stage.py": "b55e8dce0a72109bfcceaca52163ac2177ca0d0d6697664af64ed3dd4460a00f",
+    "source-expected.json": "d9a3e13bf629d887c075beeeda16dda6ca9e726ebd7a26d561fdca2b6b59acb0"
+  },
+  "actual_native_model_source_in_snapshot_is_not_device_execution_evidence": "a3140845755cae90d5f7927596c5a50248d829db15aac8c7d9230ef4d37a92fb"
+}

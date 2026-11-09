@@ -140,6 +140,15 @@ Failed or pending resources remain owned until supervised synchronization and
 graph reset permit release. Native Attention managers retain model-state
 updates and replay ownership; this cache does not replace those lifecycles.
 
+The optional graph compute pipeline records stage-ready dependencies and final
+joins while all HCCL remains on the native parent stream. Stream/event owners
+are capture constants retained with the exact bank in the frozen cache bundle;
+changing scheduling requires a fresh session/cache/manager. The standalone
+`HcclOverlapSettings` parser preserves the donor's six binary overlap settings
+and two diagnostics, including U1 eager gating and cross-layer/receive-stream
+validation. Its diagnostic export records parsed values; parsing alone does
+not select a schedule or establish device support for every setting.
+
 ## Factory and construction
 
 `AFDConnectorFactory` stores lazy loaders, so importing the factory does not

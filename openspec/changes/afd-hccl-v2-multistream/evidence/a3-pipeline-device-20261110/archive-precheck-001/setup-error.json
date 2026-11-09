@@ -1,0 +1,5 @@
+{
+  "scope": "local self-check setup only; no network/device",
+  "error": "runpy.run_path was given a relative __file__, unlike direct Python script invocation; relative_to(root) rejected it",
+  "correction": "invoke runpy with the resolved absolute harness path; harness source unchanged"
+}

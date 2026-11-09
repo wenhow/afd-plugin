@@ -18,15 +18,22 @@ from vllm.forward_context import (  # noqa: E402
     override_forward_context,
 )
 
+import afd_plugin.connectors.npu.hccl_graph_pipeline as pipeline_module  # noqa: E402
 from afd_plugin.model_executor.models.npu.deepseek_v41_graph import (  # noqa: E402
     DeepseekV41GraphParent,
     DeepseekV41GraphStages,
 )
-from tests.unit.fakes.deepseek_v41_graph import make_graph_model_case  # noqa: E402
+from tests.unit.fakes.deepseek_v41_graph import (  # noqa: E402
+    attach_graph_pipeline,
+    make_graph_model_case,
+)
+from tests.unit.fakes.npu_stream import make_npu_stream_case  # noqa: E402
 
 
-def make_body(case):
-    return DeepseekV41GraphStages(case.model, case.contexts, case.slices, case.bank)
+def make_body(case, *, pipeline=None):
+    return DeepseekV41GraphStages(
+        case.model, case.contexts, case.slices, case.bank, pipeline=pipeline
+    )
 
 
 @pytest.mark.parametrize("split", [(5,), (2, 3), (0, 3), (3, 0)])
@@ -153,3 +160,123 @@ def test_incompatible_second_stage_is_rejected_before_any_payload():
         make_body(case).run(stages)
 
     assert all(peer.messages == [] for peer in case.endpoints)
+
+
+@pytest.mark.parametrize("split", [(5,), (2, 3), (0, 3), (3, 0)])
+@pytest.mark.parametrize("engram", [False, True])
+@pytest.mark.parametrize("hybrid", [False, True])
+def test_pipeline_preserves_native_continuations_aux_and_parent_mtp(
+    monkeypatch, split, engram, hybrid
+):
+    case = make_graph_model_case(split, engram=engram)
+    expected = case.model(**case.parent_inputs)
+    expected_mtp = case.mtp_rows.clone()
+    attach_graph_pipeline(monkeypatch, pipeline_module, case, hybrid=hybrid)
+
+    actual = make_body(case, pipeline=case.pipeline).run(case.stages)
+
+    torch.testing.assert_close(actual, expected, rtol=0, atol=0)
+    torch.testing.assert_close(case.mtp_rows, expected_mtp, rtol=0, atol=0)
+    assert all(
+        event[-2:] == (True, True)
+        for event in case.runtime.trace
+        if event[0] == "attention"
+    )
+
+
+@pytest.mark.parametrize("hybrid", [False, True])
+def test_pipeline_enqueues_whole_layer_wire_before_next_compute_and_joins_outputs(
+    monkeypatch, hybrid
+):
+    case = attach_graph_pipeline(
+        monkeypatch, pipeline_module, make_graph_model_case(), hybrid=hybrid
+    )
+    make_body(case, pipeline=case.pipeline).run(case.stages)
+    trace = case.runtime.trace
+    assert [event[1:3] for event in trace if event[0] == "attention"] == [
+        (0, 0),
+        (0, 1),
+        (1, 0),
+        (1, 1),
+    ]
+    first_layer_wire = [
+        index for index, event in enumerate(trace) if event[0] == "wire"
+    ][:8]
+    next_compute = trace.index(("attention", 1, 0, True, True))
+    assert max(first_layer_wire) < next_compute
+    assert {event[-1] for event in trace if event[0] == "wire"} == {"parent"}
+    assert trace.index(("wait", "S1.tail", "parent")) < trace.index(
+        ("parent_output", "parent")
+    )
+
+
+@pytest.mark.parametrize("hybrid", [False, True])
+@pytest.mark.parametrize("split", [(5,), (2, 3)])
+def test_pipeline_parent_aligns_native_stream_queries_and_consumes_one_producer(
+    monkeypatch, hybrid, split
+):
+    case = make_graph_model_case(split)
+    expected = case.model(**case.parent_inputs)
+    streams = make_npu_stream_case(monkeypatch, pipeline_module, cached="foreign")
+    attach_graph_pipeline(
+        monkeypatch, pipeline_module, case, hybrid=hybrid, runtime=streams.runtime
+    )
+
+    actual = DeepseekV41GraphParent(make_body(case, pipeline=case.pipeline))(
+        case.graph_inputs
+    )
+
+    torch.testing.assert_close(actual, expected, rtol=0, atol=0)
+    assert len(case.producer_parents) == 1
+    assert case.joined == [True]
+    assert case.producer_parents[0][0].shape == case.parent_inputs["input_ids"].shape
+    assert [event for event in case.runtime.trace if event[0] == "parent_stream"] == [
+        ("parent_stream", "producer", True, True),
+        ("parent_stream", "output", True, True),
+    ]
+    assert torch.npu.current_stream() is streams.runtime.parent
+    assert streams.query() is streams.previous
+
+
+def test_pipeline_rejects_a_foreign_bank_before_any_payload(monkeypatch):
+    case, foreign = make_graph_model_case(), make_graph_model_case()
+    attach_graph_pipeline(monkeypatch, pipeline_module, foreign)
+    with pytest.raises(ValueError, match="exact stage bank"):
+        make_body(case, pipeline=foreign.pipeline)
+    assert all(peer.messages == [] for peer in case.endpoints + foreign.endpoints)
+
+
+@pytest.mark.parametrize("hybrid", [False, True])
+@pytest.mark.parametrize("split", [(5,), (2, 3)])
+def test_pipeline_failure_restores_parent_context_state_and_native_stream_cache(
+    monkeypatch, hybrid, split
+):
+    streams = make_npu_stream_case(monkeypatch, pipeline_module, cached="foreign")
+    case = attach_graph_pipeline(
+        monkeypatch,
+        pipeline_module,
+        make_graph_model_case(split),
+        hybrid=hybrid,
+        runtime=streams.runtime,
+    )
+    original = case.model.shared_attention_state
+    parent = SimpleNamespace(ubatch_idx=-1)
+
+    def fail(*args):
+        raise RuntimeError("injected pipeline payload failure")
+
+    monkeypatch.setattr(case.endpoints[-1], "receive", fail)
+    with override_forward_context(parent):
+        with pytest.raises(RuntimeError, match="pipeline payload failure"):
+            DeepseekV41GraphParent(make_body(case, pipeline=case.pipeline))(
+                case.graph_inputs
+            )
+        assert get_forward_context() is parent
+    assert case.runtime.current is case.runtime.parent
+    assert streams.query() is streams.previous
+    assert [event for event in case.runtime.trace if event[0] == "parent_stream"] == [
+        ("parent_stream", "producer", True, True)
+    ]
+    assert case.model.shared_attention_state is original
+    assert all(layer.self_attn.shared_state is original for layer in case.model.layers)
+    assert case.joined == [True]

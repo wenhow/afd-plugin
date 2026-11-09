@@ -126,6 +126,15 @@ Production V4.1 Graph admission and full-model hardware acceptance remain
 separate. After acknowledged STOP, graph reset precedes native KV/state
 release and process-group closure; failed reset retains those owners.
 
+The explicit coordinator can additionally bind a fixed
+`HcclGraphPipelinePolicy`. Each native warmup/capture factory allocates a fresh
+compute pipeline before recording. The frozen cache bundle retains its exact
+pipeline with the bank and native storage; replay reuses those stream/event
+owners. Scheduling changes require a fresh session/cache/manager, since a
+storage-generation miss does not permit recapturing an existing key. The
+pipeline keeps HCCL on the parent stream and joins all final continuations
+before native parent output consumption. The default remains synchronous.
+
 The independent [Graph geometry helper](../../../afd_plugin/v1/worker/npu/hccl_v41_graph.py)
 previews request and token bounds from the actual ordered native `BatchReqState`.
 It uses native threshold selection and dispatches the manager with the selected

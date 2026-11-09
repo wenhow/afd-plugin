@@ -19,7 +19,7 @@ from tests.unit.fakes.hccl_v41_graph_control import make_attention_graph_control
 from tests.unit.fakes.input_batch import make_ascend_decode_batch, make_hccl_ubatch_seam
 
 
-def make_graph_execution_case(*, warmup=True, engram=False):
+def make_graph_execution_case(*, warmup=True, engram=False, pipeline_factory=None):
     model_case = make_graph_model_case((2, 2), engram=engram)
     capabilities = HcclPlanCapabilities(
         4,
@@ -58,6 +58,9 @@ def make_graph_execution_case(*, warmup=True, engram=False):
         case.control,
         reservation,
         model_case.bank,
+        pipeline=(
+            pipeline_factory(model_case.bank) if pipeline_factory is not None else None
+        ),
     )
     runner.graph_owner, runner.transport = execution, case.transport
     batch = make_ascend_decode_batch(4)

@@ -1,0 +1,307 @@
+{
+  "scope": "Independent immutable runs; counts are not one aggregate pytest run",
+  "current_head": "e8557317dd66efd8971566c758456ad2308c6e00",
+  "current_runtime_sha256": {
+    "afd_plugin/compat/npu/stream.py": "6a881fa579e9c775f3b7142c7c456936e3d05c2ea37f9a87f3bcc386e7656771",
+    "afd_plugin/connectors/npu/hccl_graph_pipeline.py": "6473cc7ad538ddeaf45a5a9233eef7d5bae79b1cb1e6c95b883953ef05db73cd",
+    "afd_plugin/connectors/npu/hccl_overlap.py": "ce0ff4b993dce0af6d0332ca296f18be84a9323a4f4b431f1a6312ca07513fc4",
+    "afd_plugin/model_executor/models/npu/deepseek_v41_graph.py": "a3140845755cae90d5f7927596c5a50248d829db15aac8c7d9230ef4d37a92fb",
+    "afd_plugin/v1/worker/npu/hccl_v41_ffn_graph.py": "3c708b4912fd8e72c6e16fa3ef59d9769440629c9673dfeacf1c5e26aaa84f37",
+    "afd_plugin/v1/worker/npu/hccl_v41_graph_execution.py": "04e165ae223c85214939c5ca40d8f45a8e8ec0488742c7e6619c8e61f546f662",
+    "afd_plugin/v1/worker/npu/hccl_v41_graph_coordinator.py": "33e2e84ca5cddfd85c26a3ba88aaaa129e2262dacd3f82ecc765b5a3394e0e20",
+    "afd_plugin/v1/worker/npu/hccl_v41_graph_service.py": "7fc9f30544143f61321feda08141d9bdabffb2d01543a39c44c0cd8bdaab6531"
+  },
+  "runs": {
+    "component-001": {
+      "scope": "CPU seams only; not NPU/model/performance acceptance",
+      "head_commit": "a897223f1d3489b588c68ed3cf3d099df4dbf0d4",
+      "manifest_sha256": "e7b9d01e907f1d9486e53c86d7ce1f4a0bb53502726892ead44af786e2b21462",
+      "summary": {
+        "scope": "CPU module seams with actual installed dependencies; no device probe",
+        "remote": "/mnt/workspace/tmp/afd-c0-20261104.hVgsIf/c5-control-cpu-20261109-dds4ksgd",
+        "command": [
+          "/mnt/workspace/code/.venvs/afd-v030-dsv41-c0/bin/python",
+          "-B",
+          "-m",
+          "pytest",
+          "-o",
+          "addopts=",
+          "-q",
+          "-rs",
+          "--tb=short",
+          "-p",
+          "no:cacheprovider",
+          "-m",
+          "not npu and not gpu",
+          "--junitxml=/mnt/workspace/tmp/afd-c0-20261104.hVgsIf/c5-control-cpu-20261109-dds4ksgd/results/cpu.xml",
+          "tests/unit/connectors/npu/test_hccl_graph_pipeline.py"
+        ],
+        "returncode": 0,
+        "source_files_match": true,
+        "snapshot_exclusions": [],
+        "device_probe_started": false,
+        "success": true
+      },
+      "junit": {
+        "name": "pytest",
+        "errors": "0",
+        "failures": "0",
+        "skipped": "0",
+        "tests": "31",
+        "time": "1.065",
+        "timestamp": "2026-11-10T05:35:35.310080+08:00",
+        "hostname": "4ff038c993bf40219c03182f786a9def"
+      },
+      "module_cases": {
+        "tests.unit.connectors.npu.test_hccl_graph_pipeline": 31
+      },
+      "upstream_pins_total": 10,
+      "upstream_pins_all_match": true,
+      "current_runtime_matches_snapshot": {
+        "afd_plugin/connectors/npu/hccl_graph_pipeline.py": false,
+        "afd_plugin/model_executor/models/npu/deepseek_v41_graph.py": false,
+        "afd_plugin/v1/worker/npu/hccl_v41_ffn_graph.py": false,
+        "afd_plugin/v1/worker/npu/hccl_v41_graph_execution.py": false,
+        "afd_plugin/v1/worker/npu/hccl_v41_graph_coordinator.py": false,
+        "afd_plugin/v1/worker/npu/hccl_v41_graph_service.py": false
+      },
+      "raw_artifact_sha256": {
+        "identity.json": "94be3fbed5c417364c829ce6176a71ce7c3d845316a478c498629fdf531fb18e",
+        "delivery.json": "a7d97db282e661b38c1d9764fc6320af9d34cd1ff063a76d9a9dc4ad7547b687",
+        "results/summary.json": "6ff825c401f4c1655d7199fbab305213bf915fa8b2d0c7ffb7a5e34d3508477a",
+        "results/cpu.xml": "a5143e80a907992f82e9a4dee1aaa7cbf8f99047e36ecd31994623788bb7a0cc",
+        "results/source-check.json": "26217f98782ba8d3091010cf6a886fd9dc1195b125b41e89642960e0311108cd",
+        "results/versions.json": "8aa40a41b53ecde5293ad581f313555c4e948071ce87c879c3b93ac6d8ad2601"
+      }
+    },
+    "consumers-002": {
+      "scope": "CPU seams only; not NPU/model/performance acceptance",
+      "head_commit": "e8557317dd66efd8971566c758456ad2308c6e00",
+      "manifest_sha256": "90a6099351021b0b4ba5a1cd8bc1ecaab610d09f44c2da3c32c0c7b5455760f8",
+      "summary": {
+        "scope": "CPU module seams with actual installed dependencies; no device probe",
+        "remote": "/mnt/workspace/tmp/afd-c0-20261104.hVgsIf/c5-control-cpu-20261109-2lcw__p5",
+        "command": [
+          "/mnt/workspace/code/.venvs/afd-v030-dsv41-c0/bin/python",
+          "-B",
+          "-m",
+          "pytest",
+          "-o",
+          "addopts=",
+          "-q",
+          "-rs",
+          "--tb=short",
+          "-p",
+          "no:cacheprovider",
+          "-m",
+          "not npu and not gpu",
+          "--junitxml=/mnt/workspace/tmp/afd-c0-20261104.hVgsIf/c5-control-cpu-20261109-2lcw__p5/results/cpu.xml",
+          "--ignore=tests/unit/connectors/npu/test_hccl_overlap.py",
+          "tests/unit/compat/npu/test_stream.py",
+          "tests/unit/connectors/npu/test_hccl_graph_pipeline.py",
+          "tests/unit/v1/worker/npu/test_hccl_v41_ffn_graph.py",
+          "tests/unit/v1/worker/npu/test_hccl_v41_graph_service.py"
+        ],
+        "returncode": 0,
+        "source_files_match": true,
+        "snapshot_exclusions": [
+          "afd_plugin/connectors/npu/hccl_overlap.py",
+          "tests/unit/connectors/npu/test_hccl_overlap.py"
+        ],
+        "device_probe_started": false,
+        "success": true
+      },
+      "junit": {
+        "name": "pytest",
+        "errors": "0",
+        "failures": "0",
+        "skipped": "0",
+        "tests": "130",
+        "time": "3.785",
+        "timestamp": "2026-11-10T06:21:00.986856+08:00",
+        "hostname": "4ff038c993bf40219c03182f786a9def"
+      },
+      "module_cases": {
+        "tests.unit.compat.npu.test_stream": 10,
+        "tests.unit.connectors.npu.test_hccl_graph_pipeline": 31,
+        "tests.unit.v1.worker.npu.test_hccl_v41_ffn_graph": 43,
+        "tests.unit.v1.worker.npu.test_hccl_v41_graph_service": 46
+      },
+      "upstream_pins_total": 10,
+      "upstream_pins_all_match": true,
+      "current_runtime_matches_snapshot": {
+        "afd_plugin/compat/npu/stream.py": true,
+        "afd_plugin/connectors/npu/hccl_graph_pipeline.py": true,
+        "afd_plugin/model_executor/models/npu/deepseek_v41_graph.py": false,
+        "afd_plugin/v1/worker/npu/hccl_v41_ffn_graph.py": true,
+        "afd_plugin/v1/worker/npu/hccl_v41_graph_execution.py": true,
+        "afd_plugin/v1/worker/npu/hccl_v41_graph_coordinator.py": true,
+        "afd_plugin/v1/worker/npu/hccl_v41_graph_service.py": true
+      },
+      "raw_artifact_sha256": {
+        "identity.json": "4c74bdba156c7c50bb83e61c53d911d6d64b1e785a248354228a5990ac2d7eff",
+        "delivery.json": "ea39fb64de870cb2e1ef5540c696705f443d96f55c4406886565d33cedce6cbe",
+        "results/summary.json": "d174b875029d8446ddadafad57d1123d08602e465ec2f9b77aa8733e235e9c45",
+        "results/cpu.xml": "eaae85debd22abb64f9e7459b1908c92f73836dba3d26892ea96da451ada8b51",
+        "results/source-check.json": "26217f98782ba8d3091010cf6a886fd9dc1195b125b41e89642960e0311108cd",
+        "results/versions.json": "8aa40a41b53ecde5293ad581f313555c4e948071ce87c879c3b93ac6d8ad2601"
+      }
+    },
+    "native-consumers-003": {
+      "scope": "CPU seams only; not NPU/model/performance acceptance",
+      "head_commit": "e8557317dd66efd8971566c758456ad2308c6e00",
+      "manifest_sha256": "362b7dd86680baabb90fbb66e383da391fb1b01b1ca0cdfe1a29755946e7e266",
+      "summary": {
+        "scope": "CPU module seams with actual installed dependencies; no device probe",
+        "remote": "/mnt/workspace/tmp/afd-c0-20261104.hVgsIf/c5-control-cpu-20261109-h6vuj0_h",
+        "command": [
+          "/mnt/workspace/code/.venvs/afd-v030-dsv41-c0/bin/python",
+          "-B",
+          "-m",
+          "pytest",
+          "-o",
+          "addopts=",
+          "-q",
+          "-rs",
+          "--tb=short",
+          "-p",
+          "no:cacheprovider",
+          "-m",
+          "not npu and not gpu",
+          "--junitxml=/mnt/workspace/tmp/afd-c0-20261104.hVgsIf/c5-control-cpu-20261109-h6vuj0_h/results/cpu.xml",
+          "--ignore=tests/unit/connectors/npu/test_hccl_overlap.py",
+          "tests/unit/model_executor/models/npu/test_deepseek_v41_graph.py",
+          "tests/unit/v1/worker/npu/test_hccl_v41_graph_execution.py",
+          "tests/unit/v1/worker/npu/test_hccl_v41_graph_coordinator.py",
+          "tests/unit/v1/worker/npu/test_hccl_v41_graph_session.py",
+          "tests/unit/v1/worker/npu/test_attention_model_runner_v2.py",
+          "tests/unit/v1/worker/npu/test_hccl_v41_graph_eager.py",
+          "tests/unit/v1/worker/npu/test_hccl_v41_execution.py",
+          "tests/unit/compat/patches/npu/test_hccl_graph_dispatch.py",
+          "tests/unit/compat/patches/test_signatures.py",
+          "tests/unit/connectors/npu/test_hccl_graph_pipeline.py::test_graph_pipeline_policy_rejects_non_bool_modes",
+          "tests/unit/connectors/npu/test_hccl_graph_pipeline.py::test_graph_pipeline_policy_is_fixed_for_its_owner_lifetime"
+        ],
+        "returncode": 0,
+        "source_files_match": true,
+        "snapshot_exclusions": [
+          "afd_plugin/connectors/npu/hccl_overlap.py",
+          "tests/unit/connectors/npu/test_hccl_overlap.py"
+        ],
+        "device_probe_started": false,
+        "success": true
+      },
+      "junit": {
+        "name": "pytest",
+        "errors": "0",
+        "failures": "0",
+        "skipped": "0",
+        "tests": "240",
+        "time": "4.113",
+        "timestamp": "2026-11-10T06:25:43.690211+08:00",
+        "hostname": "4ff038c993bf40219c03182f786a9def"
+      },
+      "module_cases": {
+        "tests.unit.compat.patches.npu.test_hccl_graph_dispatch": 23,
+        "tests.unit.compat.patches.test_signatures": 14,
+        "tests.unit.connectors.npu.test_hccl_graph_pipeline": 6,
+        "tests.unit.model_executor.models.npu.test_deepseek_v41_graph": 42,
+        "tests.unit.v1.worker.npu.test_attention_model_runner_v2": 11,
+        "tests.unit.v1.worker.npu.test_hccl_v41_execution": 22,
+        "tests.unit.v1.worker.npu.test_hccl_v41_graph_coordinator": 60,
+        "tests.unit.v1.worker.npu.test_hccl_v41_graph_eager": 27,
+        "tests.unit.v1.worker.npu.test_hccl_v41_graph_execution": 16,
+        "tests.unit.v1.worker.npu.test_hccl_v41_graph_session": 19
+      },
+      "upstream_pins_total": 10,
+      "upstream_pins_all_match": true,
+      "current_runtime_matches_snapshot": {
+        "afd_plugin/compat/npu/stream.py": true,
+        "afd_plugin/connectors/npu/hccl_graph_pipeline.py": true,
+        "afd_plugin/model_executor/models/npu/deepseek_v41_graph.py": false,
+        "afd_plugin/v1/worker/npu/hccl_v41_ffn_graph.py": true,
+        "afd_plugin/v1/worker/npu/hccl_v41_graph_execution.py": true,
+        "afd_plugin/v1/worker/npu/hccl_v41_graph_coordinator.py": true,
+        "afd_plugin/v1/worker/npu/hccl_v41_graph_service.py": true
+      },
+      "raw_artifact_sha256": {
+        "identity.json": "d6010e367e9916c669285c7e73955cd925041c380f93da0afb5cc6337f09e713",
+        "delivery.json": "def6e8917ffd8251691c1d03c764bd375f2c039c42adcb76fbf510fd31f6a377",
+        "results/summary.json": "e0357c2bf8a48626bdbcaed4f3a12e37773bd56372ccdefbde4696819f636967",
+        "results/cpu.xml": "b582f27885472864520ca9342e670a8e6292c96fdc28f2b6d603d990cd31cc41",
+        "results/source-check.json": "26217f98782ba8d3091010cf6a886fd9dc1195b125b41e89642960e0311108cd",
+        "results/versions.json": "8aa40a41b53ecde5293ad581f313555c4e948071ce87c879c3b93ac6d8ad2601"
+      }
+    },
+    "parent-stream-004": {
+      "scope": "CPU seams only; not NPU/model/performance acceptance",
+      "head_commit": "e8557317dd66efd8971566c758456ad2308c6e00",
+      "manifest_sha256": "f75afc44b8d10d970e88856201c63527d1a3200609945dd0c3481018778d0f51",
+      "summary": {
+        "scope": "CPU module seams with actual installed dependencies; no device probe",
+        "remote": "/mnt/workspace/tmp/afd-c0-20261104.hVgsIf/c5-control-cpu-20261109-c1fuf7pt",
+        "command": [
+          "/mnt/workspace/code/.venvs/afd-v030-dsv41-c0/bin/python",
+          "-B",
+          "-m",
+          "pytest",
+          "-o",
+          "addopts=",
+          "-q",
+          "-rs",
+          "--tb=short",
+          "-p",
+          "no:cacheprovider",
+          "-m",
+          "not npu and not gpu",
+          "--junitxml=/mnt/workspace/tmp/afd-c0-20261104.hVgsIf/c5-control-cpu-20261109-c1fuf7pt/results/cpu.xml",
+          "tests/unit/model_executor/models/npu/test_deepseek_v41_graph.py",
+          "tests/unit/v1/worker/npu/test_hccl_v41_graph_execution.py",
+          "tests/unit/v1/worker/npu/test_hccl_v41_graph_coordinator.py"
+        ],
+        "returncode": 0,
+        "source_files_match": true,
+        "snapshot_exclusions": [],
+        "device_probe_started": false,
+        "success": true
+      },
+      "junit": {
+        "name": "pytest",
+        "errors": "0",
+        "failures": "0",
+        "skipped": "0",
+        "tests": "122",
+        "time": "3.709",
+        "timestamp": "2026-11-10T06:40:24.242593+08:00",
+        "hostname": "4ff038c993bf40219c03182f786a9def"
+      },
+      "module_cases": {
+        "tests.unit.model_executor.models.npu.test_deepseek_v41_graph": 46,
+        "tests.unit.v1.worker.npu.test_hccl_v41_graph_coordinator": 60,
+        "tests.unit.v1.worker.npu.test_hccl_v41_graph_execution": 16
+      },
+      "upstream_pins_total": 10,
+      "upstream_pins_all_match": true,
+      "current_runtime_matches_snapshot": {
+        "afd_plugin/compat/npu/stream.py": true,
+        "afd_plugin/connectors/npu/hccl_graph_pipeline.py": true,
+        "afd_plugin/connectors/npu/hccl_overlap.py": true,
+        "afd_plugin/model_executor/models/npu/deepseek_v41_graph.py": true,
+        "afd_plugin/v1/worker/npu/hccl_v41_ffn_graph.py": true,
+        "afd_plugin/v1/worker/npu/hccl_v41_graph_execution.py": true,
+        "afd_plugin/v1/worker/npu/hccl_v41_graph_coordinator.py": true,
+        "afd_plugin/v1/worker/npu/hccl_v41_graph_service.py": true
+      },
+      "raw_artifact_sha256": {
+        "identity.json": "3ceaad2b91b65b9f45a38d18becfcb0dcf000e4df4f470d98dfd56fff7a11871",
+        "delivery.json": "a065152e1343dfaad58e9dae74e561a33089e1fb4c9d037444943b40873cc57e",
+        "results/summary.json": "a13e394e7622908b72e5aa15e9bfd11c95990dacf4e5e660652ef6a1f442e5f8",
+        "results/cpu.xml": "777a1b2b8f66d59136710638e05f26a81170dc0abb29a34ea77648f6256b517d",
+        "results/source-check.json": "26217f98782ba8d3091010cf6a886fd9dc1195b125b41e89642960e0311108cd",
+        "results/versions.json": "8aa40a41b53ecde5293ad581f313555c4e948071ce87c879c3b93ac6d8ad2601"
+      }
+    }
+  },
+  "device_acceptance": "Separate a3-pipeline-device-20261110 evidence",
+  "full_model_acceptance": "pending manual A5 validation"
+}

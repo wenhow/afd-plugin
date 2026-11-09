@@ -26,6 +26,7 @@ from vllm.v1.worker.gpu.ubatch_utils import UBatchState
 from vllm_ascend.models.deepseek_v41.engram.model_state import EngramModelState
 from vllm_ascend.worker.v2.aclgraph_utils import ModelWithContext
 
+from afd_plugin.connectors.npu.hccl_graph_pipeline import HcclGraphComputePipeline
 from afd_plugin.connectors.npu.hccl_graph_stage import HcclGraphStageBank
 from afd_plugin.connectors.npu.hccl_staged_transport import HcclStagedTransport
 from afd_plugin.distributed.hccl_plan import HcclLocalForward
@@ -64,11 +65,14 @@ class HcclV41GraphExecution:
         control: HcclV41GraphControl,
         reservation: HcclV41GraphReservation,
         bank: HcclGraphStageBank,
+        *,
+        pipeline: HcclGraphComputePipeline | None = None,
     ) -> None:
         self.transport: HcclStagedTransport = control.transport
         self.control, self.reservation = control, reservation
         self.vllm_config, self.model, self.model_state = vllm_config, model, model_state
         self.bank = bank
+        self.pipeline = pipeline
         self.prepared_state: UBatchState | None = None
         self.parent_body: DeepseekV41GraphParent | None = None
         self.parent_context: ForwardContext | None = None
@@ -85,6 +89,7 @@ class HcclV41GraphExecution:
             != self.transport.negotiated_capabilities.layer_indices
             or bank.native_tp_size != vllm_config.parallel_config.tensor_parallel_size
             or not isinstance(model_state, EngramModelState)
+            or (pipeline is not None and pipeline.bank is not bank)
         ):
             self.fail()
             raise ValueError(
@@ -158,6 +163,7 @@ class HcclV41GraphExecution:
                     tuple(ubatch_state.forward_contexts),
                     tuple(stage.token_slice for stage in ubatch_state.slices),
                     self.bank,
+                    pipeline=self.pipeline,
                 )
             )
             context = create_forward_context(

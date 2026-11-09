@@ -24,6 +24,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
+    from afd_plugin.connectors.npu.hccl_graph_pipeline import HcclGraphComputePipeline
     from afd_plugin.connectors.npu.hccl_graph_stage import HcclGraphStageBank
 
 HIDDEN_SIZE = 16
@@ -49,6 +50,17 @@ def parse_args():
         action="store_true",
         help="reuse the production tensor bank across layers",
     )
+    parser.add_argument(
+        "--compute-pipeline",
+        action="store_true",
+        help="fork controlled arithmetic on the production C6 compute pipeline",
+    )
+    parser.add_argument(
+        "--pipeline-hybrid",
+        type=int,
+        choices=(0, 1),
+        help="C6 stage-ready hybrid policy (default 1 with --compute-pipeline)",
+    )
     parser.add_argument("--rank", type=int, choices=(0, 1), help=argparse.SUPPRESS)
     parser.add_argument("--port", type=int, help=argparse.SUPPRESS)
     args = parser.parse_args()
@@ -62,10 +74,16 @@ def parse_args():
         parser.error("invalid bounded timeout")
     if args.rank is not None and args.port is None:
         parser.error("worker requires port")
+    if args.compute_pipeline and not args.stage_bank:
+        parser.error("--compute-pipeline requires --stage-bank")
+    if args.pipeline_hybrid is not None and not args.compute_pipeline:
+        parser.error("--pipeline-hybrid requires --compute-pipeline")
+    if args.compute_pipeline and args.pipeline_hybrid is None:
+        args.pipeline_hybrid = 1
     return args
 
 
-def payload(torch, rows, valid, coordinate, iteration):
+def payload(torch, rows, valid, coordinate, iteration, previous=None):
     hidden = (
         torch.arange(rows * HIDDEN_SIZE, dtype=torch.float32).reshape(rows, HIDDEN_SIZE)
         / 8
@@ -73,6 +91,9 @@ def payload(torch, rows, valid, coordinate, iteration):
         + iteration
     ).bfloat16()
     fp32 = hidden.float() + ROUTER_DELTA * (iteration + 1)
+    if previous is not None:
+        hidden = (hidden.float() + previous.float()).bfloat16()
+        fp32 = fp32 + previous.float()
     ids = torch.arange(rows, dtype=torch.int32) + coordinate * 11 + iteration
     ids[valid:] = 0
     expected = (
@@ -90,6 +111,9 @@ class GraphBundle:
     bank: HcclGraphStageBank | None = None
     observations: tuple = ()
     bank_addresses: tuple = ()
+    pipeline: HcclGraphComputePipeline | None = None
+    produced: tuple = ()
+    continuations: tuple = ()
 
 
 def run_worker(args):
@@ -146,7 +170,10 @@ def run_worker(args):
         "engram_or_native_attention_executed": False,
         "transactions": [],
         "stage_bank": args.stage_bank,
+        "compute_pipeline": args.compute_pipeline,
+        "pipeline_hybrid": args.pipeline_hybrid,
         "bank_storage": [],
+        "pipeline_storage": [],
     }
     transport = cache = None
     manager = None
@@ -198,7 +225,7 @@ def run_worker(args):
         entry = cache.find(candidate.key, generation)
         return HcclGraphReport("ready" if entry is not None else "missing")
 
-    def allocate(key):
+    def allocate(key, phase):
         if args.stage_bank:
             from afd_plugin.connectors.npu.hccl_graph_stage import HcclGraphStageBank
 
@@ -212,6 +239,37 @@ def run_worker(args):
                 for _ in LAYERS
                 for rows in bank.stage_rows
             )
+            pipeline, produced, continuations = None, (), ()
+            if args.compute_pipeline:
+                from afd_plugin.connectors.npu.hccl_graph_pipeline import (
+                    HcclGraphComputePipeline,
+                )
+
+                pipeline = HcclGraphComputePipeline.allocate(
+                    bank, hybrid=bool(args.pipeline_hybrid)
+                )
+                if role == "attention":
+                    produced = tuple(
+                        HcclGraphBuffers.allocate(rows, HIDDEN_SIZE, device)
+                        if rows
+                        else None
+                        for _ in LAYERS
+                        for rows in bank.stage_rows
+                    )
+                    continuations = tuple(
+                        torch.empty_like(bank.buffers(stage).output) if rows else None
+                        for stage, rows in enumerate(bank.stage_rows)
+                    )
+                report["pipeline_storage"].append(
+                    {
+                        "key": key.digest,
+                        "phase": phase,
+                        "hybrid": pipeline.hybrid,
+                        "compute_stream": int(pipeline.compute_stream.npu_stream),
+                        "positive_steps": len(pipeline.step_events),
+                        "tail_event_pairs": len(pipeline.tail_events),
+                    }
+                )
             tensors = bank_tensors(bank)
             storage_bytes = sum(
                 tensor.numel() * tensor.element_size() for tensor in tensors
@@ -222,12 +280,15 @@ def run_worker(args):
             )
             report["bank_storage"].append({"key": key.digest, "bytes": storage_bytes})
             return GraphBundle(
-                exchanges,
-                (),
-                (),
-                bank,
-                observations,
-                tuple(tensor.data_ptr() for tensor in tensors),
+                exchanges=exchanges,
+                valid_counts=(),
+                row_indices=(),
+                bank=bank,
+                observations=observations,
+                bank_addresses=tuple(tensor.data_ptr() for tensor in tensors),
+                pipeline=pipeline,
+                produced=produced,
+                continuations=continuations,
             )
         exchanges, valid_counts, row_indices = [], [], []
         for _layer in LAYERS:
@@ -299,6 +360,9 @@ def run_worker(args):
 
     def body(bundle):
         # Tensor-only callback; no JSON, host cursor, COMPLETE or device readback.
+        if bundle.pipeline is not None:
+            pipeline_body(bundle)
+            return
         for index, exchange in enumerate(bundle.exchanges):
             if exchange is None:
                 continue
@@ -360,12 +424,131 @@ def run_worker(args):
                 )
                 exchange.send_output()
 
+    def pipeline_body(bundle):
+        bank, pipeline = bundle.bank, bundle.pipeline
+        positive = tuple(stage for stage, rows in enumerate(bank.stage_rows) if rows)
+        with pipeline.run():
+            for layer_index, layer in enumerate(LAYERS):
+                if role == "attention":
+                    for stage in positive:
+                        index = layer_index * len(bank.stage_rows) + stage
+                        observed = bundle.observations[index]
+                        produced = bundle.produced[index]
+                        previous = bank.buffers(stage).output if layer_index else None
+                        dependencies = (
+                            observed.hidden_states,
+                            observed.hidden_states_fp32,
+                            observed.input_ids,
+                        ) + ((previous,) if previous is not None else ())
+                        with pipeline.compute(layer, stage, inputs=dependencies):
+                            if previous is None:
+                                produced.hidden_states.copy_(observed.hidden_states)
+                                produced.hidden_states_fp32.copy_(
+                                    observed.hidden_states_fp32
+                                )
+                            else:
+                                produced.hidden_states.copy_(
+                                    observed.hidden_states.float() + previous.float()
+                                )
+                                produced.hidden_states_fp32.copy_(
+                                    observed.hidden_states_fp32 + previous.float()
+                                )
+                            produced.input_ids.copy_(observed.input_ids)
+                    for stage in positive:
+                        index = layer_index * len(bank.stage_rows) + stage
+                        produced = bundle.produced[index]
+                        with pipeline.attention_exchange(
+                            layer,
+                            stage,
+                            tensors=(
+                                produced.hidden_states,
+                                produced.hidden_states_fp32,
+                                produced.input_ids,
+                            ),
+                        ):
+                            bank.attention_exchange(
+                                stage,
+                                produced.hidden_states,
+                                produced.hidden_states_fp32,
+                                produced.input_ids,
+                            )
+                            observe_bank(bundle, index, stage)
+                else:
+                    for stage in positive:
+                        index = layer_index * len(bank.stage_rows) + stage
+                        with pipeline.ffn_receive(layer, stage):
+                            inputs = bank.receive_inputs(stage)
+                        with pipeline.compute(
+                            layer,
+                            stage,
+                            inputs=(
+                                inputs.hidden_states,
+                                inputs.hidden_states_fp32,
+                                inputs.input_ids,
+                            ),
+                        ):
+                            output = (
+                                inputs.hidden_states.float()
+                                + (
+                                    inputs.hidden_states_fp32
+                                    - inputs.hidden_states.float()
+                                )
+                                * ROUTER_SCALE
+                                + inputs.input_ids[:, None].float()
+                            ).bfloat16()
+                        with pipeline.ffn_send(layer, stage, tensors=(output,)):
+                            bank.send_output(stage, output)
+                            observe_bank(bundle, index, stage)
+            if role == "attention":
+                for stage in positive:
+                    index = (len(LAYERS) - 1) * len(bank.stage_rows) + stage
+                    previous = bank.buffers(stage).output
+                    produced = bundle.produced[index].hidden_states
+                    continuation = bundle.continuations[stage]
+                    with pipeline.final_compute(stage, inputs=(previous, produced)):
+                        torch.add(previous, produced, out=continuation)
+                        continuation.masked_fill_(
+                            bank.padding_masks[stage].unsqueeze(1), 0
+                        )
+                pipeline.join(
+                    outputs=tuple(bundle.continuations[stage] for stage in positive)
+                )
+            else:
+                pipeline.join(
+                    outputs=tuple(
+                        observed.output
+                        for observed in bundle.observations
+                        if observed is not None
+                    )
+                )
+
+    def observe_bank(bundle, index, stage):
+        observed, buffers = bundle.observations[index], bundle.bank.buffers(stage)
+        for target, source in zip(
+            (
+                observed.hidden_states,
+                observed.hidden_states_fp32,
+                observed.input_ids,
+                observed.output,
+            ),
+            (
+                buffers.hidden_states,
+                buffers.hidden_states_fp32,
+                buffers.input_ids,
+                buffers.output,
+            ),
+            strict=True,
+        ):
+            target.copy_(source)
+
     def verify(bundle, plan, iteration):
         if bundle.bank is not None:
             assert (
                 tuple(tensor.data_ptr() for tensor in bank_tensors(bundle.bank))
                 == bundle.bank_addresses
             )
+        previous = {}
+        last_inputs = {}
         for index, exchange in enumerate(bundle.exchanges):
             if exchange is None:
                 continue
@@ -376,7 +559,10 @@ def run_worker(args):
                 stage.attention_valid_tokens[0],
                 index,
                 iteration,
+                previous.get(stage.stage_idx) if bundle.pipeline is not None else None,
             )
+            previous[stage.stage_idx] = values[3]
+            last_inputs[stage.stage_idx] = values[0]
             buffers = (
                 exchange.buffers if bundle.bank is None else bundle.observations[index]
             )
@@ -391,6 +577,13 @@ def run_worker(args):
                 strict=True,
             ):
                 torch.testing.assert_close(actual.cpu(), expected, rtol=0, atol=0)
+        if bundle.pipeline is not None and role == "attention":
+            for stage, output in enumerate(bundle.continuations):
+                if output is None:
+                    continue
+                expected = previous[stage] + last_inputs[stage]
+                expected[plan.stages[stage].attention_valid_tokens[0] :] = 0
+                torch.testing.assert_close(output.cpu(), expected, rtol=0, atol=0)
 
     def complete_active():
         nonlocal active
@@ -545,7 +738,7 @@ def run_worker(args):
                         ),
                         transaction_id=decision.transaction_id,
                     )
-                    bundle = allocate(key)
+                    bundle = allocate(key, decision.phase)
                     refill(bundle, plan, 0)
                     active = desc, decision, bundle, plan
                     return lambda cg_mode: body(bundle)
@@ -590,6 +783,7 @@ def run_worker(args):
                         is_prefilling_np=np.zeros(real_tokens, dtype=np.bool_),
                         has_prefill=False,
                     )
+                    fixed_replay_key = None
                     for iteration in range(REPLAYS):
                         transaction = f"replay-{case_index}-{iteration}"
                         # This flag is an explicit probe schedule communicated
@@ -608,10 +802,30 @@ def run_worker(args):
                         key = decision.key
                         prepared = prepare_geometry(geometry.descriptor, real_tokens)
                         control.verify_prepared(reservation, prepared)
+                        controlled_valid = real_tokens
+                        if (
+                            args.compute_pipeline
+                            and not force_ffn_miss
+                            and real_tokens == wanted.num_tokens
+                        ):
+                            # Keep the native dummy's physical request/token
+                            # geometry fixed. Only this controlled component's
+                            # device-valid scalars and oracle payloads vary.
+                            controlled_valid = (
+                                real_tokens,
+                                1,
+                                real_tokens - 1,
+                            )[iteration]
+                            assert decision.phase == "replay"
+                            assert geometry.descriptor == wanted
+                            if fixed_replay_key is None:
+                                fixed_replay_key = key
+                            assert key == fixed_replay_key
                         valid = tuple(
                             max(
                                 0,
-                                min(stage.token_stop, real_tokens) - stage.token_start,
+                                min(stage.token_stop, controlled_valid)
+                                - stage.token_start,
                             )
                             for stage in geometry.stages
                         )
@@ -619,6 +833,13 @@ def run_worker(args):
                             HcclLocalForward("target", valid, decision.padded_tokens),
                             transaction_id=transaction,
                         )
+                        assert (
+                            tuple(
+                                stage.attention_valid_tokens[0] for stage in plan.stages
+                            )
+                            == valid
+                        )
+                        assert sum(valid) == controlled_valid
                         if force_ffn_miss or real_tokens != wanted.num_tokens:
                             assert decision.phase == "eager"
                         if decision.phase == "eager":
@@ -637,6 +858,10 @@ def run_worker(args):
                                 "phase": decision.phase,
                                 "reason": decision.reason,
                                 "native_input_batch_geometry_verified": True,
+                                "key": key.digest if key is not None else None,
+                                "controlled_valid_tokens": controlled_valid,
+                                "valid_tokens_by_stage": valid,
+                                "padded_tokens_by_stage": decision.padded_tokens,
                             }
                         )
                 transport.stop_attention()
@@ -671,7 +896,7 @@ def run_worker(args):
                         verify(entry.resources, plan, iteration)
                         transport.complete_graph_forward(decision.key)
                     else:
-                        bundle = allocate(decision.key)
+                        bundle = allocate(decision.key, decision.phase)
                         refill(bundle, plan, 0)
                         if decision.phase == "warmup":
                             body(bundle)
@@ -692,6 +917,16 @@ def run_worker(args):
                             "id": decision.transaction_id,
                             "phase": decision.phase,
                             "reason": decision.reason,
+                            "key": decision.key.digest
+                            if decision.key is not None
+                            else None,
+                            "controlled_valid_tokens": sum(
+                                stage.attention_valid_tokens[0] for stage in plan.stages
+                            ),
+                            "valid_tokens_by_stage": tuple(
+                                stage.attention_valid_tokens[0] for stage in plan.stages
+                            ),
+                            "padded_tokens_by_stage": decision.padded_tokens,
                         }
                     )
             cache.close()
@@ -732,6 +967,8 @@ def run_supervisor(args):
         "exit_codes": [],
         "supervisor_cleanup": [],
         "stage_bank": args.stage_bank,
+        "compute_pipeline": args.compute_pipeline,
+        "pipeline_hybrid": args.pipeline_hybrid,
     }
     try:
         for rank in range(2):
@@ -753,6 +990,14 @@ def run_supervisor(args):
             ]
             if args.stage_bank:
                 command.append("--stage-bank")
+            if args.compute_pipeline:
+                command.extend(
+                    [
+                        "--compute-pipeline",
+                        "--pipeline-hybrid",
+                        str(args.pipeline_hybrid),
+                    ]
+                )
             processes.append(
                 subprocess.Popen(
                     command,

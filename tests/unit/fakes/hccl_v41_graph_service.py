@@ -9,7 +9,7 @@ placement is metadata for service ownership checks, never device evidence.
 
 import weakref
 from contextlib import contextmanager
-from dataclasses import replace
+from dataclasses import dataclass, replace
 from types import SimpleNamespace
 
 import torch
@@ -41,6 +41,7 @@ class GraphServiceAPI:
     def __init__(self, events):
         self.events, self.graphs = events, []
         self.body_flags = []
+        self.capturing = False
         self.fail_capture = self.fail_replay = self.fail_body = self.fail_sync = False
 
     def synchronize(self, *args):
@@ -59,8 +60,12 @@ class GraphServiceAPI:
         self.events.append("capture-enter")
         if self.fail_capture:
             raise RuntimeError("controlled capture entry failure")
-        yield
-        self.events.append("capture-exit")
+        self.capturing = True
+        try:
+            yield
+            self.events.append("capture-exit")
+        finally:
+            self.capturing = False
 
     @contextmanager
     def forward_context(self, **kwargs):
@@ -141,15 +146,16 @@ class ServiceGraphBodies:
     def __init__(self, api):
         self.api, self.resources = api, []
 
-    def __call__(self, model, contexts, bank, parallel):
-        body = ServiceGraphBody(self.api, model, contexts, bank)
+    def __call__(self, model, contexts, bank, parallel, *, pipeline=None):
+        body = ServiceGraphBody(self.api, model, contexts, bank, pipeline=pipeline)
         self.resources.append(weakref.ref(body))
         return body
 
 
 class ServiceGraphBody:
-    def __init__(self, api, model, contexts, bank):
+    def __init__(self, api, model, contexts, bank, *, pipeline=None):
         self.api, self.model, self.contexts, self.bank = api, model, contexts, bank
+        self.pipeline = pipeline
 
     def run(self):
         self.api.events.append("tensor-body")
@@ -168,6 +174,24 @@ class ServiceGraphBody:
                 raise ValueError("service did not retain its prepared FULL context")
             with override_forward_context(context):
                 self.api.body_flags.append(_EXTRA_CTX.capturing)
+
+
+@dataclass(frozen=True)
+class ServiceGraphPipeline:
+    """Resource identity only; no stream, event or device work is simulated."""
+
+    bank: SimpleNamespace
+    hybrid: bool
+
+
+class ServiceGraphPipelines:
+    def __init__(self, api):
+        self.api = api
+
+    def allocate(self, bank, *, hybrid):
+        if self.api.capturing:
+            raise RuntimeError("pipeline allocation entered graph capture")
+        return ServiceGraphPipeline(bank, hybrid)
 
 
 class FFNGraphControlPeer(ScriptedStagedControlPeer):
@@ -291,7 +315,7 @@ class FFNGraphControlPeer(ScriptedStagedControlPeer):
         super()._send_control(rank, message)
 
 
-def make_graph_service_case(service_module, monkeypatch):
+def make_graph_service_case(service_module, monkeypatch, *, pipeline_policy=None):
     events = []
     model_case = make_ffn_graph_case(rows=(2, 2), valid=(2, 2))
     transport = FFNGraphControlPeer(model_case.bank, events)
@@ -316,6 +340,10 @@ def make_graph_service_case(service_module, monkeypatch):
     bodies = ServiceGraphBodies(api)
     monkeypatch.setattr(service_module, "HcclGraphStageBank", banks)
     monkeypatch.setattr(service_module, "HcclV41FFNGraph", bodies)
+    if pipeline_policy is not None:
+        monkeypatch.setattr(
+            service_module, "HcclGraphComputePipeline", ServiceGraphPipelines(api)
+        )
     monkeypatch.setattr(service_module, "ascend_forward_context", api.forward_context)
     monkeypatch.setattr(torch.npu, "synchronize", api.synchronize)
     generation = SimpleNamespace(value=0)
@@ -324,6 +352,7 @@ def make_graph_service_case(service_module, monkeypatch):
         transport,
         cache,
         lambda: generation.value,
+        pipeline_policy=pipeline_policy,
         graph_factory=api.create,
         graph_capture=api.capture,
     )

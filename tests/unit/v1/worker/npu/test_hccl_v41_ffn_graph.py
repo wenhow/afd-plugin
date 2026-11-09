@@ -17,8 +17,10 @@ from vllm.forward_context import (
     override_forward_context,
 )
 
+from afd_plugin.connectors.npu import hccl_graph_pipeline as pipeline_module
 from afd_plugin.v1.worker.npu.hccl_v41_ffn_graph import HcclV41FFNGraph
 from tests.unit.fakes.hccl import staged_ffn_expected_output
+from tests.unit.fakes.hccl_graph_pipeline import attach_pipeline
 from tests.unit.fakes.hccl_graph_stage import make_graph_stage_plan
 from tests.unit.fakes.hccl_v41_ffn_graph import (
     make_ffn_graph_case,
@@ -30,14 +32,29 @@ from tests.unit.fakes.hccl_v41_ffn_graph import (
     "rows,valid", [((3,), (2,)), ((3, 2), (2, 0)), ((0, 2), (0, 1))]
 )
 @pytest.mark.parametrize("native_tp_size,role_rank", [(1, 0), (2, 0), (2, 1)])
+@pytest.mark.parametrize("hybrid", [None, False, True])
 def test_layer_major_graph_body_sends_native_complete_moe_once_with_padding_zeroed(
     rows,
     valid,
     native_tp_size,
     role_rank,
+    hybrid,
+    monkeypatch,
 ):
     case = make_ffn_graph_case(
-        rows=rows, valid=valid, native_tp_size=native_tp_size, role_rank=role_rank
+        rows=rows,
+        valid=valid,
+        native_tp_size=native_tp_size,
+        role_rank=role_rank,
+        pipeline_factory=(
+            lambda bank: (
+                attach_pipeline(
+                    monkeypatch, pipeline_module, bank, hybrid=hybrid
+                ).pipeline
+            )
+        )
+        if hybrid is not None
+        else None,
     )
     payloads = queue_ffn_graph_inputs(case)
     assert case.driver.run() is None
@@ -121,8 +138,17 @@ def test_ffn_graph_rejects_context_or_layer_ownership_before_any_wire(change):
     assert case.events == []
 
 
-def test_native_moe_error_restores_callers_context_and_sends_no_output():
-    case = make_ffn_graph_case()
+@pytest.mark.parametrize("pipelined", [False, True])
+def test_native_moe_error_restores_callers_context_and_sends_no_output(
+    monkeypatch, pipelined
+):
+    case = make_ffn_graph_case(
+        pipeline_factory=(
+            lambda bank: attach_pipeline(monkeypatch, pipeline_module, bank).pipeline
+        )
+        if pipelined
+        else None,
+    )
     queue_ffn_graph_inputs(case)
     case.model.model.layers[0].mlp.fail = True
     outer = ForwardContext({}, {}, {})
@@ -135,3 +161,14 @@ def test_native_moe_error_restores_callers_context_and_sends_no_output():
         ("receive", 0, (3, 4)),
         ("receive", 0, (3,)),
     ]
+
+
+def test_foreign_pipeline_bank_is_rejected_before_any_ffn_wire(monkeypatch):
+    case = make_ffn_graph_case()
+    other = make_ffn_graph_case()
+    pipeline = attach_pipeline(monkeypatch, pipeline_module, other.bank).pipeline
+    with pytest.raises(ValueError, match="retained stage bank"):
+        HcclV41FFNGraph(
+            case.model, case.contexts, case.bank, case.parallel, pipeline=pipeline
+        )
+    assert case.events == other.events == []

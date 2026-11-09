@@ -28,7 +28,7 @@ git rev-parse HEAD
 沿用容器已部署的依赖和 CANN 环境。Python 使用
 `/usr/local/python3.11.10/bin/python`，无需新建 venv，也不要求名为 `atb-env` 的环境。
 
-## 一次运行四个组件用例
+## 一次运行六个组件用例
 
 在仓库根目录执行，确认 `afd_model` 是本机 checkpoint 目录。
 `npu-smi info` 确认所选设备空闲后运行；示例使用设备 0、1、2、3。
@@ -75,6 +75,16 @@ run_component c5-native-manager tests/npu/hccl_graph_manager_probe.py \
   --model "$afd_model" --devices 0,1 --stage-bank \
   --output-dir "$afd_batch_run/c5-native-manager"
 
+run_component c6-pipeline-hybrid1 tests/npu/hccl_graph_manager_probe.py \
+  --model "$afd_model" --devices 0,1 --stage-bank \
+  --compute-pipeline --pipeline-hybrid 1 \
+  --output-dir "$afd_batch_run/c6-pipeline-hybrid1"
+
+run_component c6-pipeline-hybrid0 tests/npu/hccl_graph_manager_probe.py \
+  --model "$afd_model" --devices 0,1 --stage-bank \
+  --compute-pipeline --pipeline-hybrid 0 \
+  --output-dir "$afd_batch_run/c6-pipeline-hybrid0"
+
 npu-smi info > "$afd_batch_run/npu-after.txt"
 cat "$afd_batch_run/exit-codes.tsv"
 tar -czf "$afd_batch_run.tar.gz" -C "$(dirname "$afd_batch_run")" \
@@ -93,13 +103,17 @@ printf '结果包：%s.tar.gz\n' "$afd_batch_run"
 | `c4-2a2f-tp2` | 两 A 报告一致、两 F 服务、native TP2 collective、STOP 后 TP 仍可用 | `result.json` 的 `success=true`，各角色退出码为 0 |
 | `c5-static-graph` | 固定 BF16/FP32/IDs/F2A buffer、U1/U2/空 stage、capture 后三次更新并 replay | `summary.json` 为 passed，两个 rank JSON 的所有 case 通过 |
 | `c5-native-manager` | 真实 base manager/runner、原生 InputBatch 切片、早期 GraphControl；stage bank 跨层复用、图内 padding IDs/F output mask、地址与字节预算核对；四 geometry 共 12 次 replay、6 次全局 eager fallback | `summary.json` 的 `status=passed`、`exit_codes=[0,0]`，两个 `rank-*.json` 的 `status=passed` |
+| `c6-pipeline-hybrid1` | 在上述固定 bank 上捕获侧流计算、父流 HCCL、逐 stage 接收依赖和最终 join；同一 key 三次 replay 的有效 token 数为完整桶、1、桶大小减 1，并核对跨层递推及末层结果 | `summary.json` 的 `status=passed`、`exit_codes=[0,0]`；两个角色的 `compute_pipeline=true`、`pipeline_hybrid=1` |
+| `c6-pipeline-hybrid0` | 独立 session 验证完整父流 frontier 依赖，其他输入及数值检查与 hybrid1 相同 | 同上，角色的 `pipeline_hybrid=0` |
 
-回传不便时，最小结果为 `git-head.txt`、`exit-codes.tsv`，以及四项各自的结果：
+回传不便时，最小结果为 `git-head.txt`、`exit-codes.tsv`，以及六项各自的结果：
 
 - `c4-1a1f/result.json`
 - `c4-2a2f-tp2/result.json`
 - `c5-static-graph/summary.json` 和该目录的 `rank-*.json`
 - `c5-native-manager/summary.json` 和该目录的 `rank-*.json`
+- `c6-pipeline-hybrid1/summary.json` 和该目录的 `rank-*.json`
+- `c6-pipeline-hybrid0/summary.json` 和该目录的 `rank-*.json`
 
 同时保留体积很小的 `npu-before.txt` / `npu-after.txt`；失败项再补该项目的顶层
 日志和角色日志。A3 证据及实际范围见
@@ -109,7 +123,9 @@ printf '结果包：%s.tar.gz\n' "$afd_batch_run"
 追加的 [stage bank 007 记录及空闲采样窗口限制](../../openspec/changes/afd-hccl-v2-graph/evidence/a3-native-manager-20261109/native-manager-bank-007/interpretation.json)
 分别保留计算/内部监督通过、首次七板空闲与后续八板空闲的原始事实。
 
-第 4 项是受控算术组件验证：早期 GraphControl 与真实 InputBatch 几何路径已执行，
+第 4～6 项是受控算术组件验证：早期 GraphControl 与真实 InputBatch 几何路径已执行，
 不包含真实 ModelState、`ModelAclGraphManager`、Engram、原生 MoE 或完整模型。
 本组也不覆盖 Engram captured producer、shared-KV 更新、GE/Dynamo lowering、
-多流重叠或完整模型数值对照。当前不提供绕过模型门禁的启动参数。
+有效多流重叠、性能收益或完整模型数值对照。第 5～6 项只增加实际 stream/event
+捕获与 replay 正确性检查；它们不验证原生 scheduler 缩减请求后仍命中同一几何。
+当前不提供绕过模型门禁的启动参数。

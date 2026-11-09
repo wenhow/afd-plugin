@@ -7,6 +7,8 @@ arithmetic once per factory phase and records an inert retained graph handle.
 """
 
 from contextlib import nullcontext
+from copy import copy
+from dataclasses import replace
 from itertools import count
 from types import MethodType, SimpleNamespace
 
@@ -375,3 +377,13 @@ def replace_cached_bundle(case, entry, resources):
     cache.reserve_capture(entry.key, entry.generation, entry.graph, resources)
     cache.publish_capture(entry.key, entry.generation)
     case.control.cache = case.cache = cache
+
+
+def replace_cached_pipeline(case, entry):
+    """Replace the public bundle with fresh same-bank/policy mutable owners."""
+    execution = copy(entry.resources.execution)
+    execution.pipeline = copy(execution.pipeline)
+    execution.parent_body = copy(execution.parent_body)
+    execution.parent_body.stages = copy(execution.parent_body.stages)
+    execution.parent_body.stages.pipeline = execution.pipeline
+    replace_cached_bundle(case, entry, replace(entry.resources, execution=execution))

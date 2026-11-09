@@ -10,11 +10,13 @@ factory selection or production Graph admission here.
 
 from __future__ import annotations
 
+from contextlib import nullcontext
 from typing import TYPE_CHECKING
 
 from vllm.config import CUDAGraphMode, ParallelConfig
 from vllm.forward_context import ForwardContext, override_forward_context
 
+from afd_plugin.connectors.npu.hccl_graph_pipeline import HcclGraphComputePipeline
 from afd_plugin.connectors.npu.hccl_graph_stage import HcclGraphStageBank
 from afd_plugin.v1.worker.ffn_metadata import _set_moe_layer_index
 
@@ -39,6 +41,8 @@ class HcclV41FFNGraph:
         contexts: tuple[ForwardContext, ...],
         bank: HcclGraphStageBank,
         parallel_config: ParallelConfig,
+        *,
+        pipeline: HcclGraphComputePipeline | None = None,
     ) -> None:
         parallel = parallel_config
         if (
@@ -72,24 +76,53 @@ class HcclV41FFNGraph:
                     "V4.1 FFN graph requires FULL contexts with retained stage IDs"
                 )
         self.model, self.contexts, self.bank = model, contexts, bank
+        if pipeline is not None and pipeline.bank is not bank:
+            raise ValueError("FFN graph pipeline must own the retained stage bank")
+        self.pipeline = pipeline
 
     def run(self) -> None:
         """Execute/record tensor work; replay does not enter this Python loop."""
-        bank = self.bank
-        for layer_idx in bank.layer_indices:
-            for stage_idx, (rows, context) in enumerate(
-                zip(bank.stage_rows, self.contexts, strict=True)
-            ):
-                if not rows:
-                    continue
-                with override_forward_context(context):
-                    _set_moe_layer_index(context, layer_idx)
-                    buffers = bank.receive_inputs(stage_idx)
-                    output = self.model.compute_ffn_output(
-                        hidden_states=buffers.hidden_states,
-                        layer_idx=layer_idx,
-                        input_ids=buffers.input_ids,
-                        hidden_states_fp32=buffers.hidden_states_fp32,
-                        already_sequence_parallel=False,
-                    )
-                    bank.send_output(stage_idx, output)
+        bank, pipeline = self.bank, self.pipeline
+        with pipeline.run() if pipeline is not None else nullcontext():
+            for layer_idx in bank.layer_indices:
+                for stage_idx, (rows, context) in enumerate(
+                    zip(bank.stage_rows, self.contexts, strict=True)
+                ):
+                    if not rows:
+                        continue
+                    with override_forward_context(context):
+                        _set_moe_layer_index(context, layer_idx)
+                        with (
+                            pipeline.ffn_receive(layer_idx, stage_idx)
+                            if pipeline is not None
+                            else nullcontext()
+                        ):
+                            buffers = bank.receive_inputs(stage_idx)
+                        with (
+                            pipeline.compute(
+                                layer_idx,
+                                stage_idx,
+                                inputs=(
+                                    buffers.hidden_states,
+                                    buffers.hidden_states_fp32,
+                                    buffers.input_ids,
+                                ),
+                            )
+                            if pipeline is not None
+                            else nullcontext()
+                        ):
+                            output = self.model.compute_ffn_output(
+                                hidden_states=buffers.hidden_states,
+                                layer_idx=layer_idx,
+                                input_ids=buffers.input_ids,
+                                hidden_states_fp32=buffers.hidden_states_fp32,
+                                already_sequence_parallel=False,
+                            )
+                        with (
+                            pipeline.ffn_send(layer_idx, stage_idx, tensors=(output,))
+                            if pipeline is not None
+                            else nullcontext()
+                        ):
+                            bank.send_output(stage_idx, output)
+            if pipeline is not None:
+                pipeline.join()

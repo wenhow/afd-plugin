@@ -1,0 +1,15 @@
+{
+  "scope": "read-only standalone stdlib preflight; no torch import or NPU workload",
+  "collected_at_utc": "2026-11-09T22:36:53.162322+00:00",
+  "torch_imported": false,
+  "torch_npu_imported": false,
+  "npu_smi_returncode": 0,
+  "idle_boards": 8,
+  "matching_processes": [],
+  "environment": {
+    "PYTHONPATH": "/mnt/workspace/code/.ascend/cann-9.0.1/cann-9.0.1/python/site-packages:/mnt/workspace/code/.ascend/cann-9.0.1/cann-9.0.1/opp/built-in/op_impl/ai_core/tbe:",
+    "LD_LIBRARY_PATH": "/mnt/workspace/code/.ascend/cann-9.0.1/cann-9.0.1/nnal/atb/latest/atb/cxx_abi_1/lib:/mnt/workspace/code/.ascend/cann-9.0.1/cann-9.0.1/nnal/atb/latest/atb/cxx_abi_1/examples:/mnt/workspace/code/.ascend/cann-9.0.1/cann-9.0.1/nnal/atb/latest/atb/cxx_abi_1/tests/atbopstest:/opt/buildtools/python-3.12.9/lib:/usr/local/Ascend/driver/lib64/driver:/usr/local/Ascend/driver/lib64/common:/mnt/workspace/code/.ascend/cann-9.0.1/cann-9.0.1/lib64:/mnt/workspace/code/.ascend/cann-9.0.1/cann-9.0.1/lib64/plugin/opskernel:/mnt/workspace/code/.ascend/cann-9.0.1/cann-9.0.1/lib64/plugin/nnengine:/mnt/workspace/code/.ascend/cann-9.0.1/cann-9.0.1/opp/built-in/op_impl/ai_core/tbe/op_tiling/lib/linux/aarch64:/usr/local/Ascend/driver/lib64:/usr/local/Ascend/driver/lib64/common:/usr/local/Ascend/driver/lib64/driver",
+    "ASCEND_HOME_PATH": "/mnt/workspace/code/.ascend/cann-9.0.1/cann-9.0.1",
+    "ATB_HOME_PATH": "/mnt/workspace/code/.ascend/cann-9.0.1/cann-9.0.1/nnal/atb/latest/atb/cxx_abi_1"
+  }
+}

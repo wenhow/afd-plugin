@@ -7,6 +7,7 @@ from types import SimpleNamespace
 import torch
 from vllm.config import CompilationMode, CUDAGraphMode
 from vllm.forward_context import ForwardContext, get_forward_context
+from vllm.utils.torch_utils import current_stream
 
 from afd_plugin.connectors.npu.hccl_transport import HcclLayerInputs
 from afd_plugin.model_executor.models.npu.deepseek_v41 import (
@@ -36,12 +37,18 @@ class GraphContractMoE(torch.nn.Module):
     def __init__(self, layer_idx):
         super().__init__()
         self.layer_idx, self.fail = layer_idx, False
+        self.current_stream = self.expected_stream = None
 
     def forward(
         self, hidden_states, *, input_ids, hidden_states_fp32, already_sequence_parallel
     ):
         if self.fail:
             raise RuntimeError("controlled graph MoE failure")
+        if (
+            self.current_stream is not None
+            and self.current_stream() is not self.expected_stream
+        ):
+            raise RuntimeError("native MoE helper observed the wrong compute stream")
         context = get_forward_context()
         if (
             context.cudagraph_runtime_mode != CUDAGraphMode.FULL
@@ -56,7 +63,14 @@ class GraphContractMoE(torch.nn.Module):
         )
 
 
-def make_ffn_graph_case(*, rows=(3, 2), valid=(2, 0), native_tp_size=1, role_rank=0):
+def make_ffn_graph_case(
+    *,
+    rows=(3, 2),
+    valid=(2, 0),
+    native_tp_size=1,
+    role_rank=0,
+    pipeline_factory=None,
+):
     events = []
     bank = make_graph_stage_bank(
         role="ffn",
@@ -108,7 +122,14 @@ def make_ffn_graph_case(*, rows=(3, 2), valid=(2, 0), native_tp_size=1, role_ran
         tensor_parallel_size=native_tp_size,
     )
     config.parallel_config.rank = role_rank
-    driver = HcclV41FFNGraph(model, contexts, bank, config.parallel_config)
+    pipeline = pipeline_factory(bank) if pipeline_factory is not None else None
+    driver = HcclV41FFNGraph(
+        model, contexts, bank, config.parallel_config, pipeline=pipeline
+    )
+    if pipeline is not None:
+        for layer in model.model.layers:
+            layer.mlp.current_stream = current_stream
+            layer.mlp.expected_stream = pipeline.compute_stream
     return SimpleNamespace(
         bank=bank,
         model=model,

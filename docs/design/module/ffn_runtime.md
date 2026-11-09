@@ -112,6 +112,14 @@ the bound runner and exact transport. After the loop acknowledges STOP, worker
 shutdown joins it and closes the service/cache before releasing communicators.
 An active or failed service refuses normal close and retains graph storage.
 
+An optional fixed `HcclGraphPipelinePolicy` moves native MoE compute to a
+side stream while receive, output copy/masking and send stay on the parent.
+The native MoE still owns shared experts and TP reduction. Each phase creates
+its pipeline outside capture, and the frozen cache bundle retains the exact
+pipeline identity until reset. Replay updates counts and launches the existing
+graph without constructing new streams or events. This receive/compute/send
+composition does not establish receive overlap or cross-layer performance.
+
 FFN is launched as a `vllm serve` process, and AFD config normalization selects
 its role-specific worker when `worker_cls="auto"`. It does not serve requests.
 Attention and FFN may be started in either order. Send API traffic only to

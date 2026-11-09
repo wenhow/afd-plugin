@@ -26,8 +26,14 @@ from vllm_ascend.attention.sfa_v1 import AscendSFABackend
 from vllm_ascend.worker.v2.model_runner import NPUModelRunner as NPUModelRunnerV2
 from vllm_ascend.worker.v2.model_states.default import AscendModelState
 
+from afd_plugin.connectors.npu import hccl_graph_pipeline as pipeline_module
+from afd_plugin.connectors.npu.hccl_graph_pipeline import (
+    HcclGraphComputePipeline,
+    HcclGraphPipelinePolicy,
+)
 from afd_plugin.connectors.npu.hccl_graph_stage import HcclGraphStageBank
 from afd_plugin.v1.worker.npu.hccl_v41_graph_coordinator import HcclV41GraphCoordinator
+from tests.unit.fakes.hccl_graph_pipeline import attach_pipeline
 from tests.unit.fakes.hccl_v41_graph_coordinator import (
     cpu_allocate_bank,
     cpu_retained_capture,
@@ -39,6 +45,7 @@ from tests.unit.fakes.hccl_v41_graph_coordinator import (
     prepare_runtime_full,
     queue_preflight,
     replace_cached_bundle,
+    replace_cached_pipeline,
     set_runtime_rows,
 )
 from tests.unit.fakes.input_batch import snapshot_ascend_child
@@ -52,13 +59,14 @@ def coordinator_case(monkeypatch):
     )
     monkeypatch.setattr(torch.npu, "synchronize", lambda *args: None)
 
-    def build(**kwargs):
+    def build(*, pipeline_policy=None, **kwargs):
         case = make_coordinator_case(**kwargs)
         case.coordinator = HcclV41GraphCoordinator(
             case.owner,
             case.control,
             case.session,
             next_transaction_id=case.next_transaction_id,
+            pipeline_policy=pipeline_policy,
         )
         return case
 
@@ -93,6 +101,82 @@ def capture_case(coordinator_case, monkeypatch):
         return case
 
     return build
+
+
+@pytest.fixture
+def pipeline_capture_case(capture_case, monkeypatch):
+    monkeypatch.setattr(
+        HcclGraphComputePipeline,
+        "allocate",
+        lambda bank, *, hybrid: (
+            attach_pipeline(monkeypatch, pipeline_module, bank, hybrid=hybrid).pipeline
+        ),
+    )
+
+    def build(*, stages=2, hybrid=True):
+        return capture_case(
+            stages=stages, pipeline_policy=HcclGraphPipelinePolicy(hybrid=hybrid)
+        )
+
+    return build
+
+
+@pytest.mark.parametrize("stages", [1, 2])
+@pytest.mark.parametrize("hybrid", [False, True])
+def test_native_capture_pipeline_bundle_survives_preparation_and_replay(
+    pipeline_capture_case, stages, hybrid
+):
+    case = pipeline_capture_case(stages=stages, hybrid=hybrid)
+    assert case.coordinator.preflight_capture()
+    assert case.coordinator.capture_native() == 23
+    entry = case.cache.find(native_keys(case)[0], 0)
+    pipeline = entry.resources.pipeline
+    assert pipeline.hybrid is hybrid and pipeline.bank is entry.resources.bank
+    assert entry.resources.execution.pipeline is pipeline
+    assert entry.resources.execution.parent_body.stages.pipeline is pipeline
+    case.transport.states[0] = "ready"
+    install_runtime_replay_boundary(case)
+    with case.coordinator.execution_scope(
+        mode="target", valid_tokens=4, dummy_run=False
+    ):
+        descriptor = dispatch_runtime(case)
+        prepare_runtime_full(case, descriptor)
+        output, auxiliary = case.manager.run_fullgraph(descriptor)
+    assert output is case.manager.hidden_states
+    assert auxiliary is case.manager.aux_hidden_states
+    assert case.cache.find(entry.key, 0).resources.pipeline is pipeline
+    assert case.transport.plan is None and not case.transport.terminal
+
+
+@pytest.mark.parametrize("mismatch", ["pipeline", "policy"])
+def test_same_bank_pipeline_or_policy_replacement_rejects_before_new_payload(
+    pipeline_capture_case, mismatch
+):
+    case = pipeline_capture_case()
+    assert case.coordinator.preflight_capture()
+    case.coordinator.capture_native()
+    case.transport.states[0] = "ready"
+    entry = case.cache.find(native_keys(case)[0], 0)
+    if mismatch == "pipeline":
+        replace_cached_pipeline(case, entry)
+    else:
+        case.coordinator = HcclV41GraphCoordinator(
+            case.owner,
+            case.control,
+            case.session,
+            next_transaction_id=case.next_transaction_id,
+            pipeline_policy=HcclGraphPipelinePolicy(hybrid=False),
+        )
+    before = tuple(sent(case, "FORWARD"))
+    with (
+        pytest.raises(ValueError, match="cache bundle does not own"),
+        case.coordinator.execution_scope(
+            mode="target", valid_tokens=4, dummy_run=False
+        ),
+    ):
+        dispatch_runtime(case)
+    assert tuple(sent(case, "FORWARD")) == before
+    assert case.transport.plan is None and case.transport.terminal
 
 
 def sent(case, kind):

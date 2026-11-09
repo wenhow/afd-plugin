@@ -4,6 +4,7 @@
 """Real graph wire/cache lifecycle with CPU graph-API seams, not NPU evidence."""
 
 import gc
+import weakref
 from copy import copy
 from dataclasses import replace
 
@@ -21,6 +22,7 @@ from vllm.forward_context import (
 )
 
 from afd_plugin.connectors.npu.hccl_graph_cache import HcclGraphCache
+from afd_plugin.connectors.npu.hccl_graph_pipeline import HcclGraphPipelinePolicy
 from afd_plugin.distributed.hccl_graph import graph_capture_sequence_digest
 from afd_plugin.v1.worker.npu import hccl_v41_graph_service as service_module
 from tests.unit.fakes.hccl_v41_ffn_graph import make_ffn_graph_case
@@ -30,6 +32,58 @@ from tests.unit.fakes.hccl_v41_graph_service import make_graph_service_case
 @pytest.fixture
 def case(monkeypatch):
     return make_graph_service_case(service_module, monkeypatch)
+
+
+@pytest.fixture(params=[False, True])
+def pipeline_case(monkeypatch, request):
+    return make_graph_service_case(
+        service_module,
+        monkeypatch,
+        pipeline_policy=HcclGraphPipelinePolicy(hybrid=request.param),
+    )
+
+
+def test_graph_pipeline_is_retained_through_replay_until_acknowledged_stop(
+    pipeline_case,
+):
+    case = pipeline_case
+    for phase in ("warmup", "capture", "replay"):
+        case.transport.queue_parent(phase, identifier=phase, valid=(0, 0))
+        assert case.service.execute_step()
+    entry = case.cache.find(case.transport.base_bank.key, 0)
+    owner = weakref.ref(entry.resources.pipeline)
+    assert owner().hybrid == case.service.pipeline_policy.hybrid
+    assert entry.resources.body.pipeline is owner()
+    assert owner().bank is entry.resources.bank
+    del entry
+    case.transport.queue_stop()
+    assert case.service.execute_step() is False
+    case.service.close()
+    gc.collect()
+    assert case.cache.closed and owner() is None
+
+
+def test_same_bank_pipeline_replacement_rejects_before_replay(pipeline_case):
+    case = pipeline_case
+    case.transport.queue_parent("capture", identifier="capture-1")
+    assert case.service.execute_step()
+    entry = case.cache.find(case.transport.base_bank.key, 0)
+    body = copy(entry.resources.body)
+    body.pipeline = copy(body.pipeline)
+    replacement = HcclGraphCache(case.api.synchronize)
+    replacement.reserve_capture(
+        entry.key, 0, entry.graph, replace(entry.resources, body=body)
+    )
+    replacement.publish_capture(entry.key, 0)
+    case.service.cache = replacement
+    case.events.clear()
+    case.transport.queue_rejection(
+        "replay", error="FFN graph resources belong to another model/session"
+    )
+    with pytest.raises(RuntimeError, match="another model/session"):
+        case.service.execute_step()
+    assert case.events == ["ERROR"]
+    assert replacement.terminal and case.transport.terminal
 
 
 def test_graph_phase_sequence_keeps_caller_ownership(

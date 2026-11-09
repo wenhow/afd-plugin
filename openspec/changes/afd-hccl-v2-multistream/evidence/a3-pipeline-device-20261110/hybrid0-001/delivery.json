@@ -1,0 +1,14 @@
+{
+  "command": [
+    "ssh",
+    "-F",
+    "C:/Users/zq/.atomgitdevenv/.ssh/config",
+    "-o",
+    "BatchMode=yes",
+    "-o",
+    "ConnectTimeout=15",
+    "devenvc_rissvg.4ff038c993bf40219c03182f786a9def.atomgit.0",
+    "python3 -B /mnt/workspace/tmp/afd-c0-20261104.hVgsIf/c5-native-manager-20261109-m5s8p8ka/run_a3_graph_manager.py --remote-root /mnt/workspace/tmp/afd-c0-20261104.hVgsIf/c5-native-manager-20261109-m5s8p8ka --model /mnt/workspace/models/DeepSeek-V4.1-Flash --stage-bank --compute-pipeline --pipeline-hybrid 0"
+  ],
+  "returncode": 0
+}
