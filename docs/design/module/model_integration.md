@@ -17,6 +17,7 @@ depends_on:
   - "execution_platforms.md"
 validation_paths:
   - "tests/unit/model_executor/**"
+  - "tests/npu/v41_stage_state_probe.py"
   - "tests/e2e/models/**"
   - "tests/e2e/accuracy/**"
 upstream_refs:
@@ -82,6 +83,16 @@ identity, and rejects generic FP8 for quantized V4.1 checkpoints. Runtime entry
 remains guarded pending full-checkpoint quantization, state lifecycle and text
 acceptance. See the [delivery and validation scope](../../npu/DSV41_V030_HCCL_WORKFLOW_ZH.md)
 for reduced construction and TP2 component results and the A5 acceptance guide.
+
+The explicit eager [stage executor](../../../afd_plugin/model_executor/models/npu/deepseek_v41_staged.py)
+uses native decoder continuations and disjoint parent-token views of shared
+Attention buffers. Engram lookup/mask views retain one parent producer and its
+readiness events; aux observes layer entry before Engram, and MTP output is
+reconstructed in parent token order before collapse. These APIs are separate
+from production admission. CPU seams and the
+[NPU view probe](../../../tests/npu/v41_stage_state_probe.py) cover their stated
+boundaries; native HC/indexer/Engram operators and full-model U2 need separate
+target-device qualification.
 
 DSpark preparation keeps the native same-checkpoint draft on Attention. The
 loader examines the requested ModelConfig because native DSpark passes its

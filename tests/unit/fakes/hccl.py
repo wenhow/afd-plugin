@@ -10,6 +10,7 @@ from types import SimpleNamespace
 
 import torch
 from vllm.config.compilation import CompilationMode, CUDAGraphMode
+from vllm.forward_context import get_forward_context
 
 from afd_plugin.config import HCCL_P2P_CONNECTOR, AFDConfig
 from afd_plugin.connectors.npu import p2p_hccl as connector_module
@@ -20,10 +21,50 @@ from afd_plugin.connectors.npu.hccl_protocol import (
 )
 from afd_plugin.connectors.npu.hccl_transport import HcclLayerInputs
 from afd_plugin.connectors.npu.p2p_hccl import P2pHcclAFDConnector
+from afd_plugin.distributed.hccl_plan import HcclParentPlan
 from tests.unit.fakes.vllm_config import hccl_vllm_config
 
 ROUTER_DELTA_SCALE = 4_096
 WORKER_JOIN_TIMEOUT_SECONDS = 3
+STAGED_FFN_HIDDEN_SIZE = 16
+
+
+class StagedModelPeer:
+    """CPU protocol seam with controlled arithmetic, no simulated device ops."""
+
+    def __init__(self, plan, *, role_rank=0, fail_step=None):
+        self.plan = plan
+        self.role = "attention"
+        self.role_rank = role_rank
+        self.terminal = False
+        self.completed = False
+        self.messages = []
+        self.pending = None
+        self.fail_step = fail_step
+
+    def send_layer_inputs(self, layer_idx, stage_idx, hidden, fp32, ids):
+        if self.pending is not None:
+            raise AssertionError("previous reply must be consumed")
+        if get_forward_context().ubatch_idx != stage_idx:
+            raise AssertionError("payload must use the matching native child context")
+        self.messages.append(
+            (layer_idx, stage_idx, hidden.clone(), fp32.clone(), ids.clone())
+        )
+        self.pending = self.messages[-1]
+
+    def receive_layer_output(self, layer_idx, stage_idx):
+        if self.fail_step == (layer_idx, stage_idx):
+            raise RuntimeError("injected remote failure")
+        layer, stage, hidden, fp32, ids = self.pending
+        assert (layer, stage) == (layer_idx, stage_idx)
+        self.pending = None
+        return ((fp32 - hidden.float()) * ROUTER_DELTA_SCALE + ids[:, None]).to(
+            hidden.dtype
+        )
+
+    def finish_forward(self):
+        assert self.pending is None
+        self.completed = True
 
 
 def make_hccl_connector_pair(
@@ -108,6 +149,8 @@ class HcclCpuForwardContext:
             afd_metadata=kwargs["afd_metadata"],
             input_ids=kwargs["input_ids"],
             num_tokens=kwargs["num_tokens"],
+            num_tokens_across_dp=kwargs["num_tokens_across_dp"],
+            model_instance=kwargs["model_instance"],
             in_profile_run=kwargs["in_profile_run"],
             all_moe_layers=tuple(f"model.layers.{i}.mlp" for i in range(layer_count)),
             moe_layer_index=None,
@@ -155,6 +198,143 @@ class HcclContractModel(torch.nn.Module):
 class HcclFailingModel(torch.nn.Module):
     def compute_ffn_output(self, hidden_states, layer_idx, **kwargs):
         raise ValueError("controlled FFN compute failure")
+
+
+class StagedFFNPeer:
+    """Accepted FFN protocol seam; no groups or device operations are created."""
+
+    def __init__(self, plan, *, role_rank=0, fail_at=None):
+        self.plan = plan
+        self.role = "ffn"
+        self.role_rank = role_rank
+        self.initialized = True
+        self.closed = self.terminal = self.completed = False
+        self.fail_at = fail_at
+        self.messages = []
+        self.inputs = {}
+        self.pending = None
+        self.steps = deque(
+            (layer, stage.stage_idx)
+            for layer in plan.layer_indices
+            for stage in plan.stages
+            if any(stage.attention_padded_tokens)
+        )
+        for layer, stage_idx in self.steps:
+            peers = plan.stages[stage_idx].for_ffn(role_rank)
+            rows = sum(peer.padded_tokens for peer in peers)
+            hidden = torch.arange(
+                rows * STAGED_FFN_HIDDEN_SIZE, dtype=torch.float32
+            ).reshape(rows, STAGED_FFN_HIDDEN_SIZE)
+            hidden = (hidden + layer + stage_idx).to(torch.bfloat16)
+            fp32 = hidden.float() + (stage_idx + 1) * 0.00031
+            ids = torch.zeros(rows, dtype=torch.int32)
+            for peer in peers:
+                start, stop = peer.ffn_offset, peer.ffn_offset + peer.valid_tokens
+                ids[start:stop] = torch.arange(stop - start) + 1
+            self.inputs[layer, stage_idx] = HcclLayerInputs(hidden, fp32, ids)
+
+    def receive_layer(self, layer_idx, stage_idx):
+        if self.fail_at == "receive":
+            raise RuntimeError("injected staged receive failure")
+        if self.pending is not None or self.steps[0] != (layer_idx, stage_idx):
+            raise AssertionError("FFN must receive in layer-major stage order")
+        self.messages.append(("RECEIVE", layer_idx, stage_idx))
+        self.pending = (layer_idx, stage_idx)
+        return self.inputs[self.pending]
+
+    def send_layer_output(self, layer_idx, stage_idx, output):
+        if self.fail_at == "send":
+            raise RuntimeError("injected staged send failure")
+        if self.pending != (layer_idx, stage_idx):
+            raise AssertionError("FFN output must match its received aggregate")
+        expected_shape = self.inputs[self.pending].hidden_states.shape
+        if output.shape != expected_shape or output.dtype != torch.bfloat16:
+            raise AssertionError("FFN must return its complete native output")
+        self.messages.append(("OUTPUT", layer_idx, stage_idx, output.clone()))
+        self.steps.popleft()
+        self.pending = None
+
+    def finish_forward(self):
+        if self.fail_at == "complete":
+            raise RuntimeError("injected staged COMPLETE failure")
+        if self.steps or self.pending is not None:
+            raise AssertionError("parent COMPLETE must follow every output")
+        self.messages.append(("COMPLETE", self.plan.transaction_id))
+        self.completed = True
+        self.plan = None
+
+
+class StagedFFNContractModel(torch.nn.Module):
+    """Check native compute context while exposing raw FP32/ID propagation."""
+
+    def __init__(self, context, plan, role_rank, *, fail=False):
+        super().__init__()
+        self.context, self.plan, self.role_rank = context, plan, role_rank
+        self.fail = fail
+
+    def compute_ffn_output(
+        self,
+        hidden_states,
+        layer_idx,
+        *,
+        input_ids,
+        hidden_states_fp32,
+        already_sequence_parallel=False,
+    ):
+        if self.fail:
+            raise ValueError("controlled staged FFN compute failure")
+        context = self.context.current
+        if context is None:
+            raise RuntimeError("staged FFN requires a current execution context")
+        metadata = context.afd_metadata
+        peers = self.plan.stages[metadata.stage_idx].for_ffn(self.role_rank)
+        rows = sum(peer.padded_tokens for peer in peers)
+        if (
+            metadata.transaction_id != self.plan.transaction_id
+            or metadata.num_stages != len(self.plan.stages)
+            or metadata.tokens_lens != [rows]
+            or metadata.tokens_unpadded_lens
+            != [sum(peer.valid_tokens for peer in peers)]
+            or context.num_tokens != rows
+            or context.num_tokens_across_dp.tolist() != [rows]
+            or context.in_profile_run != (self.plan.mode == "profile")
+            or context.moe_layer_index != layer_idx
+            or context.model_instance is not self
+            or not torch.equal(context.input_ids, input_ids)
+            or already_sequence_parallel
+        ):
+            raise ValueError("staged FFN context does not match the accepted plan")
+        return staged_ffn_expected_output(
+            HcclLayerInputs(hidden_states, hidden_states_fp32, input_ids), layer_idx
+        )
+
+
+def staged_ffn_expected_output(payload, layer_idx):
+    return (
+        (payload.hidden_states_fp32 - payload.hidden_states.float())
+        * ROUTER_DELTA_SCALE
+        + payload.input_ids[:, None].float()
+        + layer_idx
+    ).to(torch.bfloat16)
+
+
+def make_staged_ffn_case(runner_type, plan: HcclParentPlan, *, role_rank=0):
+    """Build an already-accepted parent without worker/device initialization."""
+    peer = StagedFFNPeer(plan, role_rank=role_rank)
+    config = hccl_vllm_config(
+        dtype=torch.bfloat16,
+        compilation_mode=CompilationMode.NONE,
+        cudagraph_mode=CUDAGraphMode.NONE,
+        role="ffn",
+        tensor_parallel_size=plan.stages[0].native_tp_size,
+    )
+    config.parallel_config.rank = role_rank
+    config.model_config.hf_config.num_hidden_layers = max(plan.layer_indices) + 1
+    connector = SimpleNamespace(vllm_config=config)
+    context = HcclCpuForwardContext()
+    model = StagedFFNContractModel(context, plan, role_rank)
+    runner = make_hccl_runner(runner_type, connector, model)
+    return SimpleNamespace(runner=runner, peer=peer, context=context, plan=plan)
 
 
 class HcclCpuDeviceRuntime:

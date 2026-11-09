@@ -3,6 +3,7 @@
 """V4.1 role construction and MoE boundary; production entry remains guarded."""
 
 from collections.abc import Iterable
+from dataclasses import dataclass
 
 import torch
 from torch import nn
@@ -30,6 +31,16 @@ def _is_ffn_checkpoint_weight(name: str) -> bool:
         and path[1].isdecimal()
         and path[2] in ("ffn", "mlp")
     )
+
+
+@dataclass(frozen=True, slots=True)
+class DeepseekV41FFNContinuation:
+    """Attention-owned HC state held until the matching remote MoE returns."""
+
+    residual: torch.Tensor
+    post: torch.Tensor
+    comb: torch.Tensor
+    pre_mix: torch.Tensor
 
 
 class AFDDeepseekV41RemoteMoE(nn.Module):
@@ -190,6 +201,72 @@ class AFDDeepseekV41AttentionDecoderLayer(native.DeepseekV41DecoderLayer):
             self.engram = native.AscendEngram(config, quant_config, f"{prefix}.engram")
         else:
             self.engram = None
+
+    # Upstream: DeepseekV41DecoderLayer.forward, model.py:930-955 @ 7e37e29a.
+    # Patch reason: layer-major U2 pauses each decoder at the remote MoE seam.
+    # Patch functionality: retain native HC/Attention/norm and return its exact
+    # FP32 router input plus the stage-owned delayed HC continuation.
+    # New API: positions/hidden_states/pre_mix/llama_4_scaling have the native
+    # meanings; no MoE is called here. The inherited forward remains unchanged.
+    # Removal: use an upstream decoder continuation hook when one is available.
+    def prepare_remote_ffn(
+        self,
+        positions: torch.Tensor,
+        hidden_states: torch.Tensor,
+        pre_mix: torch.Tensor,
+        llama_4_scaling: torch.Tensor | None = None,
+    ) -> tuple[torch.Tensor, torch.Tensor, DeepseekV41FFNContinuation]:
+        # ### PATCH START: synchronous non-SP continuation admission
+        if self.use_sequence_parallel:
+            raise ValueError("V4.1 staged continuation requires non-SP execution")
+        # ### PATCH END: synchronous non-SP continuation admission
+        residual = hidden_states
+        x, attn_post, attn_comb, attn_pre = self.hc_pre(
+            hidden_states,
+            self.hc_attn_fn,
+            self.hc_attn_scale,
+            self.hc_attn_base,
+            pre_mix,
+        )
+        x = self.input_layernorm(x)
+        # ### PATCH START: SP branches excluded by admission above
+        x = self.self_attn(positions, x, llama_4_scaling)
+        # ### PATCH END: SP branches excluded by admission above
+        hidden_states = self.hc_post(x, residual, attn_post, attn_comb)
+
+        residual = hidden_states
+        x, ffn_post, ffn_comb, ffn_pre = self.hc_pre(
+            hidden_states,
+            self.hc_ffn_fn,
+            self.hc_ffn_scale,
+            self.hc_ffn_base,
+            attn_pre,
+        )
+        x, x_fp32 = self.rms_norm_cast(x)
+        # ### PATCH START: hold native HC state across remote MoE
+        return (
+            x,
+            x_fp32,
+            DeepseekV41FFNContinuation(residual, ffn_post, ffn_comb, ffn_pre),
+        )
+        # ### PATCH END: hold native HC state across remote MoE
+
+    # Upstream: DeepseekV41DecoderLayer.forward, model.py:962-963 @ 7e37e29a.
+    # Patch reason: resume only the stage whose remote MoE output is ready.
+    # Patch functionality: finish native HC post and preserve ffn_pre for the
+    # next decoder and final collapse. New API accepts the continuation above.
+    # Removal: use the same upstream continuation hook as prepare_remote_ffn.
+    def complete_remote_ffn(
+        self,
+        ffn_output: torch.Tensor,
+        continuation: DeepseekV41FFNContinuation,
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        # ### PATCH START: resume the matching stage's HC state
+        hidden_states = self.hc_post(
+            ffn_output, continuation.residual, continuation.post, continuation.comb
+        )
+        return hidden_states, continuation.pre_mix
+        # ### PATCH END: resume the matching stage's HC state
 
 
 class AFDDeepseekV41AttentionModel(native.DeepseekV41Model):

@@ -41,6 +41,9 @@ from tests.unit.fakes.hccl import (  # noqa: E402
     HcclLoopbackSession,
     make_hccl_connector_pair,
 )
+from tests.unit.fakes.input_batch import (  # noqa: E402
+    make_ascend_batch as _ascend_batch,
+)
 
 Runner = npu_v2.AFDNPUAttentionModelRunnerV2
 
@@ -778,19 +781,6 @@ def test_camp2p_padding_preserves_graph_descriptor_and_restores_dispatch(
         )
     assert len(dispatch_calls) == 1
     assert native_v2.dispatch_cg_and_sync_dp is native_dispatch
-
-
-def _ascend_batch(real=5, padded=8):
-    buffers = AscendInputBuffers(2, padded, torch.device("cpu"))
-    batch = AscendInputBatch.make_dummy(1, real, buffers)
-    batch.num_tokens_after_padding = padded
-    batch.input_ids = torch.arange(padded)
-    batch.positions = torch.arange(padded)
-    batch.is_padding = torch.arange(padded) >= real
-    batch.seq_lens += 12
-    batch.seq_lens_cpu_upper_bound += 12
-    batch.seq_lens_np = np.array([real + 12], dtype=np.int32)
-    return batch
 
 
 @pytest.mark.parametrize("real", [2, 5, 7])

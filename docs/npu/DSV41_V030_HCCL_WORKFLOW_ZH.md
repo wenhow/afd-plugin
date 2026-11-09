@@ -61,8 +61,15 @@ C4 已实现独立 v3 网络握手、全体计划 ACK、按 stage 隔离的真�
 组件探针为 [tests/npu/hccl_staged_probe.py](../../tests/npu/hccl_staged_probe.py)，
 不构造 native MoE 或加载模型权重。它也验证提前 COMPLETE、错误 stage、重放和 active STOP 拒绝，
 以及 HELLO 能力不匹配、坏 ACK 摘要时的全 rank 拒绝和正常回收。
-生产 connector factory 仍为 v2/U1；V2 U2 调度和 V4.1 stage 状态隔离尚待接入，
-更新源码不会自动切换到 v3 或启用模型侧 U2。
+本轮继续实现了显式调用的 V2 stage 输入/执行接口，以及 V4.1 HC continuation、
+shared Attention buffer views 和父 Engram lookup/mask 切分；aux 保持层入口采集，
+MTP hidden 按父 token 坐标归并。新增 A 侧 90 项、F 侧 45 项 CPU seam
+已分组在 A3 实际依赖下通过；F 侧执行入口保留完整 native MoE 和归约所有权，
+暂限 DP1/PP1/CP1、non-SP 及覆盖整个 F role 的 native TP world。
+独立 [NPU view 探针](../../tests/npu/v41_stage_state_probe.py)也通过真实张量的偏移、隔离及恢复检查。
+该探针没有执行 HC/indexer/Engram producer 或加载模型权重，不能证明对应算子接受 offset view。
+生产 connector factory 仍为 v2/U1；新接口尚未接入原生 V2 的自动调度入口，
+更新源码不会自动切换到 v3 或启用模型侧 U2，完整模型 guard 保持关闭。
 本轮没有新增 A5 操作步骤，继续优先验证关闭 DSpark 的完整模型控制组。
 
 ## 交付的代码边界
@@ -81,12 +88,16 @@ Ascend `7e37e29a7803d6897a7113088e2b771f83205bc0`。
 分支名 `rfc/vllm_cann` 不代表自动采用其最新提交。
 插件基线是 `39017a137d7809bd0ab7cda4a86697e2a6b7a522`，不能用该基线 SHA 代替本轮交付 SHA。
 
-本轮本地无 torch/vLLM 的 CPU unit 回归为 1034 passed、288 skipped、35 subtests passed；
+本轮本地无 torch/vLLM 的 CPU unit 回归为 1037 passed、292 skipped、35 subtests passed；
 新增 transport 构造/关闭模块在本机跳过，在 A3 实际依赖下 13 passed。
 A3 恢复后已补跑此前跳过的 C3 loader、模型配置、target/draft context 等六文件：
 456 passed，无 skip；首轮暴露并修复了共享测试 fake 缺少 TP 字段的问题。
-最新 A3 connector/distributed 回归为 867 passed、4 deselected、无 skip，含新增 13 项构造用例；
+上一轮 A3 connector/distributed 回归为 867 passed、4 deselected、无 skip，含新增 13 项构造用例；
 此前 plan/state 129 项也单独全通过。各测试组存在重叠，不累加为唯一测试数。
+本轮扩大 CPU 回归为 1983 passed、1 failed、2 skipped、4 deselected；该失败是新 F 测试
+期望消息大小写不匹配，修正并收紧 CP/native world guard 后，上述 F 侧 45 项定向通过。
+扩大组的 26 项旧失败已由固定基线复现后完成测试适配；实际验收记录保留各快照与失败原文，
+未把定向补跑写成重新执行整组全通过。
 四进程 eager/U1 TP2 HCCL 组件在设备 0、2、4、6 通过，覆盖两层、五事务、FP32/IDs、
 STOP 和 native TP 组保留；验证后全部设备无运行进程。FastAPI 0.123.10 路由 smoke
 通过，未启动 listener、引擎或模型。这些结果均不代替完整模型和 U2 验收。

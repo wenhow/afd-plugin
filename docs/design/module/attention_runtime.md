@@ -11,6 +11,7 @@ primary_code_paths:
   - "afd_plugin/v1/worker/attention_worker.py"
   - "afd_plugin/v1/worker/ubatch_wrapper.py"
   - "afd_plugin/v1/worker/npu/attention_model_runner_v2.py"
+  - "afd_plugin/v1/worker/npu/hccl_v41_ubatch_runner.py"
   - "afd_plugin/v1/worker/npu/attention_worker.py"
 related_code_paths:
   - "afd_plugin/connectors/**"
@@ -27,6 +28,7 @@ validation_paths:
   - "tests/unit/v1/worker/test_model_runner_v2.py"
   - "tests/unit/v1/worker/test_npu_runtime.py"
   - "tests/unit/v1/worker/test_npu_model_runner_v2.py"
+  - "tests/unit/v1/worker/npu/test_hccl_v41_ubatch_runner.py"
   - "tests/unit/model_executor/test_async_cam_dbo.py"
   - "tests/npu/test_mrv2_dbo.py"
   - "tests/e2e/models/deepseek_v2_lite/test_deepseek_v2_lite.py"
@@ -70,6 +72,13 @@ execution, platform mechanisms, and upstream compatibility. Connector and
 model modules must not depend on the Attention worker implementation.
 
 ## Runtime selection
+
+The explicit [V4.1 staged HCCL runner](../../../afd_plugin/v1/worker/npu/hccl_v41_ubatch_runner.py)
+reuses native child preparation and runs one parent Engram producer before
+typed stage execution. A-only child contexts have no local-MoE DP sidecar;
+the accepted HCCL plan owns actual peer counts. The factory does not select
+this component, and native runner construction and full-model U2 qualification
+remain separate from its CPU input/run seam tests.
 
 AFD does not add an AFD-specific CLI flag. Configuration is read from vLLM
 `additional_config["afd"]`, and config normalization selects the role-specific

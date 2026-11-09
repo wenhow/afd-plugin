@@ -11,6 +11,7 @@ primary_code_paths:
   - "afd_plugin/v1/worker/ffn_routed_experts_model_runner.py"
   - "afd_plugin/v1/worker/ffn_worker.py"
   - "afd_plugin/v1/worker/npu/ffn_model_runner.py"
+  - "afd_plugin/v1/worker/npu/hccl_v41_ffn_runner.py"
   - "afd_plugin/v1/worker/npu/async_ffn_model_runner.py"
   - "afd_plugin/v1/worker/npu/async_ffn_two_stream.py"
   - "afd_plugin/v1/worker/npu/ffn_worker.py"
@@ -76,6 +77,12 @@ platform mechanisms, and EngineCore compatibility. No shared module may depend
 on the FFN worker or runner implementation.
 
 ## Runtime selection
+
+The explicit [V4.1 staged FFN executor](../../../afd_plugin/v1/worker/npu/hccl_v41_ffn_runner.py)
+consumes an accepted v3 plan in layer/stage order and passes each full aggregate
+to native MoE. Native MoE owns TP reduction. This component requires DP1/PP1/CP1
+and a single native TP world spanning the FFN role; separate TP1 FFN worlds need
+additional group mapping. The production service does not select this executor.
 
 FFN is launched as a `vllm serve` process, and AFD config normalization selects
 its role-specific worker when `worker_cls="auto"`. It does not serve requests.
