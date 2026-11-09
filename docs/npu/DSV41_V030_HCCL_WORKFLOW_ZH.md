@@ -5,7 +5,7 @@
 A5 操作说明；更新分支后即可使用当前源码，无需再上传旧的源码快照包。
 
 **当前完成 C2 核心实现及组件验证，完整 checkpoint 的原生/AFD 文本推理仍待验收。
-V4.1 AFD 模型 guard 保持关闭；C3 DSpark 正并行准备源码和 CPU 边界，尚未硬件验收。**
+V4.1 AFD 模型 guard 保持关闭；C3 DSpark、C4 rank/行布局已并行推进，尚未硬件验收。**
 
 ## 在 A5 上更新
 
@@ -54,6 +54,11 @@ draft 和 Engram 绑定，loader 按实际请求的模型身份选择类，不�
 此准备工作不改变下方控制组命令，验证时记录实际插件 SHA。
 当前不提供绕开模型 guard 的 AFD 完整服务命令。
 
+C4 首批完成等配对、聚合和 fanout 的 rank/stage/peer 行布局及返回去 padding 契约，
+并为 U1 复用共用 rank 计算。当前 wire 仍为 v2/U1，U2 和不等规模 A/F 收发、
+V4.1 stage 状态隔离尚待接入；布局模块的 CPU 检查不表示这些运行模式已可使用。
+本轮没有新增 A5 操作步骤，继续优先验证关闭 DSpark 的完整模型控制组。
+
 ## 交付的代码边界
 
 - A 端保留 native forward、HC/pre_mix、Engram、shared-KV 和 V2 ModelState，
@@ -70,11 +75,12 @@ Ascend `7e37e29a7803d6897a7113088e2b771f83205bc0`。
 分支名 `rfc/vllm_cann` 不代表自动采用其最新提交。
 插件基线是 `39017a137d7809bd0ab7cda4a86697e2a6b7a522`，不能用该基线 SHA 代替本轮交付 SHA。
 
-本轮本地无 torch/vLLM 的 CPU unit 回归为 834 passed、287 skipped、35 subtests passed；
-新增 draft loader、模型构造及原生 draft context 用例因缺少依赖而跳过，尚待运行。
+本轮本地无 torch/vLLM 的 CPU unit 回归为 905 passed、287 skipped、35 subtests passed；
+新增 71 项 HCCL 布局回归均可在 CPU 执行。C3 draft loader、模型构造及原生 draft
+context 用例因缺少依赖而跳过，尚待运行。
 此前 A3 实际依赖下模型/compat/V2 回归 424 passed、1 skipped，connector/distributed
-回归 652 passed、4 deselected，仅覆盖当时 C2 源码。当前 A3 SSH 连接失败，未补跑本轮
-原生 API 用例。这些结果与 NPU 组件、完整模型验收分别记录。
+回归 652 passed、4 deselected，仅覆盖当时 C2 源码。用户确认 A3 暂不可用，修复后另行
+通知；本轮未连接设备或补跑原生 API 用例。这些结果与 NPU 组件、完整模型验收分别记录。
 A3 的 CANN 9.0.1 和 9.2.0 均拒绝所需 DynamicMxQuant；A5 base 调用通过，
 仍需独立验证真实量化层。依赖声明中的 FastAPI 冲突也不因这些结果自动消除。
 

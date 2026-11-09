@@ -69,6 +69,14 @@ depend on role worker implementations.
 | Eager HCCL TP pairs (V4.1 model entry guarded) | [`npu/p2p_hccl.py`](../../../afd_plugin/connectors/npu/p2p_hccl.py), [`npu/hccl_config.py`](../../../afd_plugin/connectors/npu/hccl_config.py) | [`test_p2p_hccl.py`](../../../tests/unit/connectors/npu/test_p2p_hccl.py), [A5 component validation guide](../../npu/DSV41_V030_HCCL_WORKFLOW_ZH.md) |
 | Process-group construction | [`afd_process_group.py`](../../../afd_plugin/distributed/afd_process_group.py) | Connector initialization tests plus platform E2E paths |
 
+The HCCL [rank and row layout module](../../../afd_plugin/distributed/hccl.py)
+prepares integral aggregation/fanout and stage 0/1 layouts using separate valid
+and native padded counts. CPU layout coverage lives in
+[`test_hccl.py`](../../../tests/unit/distributed/test_hccl.py). The active connector
+uses its rank mapping only after existing runtime validation; unequal topology,
+U2 wire exchange and V4.1 model execution remain guarded pending integration
+and device acceptance. Layout construction does not establish runtime support.
+
 ## Factory and construction
 
 `AFDConnectorFactory` stores lazy loaders, so importing the factory does not

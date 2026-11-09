@@ -28,6 +28,7 @@ from afd_plugin.connectors.npu.hccl_config import (
 )
 from afd_plugin.connectors.npu.hccl_protocol import HcclForwardPlan, HcclRole
 from afd_plugin.connectors.npu.hccl_transport import HcclEagerTransport
+from afd_plugin.distributed.hccl import build_hccl_rank_mapping
 
 if TYPE_CHECKING:
     from vllm.config import VllmConfig
@@ -67,14 +68,18 @@ class P2pHcclAFDConnector(AFDConnectorBase):
             )
         super().__init__(rank, local_rank, vllm_config, afd_config, role_rank)
         capabilities = validate_hccl_runtime(vllm_config, afd_config, role_rank)
+        mapping = build_hccl_rank_mapping(
+            afd_config, role_rank, native_tp_size=capabilities.native_tp_size
+        )
         self._target_layer_indices = capabilities.layer_indices
         self.attn_size = afd_config.num_attention_ranks
         self.ffn_size = afd_config.num_ffn_ranks
         self._role = HcclRole(afd_config.role)
+        pair_port = afd_config.port + mapping.subgroup_index
         self._transport = HcclEagerTransport(
             self._role,
             capabilities,
-            init_method=f"tcp://{afd_config.host}:{afd_config.port + role_rank}",
+            init_method=f"tcp://{afd_config.host}:{pair_port}",
             local_device=local_rank,
             timeout_seconds=afd_config.afd_process_group_timeout_s,
         )
