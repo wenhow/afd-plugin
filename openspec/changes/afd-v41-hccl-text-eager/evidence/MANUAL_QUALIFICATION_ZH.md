@@ -32,6 +32,11 @@
     exit 1
   fi
 
+  # A previous single-branch clone may only track the release branch.
+  if ! git config --get-all remote.origin.fetch |
+      grep -Fxq "+refs/heads/${afd_branch}:refs/remotes/origin/${afd_branch}"; then
+    git remote set-branches --add origin "$afd_branch"
+  fi
   git fetch origin "refs/heads/${afd_branch}:refs/remotes/origin/${afd_branch}"
   if git show-ref --verify --quiet "refs/heads/${afd_branch}"; then
     git switch "$afd_branch"
