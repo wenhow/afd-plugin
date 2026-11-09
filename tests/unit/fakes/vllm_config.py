@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: Copyright contributors to the AFD plugin project
 
+from copy import deepcopy
 from dataclasses import dataclass
 from types import SimpleNamespace
 from typing import Any
@@ -148,6 +149,60 @@ def hccl_vllm_config(
     config.compilation_config.pass_config = SimpleNamespace(enable_sp=False)
     config.kv_transfer_config = None
     config.lora_config = None
+    return config
+
+
+@dataclass
+class DSparkSpeculativeConfig:
+    method: str
+    draft_model_config: SimpleNamespace
+    draft_parallel_config: SimpleNamespace
+    num_speculative_tokens: int = 5
+    rejection_sample_method: str = "standard"
+
+    def use_dspark(self):
+        return self.method == "dspark"
+
+
+def v41_dspark_config(*, role="attention", tensor_parallel_size=1):
+    """Checkpoint-derived metadata; no draft allocation or device execution."""
+    config = npu_vllm_config(
+        role=role,
+        connector="P2pHcclAFDConnector",
+        model_type="deepseek_v41",
+        architectures=["DeepseekV41ForCausalLM"],
+        tensor_parallel_size=tensor_parallel_size,
+        num_attention_ranks=tensor_parallel_size,
+        num_ffn_ranks=tensor_parallel_size,
+    )
+    config.model_config.model = "v41-checkpoint"
+    text = config.model_config.hf_text_config
+    text.num_hidden_layers = 40
+    text.n_routed_experts = 384
+    text.num_experts_per_tok = 6
+    text.num_nextn_predict_layers = 3
+    text.dspark_block_size = 5
+    text.dspark_target_layer_ids = [37, 38, 39]
+    text.dspark_n_routed_experts = 128
+    text.dspark_num_experts_per_tok = 3
+    draft_text = deepcopy(text)
+    draft_text.n_routed_experts = text.dspark_n_routed_experts
+    draft_text.num_experts_per_tok = text.dspark_num_experts_per_tok
+    draft_text.n_mtp_layers = text.num_nextn_predict_layers
+    draft_text.architectures = ["DeepseekV41DSparkModel"]
+    draft = SimpleNamespace(
+        model=config.model_config.model,
+        hf_config=draft_text,
+        hf_text_config=draft_text,
+        architectures=draft_text.architectures,
+    )
+    config.speculative_config = DSparkSpeculativeConfig(
+        method="dspark",
+        draft_model_config=draft,
+        draft_parallel_config=SimpleNamespace(
+            tensor_parallel_size=tensor_parallel_size,
+        ),
+    )
     return config
 
 

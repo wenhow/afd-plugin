@@ -14,6 +14,7 @@ from vllm_ascend.models.deepseek_v41 import model as native
 from vllm_ascend.models.deepseek_v41 import vl_model as native_wrapper
 from vllm_ascend.ops.fused_moe.moe_comm_method import get_moe_comm_method
 
+from afd_plugin.compat.npu.runtime_config import validate_deepseek_v41_speculation
 from afd_plugin.config import parse_afd_config
 from afd_plugin.connectors import AFDTransferContext, AFDTransferMetadata
 from afd_plugin.model_executor.models.forward_context import (
@@ -94,6 +95,8 @@ class AFDDeepseekV41AttentionDecoderLayer(native.DeepseekV41DecoderLayer):
     # Upstream: DeepseekV41DecoderLayer.__init__, model.py:783-858 @ 7e37e29a.
     # Patch reason: native construction allocates Attention and complete MoE.
     # Patch functionality: construct the Attention role and parameter-free proxy.
+    # Only native same-checkpoint DSpark may accompany the target. Its complete
+    # draft uses the native class, never this target-only decoder constructor.
     # Signature: matches upstream; no added parameters.
     # Removal plan: use the native MoE factory when an injection hook exists.
     def __init__(
@@ -110,8 +113,9 @@ class AFDDeepseekV41AttentionDecoderLayer(native.DeepseekV41DecoderLayer):
             raise ValueError(
                 "V4.1 Attention construction requires Attention and F gate"
             )
-        if is_draft_layer or vllm_config.speculative_config is not None:
-            raise ValueError("V4.1 Attention construction requires speculation off")
+        if is_draft_layer:
+            raise ValueError("V4.1 Attention construction requires target layers")
+        validate_deepseek_v41_speculation(vllm_config)
         if vllm_config.parallel_config.use_sequence_parallel_moe:
             raise ValueError("V4.1 Attention construction requires non-SP execution")
         nn.Module.__init__(self)

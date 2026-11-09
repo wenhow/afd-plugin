@@ -16,6 +16,7 @@ import torch
 from vllm.config import CompilationMode
 from vllm.config.compilation import CUDAGraphMode
 
+from afd_plugin.compat.npu.runtime_config import validate_deepseek_v41_speculation
 from afd_plugin.config import HCCL_P2P_CONNECTOR, AFDConfig
 from afd_plugin.connectors.base import ConnectorExtraInfo
 from afd_plugin.connectors.npu.hccl_protocol import MAX_TARGET_LAYERS, HcclCapabilities
@@ -143,7 +144,9 @@ def validate_hccl_runtime(
             "P2pHcclAFDConnector requires compilation and graph modes NONE"
         )
     if vllm_config.speculative_config is not None:
-        raise ValueError("P2pHcclAFDConnector does not support speculative decoding")
+        if afd_config.role != "attention":
+            raise ValueError("P2pHcclAFDConnector requires speculation off on FFN")
+        validate_deepseek_v41_speculation(vllm_config)
     if vllm_config.kv_transfer_config is not None:
         raise ValueError("P2pHcclAFDConnector does not support KV transfer/PD")
     if vllm_config.lora_config is not None:

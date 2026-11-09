@@ -83,6 +83,13 @@ remains guarded pending full-checkpoint quantization, state lifecycle and text
 acceptance. See the [delivery and validation scope](../../npu/DSV41_V030_HCCL_WORKFLOW_ZH.md)
 for reduced construction and TP2 component results and the A5 acceptance guide.
 
+DSpark preparation keeps the native same-checkpoint draft on Attention. The
+loader examines the requested ModelConfig because native DSpark passes its
+draft config separately while retaining the target in VllmConfig. FFN receives
+a private config view without speculative or Engram ownership before native
+worker construction. This preserves native draft construction, aux collection,
+loading and sampling; full V4.1 runtime entry remains guarded.
+
 `register_afd()` leaves vLLM's native architecture lookups unchanged and
 registers lazy AFD wrapper paths under `AFD`-prefixed aliases.
 

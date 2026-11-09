@@ -21,6 +21,9 @@ from vllm.config import CUDAGraphMode  # noqa: E402
 from vllm.v1.worker.dp_utils import should_skip_dp_coordination  # noqa: E402
 from vllm.v1.worker.gpu import cudagraph_utils, dp_utils, ubatch_utils  # noqa: E402
 from vllm.v1.worker.gpu import model_runner as native_v2  # noqa: E402
+from vllm.v1.worker.gpu.spec_decode.dflash.speculator import (  # noqa: E402
+    DFlashSpeculator,
+)
 from vllm_ascend.worker.v2 import model_runner as native_ascend_v2  # noqa: E402
 from vllm_ascend.worker.v2.input_batch import (  # noqa: E402
     AscendInputBatch,
@@ -34,7 +37,10 @@ from afd_plugin.model_executor.models import (  # noqa: E402
 )
 from afd_plugin.v1.worker.npu import attention_model_runner_v2 as npu_v2  # noqa: E402
 from afd_plugin.v1.worker.npu import ubatch_runner as npu_ubatch  # noqa: E402
-from tests.unit.fakes.hccl import make_hccl_connector_pair  # noqa: E402
+from tests.unit.fakes.hccl import (  # noqa: E402
+    HcclLoopbackSession,
+    make_hccl_connector_pair,
+)
 
 Runner = npu_v2.AFDNPUAttentionModelRunnerV2
 
@@ -94,8 +100,13 @@ def test_kv_control_context_does_not_publish_afd_metadata():
 
 
 @pytest.fixture
-def hccl_execution(monkeypatch):
-    attention, ffn = make_hccl_connector_pair(monkeypatch)
+def hccl_wire():
+    return HcclLoopbackSession()
+
+
+@pytest.fixture
+def hccl_execution(monkeypatch, hccl_wire):
+    attention, ffn = make_hccl_connector_pair(monkeypatch, wire=hccl_wire)
     runner = _runner()
     runner.connector, runner.vllm_config = attention, attention.vllm_config
     runner.afd_config = attention.afd_config
@@ -105,7 +116,7 @@ def hccl_execution(monkeypatch):
     monkeypatch.setattr(
         forward_module,
         "create_forward_context",
-        lambda: SimpleNamespace(
+        lambda *args, **kwargs: SimpleNamespace(
             batch_descriptor=SimpleNamespace(num_tokens=3),
             additional_kwargs={},
             attn_metadata=None,
@@ -173,6 +184,46 @@ def test_hccl_pre_forward_failure_does_not_leave_stale_execution_scope(
     assert (
         plan.transaction_id == context.additional_kwargs["afd_metadata"].transaction_id
     )
+
+
+@pytest.mark.parametrize("mode", ["target", "dummy", "profile"])
+def test_dspark_draft_context_publishes_no_remote_ffn_plan(
+    hccl_execution, hccl_wire, monkeypatch, mode
+):
+    runner, _ = hccl_execution
+
+    def native_execute(self, *args, **kwargs):
+        return afd_context.forward_context_module.create_forward_context()
+
+    def local_draft(input_ids, **kwargs):
+        metadata = afd_context.get_afd_metadata_from_forward_context()
+        return input_ids + int(metadata is None)
+
+    monkeypatch.setattr(NPUModelRunner, "execute_model", native_execute)
+    monkeypatch.setattr(
+        afd_context.forward_context_module.current_platform,
+        "set_additional_forward_context",
+        lambda **kwargs: {},
+    )
+    runner.execute_model(
+        SimpleNamespace(total_num_scheduled_tokens=2),
+        dummy_run=mode != "target",
+        is_profile=mode == "profile",
+    )
+    draft = SimpleNamespace(
+        vllm_config=runner.vllm_config,
+        input_buffers=SimpleNamespace(
+            input_ids=torch.arange(5), positions=torch.arange(5)
+        ),
+        model=local_draft,
+    )
+
+    result = DFlashSpeculator._run_model(draft, 5, None, None, None)
+
+    torch.testing.assert_close(result, torch.arange(5) + 1)
+    assert [(plan.mode, plan.layer_indices) for plan in hccl_wire.plans] == [
+        (mode, (0, 1))
+    ]
 
 
 @pytest.mark.parametrize("failure", [None, "profiler", "abort", "native"])

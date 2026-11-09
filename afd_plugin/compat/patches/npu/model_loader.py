@@ -25,6 +25,9 @@ from afd_plugin.config import HCCL_P2P_CONNECTOR, parse_optional_afd_config
 # Quantized checkpoints require the explicit DS FP4-expert quantization class;
 # native V4.1 auto selection currently resolves to generic FP8 on this lock.
 # Signature: matches upstream; no added parameters. Native load_model is retained.
+# DSpark retains the target VllmConfig but passes its draft ModelConfig
+# separately. Select roles only for the requested target architecture, leaving
+# native draft resolution, construction, weight loading and quantization intact.
 # Removal plan: use native role selection and remove the quantization check
 # after native V4.1 auto detection selects its checkpoint's expert format.
 def create_model(
@@ -33,8 +36,15 @@ def create_model(
     """Create a model with the given configurations."""
     # ### PATCH START: V4.1 role construction class
     model_class = None
-    if vllm_config.device_config.device_type == "npu" and is_deepseek_v41_model(
-        vllm_config
+    architectures = model_config.hf_config.architectures or ()
+    if (
+        vllm_config.device_config.device_type == "npu"
+        and is_deepseek_v41_model(vllm_config)
+        and architectures
+        and all(
+            architecture.removeprefix("AFD") == "DeepseekV41ForCausalLM"
+            for architecture in architectures
+        )
     ):
         afd_config = parse_optional_afd_config(vllm_config, validate=False)
         if afd_config is not None:

@@ -31,18 +31,65 @@ def is_deepseek_v41_model(vllm_config: VllmConfig) -> bool:
     )
 
 
+def validate_deepseek_v41_speculation(vllm_config: VllmConfig) -> None:
+    """Admit native same-checkpoint DSpark components, without enabling serving."""
+    speculative = vllm_config.speculative_config
+    if speculative is None:
+        return
+    if not speculative.use_dspark():
+        raise ValueError("V4.1 HCCL speculative decoding requires method='dspark'")
+    draft = speculative.draft_model_config
+    if (
+        draft.hf_config.model_type != "deepseek_v41"
+        or draft.architectures != ["DeepseekV41DSparkModel"]
+        or draft.hf_config.architectures != ["DeepseekV41DSparkModel"]
+    ):
+        raise ValueError("V4.1 HCCL requires normalized DeepseekV41DSparkModel")
+    if draft.model != vllm_config.model_config.model:
+        raise ValueError("V4.1 HCCL DSpark requires the same target checkpoint")
+    if (
+        speculative.draft_parallel_config.tensor_parallel_size
+        != vllm_config.parallel_config.tensor_parallel_size
+    ):
+        raise ValueError("V4.1 HCCL DSpark requires equal target and draft TP")
+    if speculative.rejection_sample_method == "synthetic":
+        raise ValueError("V4.1 HCCL DSpark requires real acceptance/rejection")
+    target = vllm_config.model_config.hf_text_config
+    draft_text = draft.hf_text_config
+    layer_ids = target.dspark_target_layer_ids
+    if (
+        not layer_ids
+        or any(type(layer) is not int for layer in layer_ids)
+        or list(layer_ids) != sorted(set(layer_ids))
+        or not 0 < min(layer_ids) <= max(layer_ids) <= target.num_hidden_layers
+        or list(draft_text.dspark_target_layer_ids) != list(layer_ids)
+    ):
+        raise ValueError("V4.1 HCCL DSpark requires matching ordered one-based aux IDs")
+    if (
+        type(target.dspark_block_size) is not int
+        or target.dspark_block_size <= 0
+        or draft_text.dspark_block_size != target.dspark_block_size
+        or draft_text.n_mtp_layers != target.num_nextn_predict_layers
+        or draft_text.n_routed_experts != target.dspark_n_routed_experts
+        or draft_text.num_experts_per_tok != target.dspark_num_experts_per_tok
+    ):
+        raise ValueError("V4.1 HCCL DSpark requires native checkpoint draft metadata")
+
+
 def get_npu_ffn_config(vllm_config: VllmConfig) -> VllmConfig:
-    """Detach V4.1's F Engram binding before native worker construction.
+    """Detach V4.1's A-owned state before native FFN worker construction.
 
     A shallow copy preserves the native ModelConfig identity and caches without
     rerunning VllmConfig validation. Other configuration children remain shared;
-    this view only removes F's ownership of the caller's Engram configuration.
+    this view removes F's ownership of Engram and the Attention-local drafter.
     """
     if not is_deepseek_v41_model(vllm_config):
         return vllm_config
     parse_afd_config(vllm_config, expected_role="ffn")
+    validate_deepseek_v41_speculation(vllm_config)
     ffn_config = copy(vllm_config)
     ffn_config.engram_config = None
+    ffn_config.speculative_config = None
     return ffn_config
 
 
@@ -137,4 +184,5 @@ __all__ = [
     "npu_model_uses_sequence_parallel_moe",
     "npu_model_uses_sharded_pp_tensors",
     "uses_async_cam_dbo",
+    "validate_deepseek_v41_speculation",
 ]

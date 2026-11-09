@@ -2,6 +2,7 @@
 # SPDX-FileCopyrightText: Copyright contributors to the AFD plugin project
 """Small model/config boundary for native loader API tests on CPU."""
 
+from copy import copy
 from types import SimpleNamespace
 
 import torch
@@ -53,3 +54,14 @@ def loader_config(*, model_type="deepseek_v41", device="npu", role="ffn"):
             "afd": {"role": role, "connector": "P2pHcclAFDConnector"}
         }
     return config
+
+
+def dspark_draft_model_config(target_model_config):
+    """Native DSpark supplies this separately from the ambient target config."""
+    draft = copy(target_model_config)
+    draft.hf_config = PretrainedConfig(
+        architectures=["DeepseekV41DSparkModel"], tie_word_embeddings=False
+    )
+    draft.hf_config.model_type = "deepseek_v41"
+    draft.hf_text_config = draft.hf_config
+    return draft

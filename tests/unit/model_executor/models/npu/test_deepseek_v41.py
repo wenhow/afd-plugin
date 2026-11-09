@@ -28,6 +28,7 @@ from tests.unit.fakes.deepseek_v41 import (  # noqa: E402
     ffn_config,
     make_attention_loader,
 )
+from tests.unit.fakes.vllm_config import v41_dspark_config  # noqa: E402
 
 
 @pytest.fixture
@@ -73,6 +74,21 @@ def test_attention_decoder_allocates_attention_hc_and_norms_without_moe(attentio
     assert {"hc_attn_fn", "hc_ffn_fn", "hc_attn_base", "hc_ffn_base"} <= names
     assert not any(name.startswith("mlp.") for name in names)
     assert list(layer.mlp.parameters()) == []
+
+
+def test_dspark_target_keeps_the_remote_moe_role(attention_env):
+    reduced = attention_env.model_config.hf_config
+    native = v41_dspark_config()
+    attention_env.model_config = native.model_config
+    attention_env.speculative_config = native.speculative_config
+
+    layer = adapter.AFDDeepseekV41AttentionDecoderLayer(
+        attention_env, "model.layers.0", config=reduced
+    )
+
+    assert isinstance(layer.mlp, adapter.AFDDeepseekV41RemoteMoE)
+    assert list(layer.mlp.parameters()) == []
+    assert attention_env.speculative_config is native.speculative_config
 
 
 @pytest.mark.parametrize("invalid", ["role", "gate", "draft", "sp"])

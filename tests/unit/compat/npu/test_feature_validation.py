@@ -20,6 +20,7 @@ from tests.unit.fakes.vllm_config import (
 from tests.unit.fakes.vllm_config import (
     npu_vllm_config as _vllm_config,
 )
+from tests.unit.fakes.vllm_config import v41_dspark_config
 
 TWO_UBATCH_DBO = dict(
     enable_dbo=True, use_ubatching=True, num_ubatches=2, ubatch_size=4
@@ -58,6 +59,17 @@ def test_npu_validation_rejects_v41_before_connector_initialization(
     before = deepcopy(config)
     with pytest.raises(RuntimeError, match="DeepSeek V4.1 NPU AFD is not available"):
         fail_if_unsupported_npu_afd_features(config)
+    assert config == before
+
+
+@pytest.mark.parametrize("role", ["attention", "ffn"])
+def test_dspark_components_do_not_enable_full_v41_model_execution(role):
+    config = v41_dspark_config(role=role)
+    before = deepcopy(config)
+
+    with pytest.raises(RuntimeError, match="DeepSeek V4.1 NPU AFD is not available"):
+        fail_if_unsupported_npu_afd_features(config)
+
     assert config == before
 
 

@@ -25,6 +25,7 @@ from tests.unit.fakes.model_loader import (  # noqa: E402
     AttentionModel,
     FFNModel,
     NativeModel,
+    dspark_draft_model_config,
     loader_config,
 )
 
@@ -111,6 +112,25 @@ def test_other_connector_is_rejected(loader_env):
     loader = get_model_loader(loader_env.load_config)
     with pytest.raises(ValueError, match="requires P2pHcclAFDConnector"):
         loader.create_model(loader_env, loader_env.model_config)
+
+
+@pytest.mark.parametrize("load_format", ["auto", "safetensors", "dummy"])
+def test_dspark_uses_native_draft_despite_the_ambient_afd_target(
+    loader_env, load_format
+):
+    loader_env.additional_config["afd"]["role"] = "attention"
+    loader_env.load_config.load_format = load_format
+    target = loader_env.model_config
+    draft = dspark_draft_model_config(target)
+    loader = get_model_loader(loader_env.load_config)
+
+    model = loader.create_model(loader_env, draft, prefix="dspark_head")
+
+    assert type(model) is NativeModel
+    assert model.prefix == "dspark_head"
+    assert model.vllm_config.model_config is target
+    assert target.hf_config.architectures == ["DeepseekV41ForCausalLM"]
+    assert draft.hf_config.architectures == ["DeepseekV41DSparkModel"]
 
 
 @pytest.mark.parametrize("role", ["attention", "ffn"])

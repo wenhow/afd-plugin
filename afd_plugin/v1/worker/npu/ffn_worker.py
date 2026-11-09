@@ -74,7 +74,7 @@ class AFDNPUFFNWorker(NPUWorker):
     # Upstream: vllm_ascend/worker/worker.py, NPUWorker.__init__,
     # 7e37e29a7803d6897a7113088e2b771f83205bc0.
     # Reason: native Ascend derives Engram settings before binding worker config.
-    # Functionality: detach the V4.1 F Engram binding before any parent code.
+    # Functionality: detach F's Engram/draft bindings before any parent code.
     # Signature matches upstream, including no return annotation; no added args.
     # Delegation exception: the large native constructor owns ops registration,
     # config derivation, logging and cache/sleep setup. Keep that lifecycle in
@@ -90,9 +90,9 @@ class AFDNPUFFNWorker(NPUWorker):
         **kwargs,
     ):
         apply_afd_ascend_patches_if_needed()
-        # ### PATCH START: F Engram ownership
+        # ### PATCH START: A-owned Engram and draft
         vllm_config = get_npu_ffn_config(vllm_config)
-        # ### PATCH END: F Engram ownership
+        # ### PATCH END: A-owned Engram and draft
         super().__init__(
             vllm_config=vllm_config,
             local_rank=local_rank,

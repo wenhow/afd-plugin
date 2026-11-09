@@ -19,7 +19,7 @@ from afd_plugin.config import (
     afd_config_from_mapping,
     validate_afd_config,
 )
-from tests.unit.fakes.vllm_config import hccl_vllm_config
+from tests.unit.fakes.vllm_config import hccl_vllm_config, v41_dspark_config
 
 
 @pytest.fixture(scope="module")
@@ -314,7 +314,6 @@ def test_runtime_rejects_compilation_or_graphs(
     ("field", "value", "reason"),
     [
         ("use_v2_model_runner", False, "ModelRunner V2"),
-        ("speculative_config", True, "speculative decoding"),
         ("kv_transfer_config", True, "KV transfer/PD"),
         ("lora_config", True, "LoRA"),
     ],
@@ -326,6 +325,45 @@ def test_runtime_rejects_unsupported_optional_features(
 
     with pytest.raises(ValueError, match=reason):
         hccl_config_module.validate_hccl_runtime(runtime, afd_config, 0)
+
+
+@pytest.fixture
+def dspark_runtime(runtime):
+    native = v41_dspark_config()
+    runtime.speculative_config = native.speculative_config
+    runtime.model_config.model = native.model_config.model
+    for name, value in vars(native.model_config.hf_text_config).items():
+        setattr(runtime.model_config.hf_text_config, name, value)
+    return runtime
+
+
+def test_hccl_admits_native_attention_local_dspark_components(
+    hccl_config_module, dspark_runtime, afd_config
+):
+    capabilities = hccl_config_module.validate_hccl_runtime(
+        dspark_runtime, afd_config, 0
+    )
+
+    assert capabilities.layer_indices == tuple(range(40))
+    assert dspark_runtime.speculative_config.draft_model_config.architectures == [
+        "DeepseekV41DSparkModel"
+    ]
+
+
+def test_hccl_rejects_classic_mtp(hccl_config_module, dspark_runtime, afd_config):
+    dspark_runtime.speculative_config.method = "mtp"
+
+    with pytest.raises(ValueError, match="method='dspark'"):
+        hccl_config_module.validate_hccl_runtime(dspark_runtime, afd_config, 0)
+
+
+def test_hccl_ffn_requires_the_draft_free_role_view(
+    hccl_config_module, dspark_runtime, afd_config
+):
+    with pytest.raises(ValueError, match="speculation off on FFN"):
+        hccl_config_module.validate_hccl_runtime(
+            dspark_runtime, replace(afd_config, role="ffn"), 0
+        )
 
 
 @pytest.mark.parametrize("capacity", [0, -1, True, 4.0])
