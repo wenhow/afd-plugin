@@ -2,28 +2,33 @@
 # SPDX-FileCopyrightText: Copyright contributors to the AFD plugin project
 """Explicit V2 input/run seams for the unadmitted staged HCCL model path.
 
-The native factory does not select this class. The caller must accept the v3
-parent plan and invoke run_staged in the native parent forward context. Native
-Ascend execute_model retains the sole finish_execution/Engram retirement.
+The scoped factory selects this class only with explicit transport injection.
+Production callers retain their existing admission. The caller must accept the
+v3 parent before native run; U1 fallback and plan collection are separate seams.
+Native Ascend execute_model retains the sole finish_execution/Engram retirement.
 """
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, cast
 
 import torch
-from vllm.config import CUDAGraphMode
+from vllm.config import CUDAGraphMode, VllmConfig
 from vllm.forward_context import (
     ForwardContext,
     create_forward_context,
     get_forward_context,
 )
 from vllm.platforms import current_platform
+from vllm.v1.kv_cache_interface import KVCacheConfig
 from vllm.v1.worker.gpu.input_batch import InputBatch
+from vllm.v1.worker.gpu.model_states.interface import ModelState
 from vllm.v1.worker.gpu.ubatch_utils import UBatchState, slice_model_inputs
 from vllm.v1.worker.ubatch_utils import UBatchSlices
+from vllm.v1.worker.utils import AttentionGroup
 from vllm_ascend.models.deepseek_v41.engram.model_state import EngramModelState
 
+from afd_plugin.config import HCCL_P2P_CONNECTOR, parse_afd_config
 from afd_plugin.connectors.npu.hccl_staged_transport import HcclStagedTransport
 from afd_plugin.model_executor.models.npu.deepseek_v41 import (
     AFDDeepseekV41AttentionForCausalLM,
@@ -37,6 +42,75 @@ from afd_plugin.v1.worker.npu.ubatch_runner import NPUUBatchRunner
 
 
 class HcclV41UBatchRunner(NPUUBatchRunner):
+    # Upstream: NPUUBatchRunner.__init__, adapting UBatchRunner @ ced6857a.
+    # Reason: native run has no connector argument, so keep its v3 dependency
+    # on the explicitly constructed runner rather than mutable module state.
+    # Functionality: retain native buffers/builders under the NPU factory's
+    # SM-control scope. Added keyword transport is caller-owned and is not
+    # initialized or closed here. Remove when upstream supports runner injection.
+    def __init__(
+        self,
+        vllm_config: VllmConfig,
+        device: torch.device,
+        model_state: ModelState,
+        attn_groups: list[list[AttentionGroup]],
+        kv_cache_config: KVCacheConfig,
+        max_num_reqs: int,
+        *,
+        kernel_block_sizes: list[int],
+        timeout_s: float,
+        transport: HcclStagedTransport,
+    ):
+        # ### PATCH START: admit explicit synchronous U2 construction
+        afd_config = parse_afd_config(vllm_config)
+        parallel = vllm_config.parallel_config
+        if (
+            afd_config.connector != HCCL_P2P_CONNECTOR
+            or afd_config.role != "attention"
+            or transport.role != "attention"
+            or not parallel.use_ubatching
+            or parallel.num_ubatches != 2
+            or not vllm_config.model_config.enforce_eager
+            or vllm_config.compilation_config.cudagraph_mode != CUDAGraphMode.NONE
+        ):
+            raise ValueError(
+                "explicit staged HCCL construction requires eager Attention U2"
+            )
+        if (
+            parallel.pipeline_parallel_size != 1
+            or parallel.prefill_context_parallel_size != 1
+            or parallel.decode_context_parallel_size != 1
+            or parallel.use_sequence_parallel_moe
+        ):
+            raise ValueError("V4.1 staged HCCL requires PP1, CP1 and non-SP")
+        if not isinstance(model_state, EngramModelState):
+            raise ValueError("V4.1 staged HCCL requires the native Engram ModelState")
+        if parallel.data_parallel_size != 1 or parallel.data_parallel_rank != 0:
+            raise ValueError("V4.1 staged HCCL construction requires DP1 rank zero")
+        capabilities = transport.negotiated_capabilities
+        if capabilities.native_tp_size != parallel.tensor_parallel_size:
+            raise ValueError("V4.1 staged HCCL transport native TP size must match")
+        if capabilities.attention_size != parallel.tensor_parallel_size:
+            raise ValueError(
+                "V4.1 staged HCCL role size must match its native TP world"
+            )
+        # WorkerBase writes the actual native rank to parallel.rank. With
+        # DP1/PP1/CP1, one Attention role is exactly that native TP world.
+        if parallel.rank != transport.role_rank:
+            raise ValueError("V4.1 staged HCCL native rank does not match role_rank")
+        self.transport = transport
+        # ### PATCH END: admit explicit synchronous U2 construction
+        super().__init__(
+            vllm_config,
+            device,
+            model_state,
+            attn_groups,
+            kv_cache_config,
+            max_num_reqs,
+            kernel_block_sizes=kernel_block_sizes,
+            timeout_s=timeout_s,
+        )
+
     # Upstream: UBatchRunner.prepare @ ced6857a and EngramModelState.prepare_attn
     # @ 7e37e29a. Patch reason: NPU child metadata preparation temporarily
     # bypasses Engram's override that records the parent's graph mode.
@@ -123,6 +197,30 @@ class HcclV41UBatchRunner(NPUUBatchRunner):
             context.ubatch_idx = i
             # ### PATCH END: Ascend child kwargs without native handoff threads
         return forward_contexts
+
+    # Upstream: UBatchRunner.run @ ced6857a:423-430.
+    # Reason: native begin_capturable_run starts full-model handoff threads.
+    # Functionality: execute the accepted v3 parent on one host thread using
+    # the explicitly injected transport; no model/history lifecycle is copied.
+    # Signature matches upstream, including its broad model/return annotations.
+    # Remove when native runner supports a synchronous stage execution callback.
+    def run(
+        self,
+        model: Any,
+        model_inputs: dict[str, Any],
+        ubatch_state: UBatchState,
+    ) -> Any:
+        # ### PATCH START: native entry uses the accepted caller-owned transport
+        transport = self.transport
+        if not transport.initialized or transport.closed or transport.terminal:
+            raise RuntimeError("native staged run requires an active HCCL transport")
+        return self.run_staged(
+            cast(AFDDeepseekV41AttentionForCausalLM, model),
+            model_inputs,
+            ubatch_state,
+            transport,
+        )
+        # ### PATCH END: native entry uses the accepted caller-owned transport
 
     def run_staged(
         self,

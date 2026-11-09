@@ -31,6 +31,7 @@ validation_paths:
   - "tests/unit/v1/worker/npu/test_hccl_v41_ubatch_runner.py"
   - "tests/unit/model_executor/test_async_cam_dbo.py"
   - "tests/npu/test_mrv2_dbo.py"
+  - "tests/npu/v41_ubatch_constructor_probe.py"
   - "tests/e2e/models/deepseek_v2_lite/test_deepseek_v2_lite.py"
   - "tests/e2e/accuracy/**"
   - "tests/e2e/models/deepseek_v2_lite/test_async_cam_npu.py"
@@ -54,6 +55,17 @@ last_reviewed: 2026-10-13
 ---
 
 # Attention runtime
+
+The V4.1 staged HCCL runner has a controlled native U2 factory/run seam:
+`use_npu_ubatch_factory(..., hccl_transport=transport)` constructs it only for
+eager DP1/PP1/CP1, non-SP Attention. It binds the caller-owned transport and
+validates role size, native TP size and rank before native buffer allocation.
+Its native `run` uses an already accepted v3 parent on one host thread;
+Ascend retains parent Engram preparation and its sole retirement hook.
+Omitting transport preserves existing factory behavior. Production callers do
+not yet inject this transport: native DP1/U1 dispatch, profile/dummy direct
+calls, Attention count collection and the FFN v3 service loop still require
+integration. This explicit seam does not enable the guarded V4.1 model path.
 
 ## Purpose and boundary
 

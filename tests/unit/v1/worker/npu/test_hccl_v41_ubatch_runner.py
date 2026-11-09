@@ -19,6 +19,7 @@ from vllm.forward_context import (  # noqa: E402
     override_forward_context,
 )
 
+from afd_plugin.compat.patches.npu import mrv2_ubatching as factory  # noqa: E402
 from afd_plugin.distributed.hccl import HcclStageLayout  # noqa: E402
 from afd_plugin.distributed.hccl_plan import HcclParentPlan  # noqa: E402
 from afd_plugin.v1.worker.npu import hccl_v41_ubatch_runner as module  # noqa: E402
@@ -217,8 +218,9 @@ def staged_case(runner_factory):
 
 
 @pytest.mark.parametrize("engram", [False, True])
+@pytest.mark.parametrize("entry", ["explicit", "native"])
 def test_staged_run_consumes_parent_producer_and_returns_native_parent_outputs(
-    staged_case, engram
+    staged_case, engram, entry
 ):
     case = staged_case(engram=engram)
     reference = make_staged_model(capacity=8, engram=engram)
@@ -228,9 +230,14 @@ def test_staged_run_consumes_parent_producer_and_returns_native_parent_outputs(
     }
     with override_forward_context(case.parent):
         expected = reference(**case.inputs, **kwargs)
-        output, auxiliary = case.runner.run_staged(
-            case.model, case.inputs, case.prepared, case.peer
-        )
+        if entry == "native":
+            case.peer.initialized, case.peer.closed = True, False
+            case.runner.transport = case.peer
+            output, auxiliary = case.runner.run(case.model, case.inputs, case.prepared)
+        else:
+            output, auxiliary = case.runner.run_staged(
+                case.model, case.inputs, case.prepared, case.peer
+            )
         assert get_forward_context() is case.parent
     torch.testing.assert_close(output[:5], expected[0][:5], rtol=0, atol=0)
     for actual, wanted in zip(auxiliary, expected[1], strict=True):
@@ -246,14 +253,22 @@ def test_staged_run_consumes_parent_producer_and_returns_native_parent_outputs(
     ]
 
 
+@pytest.mark.parametrize("entry", ["explicit", "native"])
 def test_staged_failure_is_terminal_and_restores_parent_context_and_attention_owner(
-    staged_case,
+    staged_case, entry
 ):
     case = staged_case(fail_step=(0, 1))
     parent_state = case.inner.shared_attention_state
     with override_forward_context(case.parent):
         with pytest.raises(RuntimeError, match="injected remote failure"):
-            case.runner.run_staged(case.model, case.inputs, case.prepared, case.peer)
+            if entry == "native":
+                case.peer.initialized, case.peer.closed = True, False
+                case.runner.transport = case.peer
+                case.runner.run(case.model, case.inputs, case.prepared)
+            else:
+                case.runner.run_staged(
+                    case.model, case.inputs, case.prepared, case.peer
+                )
         assert get_forward_context() is case.parent
     assert case.peer.terminal and not case.peer.completed
     assert case.inner.shared_attention_state is parent_state
@@ -281,3 +296,148 @@ def test_staged_run_rejects_unsupported_parent_contracts(staged_case, boundary):
         assert get_forward_context() is case.parent
     assert case.peer.terminal and not case.peer.completed
     assert case.peer.messages == []
+
+
+@pytest.mark.parametrize("state", ["uninitialized", "closed", "terminal", "no-plan"])
+def test_native_run_rejects_an_inactive_or_unaccepted_transport(staged_case, state):
+    case = staged_case()
+    case.runner.transport = case.peer
+    case.peer.initialized = state != "uninitialized"
+    case.peer.closed = state == "closed"
+    case.peer.terminal = state == "terminal"
+    if state == "no-plan":
+        case.peer.plan = None
+    with override_forward_context(case.parent):
+        with pytest.raises((ValueError, RuntimeError), match="active HCCL|accepted"):
+            case.runner.run(case.model, case.inputs, case.prepared)
+        assert get_forward_context() is case.parent
+    assert case.peer.messages == []
+    assert not case.peer.completed
+
+
+@pytest.fixture
+def scoped_factory_case(monkeypatch, staged_case):
+    case = staged_case()
+    case.runner.vllm_config.compilation_config.cudagraph_mode = CUDAGraphMode.NONE
+    case.runner.parallel_config.rank = 0
+    case.peer.negotiated_capabilities = SimpleNamespace(
+        native_tp_size=1, attention_size=1
+    )
+
+    # This test owns factory selection, not device allocation. The separately
+    # validated native prepare/context state is the CPU constructor boundary.
+    def cpu_constructor(runner, *args, **kwargs):
+        runner.__dict__.update(case.runner.__dict__)
+
+    monkeypatch.setattr(module.NPUUBatchRunner, "__init__", cpu_constructor)
+    case.owner = SimpleNamespace(kernel_block_sizes=[1])
+
+    def construct():
+        return factory.model_runner.maybe_build_ubatch_runner(
+            case.runner.vllm_config,
+            torch.device("cpu"),
+            case.runner.model_state,
+            [],
+            case.runner.kv_cache_config,
+            2,
+        )
+
+    case.construct = construct
+    return case
+
+
+def test_explicit_factory_binds_native_dp1_run_and_restores_both_native_aliases(
+    scoped_factory_case,
+):
+    case = scoped_factory_case
+    original_factory = factory.model_runner.maybe_build_ubatch_runner
+    original_sm = factory.ubatch_utils.create_sm_control_context
+    with factory.use_npu_ubatch_factory(case.owner, hccl_transport=case.peer):
+        runner = case.construct()
+        assert isinstance(runner, module.HcclV41UBatchRunner)
+        case.peer.initialized, case.peer.closed = True, False
+        with override_forward_context(case.parent):
+            output, _ = runner.run(case.model, case.inputs, case.prepared)
+    assert output.shape == (8, 4)
+    assert case.peer.completed and not case.peer.terminal
+    assert factory.model_runner.maybe_build_ubatch_runner is original_factory
+    assert factory.ubatch_utils.create_sm_control_context is original_sm
+
+
+@pytest.mark.parametrize(
+    "boundary,error",
+    [
+        ("dp-size", "DP1 rank zero"),
+        ("dp-rank", "DP1 rank zero"),
+        ("tp-size", "transport native TP size"),
+        ("role-size", "role size must match"),
+        ("native-rank", "native rank does not match"),
+    ],
+)
+def test_explicit_factory_rejects_unproven_native_group_mappings(
+    scoped_factory_case, boundary, error
+):
+    case = scoped_factory_case
+    parallel = case.runner.parallel_config
+    if boundary == "dp-size":
+        parallel.data_parallel_size = 2
+    elif boundary == "dp-rank":
+        parallel.data_parallel_rank = 1
+    elif boundary == "tp-size":
+        parallel.tensor_parallel_size = 2
+    elif boundary == "role-size":
+        case.peer.negotiated_capabilities.attention_size = 2
+    else:
+        parallel.tensor_parallel_size = 2
+        case.peer.negotiated_capabilities.native_tp_size = 2
+        case.peer.negotiated_capabilities.attention_size = 2
+        parallel.rank = 1
+    with (
+        pytest.raises(ValueError, match=error),
+        factory.use_npu_ubatch_factory(case.owner, hccl_transport=case.peer),
+    ):
+        case.construct()
+    assert case.peer.messages == []
+    assert not case.peer.completed
+
+
+def test_omitted_transport_preserves_existing_hccl_dp1_factory_admission(
+    scoped_factory_case,
+):
+    case = scoped_factory_case
+    with factory.use_npu_ubatch_factory(case.owner):
+        assert case.construct() is None
+
+
+@pytest.mark.parametrize(
+    "boundary",
+    ["disabled", "u1", "u3", "graph", "non-eager", "connector", "role", "peer-role"],
+)
+def test_explicit_factory_rejects_unsupported_construction_without_silent_fallback(
+    scoped_factory_case, boundary
+):
+    case = scoped_factory_case
+    config = case.runner.vllm_config
+    if boundary == "disabled":
+        config.parallel_config.use_ubatching = False
+    elif boundary in {"u1", "u3"}:
+        config.parallel_config.num_ubatches = int(boundary[1])
+    elif boundary == "graph":
+        config.compilation_config.cudagraph_mode = CUDAGraphMode.FULL
+    elif boundary == "non-eager":
+        config.model_config.enforce_eager = False
+    elif boundary == "connector":
+        config.additional_config["afd"]["connector"] = "CAMP2pAFDConnector"
+    elif boundary == "role":
+        config.additional_config["afd"]["role"] = "ffn"
+    else:
+        case.peer.role = "ffn"
+    original_factory = factory.model_runner.maybe_build_ubatch_runner
+    original_sm = factory.ubatch_utils.create_sm_control_context
+    with (
+        pytest.raises(ValueError, match="eager Attention U2"),
+        factory.use_npu_ubatch_factory(case.owner, hccl_transport=case.peer),
+    ):
+        case.construct()
+    assert factory.model_runner.maybe_build_ubatch_runner is original_factory
+    assert factory.ubatch_utils.create_sm_control_context is original_sm

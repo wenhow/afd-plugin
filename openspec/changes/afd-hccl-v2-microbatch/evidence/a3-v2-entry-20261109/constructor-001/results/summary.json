@@ -1,0 +1,23 @@
+{
+  "scope": "real native V2 U2 constructor; inactive-transport run admission",
+  "remote": "/mnt/workspace/tmp/afd-c0-20261104.hVgsIf/c4-v2-entry-20261109-ym17saug",
+  "command": [
+    "/mnt/workspace/code/.venvs/afd-v030-dsv41-c0/bin/python",
+    "-B",
+    "/mnt/workspace/tmp/afd-c0-20261104.hVgsIf/c4-v2-entry-20261109-ym17saug/snapshot/tests/npu/v41_ubatch_constructor_probe.py",
+    "--device",
+    "0",
+    "--output-dir",
+    "/mnt/workspace/tmp/afd-c0-20261104.hVgsIf/c4-v2-entry-20261109-ym17saug/results/probe"
+  ],
+  "device": 0,
+  "source_files_match": true,
+  "returncode": 0,
+  "timed_out": false,
+  "killed_owned_process": false,
+  "cpu": null,
+  "device_probe_started": true,
+  "idle_boards_before": 8,
+  "idle_boards_after": 8,
+  "success": true
+}

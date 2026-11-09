@@ -1,0 +1,70 @@
+{
+  "scope": "explicit DP1 eager U2 native construction and accepted-parent run seam; no production enablement",
+  "cpu": {
+    "passed": 112,
+    "warnings": 14,
+    "breakdown": {
+      "stage_state": 41,
+      "stage_model_driver": 28,
+      "ubatch_runner": 43
+    },
+    "evidence": "a3-stage-state-20261109/native-entry-cpu-008/results"
+  },
+  "npu_constructor": {
+    "success": true,
+    "device": 0,
+    "engram_model_state_constructor": "real; depth0, no lookup producer",
+    "ubatch_runner_constructor": "real via native factory alias",
+    "streams": 2,
+    "stage_buffers": "two independent query_start_loc and seq_lens INT32 NPU buffers",
+    "attention_groups": 0,
+    "inactive_real_transport_run": "explicitly rejected",
+    "successful_model_execution": false,
+    "evidence": "a3-v2-entry-20261109/constructor-001/results/probe/result.json"
+  },
+  "verified_working_tree_bytes": {
+    "afd_plugin/compat/patches/npu/mrv2_ubatching.py": {
+      "sha256": "1e53b24475946f0cc83d6a05b5a83af5d4746287bd9ba04f357021df27905ecb",
+      "a3_snapshots": [
+        "cpu",
+        "npu_constructor"
+      ]
+    },
+    "afd_plugin/v1/worker/npu/hccl_v41_ubatch_runner.py": {
+      "sha256": "7d9ec420eb7d15192819e47587e37116e846dde7967998ea615c284b95ea3435",
+      "a3_snapshots": [
+        "cpu",
+        "npu_constructor"
+      ]
+    },
+    "tests/unit/v1/worker/npu/test_hccl_v41_ubatch_runner.py": {
+      "sha256": "ba7ac5e1af8e325a7d404f8a1ebae635e31a27f479d7ac1d5f3edc075e414d9d",
+      "a3_snapshots": [
+        "cpu"
+      ]
+    },
+    "tests/npu/v41_ubatch_constructor_probe.py": {
+      "sha256": "49d6a407788f95d7d700a6683d3b8205e786ed8cf82a54690c16f5ce3d9c97e1",
+      "a3_snapshots": [
+        "npu_constructor"
+      ]
+    }
+  },
+  "static_checks": [
+    "Ruff check/format",
+    "Python 3.11 AST",
+    "independent source/TP role ownership review"
+  ],
+  "pending": [
+    "production transport injection",
+    "native U1/profile/dummy model call seam",
+    "Attention real token-count collection and parent plan lifecycle",
+    "FFN v3 service dispatch",
+    "actual attention metadata builders and target model operators",
+    "full-model NPU U1/U2/Engram/history/output equivalence",
+    "mid-data cancellation and supervision",
+    "C5-C7 graph, streams and DSpark/PD qualification"
+  ],
+  "guard": "unchanged and closed",
+  "upstream_sources": "unchanged"
+}

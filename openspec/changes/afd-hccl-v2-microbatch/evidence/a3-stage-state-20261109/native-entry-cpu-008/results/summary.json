@@ -1,0 +1,28 @@
+{
+  "scope": "CPU seams with actual installed dependencies",
+  "success": true,
+  "cpu": {
+    "scope": "seams",
+    "command": [
+      "/mnt/workspace/code/.venvs/afd-v030-dsv41-c0/bin/python",
+      "-B",
+      "-m",
+      "pytest",
+      "-o",
+      "addopts=",
+      "-q",
+      "-rs",
+      "--tb=short",
+      "-p",
+      "no:cacheprovider",
+      "--junitxml=/mnt/workspace/tmp/afd-c0-20261104.hVgsIf/c4-stage-state-20261109-p9rzv5c_/results/cpu-seams.xml",
+      "tests/unit/model_executor/models/npu/test_deepseek_v41_stage_state.py",
+      "tests/unit/model_executor/models/npu/test_deepseek_v41_staged.py",
+      "tests/unit/v1/worker/npu/test_hccl_v41_ubatch_runner.py"
+    ],
+    "returncode": 0
+  },
+  "remote": "/mnt/workspace/tmp/afd-c0-20261104.hVgsIf/c4-stage-state-20261109-p9rzv5c_",
+  "source_files_match": true,
+  "device_probe_started": false
+}

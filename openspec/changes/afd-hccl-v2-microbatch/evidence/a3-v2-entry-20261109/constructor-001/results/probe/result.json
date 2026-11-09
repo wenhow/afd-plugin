@@ -1,0 +1,62 @@
+{
+  "scope": "real native V2 U2 constructor and inactive-transport run admission",
+  "device": 0,
+  "success": true,
+  "native_model_weights_loaded": false,
+  "native_model_constructor_called": false,
+  "attention_metadata_or_model_operators_executed": false,
+  "distributed_groups_created": false,
+  "accepted_parent_or_successful_model_run": false,
+  "runner_class": "afd_plugin.v1.worker.npu.hccl_v41_ubatch_runner.HcclV41UBatchRunner",
+  "model_state_class": "vllm_ascend.models.deepseek_v41.engram.model_state.EngramModelState",
+  "native_engram_model_state_constructor_called": true,
+  "native_ubatch_runner_constructor_called": true,
+  "native_torch_cuda_wrapper_used": true,
+  "factory_and_sm_control_restored": true,
+  "native_npu_streams": [
+    "<torch_npu.npu.Stream device=npu:0 npu_stream=0xaaaaf66662a0>",
+    "<torch_npu.npu.Stream device=npu:0 npu_stream=0xaaaaf674ab20>"
+  ],
+  "buffers": [
+    {
+      "kind": "query_start_loc",
+      "stage": 0,
+      "shape": [
+        3
+      ],
+      "dtype": "torch.int32",
+      "device": "npu:0"
+    },
+    {
+      "kind": "query_start_loc",
+      "stage": 1,
+      "shape": [
+        3
+      ],
+      "dtype": "torch.int32",
+      "device": "npu:0"
+    },
+    {
+      "kind": "seq_lens",
+      "stage": 0,
+      "shape": [
+        2
+      ],
+      "dtype": "torch.int32",
+      "device": "npu:0"
+    },
+    {
+      "kind": "seq_lens",
+      "stage": 1,
+      "shape": [
+        2
+      ],
+      "dtype": "torch.int32",
+      "device": "npu:0"
+    }
+  ],
+  "uninitialized_transport_run_rejection": "native staged run requires an active HCCL transport",
+  "caller_owned_transport_remained_uninitialized": true,
+  "attention_groups": 0,
+  "elapsed_seconds": 15.158794041723013
+}

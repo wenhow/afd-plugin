@@ -38,6 +38,7 @@ from vllm_ascend.worker.v2.input_batch import AscendInputBatch
 from afd_plugin.config import is_afd_async_dp, parse_afd_config
 
 if TYPE_CHECKING:
+    from afd_plugin.connectors.npu.hccl_staged_transport import HcclStagedTransport
     from afd_plugin.v1.worker.npu.attention_model_runner_v2 import (
         AFDNPUAttentionModelRunnerV2,
     )
@@ -106,14 +107,25 @@ class NPUUBatchContext(ubatching.UBatchContext):
 
 
 @contextmanager
-def use_npu_ubatch_factory(runner: "AFDNPUAttentionModelRunnerV2") -> Iterator[None]:
-    """Replace the factory alias actually called by GPUModelRunner initialization."""
+def use_npu_ubatch_factory(
+    runner: "AFDNPUAttentionModelRunnerV2",
+    *,
+    hccl_transport: "HcclStagedTransport | None" = None,
+) -> Iterator[None]:
+    """Scope native construction; staged HCCL requires explicit transport injection.
+
+    Production callers omit ``hccl_transport`` and retain their existing
+    connector admission. This injection does not open the V4.1 model guard.
+    """
     original_factory = model_runner.maybe_build_ubatch_runner
     original_sm_control = ubatch_utils.create_sm_control_context
 
-    # This scope runs only during AFD NPU KV initialization. Keep the native
-    # eligibility check, except Async CAM needs no DP handshake at DP=1.
-    # Signature matches maybe_build_ubatch_runner at ced6857a.
+    # Patch reason: the native factory builds CUDA runners and excludes DP1.
+    # Patch functionality: select the NPU runner, with controlled HCCL U2 at
+    # DP1 only through this scope's added hccl_transport keyword. Ordinary
+    # callers retain admission; U1/profile direct model calls are not routed.
+    # Signature matches maybe_build_ubatch_runner at ced6857a; no added args
+    # on the native factory. Remove when upstream supports NPU runner injection.
     def maybe_build_ubatch_runner(
         vllm_config: VllmConfig,
         device: torch.device,
@@ -126,6 +138,22 @@ def use_npu_ubatch_factory(runner: "AFDNPUAttentionModelRunnerV2") -> Iterator[N
         from afd_plugin.v1.worker.npu.ubatch_runner import NPUUBatchRunner
 
         parallel = vllm_config.parallel_config
+        if hccl_transport is not None:
+            from afd_plugin.v1.worker.npu.hccl_v41_ubatch_runner import (
+                HcclV41UBatchRunner,
+            )
+
+            return HcclV41UBatchRunner(
+                vllm_config,
+                device,
+                model_state,
+                attn_groups,
+                kv_cache_config,
+                max_num_reqs,
+                kernel_block_sizes=runner.kernel_block_sizes,
+                timeout_s=parse_afd_config(vllm_config).afd_process_group_timeout_s,
+                transport=hccl_transport,
+            )
         if not parallel.use_ubatching or (
             parallel.data_parallel_size <= 1 and not is_afd_async_dp(vllm_config)
         ):
