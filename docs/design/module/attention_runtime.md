@@ -12,6 +12,7 @@ primary_code_paths:
   - "afd_plugin/v1/worker/ubatch_wrapper.py"
   - "afd_plugin/v1/worker/npu/attention_model_runner_v2.py"
   - "afd_plugin/v1/worker/npu/hccl_v41_ubatch_runner.py"
+  - "afd_plugin/v1/worker/npu/hccl_v41_execution.py"
   - "afd_plugin/v1/worker/npu/attention_worker.py"
 related_code_paths:
   - "afd_plugin/connectors/**"
@@ -29,6 +30,7 @@ validation_paths:
   - "tests/unit/v1/worker/test_npu_runtime.py"
   - "tests/unit/v1/worker/test_npu_model_runner_v2.py"
   - "tests/unit/v1/worker/npu/test_hccl_v41_ubatch_runner.py"
+  - "tests/unit/v1/worker/npu/test_hccl_v41_execution.py"
   - "tests/unit/model_executor/test_async_cam_dbo.py"
   - "tests/npu/test_mrv2_dbo.py"
   - "tests/npu/v41_ubatch_constructor_probe.py"
@@ -56,16 +58,17 @@ last_reviewed: 2026-10-13
 
 # Attention runtime
 
-The V4.1 staged HCCL runner has a controlled native U2 factory/run seam:
-`use_npu_ubatch_factory(..., hccl_transport=transport)` constructs it only for
-eager DP1/PP1/CP1, non-SP Attention. It binds the caller-owned transport and
-validates role size, native TP size and rank before native buffer allocation.
-Its native `run` uses an already accepted v3 parent on one host thread;
-Ascend retains parent Engram preparation and its sole retirement hook.
-Omitting transport preserves existing factory behavior. Production callers do
-not yet inject this transport: native DP1/U1 dispatch, profile/dummy direct
-calls, Attention count collection and the FFN v3 service loop still require
-integration. This explicit seam does not enable the guarded V4.1 model path.
+The V4.1 staged HCCL path supports explicit binding before `load_model`.
+The binding checks model dimensions, layers, capacity, native TP rank and NPU
+device before initializing its v3 session. Native execution submits actual
+per-rank counts before model work, then selects a common stage executor for
+U1/profile or the native microbatch runner for U2. KV/request preparation,
+sampling and the sole Engram retirement hook remain with native Ascend.
+This path requires eager DP1/PP1/CP1, non-SP and one native TP world per role.
+Normal NPU construction now selects and binds the staged adapter for a V4.1
+HCCL target configured for U2, including that session's native U1 fallback.
+Default U1 and DSpark/U1 retain their existing v2 connector. The V4.1 model
+admission guard and full-checkpoint qualification remain unchanged.
 
 ## Purpose and boundary
 
@@ -87,10 +90,14 @@ model modules must not depend on the Attention worker implementation.
 
 The explicit [V4.1 staged HCCL runner](../../../afd_plugin/v1/worker/npu/hccl_v41_ubatch_runner.py)
 reuses native child preparation and runs one parent Engram producer before
-typed stage execution. A-only child contexts have no local-MoE DP sidecar;
-the accepted HCCL plan owns actual peer counts. The factory does not select
-this component, and native runner construction and full-model U2 qualification
-remain separate from its CPU input/run seam tests.
+typed stage execution. U1 consumes the kwargs prepared by the native module
+pre-hook; U2 consumes its pending producer once in the parent context. A-only
+child contexts have no local-MoE DP sidecar. The accepted HCCL plan owns actual
+peer counts, which every Attention rank checks against its own report.
+`bind_hccl_v41_transport` connects this execution scope to native load, KV
+initialization, execute/dummy and idle shutdown. The backend constructor
+automatically binds a staged adapter to its own transport. Full-model U2
+qualification remains separate from this software wiring.
 
 AFD does not add an AFD-specific CLI flag. Configuration is read from vLLM
 `additional_config["afd"]`, and config normalization selects the role-specific

@@ -16,13 +16,19 @@ import torch
 from vllm.config import CompilationMode
 from vllm.config.compilation import CUDAGraphMode
 
-from afd_plugin.compat.npu.runtime_config import validate_deepseek_v41_speculation
-from afd_plugin.config import HCCL_P2P_CONNECTOR, AFDConfig
+from afd_plugin.compat.npu.runtime_config import (
+    is_deepseek_v41_model,
+    validate_deepseek_v41_speculation,
+)
+from afd_plugin.config import HCCL_P2P_CONNECTOR, AFDConfig, parse_afd_config
 from afd_plugin.connectors.base import ConnectorExtraInfo
 from afd_plugin.connectors.npu.hccl_protocol import MAX_TARGET_LAYERS, HcclCapabilities
+from afd_plugin.distributed.hccl_plan import HcclPlanCapabilities
 
 if TYPE_CHECKING:
     from vllm.config import VllmConfig
+
+    from afd_plugin.connectors.npu.hccl_staged_transport import HcclStagedTransport
 
 DEEPSEEK_V41_ARCHITECTURES = frozenset(
     {"DeepseekV41ForCausalLM", "AFDDeepseekV41ForCausalLM"}
@@ -62,6 +68,86 @@ def validate_hccl_runtime(
     vllm_config: VllmConfig, afd_config: AFDConfig, role_rank: int
 ) -> HcclCapabilities:
     """Reject unsupported combinations before rendezvous or NPU allocation."""
+    return _validate_hccl_runtime(vllm_config, afd_config, role_rank, staged=False)
+
+
+def validate_staged_hccl_runtime(
+    vllm_config: VllmConfig, afd_config: AFDConfig, role_rank: int
+) -> HcclPlanCapabilities:
+    """Describe the eager V4.1 DP1 native-TP service without admitting models.
+
+    Logical U1 and native U2 share the counts-enabled protocol. The existing
+    model guard still controls production admission; this allocates no groups.
+    """
+    caps = _validate_hccl_runtime(vllm_config, afd_config, role_rank, staged=True)
+    result = HcclPlanCapabilities(
+        hidden_size=caps.hidden_size,
+        vocab_size=caps.vocab_size,
+        max_tokens=caps.max_tokens,
+        layer_indices=caps.layer_indices,
+        attention_size=afd_config.num_attention_ranks,
+        ffn_size=afd_config.num_ffn_ranks,
+        native_tp_size=caps.native_tp_size,
+        local_counts_version=1,
+    )
+    result.validate()
+    return result
+
+
+def uses_staged_hccl_runtime(vllm_config: VllmConfig, afd_config: AFDConfig) -> bool:
+    """Select the text target service independently of model admission."""
+    return (
+        afd_config.connector == HCCL_P2P_CONNECTOR
+        and is_deepseek_v41_model(vllm_config)
+        and vllm_config.speculative_config is None
+        and (
+            vllm_config.parallel_config.enable_dbo
+            or vllm_config.parallel_config.use_ubatching
+        )
+    )
+
+
+def validate_staged_hccl_binding(
+    vllm_config: VllmConfig,
+    transport: HcclStagedTransport,
+    device: torch.device,
+) -> None:
+    """Bind an injected wire to its actual model, native rank and device."""
+    afd_config = parse_afd_config(vllm_config, expected_role=transport.role)
+    expected = validate_staged_hccl_runtime(
+        vllm_config, afd_config, transport.role_rank
+    )
+    caps = transport.negotiated_capabilities
+    caps.validate()
+    if (
+        device.type != "npu"
+        or device.index != transport.local_device
+        or vllm_config.parallel_config.rank != transport.role_rank
+        or transport.closed
+        or transport.terminal
+        or transport.plan is not None
+        or caps.hidden_size != expected.hidden_size
+        or caps.vocab_size != expected.vocab_size
+        or caps.layer_indices != expected.layer_indices
+        or caps.attention_size != expected.attention_size
+        or caps.ffn_size != expected.ffn_size
+        or caps.native_tp_size != expected.native_tp_size
+        or caps.local_counts_version != expected.local_counts_version
+        or caps.max_tokens > expected.max_tokens
+    ):
+        raise ValueError(
+            "staged HCCL binding requires an idle transport for this model, "
+            "native rank, capacity and NPU device"
+        )
+
+
+def _validate_hccl_runtime(
+    vllm_config: VllmConfig,
+    afd_config: AFDConfig,
+    role_rank: int,
+    *,
+    staged: bool,
+) -> HcclCapabilities:
     afd_config.validate()
     if afd_config.connector != HCCL_P2P_CONNECTOR:
         raise ValueError("HCCL runtime requires P2pHcclAFDConnector")
@@ -103,7 +189,10 @@ def validate_hccl_runtime(
         raise ValueError("P2pHcclAFDConnector does not support sequence parallelism")
     # In the pinned upstream, no ubatching is reported as num_ubatches=0;
     # Ascend resets ubatch_size to 0. Both 0 and explicit 1 represent logical U1.
-    if (
+    if staged:
+        if parallel.num_ubatches not in (0, 1, 2):
+            raise ValueError("staged HCCL requires logical U1 or native U2")
+    elif (
         parallel.enable_dbo
         or parallel.use_ubatching
         or parallel.num_ubatches not in (0, 1)
@@ -144,6 +233,8 @@ def validate_hccl_runtime(
             "P2pHcclAFDConnector requires compilation and graph modes NONE"
         )
     if vllm_config.speculative_config is not None:
+        if staged:
+            raise ValueError("staged HCCL requires speculation off")
         if afd_config.role != "attention":
             raise ValueError("P2pHcclAFDConnector requires speculation off on FFN")
         validate_deepseek_v41_speculation(vllm_config)
@@ -174,4 +265,10 @@ def validate_hccl_runtime(
     return capabilities
 
 
-__all__ = ["HcclExtraInfo", "validate_hccl_runtime"]
+__all__ = [
+    "HcclExtraInfo",
+    "validate_hccl_runtime",
+    "validate_staged_hccl_binding",
+    "validate_staged_hccl_runtime",
+    "uses_staged_hccl_runtime",
+]

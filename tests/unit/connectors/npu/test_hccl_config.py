@@ -183,6 +183,50 @@ def test_runtime_accepts_native_logical_u1(
     hccl_config_module.validate_hccl_runtime(runtime, afd_config, 0)
 
 
+@pytest.mark.parametrize("num_ubatches", [0, 1, 2])
+def test_staged_runtime_admits_counts_protocol_without_relaxing_legacy_u1(
+    hccl_config_module, runtime, afd_config, num_ubatches
+):
+    parallel = runtime.parallel_config
+    parallel.num_ubatches = num_ubatches
+    parallel.enable_dbo = parallel.use_ubatching = num_ubatches == 2
+    before = deepcopy(runtime)
+
+    caps = hccl_config_module.validate_staged_hccl_runtime(runtime, afd_config, 0)
+
+    assert caps.local_counts_version == 1
+    assert (caps.attention_size, caps.ffn_size, caps.native_tp_size) == (1, 1, 1)
+    assert (caps.hidden_size, caps.vocab_size, caps.max_tokens) == (16, 1024, 16)
+    assert caps.layer_indices == (0, 1)
+    assert runtime == before
+    if num_ubatches == 2:
+        with pytest.raises(ValueError, match="U1"):
+            hccl_config_module.validate_hccl_runtime(runtime, afd_config, 0)
+
+
+@pytest.mark.parametrize(
+    ("section", "field", "value", "reason"),
+    [
+        ("parallel_config", "num_ubatches", 3, "U1 or native U2"),
+        ("parallel_config", "enable_expert_parallel", True, "expert parallelism"),
+        ("parallel_config", "use_sequence_parallel_moe", True, "sequence parallelism"),
+        ("parallel_config", "enable_eplb", True, "EPLB"),
+        ("compilation_config", "use_inductor_graph_partition", True, "modes NONE"),
+        (None, "kv_transfer_config", True, "KV transfer/PD"),
+        (None, "lora_config", True, "LoRA"),
+        (None, "speculative_config", True, "speculation off"),
+    ],
+)
+def test_staged_runtime_preserves_unimplemented_feature_boundaries(
+    hccl_config_module, runtime, afd_config, section, field, value, reason
+):
+    target = runtime if section is None else vars(runtime)[section]
+    setattr(target, field, value)
+
+    with pytest.raises(ValueError, match=reason):
+        hccl_config_module.validate_staged_hccl_runtime(runtime, afd_config, 0)
+
+
 @pytest.mark.parametrize(
     ("field", "value", "reason"),
     [

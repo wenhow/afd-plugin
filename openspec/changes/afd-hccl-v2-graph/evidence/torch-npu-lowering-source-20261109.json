@@ -1,0 +1,144 @@
+{
+  "scope": "read-only installed Python source and AST signatures; not graph capture or runtime acceptance",
+  "collection_date": "2026-11-09",
+  "host": "devenvc_rissvg.4ff038c993bf40219c03182f786a9def.atomgit.0",
+  "site_packages": "/mnt/workspace/code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages",
+  "packages": {
+    "torch_npu": "2.10.0.post4",
+    "torch": "2.10.0"
+  },
+  "collection_method": "System Python pathlib/hashlib/ast and importlib.metadata.distributions(path=[venv_site]); no torch import. Excerpts transcribed from tool stdout; full source bytes were not archived locally.",
+  "device_runtime_imported": false,
+  "graph_capture_or_lowering_executed": false,
+  "packages_modified": false,
+  "sources": [
+    {
+      "path": "torch_npu/dynamo/npugraph_ex/ops/_hcom_send_recv.py",
+      "sha256": "95a7b9816b91f1fb5d43fe482366351592506985d1440055b6a21ab7b903c8ce",
+      "excerpts": [
+        {
+          "lines": [
+            14,
+            15
+          ],
+          "text": "\"_send(Tensor input_tensor, int? dst, int[] ranks, str pg_tag,\"\n\"int tag, int? group_dst=None, int[]? shape=None) -> None\")"
+        },
+        {
+          "lines": [
+            70,
+            71
+          ],
+          "text": "\"_recv(Tensor out_tensor, int? src, int[] ranks, str pg_tag,\"\n\"int tag, int? group_src=None, int[]? shape=None) -> Tensor\")"
+        },
+        {
+          "lines": [
+            62,
+            64
+          ],
+          "text": "# used for static shape\nshape = tensor.shape\ntorch.ops.npu_define._send(tensor, dst, rank_list, pg_tag, tag, group_dst, shape)"
+        },
+        {
+          "lines": [
+            119,
+            122
+          ],
+          "text": "# used for static shape\nshape = tensor.shape\nout = torch.ops.npu_define._recv(tensor, src, rank_list, pg_tag, tag, group_src, shape)\ntensor.copy_(out)"
+        }
+      ],
+      "notes": [
+        "Meta and PrivateUse1 implementations registered; both ops marked with has_side_effect.",
+        "PrivateUse1 implementations use c10d send/recv and ignore shape; this does not prove GE recv accepts omitted shape."
+      ]
+    },
+    {
+      "path": "torch_npu/dynamo/torchair/_ge_concrete_graph/ge_converter/experimental/hcom_send_recv.py",
+      "sha256": "f34c259696f9b152f8de40235647554b766f7e33296ae44d0dd3f17e697e082e",
+      "excerpts": [
+        {
+          "lines": [
+            51,
+            65
+          ],
+          "text": "@register_fx_node_ge_converter(torch.ops.npu_define._send.default)\ndef convert_send(tensor, dst=None, ranks=None, pg_tag=\"\", tag=0, group_dst=None, shape=None, meta_outputs=None):\n    group_name = get_group_name_and_record(pg_tag, ranks, len(ranks))\n    group = c10d._find_or_create_pg_by_ranks_and_tag(pg_tag, ranks, len(ranks))\n    dest_rank = c10d._canonicalize_group_rank(group, dst, group_dst)\n    ge.HcomSend(tensor, group=group_name, sr_tag=tag, dest_rank=dest_rank)",
+          "normalized_signature": true
+        },
+        {
+          "lines": [
+            125,
+            141
+          ],
+          "text": "@register_fx_node_ge_converter(torch.ops.npu_define._recv.default)\ndef convert_recv(tensor, src=None, ranks=None, pg_tag=\"\", tag=0, group_src=None, shape=None, meta_outputs=None):\n    group_name = get_group_name_and_record(pg_tag, ranks, len(ranks))\n    group = c10d._find_or_create_pg_by_ranks_and_tag(pg_tag, ranks, len(ranks))\n    src_rank = c10d._canonicalize_group_rank(group, src, group_src)\n    op = ge.HcomReceive(group=group_name, src_rank=src_rank, sr_tag=tag, shape=shape, dtype=tensor.dtype)\n    dont_prune_me(op)\n    return op",
+          "normalized_signature": true
+        }
+      ]
+    },
+    {
+      "path": "torch_npu/dynamo/npugraph_ex/_utils/adjust_traceable_collective_remaps.py",
+      "sha256": "d1121d36ce556eb70dd4b347d9610891c2987c4b1ffa0e94dc3f4b3e6179af3b",
+      "excerpts": [
+        {
+          "lines": [
+            44,
+            72
+          ],
+          "text": "adjust_traceable_collective_remaps imports npugraph_ex.ops._hcom_send_recv npu_send_patch_dist/npu_recv_patch_dist, maps legacy_send/legacy_recv to those functions in traceable_collective_remaps, and installs the functions in torch.distributed._functional_collectives.",
+          "paraphrase": true
+        }
+      ]
+    },
+    {
+      "path": "torch_npu/dynamo/torchair/_utils/adjust_traceable_collective_remaps.py",
+      "sha256": "b70845eca1168b64db007c90f61f04a744dcb2ed4e91ffa0b6412c7b410d9f35"
+    },
+    {
+      "path": "torch_npu/dynamo/npugraph_ex/npu_fx_compiler.py",
+      "sha256": "926818c66e7fae1cc5191ff994935b746c46fcd9e6fba23e1938a0f84fe1382c",
+      "excerpts": [
+        {
+          "lines": [
+            777,
+            795
+          ],
+          "text": "_process_send_recv scans npu_define._send/_recv nodes and checks _is_gte_cann_version(\"8.6.0\", module=\"CANN\"); unsupported versions currently only log an error.",
+          "paraphrase": true
+        }
+      ]
+    },
+    {
+      "path": "torch_npu/dynamo/torchair/npu_fx_compiler.py",
+      "sha256": "dcce2b8c6589c3edeb9700efd2ad99c9bf182e3c210e011333b61a091ac4d2f9"
+    },
+    {
+      "path": "torch_npu/dynamo/torchair/_ge_concrete_graph/fx2ge_converter.py",
+      "sha256": "f61225241594a18c6af48b6f5d06bcf2e9d762d90e781f730d984112a7ad6d1a"
+    },
+    {
+      "path": "torch/distributed/distributed_c10d.py",
+      "sha256": "31155344233ae77360a630bbeacf1b43cfa18f1923cf2103cd5b3142db39ec5c",
+      "ast_signatures": [
+        {
+          "line": 2540,
+          "name": "send",
+          "args": "tensor: torch.Tensor, dst: int | None=None, group: ProcessGroup | None=None, tag: int=0, group_dst: int | None=None",
+          "returns": "None",
+          "decorators": [
+            "_exception_logger"
+          ]
+        },
+        {
+          "line": 2572,
+          "name": "recv",
+          "args": "tensor: torch.Tensor, src: int | None=None, group: ProcessGroup | None=None, tag: int=0, group_src: int | None=None",
+          "returns": "int",
+          "decorators": [
+            "_exception_logger"
+          ]
+        }
+      ]
+    },
+    {
+      "path": "torch_npu/distributed/distributed_c10d.py",
+      "sha256": "6afceb0425ee4229e1bdab21dd1c3965f7e4a599c8f495a42cba70fad997fec7"
+    }
+  ]
+}

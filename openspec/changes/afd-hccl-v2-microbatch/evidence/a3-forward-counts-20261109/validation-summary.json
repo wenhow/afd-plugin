@@ -1,0 +1,90 @@
+{
+  "scope": "CPU integration and real HCCL local-count/FFN-service components; no full-model acceptance",
+  "final_cpu": {
+    "label": "integration-cpu-009",
+    "passed": 2242,
+    "skipped": 2,
+    "deselected": 4,
+    "c5_graph_cpu_cases_included": 22,
+    "head_commit": "6d43f0390eb1bb846c4109d82f56b661bdb21aab",
+    "snapshot_manifest_sha256": "3de45ebd5a236ccc07a9dac5d4bbc0bbe72320e6b15e46d8c78bd9eb63024b2d",
+    "summary": "integration-cpu-009/results/summary.json",
+    "log": "integration-cpu-009/results/cpu-integration.log",
+    "junit": "integration-cpu-009/results/cpu-integration.xml",
+    "tested_afd_sources_match_current": false,
+    "source_mismatches": [
+      "afd_plugin/connectors/npu/hccl_graph.py"
+    ],
+    "tested_c4_sources_match_current": true,
+    "c5_graph_source_changed_after_snapshot": true,
+    "current_c5_graph_sha256": "b98e5f0f8c115a2a1f6e5c1ddc25e4f532425eb02649a0d3d1c08602d99b4d37"
+  },
+  "hardware_probes": [
+    {
+      "label": "service-1a1f-002",
+      "topology": "1a1f",
+      "success": true,
+      "returncode": 0,
+      "timed_out": false,
+      "idle_boards_before": 8,
+      "idle_boards_after": 8,
+      "rank_count": 2,
+      "parents_per_rank": 5,
+      "active_layer_stage_counts": [
+        2,
+        2,
+        2,
+        4,
+        0
+      ],
+      "identity": "service-1a1f-002/identity.json",
+      "summary": "service-1a1f-002/results/summary.json",
+      "probe_result": "service-1a1f-002/results/probe/result.json"
+    },
+    {
+      "label": "service-2a2f-tp2-001",
+      "topology": "2a2f-tp2",
+      "success": true,
+      "returncode": 0,
+      "timed_out": false,
+      "idle_boards_before": 8,
+      "idle_boards_after": 8,
+      "rank_count": 4,
+      "parents_per_rank": 5,
+      "active_layer_stage_counts": [
+        2,
+        2,
+        2,
+        4,
+        0
+      ],
+      "identity": "service-2a2f-tp2-001/identity.json",
+      "summary": "service-2a2f-tp2-001/results/summary.json",
+      "probe_result": "service-2a2f-tp2-001/results/probe/result.json"
+    }
+  ],
+  "retained_attempts": {
+    "counts-cpu-001": "pytest path error, zero cases",
+    "service-1a1f-001": "probe setup omitted Ascend configuration initialization",
+    "binding-cpu-003": "three test regex case mismatches after correct rejection",
+    "integration-cpu-008": "four old test patches targeted a removed runner-module Factory import"
+  },
+  "cli_delta_after_hardware": {
+    "file": "tests/npu/hccl_staged_probe.py",
+    "sha256": "96112b8192e2f1ff1a186b46f3f4d2f71910e1c15fd5ea4c7fe9821c744b796d",
+    "change": "optional --model path, unchanged default; forwarded to children and ModelConfig",
+    "hardware_sha256": "38f49aa99df791358b174081f2ba20d778099b174f969cd46dbe53a0fd88b28a",
+    "local_checks": [
+      "--help",
+      "Python3.11 AST",
+      "ruff check",
+      "ruff format --check"
+    ],
+    "hardware_repeated": false
+  },
+  "readiness_limits": [
+    "No full checkpoint or native MoE/HC/indexer/Engram producer execution",
+    "CPU native-entry/bootstrap seams are separate from the two controlled arithmetic hardware sessions",
+    "No Graph or overlap acceptance is inferred from these C4 results"
+  ]
+}

@@ -30,9 +30,8 @@ from tests.unit.fakes.deepseek_v41 import (  # noqa: E402
 from tests.unit.fakes.hccl import StagedModelPeer  # noqa: E402
 from tests.unit.fakes.input_batch import (  # noqa: E402
     make_ascend_batch,
-    snapshot_ascend_child,
+    make_hccl_ubatch_seam,
 )
-from tests.unit.fakes.vllm_config import npu_vllm_config  # noqa: E402
 
 
 @pytest.fixture
@@ -47,31 +46,11 @@ def runner_factory(monkeypatch):
     )
 
     def build(*, dp_size=1, model_state=None):
-        runner = object.__new__(module.HcclV41UBatchRunner)
-        runner.vllm_config = npu_vllm_config(
-            connector="P2pHcclAFDConnector",
-            data_parallel_size=dp_size,
-            use_ubatching=True,
-            num_ubatches=2,
-            cp_kv_cache_interleave_size=1,
+        return make_hccl_ubatch_seam(
+            module.HcclV41UBatchRunner,
+            dp_size=dp_size,
+            model_state=model_state or ParentEngramState({}),
         )
-        runner.vllm_config.compilation_config.static_forward_context = {}
-        runner.parallel_config = runner.vllm_config.parallel_config
-        runner.model_state = model_state or ParentEngramState({})
-        runner.num_ubatches, runner.dcp_size, runner.dcp_rank = 2, 1, 0
-        runner.cp_interleave = 1
-        runner.ubatch_query_start_loc = [
-            torch.zeros(3, dtype=torch.int32) for _ in range(2)
-        ]
-        runner.ubatch_seq_lens = [torch.zeros(2, dtype=torch.int32) for _ in range(2)]
-        runner.ubatch_dcp_local_seq_lens = [None, None]
-        runner.attn_groups = []
-        runner.kv_cache_config = SimpleNamespace(
-            kv_cache_groups=[SimpleNamespace(layer_names=["layer"])]
-        )
-        runner._prepare_attn = snapshot_ascend_child
-        runner._uses_mla_graph_params = False
-        return runner
 
     return build
 
@@ -321,7 +300,7 @@ def scoped_factory_case(monkeypatch, staged_case):
     case.runner.vllm_config.compilation_config.cudagraph_mode = CUDAGraphMode.NONE
     case.runner.parallel_config.rank = 0
     case.peer.negotiated_capabilities = SimpleNamespace(
-        native_tp_size=1, attention_size=1
+        native_tp_size=1, attention_size=1, max_stages=2
     )
 
     # This test owns factory selection, not device allocation. The separately
@@ -372,6 +351,7 @@ def test_explicit_factory_binds_native_dp1_run_and_restores_both_native_aliases(
         ("tp-size", "transport native TP size"),
         ("role-size", "role size must match"),
         ("native-rank", "native rank does not match"),
+        ("stage-capacity", "requires negotiated U2"),
     ],
 )
 def test_explicit_factory_rejects_unproven_native_group_mappings(
@@ -387,6 +367,8 @@ def test_explicit_factory_rejects_unproven_native_group_mappings(
         parallel.tensor_parallel_size = 2
     elif boundary == "role-size":
         case.peer.negotiated_capabilities.attention_size = 2
+    elif boundary == "stage-capacity":
+        case.peer.negotiated_capabilities.max_stages = 1
     else:
         parallel.tensor_parallel_size = 2
         case.peer.negotiated_capabilities.native_tp_size = 2

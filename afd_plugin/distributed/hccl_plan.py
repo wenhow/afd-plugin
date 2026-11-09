@@ -28,7 +28,17 @@ PAYLOAD_FORMAT = "bf16-fp32-int32-per-layer"
 LAYER_SCHEDULE = "layer-major"
 FORWARD_MODES = frozenset({"target", "dummy", "warmup", "profile"})
 MESSAGE_KINDS = frozenset(
-    {"HELLO", "FORWARD", "ACCEPT", "COMPLETE", "STOP", "STOP_ACK", "ERROR"}
+    {
+        "HELLO",
+        "FORWARD",
+        "ACCEPT",
+        "COMPLETE",
+        "STOP",
+        "STOP_ACK",
+        "ERROR",
+        "COUNTS_REQUEST",
+        "COUNTS_REPORT",
+    }
 )
 
 JsonValue: TypeAlias = (
@@ -77,6 +87,7 @@ class HcclPlanCapabilities:
     ffn_size: int
     native_tp_size: int = 1
     max_stages: int = MAX_HCCL_STAGES
+    local_counts_version: int = 0
 
     def validate(self) -> None:
         _integer("hidden_size", self.hidden_size, minimum=1)
@@ -90,6 +101,13 @@ class HcclPlanCapabilities:
             "native_tp_size", self.native_tp_size, minimum=1, maximum=MAX_ROLE_RANKS
         )
         _integer("max_stages", self.max_stages, minimum=1, maximum=MAX_HCCL_STAGES)
+        _integer("local_counts_version", self.local_counts_version, maximum=1)
+        if self.local_counts_version == 1 and not (
+            self.attention_size == self.ffn_size == self.native_tp_size
+        ):
+            raise ValueError(
+                "local count collection requires one native TP world per role"
+            )
         _layers(self.layer_indices)
         empty = (0,) * self.attention_size
         HcclStageLayout(0, empty, empty, self.ffn_size, self.native_tp_size)
@@ -105,6 +123,11 @@ class HcclPlanCapabilities:
             ("attention_size", self.attention_size, peer.attention_size),
             ("ffn_size", self.ffn_size, peer.ffn_size),
             ("native_tp_size", self.native_tp_size, peer.native_tp_size),
+            (
+                "local_counts_version",
+                self.local_counts_version,
+                peer.local_counts_version,
+            ),
         ):
             if local != remote:
                 raise ValueError(f"HCCL peer {name} does not match")
@@ -117,7 +140,37 @@ class HcclPlanCapabilities:
             self.ffn_size,
             self.native_tp_size,
             min(self.max_stages, peer.max_stages),
+            self.local_counts_version,
         )
+
+
+@dataclass(frozen=True, slots=True)
+class HcclLocalForward:
+    """One Attention worker's actual ordered native stage extents.
+
+    Validation runs inside the solicited report round, so a bad local report
+    can reject every peer instead of raising before its blocking reply.
+    """
+
+    mode: str
+    valid_tokens: tuple[int, ...]
+    padded_tokens: tuple[int, ...]
+
+    def validate(self) -> None:
+        if not isinstance(self.mode, str) or self.mode not in FORWARD_MODES:
+            raise ValueError("local mode must be target, dummy, warmup, or profile")
+        if (
+            not isinstance(self.valid_tokens, tuple)
+            or not isinstance(self.padded_tokens, tuple)
+            or not 1 <= len(self.valid_tokens) <= MAX_HCCL_STAGES
+            or len(self.valid_tokens) != len(self.padded_tokens)
+        ):
+            raise ValueError("local counts require one or two matching stage tuples")
+        for valid, padded in zip(self.valid_tokens, self.padded_tokens, strict=True):
+            _integer("valid_tokens", valid)
+            _integer("padded_tokens", padded)
+            if valid > padded:
+                raise ValueError("local counts must satisfy valid <= padded")
 
 
 @dataclass(frozen=True, slots=True)
@@ -199,6 +252,7 @@ class HcclPlanMessage:
     transaction_id: str | None = None
     plan_digest: str | None = None
     error: str | None = None
+    local_forward: HcclLocalForward | None = None
 
     def validate(self) -> None:
         if not isinstance(self.kind, str) or self.kind not in MESSAGE_KINDS:
@@ -213,6 +267,7 @@ class HcclPlanMessage:
                 ("transaction_id", self.transaction_id),
                 ("plan_digest", self.plan_digest),
                 ("error", self.error),
+                ("local_forward", self.local_forward),
             )
             if value is not None
         }
@@ -225,6 +280,10 @@ class HcclPlanMessage:
             required = {"transaction_id", "plan_digest", "world_rank"}
         elif self.kind == "COMPLETE":
             required = {"transaction_id", "plan_digest"}
+        elif self.kind == "COUNTS_REQUEST":
+            required = {"transaction_id"}
+        elif self.kind == "COUNTS_REPORT":
+            required = {"transaction_id", "world_rank", "local_forward"}
         elif self.kind == "ERROR":
             required = {"error"} | (
                 {"transaction_id"} if self.transaction_id is not None else set()
@@ -254,6 +313,10 @@ class HcclPlanMessage:
             _integer("world_rank", self.world_rank, maximum=2 * MAX_ROLE_RANKS - 1)
         if self.plan is not None and not isinstance(self.plan, HcclParentPlan):
             raise ValueError("FORWARD requires an HcclParentPlan")
+        if self.local_forward is not None:
+            if not isinstance(self.local_forward, HcclLocalForward):
+                raise ValueError("COUNTS_REPORT requires an HcclLocalForward")
+            self.local_forward.validate()
         if self.transaction_id is not None:
             _text("transaction_id", self.transaction_id, MAX_TRANSACTION_ID_BYTES)
         if self.plan_digest is not None and (
@@ -315,7 +378,7 @@ def encode_hccl_plan_message(message: HcclPlanMessage) -> bytes:
             payload[name] = value
     if message.capabilities is not None:
         cap = message.capabilities
-        payload["capabilities"] = {
+        capability_payload: dict[str, JsonValue] = {
             "hidden_size": cap.hidden_size,
             "vocab_size": cap.vocab_size,
             "max_tokens": cap.max_tokens,
@@ -325,8 +388,20 @@ def encode_hccl_plan_message(message: HcclPlanMessage) -> bytes:
             "native_tp_size": cap.native_tp_size,
             "max_stages": cap.max_stages,
         }
+        # Preserve the baseline v3 HELLO byte contract unless opted in. Old
+        # strict decoders reject this extension during HELLO, before tensor I/O.
+        if cap.local_counts_version:
+            capability_payload["local_counts_version"] = cap.local_counts_version
+        payload["capabilities"] = capability_payload
     if message.plan is not None:
         payload["plan"] = _plan_payload(message.plan)
+    if message.local_forward is not None:
+        local = message.local_forward
+        payload["local_forward"] = {
+            "mode": local.mode,
+            "valid_tokens": list(local.valid_tokens),
+            "padded_tokens": list(local.padded_tokens),
+        }
     encoded = _canonical_json(payload)
     if len(encoded) > MAX_CONTROL_MESSAGE_BYTES:
         raise ValueError("HCCL plan message exceeds maximum size")
@@ -365,6 +440,7 @@ def _decode_capabilities(value: JsonValue) -> HcclPlanCapabilities:
             "native_tp_size",
             "max_stages",
         },
+        {"local_counts_version"},
     )
     result = HcclPlanCapabilities(
         _integer("hidden_size", cap["hidden_size"], minimum=1),
@@ -379,6 +455,7 @@ def _decode_capabilities(value: JsonValue) -> HcclPlanCapabilities:
             "native_tp_size", cap["native_tp_size"], minimum=1, maximum=MAX_ROLE_RANKS
         ),
         _integer("max_stages", cap["max_stages"], minimum=1, maximum=MAX_HCCL_STAGES),
+        _integer("local_counts_version", cap.get("local_counts_version", 0), maximum=1),
     )
     result.validate()
     return result
@@ -388,6 +465,17 @@ def _decode_counts(value: JsonValue) -> tuple[int, ...]:
     if not isinstance(value, list) or not 1 <= len(value) <= MAX_ROLE_RANKS:
         raise ValueError("Attention counts must be a bounded nonempty JSON array")
     return tuple(_integer("token_count", count) for count in value)
+
+
+def _decode_local_forward(value: JsonValue) -> HcclLocalForward:
+    local = _fields(value, {"mode", "valid_tokens", "padded_tokens"})
+    result = HcclLocalForward(
+        _text("mode", local["mode"], MAX_CONTROL_MESSAGE_BYTES),
+        _decode_counts(local["valid_tokens"]),
+        _decode_counts(local["padded_tokens"]),
+    )
+    result.validate()
+    return result
 
 
 def _decode_plan(value: JsonValue) -> HcclParentPlan:
@@ -482,6 +570,25 @@ def decode_hccl_plan_message(data: bytes) -> HcclPlanMessage:
     elif kind == "FORWARD":
         _fields(payload, envelope | {"plan"})
         message = HcclPlanMessage(kind, plan=_decode_plan(payload["plan"]))
+    elif kind in ("COUNTS_REQUEST", "COUNTS_REPORT"):
+        _fields(
+            payload,
+            envelope
+            | {"transaction_id"}
+            | ({"world_rank", "local_forward"} if kind == "COUNTS_REPORT" else set()),
+        )
+        message = HcclPlanMessage(
+            kind,
+            transaction_id=_text(
+                "transaction_id", payload["transaction_id"], MAX_TRANSACTION_ID_BYTES
+            ),
+            world_rank=_integer("world_rank", payload["world_rank"])
+            if kind == "COUNTS_REPORT"
+            else None,
+            local_forward=_decode_local_forward(payload["local_forward"])
+            if kind == "COUNTS_REPORT"
+            else None,
+        )
     elif kind in ("ACCEPT", "COMPLETE"):
         _fields(
             payload,

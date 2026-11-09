@@ -150,6 +150,7 @@ def test_eager_preserves_layer_loop_device_metadata_and_return_headers(
 @pytest.mark.parametrize("fail", [False, True])
 def test_full_receiver_exit_requires_success_even_during_shutdown(harness, fail):
     worker = AFDNPUFFNWorker.__new__(AFDNPUFFNWorker)
+    worker._hccl_v41_transport = None
     worker.model_runner = harness.runner
     harness.runner.effective_mode = "full"
     worker._ffn_thread = None

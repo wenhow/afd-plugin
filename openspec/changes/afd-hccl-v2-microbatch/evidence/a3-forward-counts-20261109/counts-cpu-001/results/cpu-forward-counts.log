@@ -1,0 +1,16 @@
+INFO 11-09 21:31:47 [__init__.py:52] Available plugins for group vllm.platform_plugins:
+INFO 11-09 21:31:47 [__init__.py:54] - ascend -> vllm_ascend:register
+INFO 11-09 21:31:47 [__init__.py:66] Loading plugin ascend
+INFO 11-09 21:31:47 [__init__.py:272] Platform plugin ascend is activated
+INFO 11-09 21:31:48 [platform.py:74] Breakable CUDAGraph on Ascend is opt-in; using VLLM_USE_BREAKABLE_CUDAGRAPH=0.
+
+=============================== warnings summary ===============================
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/torch/jit/_script.py:362: 14 warnings
+  /mnt/workspace/code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/torch/jit/_script.py:362: DeprecationWarning: `torch.jit.script_method` is deprecated. Please switch to `torch.compile` or `torch.export`.
+    warnings.warn(
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+- generated xml file: /mnt/workspace/tmp/afd-c0-20261104.hVgsIf/c4-forward-counts-20261109-bh14kxmw/results/cpu-forward-counts.xml -
+14 warnings in 0.00s
+ERROR: file or directory not found: tests/unit/v1/worker/test_ffn_worker.py
+

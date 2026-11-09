@@ -1,0 +1,116 @@
+{
+  "role": "ffn",
+  "role_rank": 0,
+  "world_rank": 0,
+  "pid": 4077989,
+  "device": 0,
+  "topology": "1a1f",
+  "native_tp_size": 1,
+  "native_tp_rank": 0,
+  "native_moe_executed": false,
+  "checkpoint_weights_loaded": false,
+  "scope": "real local-count HCCL and FFN service; controlled arithmetic",
+  "transactions": [
+    {
+      "transaction_id": "counts-u1-first",
+      "service_completed": true,
+      "plan_digest": "2573918e0c3839c4601e903cd1214a644e54dced60b3905912ffd70f9d2f5d76",
+      "verified_layer_stages": [
+        [
+          0,
+          0
+        ],
+        [
+          2,
+          0
+        ]
+      ],
+      "stage_count": 1,
+      "whole_empty_without_compute": false
+    },
+    {
+      "transaction_id": "counts-u2-first",
+      "service_completed": true,
+      "plan_digest": "2811293ac1b5126ba935f47183213cda7df7ee404ee51c04d0205175be384291",
+      "verified_layer_stages": [
+        [
+          0,
+          1
+        ],
+        [
+          2,
+          1
+        ]
+      ],
+      "stage_count": 2,
+      "whole_empty_without_compute": false
+    },
+    {
+      "transaction_id": "counts-u1-fallback",
+      "service_completed": true,
+      "plan_digest": "03da02a0292ce5b66483cf9d276f1ddda43ce8bc39c2e959ddfa0c39f3a183fc",
+      "verified_layer_stages": [
+        [
+          0,
+          0
+        ],
+        [
+          2,
+          0
+        ]
+      ],
+      "stage_count": 1,
+      "whole_empty_without_compute": false
+    },
+    {
+      "transaction_id": "counts-u2-second",
+      "service_completed": true,
+      "plan_digest": "89fc3fa7de8e258988a729ed69fa1fdb1e10afc5fe3098cbacc3d6c6d4bc9480",
+      "verified_layer_stages": [
+        [
+          0,
+          0
+        ],
+        [
+          0,
+          1
+        ],
+        [
+          2,
+          0
+        ],
+        [
+          2,
+          1
+        ]
+      ],
+      "stage_count": 2,
+      "whole_empty_without_compute": false
+    },
+    {
+      "transaction_id": "counts-empty",
+      "service_completed": true,
+      "plan_digest": null,
+      "verified_layer_stages": [],
+      "stage_count": 2,
+      "whole_empty_without_compute": true
+    }
+  ],
+  "rejections": [],
+  "success": true,
+  "native_tp_before_transport": [
+    1.0
+  ],
+  "native_tp_after_initialize": [
+    1.0
+  ],
+  "ffn_runner_constructor_called": false,
+  "local_counts_version": 1,
+  "ffn_service_stop_returned_false": true,
+  "stop_acknowledged": true,
+  "native_tp_after_close": [
+    1.0
+  ],
+  "native_groups_destroyed": true,
+  "elapsed_seconds": 6.832893880084157
+}

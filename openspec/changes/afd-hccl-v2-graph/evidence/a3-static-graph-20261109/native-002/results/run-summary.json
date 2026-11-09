@@ -1,0 +1,25 @@
+{
+  "cpu_command": [
+    "/mnt/workspace/code/.venvs/afd-v030-dsv41-c0/bin/python",
+    "-B",
+    "-m",
+    "pytest",
+    "tests/unit/connectors/npu/test_hccl_graph.py",
+    "-q",
+    "-rs",
+    "--junitxml=/mnt/workspace/tmp/afd-c0-20261104.hVgsIf/c5-graph-20261109-5v1u42s2/results/cpu.xml"
+  ],
+  "cpu_exit_code": 0,
+  "device_probe_requested": true,
+  "device_command": [
+    "/mnt/workspace/code/.venvs/afd-v030-dsv41-c0/bin/python",
+    "-B",
+    "tests/npu/hccl_graph_probe.py",
+    "--devices",
+    "0,2",
+    "--output-dir",
+    "/mnt/workspace/tmp/afd-c0-20261104.hVgsIf/c5-graph-20261109-5v1u42s2/results/native"
+  ],
+  "device_exit_code": 0,
+  "after_idle_boards": 8
+}

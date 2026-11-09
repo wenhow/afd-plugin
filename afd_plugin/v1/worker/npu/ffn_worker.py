@@ -28,6 +28,8 @@ from afd_plugin.compat.npu.runtime_config import get_npu_ffn_config
 from afd_plugin.config import AFD_ASYNC_CONNECTOR, parse_afd_config
 from afd_plugin.connectors import AFDConnectorFactory
 from afd_plugin.connectors.npu.async_cam import CAMAsyncAFDConnector
+from afd_plugin.connectors.npu.hccl_config import validate_staged_hccl_binding
+from afd_plugin.connectors.npu.hccl_staged import HcclStagedAFDConnector
 from afd_plugin.connectors.npu.p2p_hccl import P2pHcclAFDConnector
 from afd_plugin.model_executor.models.model_utils import get_afd_model_config
 from afd_plugin.v1.worker.npu.async_ffn_model_runner import AsyncNPUFFNModelRunner
@@ -42,6 +44,8 @@ if TYPE_CHECKING:
     from vllm.v1.core.sched.output import SchedulerOutput
     from vllm.v1.kv_cache_interface import KVCacheConfig, KVCacheSpec
     from vllm.v1.outputs import AsyncModelRunnerOutput, ModelRunnerOutput
+
+    from afd_plugin.connectors.npu.hccl_staged_transport import HcclStagedTransport
 
 logger = logging.getLogger(__name__)
 
@@ -105,6 +109,7 @@ class AFDNPUFFNWorker(NPUWorker):
         self._ffn_shutdown_event: threading.Event | None = None
         self._ffn_loop_error: BaseException | None = None
         self._hccl_stop_received = False
+        self._hccl_v41_transport: HcclStagedTransport | None = None
         self._cpu_binding_attempted = False
 
     def init_device(self) -> None:
@@ -132,6 +137,8 @@ class AFDNPUFFNWorker(NPUWorker):
             device_type="npu",
         )
         self.model_runner = create_npu_ffn_model_runner(self.vllm_config, self.device)
+        if isinstance(self.model_runner.connector, HcclStagedAFDConnector):
+            self.bind_hccl_v41_transport(self.model_runner.connector.transport)
 
     def get_kv_cache_spec(self) -> dict[str, KVCacheSpec]:
         return {}
@@ -139,8 +146,43 @@ class AFDNPUFFNWorker(NPUWorker):
     def initialize_from_config(self, kv_cache_config: KVCacheConfig) -> None:
         self.cache_config.num_gpu_blocks = kv_cache_config.num_blocks
         self.model_runner.initialize_kv_cache(kv_cache_config)
-        self.model_runner.initialize_afd_connector()
+        if self._hccl_v41_transport is None:
+            self.model_runner.initialize_afd_connector()
+        elif not self._hccl_v41_transport.initialized:
+            self._hccl_v41_transport.initialize()
         self.start_ffn_server_loop()
+
+    def bind_hccl_v41_transport(self, transport: HcclStagedTransport) -> None:
+        """Inject the v3 service before connector initialization or thread start.
+
+        This explicit component API leaves the model admission guard intact.
+        The worker owns the supplied transport until acknowledged peer STOP.
+        """
+        if (
+            self._hccl_v41_transport is not None
+            or self._ffn_thread is not None
+            or self.model_runner.connector.is_initialized
+        ):
+            raise RuntimeError("bind staged HCCL before FFN connector/service startup")
+        if not isinstance(self.model_runner, AFDNPUFFNModelRunner):
+            raise TypeError("staged HCCL requires the synchronous NPU FFN runner")
+        connector = self.model_runner.connector
+        if (
+            isinstance(connector, HcclStagedAFDConnector)
+            and transport is not connector.transport
+        ):
+            raise ValueError("staged HCCL FFN binding must use its connector transport")
+        if transport.role != "ffn":
+            raise ValueError("staged HCCL FFN binding requires an FFN transport")
+        validate_staged_hccl_binding(
+            self.model_runner.vllm_config, transport, self.device
+        )
+        self._hccl_v41_transport = transport
+
+    def _uses_hccl_service(self) -> bool:
+        return self._hccl_v41_transport is not None or isinstance(
+            self.model_runner.connector, P2pHcclAFDConnector
+        )
 
     def compile_or_warm_up_model(self) -> CompilationTimes:
         return CompilationTimes(language_model=0.0, encoder=0.0)
@@ -161,7 +203,13 @@ class AFDNPUFFNWorker(NPUWorker):
 
         self.raise_ffn_loop_error_if_any()
         connector = self.model_runner.connector
-        if not connector.is_initialized:
+        staged = self._hccl_v41_transport
+        if staged is not None:
+            if staged.closed or staged.terminal:
+                raise RuntimeError("cannot restart a terminal staged HCCL service")
+            if not staged.initialized:
+                staged.initialize()
+        elif not connector.is_initialized:
             self.model_runner.initialize_afd_connector()
 
         self._bind_cpus_once()
@@ -175,7 +223,7 @@ class AFDNPUFFNWorker(NPUWorker):
             except Exception as exc:
                 shutdown_event = self._ffn_shutdown_event
                 if (
-                    not isinstance(self.model_runner.connector, P2pHcclAFDConnector)
+                    not self._uses_hccl_service()
                     and not self._requires_async_drain()
                     and shutdown_event is not None
                     and shutdown_event.is_set()
@@ -226,6 +274,15 @@ class AFDNPUFFNWorker(NPUWorker):
 
         torch.npu.set_device(self.device)
         while not event.is_set():
+            if self._hccl_v41_transport is not None:
+                assert isinstance(self.model_runner, AFDNPUFFNModelRunner)
+                if not self.model_runner.execute_hccl_v41_step(
+                    self._hccl_v41_transport
+                ):
+                    self._hccl_stop_received = True
+                    return
+                # COMPLETE already synchronizes this device before release.
+                continue
             if isinstance(self.model_runner.connector, P2pHcclAFDConnector):
                 plan = self.model_runner.connector.receive_forward_plan()
                 if plan is None:
@@ -272,15 +329,13 @@ class AFDNPUFFNWorker(NPUWorker):
     def raise_ffn_loop_error_if_any(self) -> None:
         error = self._ffn_loop_error
         if error is not None:
-            if not self._requires_async_drain() and not isinstance(
-                self.model_runner.connector, P2pHcclAFDConnector
-            ):
+            if not self._requires_async_drain() and not self._uses_hccl_service():
                 self._ffn_loop_error = None
             raise RuntimeError("AFD NPU FFN worker loop failed") from error
 
     def poll_hccl_ffn_service(self) -> bool:
         """RPC status: False only after peer STOP; failures remain terminal."""
-        if not isinstance(self.model_runner.connector, P2pHcclAFDConnector):
+        if not self._uses_hccl_service():
             raise TypeError("HCCL service polling requires P2pHcclAFDConnector")
         self.raise_ffn_loop_error_if_any()
         if self._hccl_stop_received:
@@ -294,7 +349,7 @@ class AFDNPUFFNWorker(NPUWorker):
 
     def stop_ffn_server_loop(self) -> None:
         event = self._ffn_shutdown_event
-        if isinstance(self.model_runner.connector, P2pHcclAFDConnector):
+        if self._uses_hccl_service():
             # A owns STOP. Join the receiver after its STOP_ACK; destroying a
             # group under a blocking receive is not a normal shutdown protocol.
             thread = self._ffn_thread
@@ -306,7 +361,15 @@ class AFDNPUFFNWorker(NPUWorker):
                         "retain resources and terminate the failed worker process"
                     )
             self.raise_ffn_loop_error_if_any()
-            self.model_runner.connector.close()
+            staged = self._hccl_v41_transport
+            if staged is not None:
+                if staged.initialized and not self._hccl_stop_received:
+                    raise RuntimeError(
+                        "staged HCCL service requires peer STOP; retain resources"
+                    )
+                staged.close()
+            else:
+                self.model_runner.connector.close()
             if event is not None:
                 event.set()
             self._ffn_thread = None

@@ -84,16 +84,32 @@ cover bounded stage/capacity negotiation, plan-digest ACKs, layer-major peer
 order, aggregate/fanout/native-TP readiness, parent completion and terminal
 shutdown. Tests mirror these modules under `tests/unit/distributed/`. These CPU
 components are not imported by the current version-2 transport. The separate
-transport below implements the synchronous rank-local counterpart; model-runner
-integration and stage-state isolation are still required for U2 model support.
+transport below implements the synchronous rank-local counterpart. Native
+model-runner software integration is present; full-model stage-state
+qualification is still required for U2 support.
 
 The separate [v3 eager transport](../../../afd_plugin/connectors/npu/hccl_staged_transport.py)
 implements the rank-local Gloo handshake and per-stage HCCL domains. Its
 [NPU component probe](../../../tests/npu/hccl_staged_probe.py) checks actual
 aggregation/fanout, stage-local transfer, native TP ownership and shutdown
 using controlled arithmetic, without constructing a model. The production
-connector factory still selects the guarded v2/U1 path. Graph, overlap, model
-continuations and failure supervision remain separate integration work.
+connector factory retains v2/U1. The backend-local runtime selector chooses
+[`HcclStagedAFDConnector`](../../../afd_plugin/connectors/npu/hccl_staged.py) for
+V4.1 HCCL with U2 configured and speculation off, then A/F bind its single
+transport before initialization. Default U1 and DSpark/U1 retain v2. Graph,
+overlap and failed-device recovery remain separate integration work.
+
+The opt-in v3 capability `local_counts_version=1` requires A-size = F-size =
+native TP size. Every Attention worker submits its actual U1/U2 valid and
+padded counts through `submit_forward`; Attention0 solicits reports before
+publishing a canonical plan, and each Attention worker verifies its own column
+before ACCEPT. An idle peer receives STOP before sending any report. Version 0
+preserves the previous v3 HELLO encoding and explicit-plan component API.
+`hccl_config.validate_staged_hccl_runtime` shares the existing model/execution
+policy while allowing U1/U2; `validate_staged_hccl_binding` binds an injected
+transport to its model and actual device. The Attention runner and FFN worker
+can explicitly bind this protocol. Native NPU construction also selects it
+for the configured U2 target path, without opening the V4.1 model guard.
 
 ## Factory and construction
 

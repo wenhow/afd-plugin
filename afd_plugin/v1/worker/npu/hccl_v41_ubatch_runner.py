@@ -17,13 +17,12 @@ from vllm.config import CUDAGraphMode, VllmConfig
 from vllm.forward_context import (
     ForwardContext,
     create_forward_context,
-    get_forward_context,
 )
 from vllm.platforms import current_platform
 from vllm.v1.kv_cache_interface import KVCacheConfig
 from vllm.v1.worker.gpu.input_batch import InputBatch
 from vllm.v1.worker.gpu.model_states.interface import ModelState
-from vllm.v1.worker.gpu.ubatch_utils import UBatchState, slice_model_inputs
+from vllm.v1.worker.gpu.ubatch_utils import UBatchState
 from vllm.v1.worker.ubatch_utils import UBatchSlices
 from vllm.v1.worker.utils import AttentionGroup
 from vllm_ascend.models.deepseek_v41.engram.model_state import EngramModelState
@@ -33,11 +32,7 @@ from afd_plugin.connectors.npu.hccl_staged_transport import HcclStagedTransport
 from afd_plugin.model_executor.models.npu.deepseek_v41 import (
     AFDDeepseekV41AttentionForCausalLM,
 )
-from afd_plugin.model_executor.models.npu.deepseek_v41_staged import (
-    DeepseekV41EngramInputs,
-    DeepseekV41StageInputs,
-    run_deepseek_v41_stages,
-)
+from afd_plugin.v1.worker.npu.hccl_v41_execution import execute_hccl_v41_stages
 from afd_plugin.v1.worker.npu.ubatch_runner import NPUUBatchRunner
 
 
@@ -88,6 +83,8 @@ class HcclV41UBatchRunner(NPUUBatchRunner):
         if parallel.data_parallel_size != 1 or parallel.data_parallel_rank != 0:
             raise ValueError("V4.1 staged HCCL construction requires DP1 rank zero")
         capabilities = transport.negotiated_capabilities
+        if capabilities.max_stages < 2:
+            raise ValueError("V4.1 staged HCCL construction requires negotiated U2")
         if capabilities.native_tp_size != parallel.tensor_parallel_size:
             raise ValueError("V4.1 staged HCCL transport native TP size must match")
         if capabilities.attention_size != parallel.tensor_parallel_size:
@@ -235,73 +232,11 @@ class HcclV41UBatchRunner(NPUUBatchRunner):
         boundary. Model execution uses typed stage inputs. This method neither
         submits child history nor retires the native parent's producer.
         """
-        try:
-            parent_context = get_forward_context()
-            if (
-                parent_context.cudagraph_runtime_mode != CUDAGraphMode.NONE
-                or model_inputs.get("engram_graph_events", False)
-                or model_inputs.get("intermediate_tensors") is not None
-            ):
-                raise ValueError("V4.1 staged HCCL run requires an eager PP1 parent")
-            if not isinstance(self.model_state, EngramModelState):
-                raise ValueError(
-                    "V4.1 staged HCCL requires the native Engram ModelState"
-                )
-            if self.model_state._cg_mode != CUDAGraphMode.NONE:
-                raise ValueError("V4.1 staged HCCL requires prepared eager Engram mode")
-            if transport.role != "attention" or transport.plan is None:
-                raise ValueError("V4.1 staged HCCL requires an accepted Attention plan")
-            parent_inputs = dict(model_inputs)
-            # Native prepare_inputs already built the full parent's lookback
-            # and pending producer. Run it here once, in the parent context;
-            # bypassing nn.Module.__call__ avoids its per-model pre-hook.
-            parent_inputs.update(self.model_state.prepare_engram())
-            if parent_inputs.get("engram_graph_events", False):
-                raise ValueError(
-                    "V4.1 staged HCCL does not consume Graph Engram events"
-                )
-            if not model.language_model.model.has_engram:
-                parent_inputs.setdefault("engram_lookups", {})
-                parent_inputs.setdefault(
-                    "engram_mask",
-                    parent_inputs["positions"].new_empty(0, dtype=torch.bool),
-                )
-            engram = DeepseekV41EngramInputs(
-                parent_inputs["engram_lookups"],
-                parent_inputs["engram_mask"],
-                parent_inputs.get("engram_pending"),
-                parent_inputs.get("engram_mask_ready_event"),
-            )
-            slices = tuple(stage.token_slice for stage in ubatch_state.slices)
-            if not slices or slices[-1].stop != parent_inputs["positions"].shape[0]:
-                raise ValueError(
-                    "V4.1 child slices must cover the parent padded tokens"
-                )
-            stages = []
-            for token_slice in slices:
-                child = slice_model_inputs(parent_inputs, token_slice)
-                if child["input_ids"] is None:
-                    raise ValueError("V4.1 staged HCCL requires native raw token IDs")
-                stages.append(
-                    DeepseekV41StageInputs(
-                        child["input_ids"],
-                        child["positions"],
-                        engram.slice(token_slice),
-                        child.get("inputs_embeds"),
-                    )
-                )
-            output = run_deepseek_v41_stages(
-                model.language_model.model,
-                tuple(stages),
-                tuple(ubatch_state.forward_contexts),
-                slices,
-                transport,
-            )
-            transport.finish_forward()
-            return output
-        except BaseException:
-            # A peer can already be waiting on payload/COMPLETE. Mark this
-            # endpoint terminal without blocking on an unsolicited error send;
-            # backend timeout/process supervision owns failed peer unwinding.
-            transport.terminal = True
-            raise
+        return execute_hccl_v41_stages(
+            model,
+            self.model_state,
+            model_inputs,
+            tuple(ubatch_state.forward_contexts),
+            tuple(stage.token_slice for stage in ubatch_state.slices),
+            transport,
+        )

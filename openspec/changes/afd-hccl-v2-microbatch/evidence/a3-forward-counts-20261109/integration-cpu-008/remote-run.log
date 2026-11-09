@@ -1,0 +1,37 @@
+{
+  "scope": "CPU seams with actual installed dependencies",
+  "success": false,
+  "cpu": {
+    "scope": "integration",
+    "command": [
+      "/mnt/workspace/code/.venvs/afd-v030-dsv41-c0/bin/python",
+      "-B",
+      "-m",
+      "pytest",
+      "-o",
+      "addopts=",
+      "-q",
+      "-rs",
+      "--tb=short",
+      "-p",
+      "no:cacheprovider",
+      "--junitxml=/mnt/workspace/tmp/afd-c0-20261104.hVgsIf/c4-forward-counts-20261109-uf_cl8kw/results/cpu-integration.xml",
+      "-m",
+      "not npu and not gpu",
+      "tests/unit/model_executor",
+      "tests/unit/v1/worker",
+      "tests/unit/connectors",
+      "tests/unit/distributed",
+      "tests/unit/compat/npu/test_feature_validation.py",
+      "tests/unit/config/test_validation.py",
+      "tests/unit/compat/npu/test_runtime_config.py",
+      "tests/unit/compat/patches/test_signatures.py"
+    ],
+    "returncode": 1
+  },
+  "remote": "/mnt/workspace/tmp/afd-c0-20261104.hVgsIf/c4-forward-counts-20261109-uf_cl8kw",
+  "source_files_match": true,
+  "device_probe_started": false
+}
+
+Warning: Permanently added '[127.0.0.1]:43078' (ED25519) to the list of known hosts.

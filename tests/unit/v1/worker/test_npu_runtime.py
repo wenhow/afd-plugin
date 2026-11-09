@@ -302,6 +302,7 @@ def _new_ffn_worker():
     from afd_plugin.v1.worker.npu.ffn_worker import AFDNPUFFNWorker
 
     worker = object.__new__(AFDNPUFFNWorker)
+    worker._hccl_v41_transport = None
     worker._ffn_loop_error = None
     # Most tests exercise the daemon loop rather than CPU placement. Tests for
     # the startup binding path explicitly reset this guard.
@@ -1431,8 +1432,8 @@ def _fake_npu_connector_factory(monkeypatch, connector):
         return connector
 
     monkeypatch.setattr(
-        attention_model_runner.AFDConnectorFactory,
-        "create_connector",
+        attention_model_runner,
+        "create_npu_runtime_connector",
         create_connector,
     )
     return calls
@@ -1509,7 +1510,7 @@ def test_npu_ffn_connector_uses_model_device_index_for_dp_worker(monkeypatch):
 
     monkeypatch.setattr(ffn_model_runner, "_resolve_world_ranks", lambda: (7, 0))
     monkeypatch.setattr(
-        ffn_model_runner.AFDConnectorFactory, "create_connector", create_connector
+        ffn_model_runner, "create_npu_runtime_connector", create_connector
     )
     monkeypatch.setattr(
         ffn_model_runner,

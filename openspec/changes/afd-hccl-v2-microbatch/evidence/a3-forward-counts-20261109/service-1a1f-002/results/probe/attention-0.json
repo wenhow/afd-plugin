@@ -1,0 +1,219 @@
+{
+  "role": "attention",
+  "role_rank": 0,
+  "world_rank": 1,
+  "pid": 4077990,
+  "device": 2,
+  "topology": "1a1f",
+  "native_tp_size": 1,
+  "native_tp_rank": 0,
+  "native_moe_executed": false,
+  "checkpoint_weights_loaded": false,
+  "scope": "real local-count HCCL and FFN service; controlled arithmetic",
+  "transactions": [
+    {
+      "transaction_id": "counts-u1-first",
+      "plan_digest": "2573918e0c3839c4601e903cd1214a644e54dced60b3905912ffd70f9d2f5d76",
+      "local_valid": [
+        1
+      ],
+      "local_padded": [
+        2
+      ],
+      "verified_layer_stages": [
+        [
+          0,
+          0
+        ],
+        [
+          2,
+          0
+        ]
+      ],
+      "stages": [
+        {
+          "stage_idx": 0,
+          "valid": [
+            1
+          ],
+          "padded": [
+            2
+          ]
+        }
+      ]
+    },
+    {
+      "transaction_id": "counts-u2-first",
+      "plan_digest": "2811293ac1b5126ba935f47183213cda7df7ee404ee51c04d0205175be384291",
+      "local_valid": [
+        0,
+        3
+      ],
+      "local_padded": [
+        0,
+        4
+      ],
+      "verified_layer_stages": [
+        [
+          0,
+          1
+        ],
+        [
+          2,
+          1
+        ]
+      ],
+      "stages": [
+        {
+          "stage_idx": 0,
+          "valid": [
+            0
+          ],
+          "padded": [
+            0
+          ]
+        },
+        {
+          "stage_idx": 1,
+          "valid": [
+            3
+          ],
+          "padded": [
+            4
+          ]
+        }
+      ]
+    },
+    {
+      "transaction_id": "counts-u1-fallback",
+      "plan_digest": "03da02a0292ce5b66483cf9d276f1ddda43ce8bc39c2e959ddfa0c39f3a183fc",
+      "local_valid": [
+        3
+      ],
+      "local_padded": [
+        4
+      ],
+      "verified_layer_stages": [
+        [
+          0,
+          0
+        ],
+        [
+          2,
+          0
+        ]
+      ],
+      "stages": [
+        {
+          "stage_idx": 0,
+          "valid": [
+            3
+          ],
+          "padded": [
+            4
+          ]
+        }
+      ]
+    },
+    {
+      "transaction_id": "counts-u2-second",
+      "plan_digest": "89fc3fa7de8e258988a729ed69fa1fdb1e10afc5fe3098cbacc3d6c6d4bc9480",
+      "local_valid": [
+        1,
+        0
+      ],
+      "local_padded": [
+        2,
+        2
+      ],
+      "verified_layer_stages": [
+        [
+          0,
+          0
+        ],
+        [
+          0,
+          1
+        ],
+        [
+          2,
+          0
+        ],
+        [
+          2,
+          1
+        ]
+      ],
+      "stages": [
+        {
+          "stage_idx": 0,
+          "valid": [
+            1
+          ],
+          "padded": [
+            2
+          ]
+        },
+        {
+          "stage_idx": 1,
+          "valid": [
+            0
+          ],
+          "padded": [
+            2
+          ]
+        }
+      ]
+    },
+    {
+      "transaction_id": "counts-empty",
+      "plan_digest": "d858e8b6551cda9c95ea8819782f2540440b3b74e246a072f0d050f494eb39f7",
+      "local_valid": [
+        0,
+        0
+      ],
+      "local_padded": [
+        0,
+        0
+      ],
+      "verified_layer_stages": [],
+      "stages": [
+        {
+          "stage_idx": 0,
+          "valid": [
+            0
+          ],
+          "padded": [
+            0
+          ]
+        },
+        {
+          "stage_idx": 1,
+          "valid": [
+            0
+          ],
+          "padded": [
+            0
+          ]
+        }
+      ]
+    }
+  ],
+  "rejections": [],
+  "success": true,
+  "native_tp_before_transport": [
+    1.0
+  ],
+  "native_tp_after_initialize": [
+    1.0
+  ],
+  "ffn_runner_constructor_called": false,
+  "local_counts_version": 1,
+  "all_attention_stop_completed": true,
+  "stop_acknowledged": true,
+  "native_tp_after_close": [
+    1.0
+  ],
+  "native_groups_destroyed": true,
+  "elapsed_seconds": 6.7501253401860595
+}

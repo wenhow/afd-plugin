@@ -1,0 +1,30 @@
+{
+  "scope": "CPU seams with actual installed dependencies",
+  "success": true,
+  "cpu": {
+    "scope": "bootstrap",
+    "command": [
+      "/mnt/workspace/code/.venvs/afd-v030-dsv41-c0/bin/python",
+      "-B",
+      "-m",
+      "pytest",
+      "-o",
+      "addopts=",
+      "-q",
+      "-rs",
+      "--tb=short",
+      "-p",
+      "no:cacheprovider",
+      "--junitxml=/mnt/workspace/tmp/afd-c0-20261104.hVgsIf/c4-forward-counts-20261109-0vz_ad0_/results/cpu-bootstrap.xml",
+      "tests/unit/connectors/npu/test_hccl_staged.py",
+      "tests/unit/config/test_validation.py",
+      "tests/unit/compat/npu/test_runtime_config.py"
+    ],
+    "returncode": 0
+  },
+  "remote": "/mnt/workspace/tmp/afd-c0-20261104.hVgsIf/c4-forward-counts-20261109-0vz_ad0_",
+  "source_files_match": true,
+  "device_probe_started": false
+}
+
+Warning: Permanently added '[127.0.0.1]:43078' (ED25519) to the list of known hosts.

@@ -1,0 +1,68 @@
+........................................................................ [ 57%]
+.........................................FFF..........                   [100%]
+=================================== FAILURES ===================================
+__ test_staged_service_rejects_unsupported_binding_before_protocol[native-tp] __
+tests/unit/v1/worker/npu/test_ffn_worker.py:159: in test_staged_service_rejects_unsupported_binding_before_protocol
+    case.worker.bind_hccl_v41_transport(case.peer)
+afd_plugin/v1/worker/npu/ffn_worker.py:168: in bind_hccl_v41_transport
+    validate_staged_hccl_binding(
+afd_plugin/connectors/npu/hccl_config.py:113: in validate_staged_hccl_binding
+    expected = validate_staged_hccl_runtime(
+afd_plugin/connectors/npu/hccl_config.py:82: in validate_staged_hccl_runtime
+    caps = _validate_hccl_runtime(vllm_config, afd_config, role_rank, staged=True)
+afd_plugin/connectors/npu/hccl_config.py:165: in _validate_hccl_runtime
+    raise ValueError(
+E   ValueError: P2pHcclAFDConnector requires tensor_parallel_size equal to A/F ranks
+
+During handling of the above exception, another exception occurred:
+tests/unit/v1/worker/npu/test_ffn_worker.py:158: in test_staged_service_rejects_unsupported_binding_before_protocol
+    with pytest.raises(ValueError, match="HCCL"):
+E   AssertionError: Regex pattern did not match.
+E    Regex: 'HCCL'
+E    Input: 'P2pHcclAFDConnector requires tensor_parallel_size equal to A/F ranks'
+_____ test_staged_service_rejects_unsupported_binding_before_protocol[dp] ______
+tests/unit/v1/worker/npu/test_ffn_worker.py:159: in test_staged_service_rejects_unsupported_binding_before_protocol
+    case.worker.bind_hccl_v41_transport(case.peer)
+afd_plugin/v1/worker/npu/ffn_worker.py:168: in bind_hccl_v41_transport
+    validate_staged_hccl_binding(
+afd_plugin/connectors/npu/hccl_config.py:113: in validate_staged_hccl_binding
+    expected = validate_staged_hccl_runtime(
+afd_plugin/connectors/npu/hccl_config.py:82: in validate_staged_hccl_runtime
+    caps = _validate_hccl_runtime(vllm_config, afd_config, role_rank, staged=True)
+afd_plugin/connectors/npu/hccl_config.py:175: in _validate_hccl_runtime
+    raise ValueError(f"P2pHcclAFDConnector requires {name}=1")
+E   ValueError: P2pHcclAFDConnector requires data_parallel_size=1
+
+During handling of the above exception, another exception occurred:
+tests/unit/v1/worker/npu/test_ffn_worker.py:158: in test_staged_service_rejects_unsupported_binding_before_protocol
+    with pytest.raises(ValueError, match="HCCL"):
+E   AssertionError: Regex pattern did not match.
+E    Regex: 'HCCL'
+E    Input: 'P2pHcclAFDConnector requires data_parallel_size=1'
+____ test_staged_service_rejects_unsupported_binding_before_protocol[eager] ____
+tests/unit/v1/worker/npu/test_ffn_worker.py:159: in test_staged_service_rejects_unsupported_binding_before_protocol
+    case.worker.bind_hccl_v41_transport(case.peer)
+afd_plugin/v1/worker/npu/ffn_worker.py:168: in bind_hccl_v41_transport
+    validate_staged_hccl_binding(
+afd_plugin/connectors/npu/hccl_config.py:113: in validate_staged_hccl_binding
+    expected = validate_staged_hccl_runtime(
+afd_plugin/connectors/npu/hccl_config.py:82: in validate_staged_hccl_runtime
+    caps = _validate_hccl_runtime(vllm_config, afd_config, role_rank, staged=True)
+afd_plugin/connectors/npu/hccl_config.py:216: in _validate_hccl_runtime
+    raise ValueError("P2pHcclAFDConnector requires enforce_eager=True")
+E   ValueError: P2pHcclAFDConnector requires enforce_eager=True
+
+During handling of the above exception, another exception occurred:
+tests/unit/v1/worker/npu/test_ffn_worker.py:158: in test_staged_service_rejects_unsupported_binding_before_protocol
+    with pytest.raises(ValueError, match="HCCL"):
+E   AssertionError: Regex pattern did not match.
+E    Regex: 'HCCL'
+E    Input: 'P2pHcclAFDConnector requires enforce_eager=True'
+=============================== warnings summary ===============================
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/torch/jit/_script.py:362: 14 warnings
+  /mnt/workspace/code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/torch/jit/_script.py:362: DeprecationWarning: `torch.jit.script_method` is deprecated. Please switch to `torch.compile` or `torch.export`.
+    warnings.warn(
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+- generated xml file: /mnt/workspace/tmp/afd-c0-20261104.hVgsIf/c4-forward-counts-20261109-7yye1d7j/results/cpu-binding.xml -
+3 failed, 123 passed, 14 warnings in 2.02s

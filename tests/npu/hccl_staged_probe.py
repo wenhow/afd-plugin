@@ -41,11 +41,17 @@ TOPOLOGIES = ("1a1f", "2a1f", "1a2f", "2a2f-tp1", "2a2f-tp2")
 def parse_args():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--topology", choices=TOPOLOGIES, default="1a1f")
+    parser.add_argument("--model", default=CHECKPOINT, help="local model config path")
     parser.add_argument(
         "--devices", default="0,2,4,6", help="FFN ranks, then Attention ranks"
     )
     parser.add_argument("--output-dir", type=Path)
     parser.add_argument("--timeout", type=int, default=TOTAL_TIMEOUT_SECONDS)
+    parser.add_argument(
+        "--local-counts-service",
+        action="store_true",
+        help="collect real Attention local counts and use the FFN v3 service entry",
+    )
     rejection = parser.add_mutually_exclusive_group()
     rejection.add_argument(
         "--reject-hidden-size",
@@ -69,6 +75,12 @@ def parse_args():
         "2a2f-tp2": (2, 2, 2),
     }[args.topology]
     args.attention_size, args.ffn_size, args.tp_size = attention, ffn, tp
+    if args.local_counts_service and (
+        args.topology not in ("1a1f", "2a2f-tp2")
+        or args.reject_hidden_size
+        or args.reject_plan_digest
+    ):
+        parser.error("--local-counts-service requires an equal TP1/TP2 positive case")
     if args.reject_plan_digest and args.topology != "2a1f":
         parser.error("--reject-plan-digest is scoped to the 2a1f drain case")
     try:
@@ -87,7 +99,7 @@ def parse_args():
     return args
 
 
-def build_config(tp_size):
+def build_config(tp_size, model_path):
     # Worker isolation: the supervisor does not import torch/vLLM or touch NPU.
     from vllm.config import CompilationMode, CUDAGraphMode, ModelConfig, VllmConfig
     from vllm.config.device import DeviceConfig
@@ -96,7 +108,7 @@ def build_config(tp_size):
 
     config = VllmConfig(
         model_config=ModelConfig(
-            model=CHECKPOINT,
+            model=model_path,
             dtype="bfloat16",
             trust_remote_code=True,
             enforce_eager=True,
@@ -253,6 +265,191 @@ def expect_rejection(report, label, error_type, operation):
         raise AssertionError(f"{label} unexpectedly succeeded")
 
 
+def local_count_cases():
+    # These are rank-local extents of the controlled input tensors, not plans.
+    # Native TP peers own replicated tokens, so their local counts agree.
+    return (
+        ("counts-u1-first", (1,), (2,)),
+        ("counts-u2-first", (0, 3), (0, 4)),
+        ("counts-u1-fallback", (3,), (4,)),
+        ("counts-u2-second", (1, 0), (2, 2)),
+        ("counts-empty", (0, 0), (0, 0)),
+    )
+
+
+def run_local_counts_service(torch, dist, args, transport, config, report):
+    # This component probe deliberately supplies a weightless runner shell.
+    # Its actual service method and context execute; production construction,
+    # native MoE and model admission are outside this controlled-arithmetic case.
+    from vllm.distributed import get_tp_group
+    from vllm.forward_context import get_forward_context
+    from vllm_ascend.ascend_config import init_ascend_config
+    from vllm_ascend.ascend_forward_context import (
+        set_mc2_mask,
+        set_mc2_tokens_capacity,
+    )
+
+    from afd_plugin.distributed.hccl_plan import HcclLocalForward
+    from afd_plugin.v1.worker.npu.ffn_model_runner import AFDNPUFFNModelRunner
+
+    device = f"npu:{args.devices[transport.world_rank]}"
+    config.parallel_config.rank = args.role_rank
+    init_ascend_config(config)
+    report["scope"] = "real local-count HCCL and FFN service; controlled arithmetic"
+    report["ffn_runner_constructor_called"] = False
+    report["local_counts_version"] = 1
+    if args.role == "ffn":
+
+        class ControlledArithmetic(torch.nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.exchanges = []
+                self.plans = {}
+
+            def compute_ffn_output(
+                self,
+                hidden_states,
+                layer_idx,
+                *,
+                input_ids,
+                hidden_states_fp32,
+                already_sequence_parallel,
+            ):
+                plan = transport.plan
+                assert plan is not None
+                context = get_forward_context()
+                metadata = context.additional_kwargs["afd_metadata"]
+                stage = plan.stages[metadata.stage_idx]
+                expected = expected_ffn_inputs(
+                    torch, args, stage, args.role_rank, layer_idx
+                )
+                for actual, reference in zip(
+                    (hidden_states, hidden_states_fp32, input_ids),
+                    expected,
+                    strict=True,
+                ):
+                    torch.testing.assert_close(actual.cpu(), reference, rtol=0, atol=0)
+                peers = stage.for_ffn(args.role_rank)
+                rows = sum(peer.padded_tokens for peer in peers)
+                assert metadata.transaction_id == plan.transaction_id
+                assert metadata.tokens_lens == [rows]
+                assert metadata.tokens_unpadded_lens == [
+                    sum(peer.valid_tokens for peer in peers)
+                ]
+                assert metadata.num_stages == len(plan.stages)
+                assert context.additional_kwargs["model_instance"] is self
+                assert context.additional_kwargs["num_tokens"] == rows
+                assert torch.equal(context.input_ids, input_ids)
+                assert not already_sequence_parallel
+                output = local_output(
+                    hidden_states,
+                    hidden_states_fp32,
+                    input_ids,
+                    args.role_rank,
+                    args.tp_size,
+                    layer_idx,
+                    stage.stage_idx,
+                )
+                dist.all_reduce(output, group=get_tp_group().device_group)
+                self.plans[plan.transaction_id] = plan
+                self.exchanges.append((plan.transaction_id, layer_idx, stage.stage_idx))
+                return output
+
+        runner = AFDNPUFFNModelRunner.__new__(AFDNPUFFNModelRunner)
+        runner.vllm_config = config
+        runner.connector = transport
+        runner.model = ControlledArithmetic()
+        set_mc2_tokens_capacity(config, config.scheduler_config.max_num_seqs, 1)
+        set_mc2_mask(config, device)
+        for transaction_id, valid, padded in local_count_cases():
+            assert runner.execute_hccl_v41_step(transport) is True
+            expected_steps = [
+                (transaction_id, layer, stage_idx)
+                for layer in LAYERS
+                for stage_idx, rows in enumerate(padded)
+                if rows
+            ]
+            actual_steps = [
+                entry for entry in runner.model.exchanges if entry[0] == transaction_id
+            ]
+            assert actual_steps == expected_steps
+            plan = runner.model.plans.get(transaction_id)
+            report["transactions"].append(
+                {
+                    "transaction_id": transaction_id,
+                    "service_completed": True,
+                    "plan_digest": None if plan is None else plan.digest,
+                    "verified_layer_stages": [
+                        list(entry[1:]) for entry in actual_steps
+                    ],
+                    "stage_count": len(valid),
+                    "whole_empty_without_compute": not any(padded),
+                }
+            )
+        assert runner.execute_hccl_v41_step(transport) is False
+        report["ffn_service_stop_returned_false"] = True
+    else:
+        for transaction_id, valid, padded in local_count_cases():
+            local = HcclLocalForward("target", valid, padded)
+            plan = transport.submit_forward(
+                local,
+                transaction_id=transaction_id if transport.is_coordinator else None,
+            )
+            assert plan is not None and plan.transaction_id == transaction_id
+            assert plan.layer_indices == LAYERS and plan.mode == local.mode
+            assert len(plan.stages) == len(local.valid_tokens)
+            for stage_idx, stage in enumerate(plan.stages):
+                assert (
+                    stage.attention_valid_tokens
+                    == (valid[stage_idx],) * args.attention_size
+                )
+                assert (
+                    stage.attention_padded_tokens
+                    == (padded[stage_idx],) * args.attention_size
+                )
+            exchanges = []
+            for layer_idx in LAYERS:
+                for stage in plan.stages:
+                    if not any(stage.attention_padded_tokens):
+                        continue
+                    source = make_attention_inputs(
+                        torch, args, stage, args.role_rank, layer_idx
+                    )
+                    native = tuple(tensor.to(device) for tensor in source)
+                    transport.send_layer_inputs(layer_idx, stage.stage_idx, *native)
+                    output = transport.receive_layer_output(layer_idx, stage.stage_idx)
+                    torch.testing.assert_close(
+                        output.cpu(),
+                        expected_attention_output(
+                            torch, args, stage, args.role_rank, layer_idx
+                        ),
+                        rtol=0,
+                        atol=0,
+                    )
+                    exchanges.append([layer_idx, stage.stage_idx])
+            transport.finish_forward()
+            report["transactions"].append(
+                {
+                    "transaction_id": plan.transaction_id,
+                    "plan_digest": plan.digest,
+                    "local_valid": local.valid_tokens,
+                    "local_padded": local.padded_tokens,
+                    "verified_layer_stages": exchanges,
+                    "stages": [
+                        {
+                            "stage_idx": stage.stage_idx,
+                            "valid": stage.attention_valid_tokens,
+                            "padded": stage.attention_padded_tokens,
+                        }
+                        for stage in plan.stages
+                    ],
+                }
+            )
+        transport.stop_attention()
+        report["all_attention_stop_completed"] = True
+    report["stop_acknowledged"] = True
+
+
 def run_rank(args):
     # Runtime imports are intentionally local to the isolated worker process.
     import torch
@@ -335,7 +532,7 @@ def run_rank(args):
         load_general_plugins()
         torch.npu.set_device(device)
         adapt_patch()
-        config = build_config(args.tp_size)
+        config = build_config(args.tp_size, args.model)
         with set_current_vllm_config(config):
             native_port = args.port + 1 + native_group_idx
             init_distributed_environment(
@@ -366,6 +563,7 @@ def run_rank(args):
                     args.attention_size,
                     args.ffn_size,
                     args.tp_size,
+                    local_counts_version=int(args.local_counts_service),
                 ),
                 init_method=f"tcp://127.0.0.1:{args.port}",
                 local_device=device,
@@ -386,7 +584,11 @@ def run_rank(args):
             else:
                 transport.initialize()
                 report["native_tp_after_initialize"] = native_group_check()
-                if args.reject_plan_digest:
+                if args.local_counts_service:
+                    run_local_counts_service(
+                        torch, dist, args, transport, config, report
+                    )
+                elif args.reject_plan_digest:
                     first_plan = build_plans(args)[0]
                     if args.role == "ffn" and args.role_rank == 0:
                         forward = receive_injected_control(args.ffn_size)
@@ -646,6 +848,8 @@ def run_parent(args):
                     str(Path(__file__).resolve()),
                     "--topology",
                     args.topology,
+                    "--model",
+                    args.model,
                     "--role",
                     role,
                     "--role-rank",
@@ -661,6 +865,8 @@ def run_parent(args):
                     command.append("--reject-hidden-size")
                 if args.reject_plan_digest:
                     command.append("--reject-plan-digest")
+                if args.local_counts_service:
+                    command.append("--local-counts-service")
                 process = subprocess.Popen(
                     command,
                     stdout=log,
@@ -705,6 +911,7 @@ def run_parent(args):
         summary["topology"] = args.topology
         summary["reject_hidden_size"] = args.reject_hidden_size
         summary["reject_plan_digest"] = args.reject_plan_digest
+        summary["local_counts_service"] = args.local_counts_service
         summary["devices"] = args.devices
         summary["elapsed_seconds"] = time.monotonic() - started
         (args.output_dir / "result.json").write_text(

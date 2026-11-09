@@ -1,0 +1,61 @@
+........................................................................ [  3%]
+........................................................................ [  6%]
+.........................ss............................................. [  9%]
+........................................................................ [ 12%]
+........................................................................ [ 16%]
+........................................................................ [ 19%]
+........................................................................ [ 22%]
+........................................................................ [ 25%]
+........................................................................ [ 28%]
+........................................................................ [ 32%]
+...................FF................................................... [ 35%]
+........................................................................ [ 38%]
+........................................................................ [ 41%]
+........................................................................ [ 44%]
+..........................FF............................................ [ 48%]
+........................................................................ [ 51%]
+........................................................................ [ 54%]
+........................................................................ [ 57%]
+........................................................................ [ 60%]
+........................................................................ [ 64%]
+........................................................................ [ 67%]
+........................................................................ [ 70%]
+........................................................................ [ 73%]
+........................................................................ [ 77%]
+........................................................................ [ 80%]
+........................................................................ [ 83%]
+........................................................................ [ 86%]
+........................................................................ [ 89%]
+........................................................................ [ 93%]
+........................................................................ [ 96%]
+........................................................................ [ 99%]
+............                                                             [100%]
+=================================== FAILURES ===================================
+_ test_npu_async_v2_constructor_validates_before_native_and_connector_init[False] _
+tests/unit/v1/worker/test_model_runner_v2.py:579: in test_npu_async_v2_constructor_validates_before_native_and_connector_init
+    module.AFDConnectorFactory, "create_connector", create_connector
+E   AttributeError: module 'afd_plugin.v1.worker.npu.attention_model_runner_v2' has no attribute 'AFDConnectorFactory'. Did you mean: 'AFDConnectorBase'?
+_ test_npu_async_v2_constructor_validates_before_native_and_connector_init[True] _
+tests/unit/v1/worker/test_model_runner_v2.py:579: in test_npu_async_v2_constructor_validates_before_native_and_connector_init
+    module.AFDConnectorFactory, "create_connector", create_connector
+E   AttributeError: module 'afd_plugin.v1.worker.npu.attention_model_runner_v2' has no attribute 'AFDConnectorFactory'. Did you mean: 'AFDConnectorBase'?
+_____ test_npu_attention_runner_constructor_does_not_initialize_connector ______
+tests/unit/v1/worker/test_npu_runtime.py:1485: in test_npu_attention_runner_constructor_does_not_initialize_connector
+    connector_calls = _fake_npu_connector_factory(monkeypatch, connector)
+tests/unit/v1/worker/test_npu_runtime.py:1435: in _fake_npu_connector_factory
+    attention_model_runner.AFDConnectorFactory,
+E   AttributeError: module 'afd_plugin.v1.worker.npu.attention_model_runner_v2' has no attribute 'AFDConnectorFactory'. Did you mean: 'AFDConnectorBase'?
+_________ test_npu_ffn_connector_uses_model_device_index_for_dp_worker _________
+tests/unit/v1/worker/test_npu_runtime.py:1513: in test_npu_ffn_connector_uses_model_device_index_for_dp_worker
+    ffn_model_runner.AFDConnectorFactory, "create_connector", create_connector
+E   AttributeError: module 'afd_plugin.v1.worker.npu.ffn_model_runner' has no attribute 'AFDConnectorFactory'
+=============================== warnings summary ===============================
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/torch/jit/_script.py:362: 14 warnings
+  /mnt/workspace/code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/torch/jit/_script.py:362: DeprecationWarning: `torch.jit.script_method` is deprecated. Please switch to `torch.compile` or `torch.export`.
+    warnings.warn(
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+- generated xml file: /mnt/workspace/tmp/afd-c0-20261104.hVgsIf/c4-forward-counts-20261109-uf_cl8kw/results/cpu-integration.xml -
+=========================== short test summary info ============================
+SKIPPED [2] tests/unit/model_executor/models/test_deepseek_v2_proxy.py:463: fused top-k needs CUDA
+4 failed, 2238 passed, 2 skipped, 4 deselected, 14 warnings in 39.79s

@@ -38,10 +38,14 @@ from afd_plugin.compat.patches.npu.mrv2_ubatching import (
 from afd_plugin.config import AFDConfig, parse_afd_config
 from afd_plugin.connectors import (
     AFDConnectorBase,
-    AFDConnectorFactory,
     AFDForwardContextMetadata,
 )
 from afd_plugin.connectors.npu.hccl_protocol import HcclForwardPlan
+from afd_plugin.connectors.npu.hccl_staged import (
+    HcclStagedAFDConnector,
+    create_npu_runtime_connector,
+)
+from afd_plugin.connectors.npu.hccl_staged_transport import HcclStagedTransport
 from afd_plugin.connectors.npu.p2p_hccl import P2pHcclAFDConnector
 from afd_plugin.model_executor.models.forward_context import use_afd_metadata_provider
 from afd_plugin.v1.worker.attention_metadata import (
@@ -52,6 +56,10 @@ from afd_plugin.v1.worker.attention_model_runner_v2 import (
     _AFDCaptureEventTracker,
     _use_afd_capture_input_preparation,
     _use_afd_ubatch_preparation,
+)
+from afd_plugin.v1.worker.npu.hccl_v41_execution import (
+    HcclV41Execution,
+    validate_hccl_v41_binding,
 )
 from afd_plugin.validation import validate_npu_model_runner_v2_config
 
@@ -217,6 +225,7 @@ class AFDNPUAttentionModelRunnerV2(AFDMetadataProviderMixin, NPUModelRunnerV2):
 
     afd_expected_role = "attention"
     ubatch_runner: NPUUBatchRunner | None
+    hccl_v41_transport: HcclStagedTransport | None = None
 
     def __init__(
         self,
@@ -237,7 +246,7 @@ class AFDNPUAttentionModelRunnerV2(AFDMetadataProviderMixin, NPUModelRunnerV2):
             self.afd_config = self.parse_config(self.vllm_config)
             rank, _ = _resolve_world_ranks()
             local_rank = int(device.index)
-            connector = AFDConnectorFactory.create_connector(
+            connector = create_npu_runtime_connector(
                 rank,
                 local_rank,
                 self.vllm_config,
@@ -250,7 +259,9 @@ class AFDNPUAttentionModelRunnerV2(AFDMetadataProviderMixin, NPUModelRunnerV2):
             if (
                 connector.control_plane is None
                 and not self.afd_config.async_dp
-                and not isinstance(connector, P2pHcclAFDConnector)
+                and not isinstance(
+                    connector, (P2pHcclAFDConnector, HcclStagedAFDConnector)
+                )
             ):
                 raise RuntimeError(
                     "AFD ModelRunnerV2 requires a control-plane-driven connector",
@@ -264,6 +275,8 @@ class AFDNPUAttentionModelRunnerV2(AFDMetadataProviderMixin, NPUModelRunnerV2):
             self._afd_transaction_counter = 0
             self._afd_hccl_execution: tuple[str, int] | None = None
             self.prof = create_afd_npu_profiler("attention")
+            if isinstance(connector, HcclStagedAFDConnector):
+                self.bind_hccl_v41_transport(connector.transport)
         except BaseException:
             try:
                 if connector is not None:
@@ -337,6 +350,28 @@ class AFDNPUAttentionModelRunnerV2(AFDMetadataProviderMixin, NPUModelRunnerV2):
     def parse_config(vllm_config: VllmConfig) -> AFDConfig:
         return parse_afd_config(vllm_config, expected_role="attention")
 
+    def bind_hccl_v41_transport(self, transport: HcclStagedTransport) -> None:
+        """Select explicit v3 lifecycle before model loading or KV initialization.
+
+        Configuration/model guards retain their ordinary admission. This API
+        supplies the runtime dependency; it does not enable guarded features.
+        """
+        validate_hccl_v41_binding(self.vllm_config, transport, self.device)
+        if (
+            self.hccl_v41_transport is not None
+            or self.ubatch_runner is not None
+            or not isinstance(
+                self.connector, (P2pHcclAFDConnector, HcclStagedAFDConnector)
+            )
+            or self.connector.is_initialized
+            or (
+                isinstance(self.connector, HcclStagedAFDConnector)
+                and transport is not self.connector.transport
+            )
+        ):
+            raise RuntimeError("staged transport must bind before connector/KV startup")
+        self.hccl_v41_transport = transport
+
     # Patch reason: native V2 load_model has no AFD connector lifecycle.
     # Patch functionality: preserve native model loading, then rendezvous the
     # AFD connector after both worker roles have loaded their weights.
@@ -352,7 +387,12 @@ class AFDNPUAttentionModelRunnerV2(AFDMetadataProviderMixin, NPUModelRunnerV2):
     ) -> None:
         super().load_model(load_dummy_weights, *args, **kwargs)
         # ### PATCH START: AFD connector rendezvous
-        if not self.connector.is_initialized:
+        transport = self.hccl_v41_transport
+        if transport is not None:
+            if not transport.initialized:
+                transport.initialize()
+            validate_hccl_v41_binding(self.vllm_config, transport, self.device)
+        elif not self.connector.is_initialized:
             self.connector.init_afd_connector()
         # ### PATCH END: AFD connector rendezvous
 
@@ -367,7 +407,12 @@ class AFDNPUAttentionModelRunnerV2(AFDMetadataProviderMixin, NPUModelRunnerV2):
         kv_cache_allocation_context: AbstractContextManager | None = None,
     ) -> None:
         # ### PATCH START: create the native NPU ubatch adapter.
-        with use_npu_ubatch_factory(self):
+        transport = (
+            self.hccl_v41_transport
+            if self.vllm_config.parallel_config.use_ubatching
+            else None
+        )
+        with use_npu_ubatch_factory(self, hccl_transport=transport):
             super().initialize_kv_cache(kv_cache_config, kv_cache_allocation_context)
         # ### PATCH END: create the native NPU ubatch adapter.
 
@@ -465,6 +510,27 @@ class AFDNPUAttentionModelRunnerV2(AFDMetadataProviderMixin, NPUModelRunnerV2):
     ):
         # ### PATCH START: scope AFD metadata provider/replay and profiler step.
         step_afd_npu_profiler(self.prof)
+        transport = self.hccl_v41_transport
+        if transport is not None:
+            execution = HcclV41Execution(
+                self,
+                transport,
+                mode="profile" if is_profile else "dummy" if dummy_run else "target",
+                valid_tokens=0
+                if dummy_run
+                else int(scheduler_output.total_num_scheduled_tokens),
+                dummy_run=dummy_run,
+            )
+            with execution.scope():
+                return super().execute_model(
+                    scheduler_output,
+                    intermediate_tensors,
+                    dummy_run=dummy_run,
+                    skip_attn_for_dummy_run=skip_attn_for_dummy_run,
+                    is_profile=is_profile,
+                    context_len=context_len,
+                    valid_dummy_state_slots=valid_dummy_state_slots,
+                )
         use_fullgraph_replay_hook = (
             self.vllm_config.compilation_config.cudagraph_mode
             in (CUDAGraphMode.FULL, CUDAGraphMode.FULL_DECODE_ONLY)
@@ -547,13 +613,21 @@ class AFDNPUAttentionModelRunnerV2(AFDMetadataProviderMixin, NPUModelRunnerV2):
     # to a shared composition/factory owner; it never copies native cleanup.
     def shutdown(self) -> None:
         # ### PATCH START: guarantee profiler/native/connector cleanup.
-        if (
+        transport = self.hccl_v41_transport
+        staged_stop_completed = False
+        if transport is not None and transport.initialized:
+            if transport.terminal or transport.closed:
+                raise RuntimeError("failed staged session requires worker supervision")
+            transport.stop_attention()
+            staged_stop_completed = True
+        elif transport is None and (
             isinstance(self.connector, P2pHcclAFDConnector)
             and self.connector.is_initialized
         ):
             # Complete peer STOP/ACK before native model/stream cleanup. A
             # failed or active session must escape to process supervision.
             self.connector.request_stop()
+        native_cleanup_complete = False
         try:
             stop_afd_npu_profiler(self.prof)
         finally:
@@ -568,9 +642,19 @@ class AFDNPUAttentionModelRunnerV2(AFDMetadataProviderMixin, NPUModelRunnerV2):
                     # state, captured MLA registries and persistent RoPE inputs.
                     # If native completion fails, retain it for process cleanup.
                     self.ubatch_runner = None
+                    native_cleanup_complete = True
                 finally:
                     self._afd_pending_metadata = None
-                    self.connector.close()
+                    if transport is None:
+                        self.connector.close()
+                    elif staged_stop_completed and native_cleanup_complete:
+                        try:
+                            self.connector.close()
+                        finally:
+                            # The staged adapter already owns this transport;
+                            # explicit old-adapter injection has a separate one.
+                            if not isinstance(self.connector, HcclStagedAFDConnector):
+                                transport.close()
         # ### PATCH END: guarantee profiler/native/connector cleanup.
 
 

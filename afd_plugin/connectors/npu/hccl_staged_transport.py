@@ -21,10 +21,11 @@ from torch.distributed.distributed_c10d import ProcessGroup
 
 from afd_plugin.connectors.npu.hccl_transport import HcclLayerInputs
 from afd_plugin.distributed.afd_process_group import init_afd_process_group
-from afd_plugin.distributed.hccl import HcclPeerSlice
+from afd_plugin.distributed.hccl import HcclPeerSlice, HcclStageLayout
 from afd_plugin.distributed.hccl_plan import (
     MAX_CONTROL_MESSAGE_BYTES,
     MAX_ERROR_BYTES,
+    HcclLocalForward,
     HcclParentPlan,
     HcclPlanCapabilities,
     HcclPlanMessage,
@@ -84,6 +85,8 @@ class HcclStagedTransport:
         self._steps: Iterator[tuple[int, int]] = iter(())
         self._next_step: tuple[int, int] | None = None
         self._pending_inputs: HcclLayerInputs | None = None
+        self._counts_transaction_id: str | None = None
+        self._local_forward: HcclLocalForward | None = None
         self._completed: set[str] = set()
         self.initialized = self.terminal = self.closed = False
 
@@ -190,6 +193,188 @@ class HcclStagedTransport:
             raise ValueError("transaction_id has already completed")
         if len(self._completed) >= MAX_SESSION_TRANSACTIONS:
             raise ValueError("session transaction limit reached; reconnect")
+        if self._local_forward is not None:
+            local = self._local_forward
+            if (
+                plan.transaction_id != self._counts_transaction_id
+                or plan.mode != local.mode
+                or tuple(s.attention_valid_tokens[self.role_rank] for s in plan.stages)
+                != local.valid_tokens
+                or tuple(s.attention_padded_tokens[self.role_rank] for s in plan.stages)
+                != local.padded_tokens
+            ):
+                raise ValueError(
+                    "parent plan does not match this Attention local report"
+                )
+
+    def _validate_local_forward(self, local: HcclLocalForward) -> None:
+        if not isinstance(local, HcclLocalForward):
+            raise ValueError("local report must be HcclLocalForward")
+        local.validate()
+        capabilities = self.negotiated_capabilities
+        if (
+            len(local.valid_tokens) > capabilities.max_stages
+            or max(local.padded_tokens) > capabilities.max_tokens
+        ):
+            raise ValueError("local counts exceed negotiated stage or token capacity")
+
+    def submit_forward(
+        self,
+        local: HcclLocalForward,
+        *,
+        transaction_id: str | None = None,
+    ) -> HcclParentPlan | None:
+        """Solicit actual Attention counts, then accept one canonical parent.
+
+        All Attention ranks call this on one owning host thread. Attention0
+        supplies the ID; peers receive REQUEST (or idle STOP) before sending.
+        FFN ranks continue to call receive_forward. Complete invalid frames
+        are drained before global ERROR; broken I/O needs external supervision.
+        """
+        self._require_active("attention")
+        capabilities = self.negotiated_capabilities
+        if capabilities.local_counts_version != 1:
+            raise RuntimeError("submit_forward requires local_counts_version=1")
+        if not (
+            capabilities.attention_size
+            == capabilities.ffn_size
+            == capabilities.native_tp_size
+        ):
+            raise ValueError(
+                "local count collection requires one native TP world per role"
+            )
+        if self.plan is not None or self._counts_transaction_id is not None:
+            raise RuntimeError("previous parent or count round has not completed")
+        try:
+            if self.is_coordinator:
+                try:
+                    request = HcclPlanMessage(
+                        "COUNTS_REQUEST", transaction_id=transaction_id
+                    )
+                    encode_hccl_plan_message(request)
+                    self._validate_local_forward(local)
+                    if transaction_id in self._completed:
+                        raise ValueError("transaction_id has already completed")
+                    if len(self._completed) >= MAX_SESSION_TRANSACTIONS:
+                        raise ValueError("session transaction limit reached; reconnect")
+                except (ValueError, RuntimeError) as exc:
+                    self._reject_peers(str(exc))
+                self._counts_transaction_id = transaction_id
+                self._local_forward = local
+                attention_peers = range(self.coordinator_rank + 1, self.world_size)
+                for rank in attention_peers:
+                    self._send_control(rank, request)
+                reports = [local]
+                error = None
+                for rank in attention_peers:
+                    try:
+                        message = self._recv_control(rank)
+                    except ValueError as exc:
+                        # The sender's complete frame is drained. Continue so
+                        # all requested senders can receive the final ERROR.
+                        error = error or str(exc)
+                        continue
+                    try:
+                        self._validate_reply(message, "COUNTS_REPORT", None)
+                        if (
+                            message.world_rank != rank
+                            or message.transaction_id != transaction_id
+                        ):
+                            raise ValueError(
+                                "COUNTS_REPORT identity does not match request"
+                            )
+                        assert message.local_forward is not None
+                        self._validate_local_forward(message.local_forward)
+                        reports.append(message.local_forward)
+                    except (ValueError, RuntimeError) as exc:
+                        error = error or str(exc)
+                if error is not None:
+                    self._reject_peers(error)
+                try:
+                    if any(
+                        report.mode != local.mode
+                        or len(report.valid_tokens) != len(local.valid_tokens)
+                        for report in reports
+                    ):
+                        raise ValueError(
+                            "Attention reports disagree on mode or stage count"
+                        )
+                    assert transaction_id is not None
+                    plan = HcclParentPlan(
+                        transaction_id,
+                        capabilities.layer_indices,
+                        tuple(
+                            HcclStageLayout(
+                                stage_idx,
+                                tuple(
+                                    report.valid_tokens[stage_idx] for report in reports
+                                ),
+                                tuple(
+                                    report.padded_tokens[stage_idx]
+                                    for report in reports
+                                ),
+                                capabilities.ffn_size,
+                                capabilities.native_tp_size,
+                            )
+                            for stage_idx in range(len(local.valid_tokens))
+                        ),
+                        local.mode,
+                    )
+                    self._validate_plan(plan)
+                except (ValueError, RuntimeError) as exc:
+                    self._reject_peers(str(exc))
+                self.begin_forward(plan)
+                return plan
+
+            try:
+                request = self._recv_control(self.coordinator_rank)
+            except ValueError as exc:
+                self._report_rejection(str(exc))
+                raise
+            if request.kind == "STOP":
+                self._acknowledge_stop()
+                return None
+            if request.kind == "ERROR":
+                raise RuntimeError(f"coordinator rejected session: {request.error}")
+            try:
+                if request.kind != "COUNTS_REQUEST":
+                    raise ValueError("expected COUNTS_REQUEST or STOP")
+                if (
+                    transaction_id is not None
+                    and transaction_id != request.transaction_id
+                ):
+                    raise ValueError(
+                        "COUNTS_REQUEST transaction_id does not match caller"
+                    )
+                if request.transaction_id in self._completed:
+                    raise ValueError("transaction_id has already completed")
+                self._validate_local_forward(local)
+                self._counts_transaction_id = request.transaction_id
+                self._local_forward = local
+                report = HcclPlanMessage(
+                    "COUNTS_REPORT",
+                    world_rank=self.world_rank,
+                    transaction_id=request.transaction_id,
+                    local_forward=local,
+                )
+                encode_hccl_plan_message(report)
+            except (ValueError, RuntimeError) as exc:
+                self._report_rejection(str(exc))
+                raise
+            self._send_control(self.coordinator_rank, report)
+            return self.receive_forward()
+        except BaseException:
+            self.terminal = True
+            raise
+
+    def _report_rejection(self, reason: str) -> None:
+        self._send_control(self.coordinator_rank, self._error_message(reason))
+        self._expect(self.coordinator_rank, "ERROR")
+
+    def _acknowledge_stop(self) -> None:
+        self._send_control(self.coordinator_rank, HcclPlanMessage("STOP_ACK"))
+        self._expect(self.coordinator_rank, "STOP_ACK")
+        self.terminal = True
 
     def _activate_plan(self, plan: HcclParentPlan) -> None:
         self.plan, self._plan_digest = plan, plan.digest
@@ -205,6 +390,11 @@ class HcclStagedTransport:
         self._require_active()
         if not self.is_coordinator:
             raise RuntimeError("only Attention0 publishes a parent plan")
+        if (
+            self.negotiated_capabilities.local_counts_version == 1
+            and self._local_forward is None
+        ):
+            raise RuntimeError("counts-enabled Attention must use submit_forward")
         self._validate_plan(plan)
         try:
             self._broadcast_control(HcclPlanMessage("FORWARD", plan=plan))
@@ -228,23 +418,32 @@ class HcclStagedTransport:
             raise RuntimeError("Attention0 must publish the parent plan")
         if self.plan is not None:
             raise RuntimeError("previous parent transaction has not completed")
+        if (
+            self.role == "attention"
+            and self.negotiated_capabilities.local_counts_version == 1
+            and self._local_forward is None
+        ):
+            raise RuntimeError("counts-enabled Attention must use submit_forward")
         try:
-            message = self._recv_control(self.coordinator_rank)
+            try:
+                message = self._recv_control(self.coordinator_rank)
+            except ValueError as exc:
+                self._report_rejection(str(exc))
+                raise
             if message.kind == "STOP":
-                self._send_control(self.coordinator_rank, HcclPlanMessage("STOP_ACK"))
-                self._expect(self.coordinator_rank, "STOP_ACK")
-                self.terminal = True
+                if self._counts_transaction_id is not None:
+                    raise ValueError("STOP requires an idle count boundary")
+                self._acknowledge_stop()
                 return None
             if message.kind == "ERROR":
                 raise RuntimeError(f"coordinator rejected session: {message.error}")
-            if message.kind != "FORWARD" or message.plan is None:
-                raise ValueError("expected FORWARD or STOP")
-            plan = message.plan
             try:
+                if message.kind != "FORWARD" or message.plan is None:
+                    raise ValueError("expected FORWARD or STOP")
+                plan = message.plan
                 self._validate_plan(plan)
             except (ValueError, RuntimeError) as exc:
-                self._send_control(self.coordinator_rank, self._error_message(str(exc)))
-                self._expect(self.coordinator_rank, "ERROR")
+                self._report_rejection(str(exc))
                 raise
             self._send_control(
                 self.coordinator_rank,
@@ -515,11 +714,40 @@ class HcclStagedTransport:
             self.terminal = True
             raise
 
+    def stop_attention(self) -> None:
+        """Stop an idle session from every Attention worker, without reports.
+
+        Attention0 publishes STOP. The other Attention ranks only receive it,
+        acknowledge and await the global ACK; both counts extension versions
+        use the same shutdown handshake. FFN remains in receive_forward.
+        """
+        self._require_active("attention")
+        if self.plan is not None or self._counts_transaction_id is not None:
+            raise RuntimeError("STOP requires an idle parent boundary")
+        if self.is_coordinator:
+            self.stop()
+            return
+        try:
+            try:
+                message = self._recv_control(self.coordinator_rank)
+            except ValueError as exc:
+                self._report_rejection(str(exc))
+                raise
+            if message.kind == "ERROR":
+                raise RuntimeError(f"coordinator rejected session: {message.error}")
+            if message.kind != "STOP":
+                self._report_rejection("expected STOP at Attention shutdown")
+                raise ValueError("expected STOP at Attention shutdown")
+            self._acknowledge_stop()
+        except BaseException:
+            self.terminal = True
+            raise
+
     def stop(self) -> None:
         self._require_active()
         if not self.is_coordinator:
             raise RuntimeError("only Attention0 requests STOP")
-        if self.plan is not None:
+        if self.plan is not None or self._counts_transaction_id is not None:
             raise RuntimeError("STOP requires an idle parent boundary")
         try:
             self._broadcast_control(HcclPlanMessage("STOP"))
@@ -576,6 +804,8 @@ class HcclStagedTransport:
         self.plan, self._plan_digest = None, None
         self._steps, self._next_step = iter(()), None
         self._pending_inputs = None
+        self._counts_transaction_id = None
+        self._local_forward = None
 
     def close(self) -> None:
         """Destroy plugin groups in reverse creation order, never native TP."""

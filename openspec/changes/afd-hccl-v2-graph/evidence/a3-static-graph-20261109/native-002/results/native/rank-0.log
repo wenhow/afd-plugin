@@ -1,0 +1,28 @@
+INFO 11-09 22:49:48 [__init__.py:52] Available plugins for group vllm.platform_plugins:
+INFO 11-09 22:49:48 [__init__.py:54] - ascend -> vllm_ascend:register
+INFO 11-09 22:49:48 [__init__.py:66] Loading plugin ascend
+INFO 11-09 22:49:48 [__init__.py:272] Platform plugin ascend is activated
+INFO 11-09 22:49:48 [platform.py:74] Breakable CUDAGraph on Ascend is opt-in; using VLLM_USE_BREAKABLE_CUDAGRAPH=0.
+[Gloo] Rank 0 is connected to 1 peer ranks. Expected number of connected peer ranks is : 1
+[rank0]:[W1109 22:49:55.251472376 ProcessGroupHCCL.cpp:1294] Warning: The watchdog timeout 45000ms(which is set by init_process_group) is less than or equal to HCCL execution timeout 1836000ms! The plog may not be recorded. (function ProcessGroupHCCL)
+[rank0]:[W1109 22:49:55.251819522 ProcessGroupHCCL.cpp:1294] Warning: The watchdog timeout 45000ms(which is set by init_process_group) is less than or equal to HCCL execution timeout 1836000ms! The plog may not be recorded. (function ProcessGroupHCCL)
+phase=prepare rank=0 case=u1 rows=(4,)
+[rank0]:[W1109 22:49:55.274856173 NPUCachingAllocator.cpp:202] Warning: The current CANN and HDK(driver) versions require processing for 32 padding size, with memory allocation. (function operator())
+phase=warmup rank=0 case=u1
+phase=capture rank=0 case=u1
+phase=replay rank=0 case=u1 iteration=0
+phase=replay rank=0 case=u1 iteration=1
+phase=replay rank=0 case=u1 iteration=2
+phase=prepare rank=0 case=u2 rows=(3, 2)
+phase=warmup rank=0 case=u2
+phase=capture rank=0 case=u2
+phase=replay rank=0 case=u2 iteration=0
+phase=replay rank=0 case=u2 iteration=1
+phase=replay rank=0 case=u2 iteration=2
+phase=prepare rank=0 case=u2-empty-stage rows=(0, 2)
+phase=warmup rank=0 case=u2-empty-stage
+phase=capture rank=0 case=u2-empty-stage
+phase=replay rank=0 case=u2-empty-stage iteration=0
+phase=replay rank=0 case=u2-empty-stage iteration=1
+phase=replay rank=0 case=u2-empty-stage iteration=2
+phase=prepare rank=0 case=empty rows=(0,)

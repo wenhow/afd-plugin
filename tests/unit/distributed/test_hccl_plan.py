@@ -11,6 +11,7 @@ from afd_plugin.distributed.hccl import HcclStageLayout
 from afd_plugin.distributed.hccl_plan import (
     MAX_CONTROL_MESSAGE_BYTES,
     MAX_ROLE_RANKS,
+    HcclLocalForward,
     HcclParentPlan,
     HcclPlanCapabilities,
     HcclPlanMessage,
@@ -65,6 +66,8 @@ def test_capabilities_reject_different_native_tp_coordinate_groups():
         ("native_tp_size", 0),
         ("max_stages", 3),
         ("max_stages", True),
+        ("local_counts_version", True),
+        ("local_counts_version", 2),
         ("layer_indices", (1, 0)),
         ("layer_indices", (0, 0)),
         ("layer_indices", ()),
@@ -74,6 +77,121 @@ def test_capabilities_reject_different_native_tp_coordinate_groups():
 def test_capabilities_reject_invalid_wire_dimensions(capabilities, field, value):
     with pytest.raises(ValueError):
         replace(capabilities, **{field: value}).validate()
+
+
+@pytest.mark.parametrize("version", [0, 1])
+def test_local_counts_extension_roundtrip_preserves_baseline_hello(
+    capabilities, version
+):
+    local = replace(
+        capabilities,
+        attention_size=2,
+        ffn_size=2,
+        native_tp_size=2,
+        local_counts_version=version,
+    )
+    message = HcclPlanMessage(
+        "HELLO", role="attention", world_rank=2, capabilities=local
+    )
+    encoded = encode_hccl_plan_message(message)
+    assert ("local_counts_version" in json.loads(encoded)["capabilities"]) == bool(
+        version
+    )
+    assert decode_hccl_plan_message(encoded) == message
+    assert local.negotiate(local) == local
+
+
+@pytest.mark.parametrize("local_version", [0, 1])
+def test_local_counts_extension_cannot_silently_downgrade(capabilities, local_version):
+    local = replace(
+        capabilities,
+        attention_size=2,
+        ffn_size=2,
+        native_tp_size=2,
+        local_counts_version=local_version,
+    )
+    peer = replace(local, local_counts_version=1 - local_version)
+    with pytest.raises(ValueError, match="local_counts_version"):
+        local.negotiate(peer)
+
+
+@pytest.mark.parametrize("attention,ffn,tp", [(2, 2, 1), (1, 2, 1), (2, 1, 1)])
+def test_local_counts_extension_rejects_unproven_native_role_worlds(
+    capabilities,
+    attention,
+    ffn,
+    tp,
+):
+    local = replace(
+        capabilities,
+        attention_size=attention,
+        ffn_size=ffn,
+        native_tp_size=tp,
+        local_counts_version=1,
+    )
+    with pytest.raises(ValueError, match="one native TP world per role"):
+        local.validate()
+
+
+@pytest.mark.parametrize(
+    "local",
+    [
+        HcclLocalForward("target", (1,), (2,)),
+        HcclLocalForward("dummy", (0, 0), (4, 2)),
+        HcclLocalForward("profile", (0,), (0,)),
+    ],
+)
+def test_solicited_count_messages_roundtrip_actual_local_extents(local):
+    request = HcclPlanMessage("COUNTS_REQUEST", transaction_id="counts-1")
+    report = HcclPlanMessage(
+        "COUNTS_REPORT", transaction_id="counts-1", world_rank=3, local_forward=local
+    )
+    assert decode_hccl_plan_message(encode_hccl_plan_message(request)) == request
+    assert decode_hccl_plan_message(encode_hccl_plan_message(report)) == report
+
+
+@pytest.mark.parametrize(
+    "local",
+    [
+        HcclLocalForward("graph", (1,), (2,)),
+        HcclLocalForward("target", (), ()),
+        HcclLocalForward("target", [1], (2,)),
+        HcclLocalForward("target", (1,), (2, 2)),
+        HcclLocalForward("target", (0, 0, 0), (0, 0, 0)),
+        HcclLocalForward("target", (True,), (2,)),
+        HcclLocalForward("target", (1,), (False,)),
+        HcclLocalForward("target", (3,), (2,)),
+        HcclLocalForward("target", (-1,), (2,)),
+        HcclLocalForward("target", (1,), ((1 << 31),)),
+    ],
+)
+def test_count_report_rejects_invalid_native_extents(local):
+    with pytest.raises(ValueError):
+        encode_hccl_plan_message(
+            HcclPlanMessage(
+                "COUNTS_REPORT",
+                transaction_id="counts-1",
+                world_rank=3,
+                local_forward=local,
+            )
+        )
+
+
+@pytest.mark.parametrize("field", ["transaction_id", "world_rank", "local_forward"])
+def test_count_report_decoder_rejects_missing_identity_or_counts(field):
+    encoded = json.loads(
+        encode_hccl_plan_message(
+            HcclPlanMessage(
+                "COUNTS_REPORT",
+                transaction_id="counts-1",
+                world_rank=3,
+                local_forward=HcclLocalForward("target", (1,), (2,)),
+            )
+        )
+    )
+    del encoded[field]
+    with pytest.raises(ValueError, match="missing or unexpected"):
+        decode_hccl_plan_message(json.dumps(encoded).encode())
 
 
 @pytest.mark.parametrize("attention,ffn,tp", [(2, 3, 1), (4, 2, 2), (2, 2, 3)])

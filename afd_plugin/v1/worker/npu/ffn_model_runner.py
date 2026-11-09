@@ -24,7 +24,6 @@ from afd_plugin.compat.npu.profiler import (
 )
 from afd_plugin.config import AFDConfig, parse_afd_config
 from afd_plugin.connectors import (
-    AFDConnectorFactory,
     AFDControlPayload,
     AFDDPMetadata,
     AFDF2ATransferPayload,
@@ -32,6 +31,7 @@ from afd_plugin.connectors import (
     AFDTransferContext,
 )
 from afd_plugin.connectors.npu.hccl_protocol import HcclForwardPlan
+from afd_plugin.connectors.npu.hccl_staged import create_npu_runtime_connector
 from afd_plugin.connectors.npu.p2p_hccl import P2pHcclAFDConnector
 from afd_plugin.v1.worker.attention_metadata import (
     _resolve_world_ranks,
@@ -41,6 +41,7 @@ from afd_plugin.v1.worker.cuda_graph import (
     graph_run_mode,
 )
 from afd_plugin.v1.worker.ffn_metadata import _set_moe_layer_index
+from afd_plugin.v1.worker.npu.hccl_v41_ffn_runner import execute_hccl_v41_parent
 from afd_plugin.validation import validate_npu_model_runner_v2_config
 
 if TYPE_CHECKING:
@@ -51,6 +52,7 @@ if TYPE_CHECKING:
     from vllm.v1.outputs import AsyncModelRunnerOutput, ModelRunnerOutput
 
     from afd_plugin.connectors import AFDConnectorBase
+    from afd_plugin.connectors.npu.hccl_staged_transport import HcclStagedTransport
     from afd_plugin.model_executor.models.npu.deepseek_v41 import (
         AFDDeepseekV41FFNForCausalLM,
     )
@@ -86,7 +88,7 @@ class AFDNPUFFNModelRunner:
         )
         if connector is None:
             rank, _ = _resolve_world_ranks()
-            connector = AFDConnectorFactory.create_connector(
+            connector = create_npu_runtime_connector(
                 rank, int(device.index), vllm_config, afd_config
             )
         self.connector = connector
@@ -150,6 +152,23 @@ class AFDNPUFFNModelRunner:
 
     def initialize_afd_connector(self) -> None:
         self.connector.init_afd_connector()
+
+    def execute_hccl_v41_step(self, transport: HcclStagedTransport) -> bool:
+        """Receive and execute one v3 parent; False means acknowledged peer STOP.
+
+        The worker owns transport initialization, shutdown and error reporting.
+        No legacy connector plan or native scheduler participates in this path.
+        """
+        if transport.role != "ffn":
+            raise ValueError("V4.1 service requires an FFN transport")
+        try:
+            if transport.receive_forward() is None:
+                return False
+            execute_hccl_v41_parent(self, transport)
+            return True
+        except BaseException:
+            transport.terminal = True
+            raise
 
     def execute_hccl_step(self, plan: HcclForwardPlan) -> None:
         """Execute the accepted U1 plan without CAMP2P token/layout inference.

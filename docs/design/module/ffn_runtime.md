@@ -82,7 +82,18 @@ The explicit [V4.1 staged FFN executor](../../../afd_plugin/v1/worker/npu/hccl_v
 consumes an accepted v3 plan in layer/stage order and passes each full aggregate
 to native MoE. Native MoE owns TP reduction. This component requires DP1/PP1/CP1
 and a single native TP world spanning the FFN role; separate TP1 FFN worlds need
-additional group mapping. The production service does not select this executor.
+additional group mapping. `execute_hccl_v41_step` receives and executes a whole
+parent, returning `False` only after peer STOP. The FFN worker's explicit
+`bind_hccl_v41_transport` selects this service before connector initialization.
+It checks actual model dimensions, layers, capacity, native rank and device.
+The worker retains resources after compute/communication failure or while a
+receiver is blocked; only acknowledged idle STOP permits normal close.
+Normal NPU construction selects this adapter for a V4.1 HCCL target configured
+for U2; the FFN worker binds its unique transport during device initialization.
+Both roles must use the same U2 configuration. Default U1 and DSpark/U1 retain
+v2; unsupported DSpark/U2 is rejected before the FFN role erases its draft
+identity. Binding leaves native TP ownership and model admission unchanged.
+Full-checkpoint qualification remains pending.
 
 FFN is launched as a `vllm serve` process, and AFD config normalization selects
 its role-specific worker when `worker_cls="auto"`. It does not serve requests.

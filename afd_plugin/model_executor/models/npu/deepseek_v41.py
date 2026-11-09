@@ -4,11 +4,13 @@
 
 from collections.abc import Iterable
 from dataclasses import dataclass
+from typing import Any, Protocol
 
 import torch
 from torch import nn
 from transformers import PretrainedConfig
 from vllm.config import VllmConfig
+from vllm.forward_context import get_forward_context
 from vllm.model_executor.models.utils import make_layers, maybe_prefix
 from vllm_ascend.ascend_forward_context import MoECommType
 from vllm_ascend.models.deepseek_v41 import model as native
@@ -21,6 +23,16 @@ from afd_plugin.connectors import AFDTransferContext, AFDTransferMetadata
 from afd_plugin.model_executor.models.forward_context import (
     get_afd_metadata_from_forward_context,
 )
+
+HCCL_V41_PARENT_FORWARD_KEY = "afd_hccl_v41_parent_forward"
+
+
+class DeepseekV41ParentForward(Protocol):
+    """Execute already-produced native parent kwargs in the current context."""
+
+    def __call__(
+        self, model_inputs: dict[str, Any]
+    ) -> torch.Tensor | tuple[torch.Tensor, list[torch.Tensor]]: ...
 
 
 def _is_ffn_checkpoint_weight(name: str) -> bool:
@@ -295,6 +307,39 @@ class AFDDeepseekV41AttentionLLMForCausalLM(native.AscendDeepseekV41LLMForCausal
 
 class AFDDeepseekV41AttentionForCausalLM(native_wrapper.AscendDeepseekV41ForCausalLM):
     language_model_cls = AFDDeepseekV41AttentionLLMForCausalLM
+
+    # Upstream: AscendDeepseekV41ForCausalLM.forward @ 7e37e29a, vl_model.py.
+    # Reason: native eager U1/profile calls bypass the microbatch runner.
+    # Functionality: route an explicitly bound v3 parent after the native
+    # Engram pre-hook; the ordinary model path remains inherited. Signature
+    # matches upstream. Remove when native execute offers a model-call callback.
+    def forward(
+        self,
+        input_ids: torch.Tensor,
+        positions: torch.Tensor,
+        intermediate_tensors=None,
+        inputs_embeds: torch.Tensor | None = None,
+        **kwargs,
+    ) -> torch.Tensor:
+        # ### PATCH START: accepted native U1 uses the same staged session
+        context = get_forward_context()
+        invocation: DeepseekV41ParentForward | None = (
+            context.additional_kwargs or {}
+        ).get(HCCL_V41_PARENT_FORWARD_KEY)
+        if invocation is not None:
+            return invocation(
+                dict(
+                    input_ids=input_ids,
+                    positions=positions,
+                    intermediate_tensors=intermediate_tensors,
+                    inputs_embeds=inputs_embeds,
+                    **kwargs,
+                )
+            )
+        # ### PATCH END: accepted native U1 uses the same staged session
+        return self.language_model(
+            input_ids, positions, intermediate_tensors, inputs_embeds, **kwargs
+        )
 
 
 class AFDDeepseekV41FFNLayer(nn.Module):

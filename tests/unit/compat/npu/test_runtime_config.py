@@ -66,6 +66,18 @@ def test_ffn_config_preserves_existing_model_configurations(model_type, architec
     assert source.engram_config.dp_shared_memory is False
 
 
+@pytest.mark.parametrize("field", ["enable_dbo", "use_ubatching"])
+def test_ffn_config_rejects_dspark_u2_before_erasing_target_identity(field):
+    source = v41_dspark_config(role="ffn")
+    speculative = source.speculative_config
+    setattr(source.parallel_config, field, True)
+
+    with pytest.raises(ValueError, match="DSpark with U1 before role isolation"):
+        get_npu_ffn_config(source)
+
+    assert source.speculative_config is speculative
+
+
 def test_dspark_validation_retains_native_target_and_draft_metadata():
     config = v41_dspark_config(tensor_parallel_size=4)
     before = deepcopy(config)

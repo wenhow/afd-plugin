@@ -1,0 +1,14 @@
+{
+  "command": [
+    "ssh",
+    "-F",
+    "C:/Users/zq/.atomgitdevenv/.ssh/config",
+    "-o",
+    "BatchMode=yes",
+    "-o",
+    "ConnectTimeout=15",
+    "devenvc_rissvg.4ff038c993bf40219c03182f786a9def.atomgit.0",
+    "python3 -B /mnt/workspace/tmp/afd-c0-20261104.hVgsIf/c4-forward-counts-20261109-6dtpln2l/run_a3_forward_counts.py --remote-root /mnt/workspace/tmp/afd-c0-20261104.hVgsIf/c4-forward-counts-20261109-6dtpln2l --device 0 --cpu-scope forward-counts --cpu-only"
+  ],
+  "returncode": 0
+}

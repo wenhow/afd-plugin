@@ -1,0 +1,37 @@
+{
+  "scope": "controlled-arithmetic HCCL graph component",
+  "cases": [
+    [
+      "u1",
+      [
+        4
+      ]
+    ],
+    [
+      "u2",
+      [
+        3,
+        2
+      ]
+    ],
+    [
+      "u2-empty-stage",
+      [
+        0,
+        2
+      ]
+    ],
+    [
+      "empty",
+      [
+        0
+      ]
+    ]
+  ],
+  "exit_codes": [
+    0,
+    0
+  ],
+  "elapsed_seconds": 22.620510809123516,
+  "status": "passed"
+}

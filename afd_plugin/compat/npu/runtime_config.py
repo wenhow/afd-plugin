@@ -87,6 +87,14 @@ def get_npu_ffn_config(vllm_config: VllmConfig) -> VllmConfig:
         return vllm_config
     parse_afd_config(vllm_config, expected_role="ffn")
     validate_deepseek_v41_speculation(vllm_config)
+    parallel = vllm_config.parallel_config
+    if vllm_config.speculative_config is not None and (
+        parallel.enable_dbo or parallel.use_ubatching
+    ):
+        raise ValueError(
+            "V4.1 FFN requires DSpark with U1 before role isolation; "
+            "DSpark/U2 acceptance is pending"
+        )
     ffn_config = copy(vllm_config)
     ffn_config.engram_config = None
     ffn_config.speculative_config = None

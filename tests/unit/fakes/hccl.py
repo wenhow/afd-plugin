@@ -19,9 +19,17 @@ from afd_plugin.connectors.npu.hccl_protocol import (
     HcclForwardPlan,
     HcclRole,
 )
+from afd_plugin.connectors.npu.hccl_staged_transport import HcclStagedTransport
 from afd_plugin.connectors.npu.hccl_transport import HcclLayerInputs
 from afd_plugin.connectors.npu.p2p_hccl import P2pHcclAFDConnector
-from afd_plugin.distributed.hccl_plan import HcclParentPlan
+from afd_plugin.distributed.hccl import HcclStageLayout
+from afd_plugin.distributed.hccl_plan import (
+    HcclParentPlan,
+    HcclPlanCapabilities,
+    HcclPlanMessage,
+    decode_hccl_plan_message,
+    encode_hccl_plan_message,
+)
 from tests.unit.fakes.vllm_config import hccl_vllm_config
 
 ROUTER_DELTA_SCALE = 4_096
@@ -65,6 +73,59 @@ class StagedModelPeer:
     def finish_forward(self):
         assert self.pending is None
         self.completed = True
+
+
+class StagedAttentionPeer(StagedModelPeer):
+    """CPU local-proposal/model seam; no process groups or device behavior."""
+
+    def __init__(self):
+        super().__init__(None)
+        self.capabilities = self.negotiated_capabilities = HcclPlanCapabilities(
+            4, 32, 16, (0, 1), 1, 1, local_counts_version=1
+        )
+        self.local_device = 0
+        self.initialized, self.closed = True, False
+        self.proposals, self.forwards = [], []
+
+    @property
+    def is_coordinator(self):
+        return True
+
+    def initialize(self):
+        self.initialized = True
+
+    def submit_forward(self, local, *, transaction_id=None):
+        if self.plan is not None:
+            raise AssertionError("previous parent must finish before submission")
+        local.validate()
+        self.plan = HcclParentPlan(
+            transaction_id,
+            (0, 1),
+            tuple(
+                HcclStageLayout(index, (valid,), (padded,), 1)
+                for index, (valid, padded) in enumerate(
+                    zip(local.valid_tokens, local.padded_tokens, strict=True)
+                )
+            ),
+            local.mode,
+        )
+        self.proposals.append(local)
+        self.forwards.append(self.plan)
+        self.completed = False
+        return self.plan
+
+    def finish_forward(self):
+        super().finish_forward()
+        self.plan = None
+
+    def stop_attention(self):
+        if self.plan is not None:
+            raise AssertionError("STOP requires an idle completed parent")
+        self.messages.append(("STOP",))
+        self.terminal = True
+
+    def close(self):
+        self.closed = self.terminal = True
 
 
 def make_hccl_connector_pair(
@@ -126,6 +187,7 @@ def make_hccl_worker(worker_type, runner):
     worker._ffn_shutdown_event = None
     worker._ffn_loop_error = None
     worker._hccl_stop_received = False
+    worker._hccl_v41_transport = None
     worker._cpu_binding_attempted = True
     return worker
 
@@ -318,6 +380,76 @@ def staged_ffn_expected_output(payload, layer_idx):
     ).to(torch.bfloat16)
 
 
+class StagedFFNServicePeer:
+    """Queued v3 parent/STOP protocol for worker lifecycle tests, CPU only."""
+
+    def __init__(self, plans):
+        first = plans[0]
+        stage = first.stages[0]
+        self.parents = deque((*plans, None))
+        self.role, self.role_rank = "ffn", 0
+        self.local_device = 0
+        self.initialized = self.closed = self.terminal = False
+        self.plan = self.current = None
+        self.messages = []
+        self.negotiated_capabilities = HcclPlanCapabilities(
+            STAGED_FFN_HIDDEN_SIZE,
+            1024,
+            16,
+            first.layer_indices,
+            len(stage.attention_valid_tokens),
+            stage.ffn_size,
+            stage.native_tp_size,
+            local_counts_version=1,
+        )
+
+    def initialize(self):
+        self.initialized = True
+
+    def receive_forward(self):
+        if self.plan is not None:
+            raise AssertionError("service must complete a parent before receiving")
+        plan = self.parents.popleft()
+        if plan is None:
+            self.messages.append(("STOP_ACK",))
+            self.terminal = True
+            return None
+        self.messages.append(("FORWARD", plan.transaction_id))
+        self.current = StagedFFNPeer(plan)
+        self.current.messages = self.messages
+        self.plan = plan
+        return plan
+
+    def receive_layer(self, layer_idx, stage_idx):
+        return self.current.receive_layer(layer_idx, stage_idx)
+
+    def send_layer_output(self, layer_idx, stage_idx, output):
+        self.current.send_layer_output(layer_idx, stage_idx, output)
+
+    def finish_forward(self):
+        self.current.finish_forward()
+        self.plan = None
+
+    def close(self):
+        self.closed = True
+
+
+def unexpected_legacy_hccl_operation():
+    raise AssertionError("bound v3 service must not initialize or close legacy wire")
+
+
+def make_staged_ffn_service_case(runner_type, worker_type, plans):
+    case = make_staged_ffn_case(runner_type, plans[0])
+    case.runner.model = None
+    case.runner.connector.is_initialized = False
+    case.runner.connector.init_afd_connector = unexpected_legacy_hccl_operation
+    case.runner.connector.close = unexpected_legacy_hccl_operation
+    case.peer = StagedFFNServicePeer(plans)
+    case.worker = make_hccl_worker(worker_type, case.runner)
+    case.worker.device = SimpleNamespace(type="npu", index=0)
+    return case
+
+
 def make_staged_ffn_case(runner_type, plan: HcclParentPlan, *, role_rank=0):
     """Build an already-accepted parent without worker/device initialization."""
     peer = StagedFFNPeer(plan, role_rank=role_rank)
@@ -335,6 +467,96 @@ def make_staged_ffn_case(runner_type, plan: HcclParentPlan, *, role_rank=0):
     model = StagedFFNContractModel(context, plan, role_rank)
     runner = make_hccl_runner(runner_type, connector, model)
     return SimpleNamespace(runner=runner, peer=peer, context=context, plan=plan)
+
+
+class StagedConnectorSession:
+    """CPU payload queue at the adapter's transport boundary, no groups."""
+
+    def __init__(self):
+        self.inputs, self.outputs = deque(), deque()
+        self.messages = []
+        self.peers = []
+
+    def endpoint(self, role, role_rank, caps, **kwargs):
+        peer = StagedConnectorPeer(self, role, role_rank, caps, **kwargs)
+        self.peers.append(peer)
+        return peer
+
+    def accept(self, plan):
+        for peer in self.peers:
+            plan.validate(peer.negotiated_capabilities)
+            peer.plan = plan
+
+
+class HcclCopyFailingTensor(torch.Tensor):
+    """Expose a post-receive host copy error without simulating device faults."""
+
+    def copy_(self, source, non_blocking=False):
+        raise RuntimeError("controlled output copy failure")
+
+
+class StagedConnectorPeer:
+    def __init__(self, session, role, role_rank, caps, *, local_device, **kwargs):
+        self.session, self.role, self.role_rank = session, role, role_rank
+        self.local_device = local_device
+        self.negotiated_capabilities = caps
+        self.initialized = self.closed = self.terminal = False
+        self.plan = None
+
+    def initialize(self):
+        self.initialized = True
+
+    def close(self):
+        self.closed = True
+
+    def send_layer_inputs(self, layer_idx, stage_idx, hidden, fp32, ids):
+        self.session.inputs.append(
+            (
+                layer_idx,
+                stage_idx,
+                HcclLayerInputs(hidden.clone(), fp32.clone(), ids.clone()),
+            )
+        )
+        self.session.messages.append(("A2F", layer_idx, stage_idx))
+
+    def receive_layer(self, layer_idx, stage_idx):
+        layer, stage, payload = self.session.inputs.popleft()
+        if (layer, stage) != (layer_idx, stage_idx):
+            raise AssertionError("adapter changed accepted layer/stage coordinates")
+        return payload
+
+    def send_layer_output(self, layer_idx, stage_idx, output):
+        self.session.outputs.append((layer_idx, stage_idx, output.clone()))
+        self.session.messages.append(("F2A", layer_idx, stage_idx))
+
+    def receive_layer_output(self, layer_idx, stage_idx):
+        layer, stage, output = self.session.outputs.popleft()
+        if (layer, stage) != (layer_idx, stage_idx):
+            raise AssertionError("adapter changed reply layer/stage coordinates")
+        return output
+
+
+def make_staged_connector_pair(monkeypatch, connector_module):
+    session = StagedConnectorSession()
+    monkeypatch.setattr(connector_module, "HcclStagedTransport", session.endpoint)
+    connectors = []
+    for role in ("attention", "ffn"):
+        config = hccl_vllm_config(
+            dtype=torch.bfloat16,
+            compilation_mode=CompilationMode.NONE,
+            cudagraph_mode=CUDAGraphMode.NONE,
+            role=role,
+        )
+        config.parallel_config.rank = 0
+        config.parallel_config.num_ubatches = 2
+        config.parallel_config.use_ubatching = True
+        config.parallel_config.enable_dbo = True
+        connector = connector_module.create_npu_runtime_connector(
+            0, 0, config, AFDConfig(connector=HCCL_P2P_CONNECTOR, role=role)
+        )
+        connector.init_afd_connector()
+        connectors.append(connector)
+    return SimpleNamespace(attention=connectors[0], ffn=connectors[1], session=session)
 
 
 class HcclCpuDeviceRuntime:
@@ -450,3 +672,40 @@ class HcclLoopbackTransport:
 
     def stop(self) -> None:
         self.session.stopped = True
+
+
+class ScriptedStagedControlPeer(HcclStagedTransport):
+    """Real control codec/state transitions with scripted external peers.
+
+    This replaces only framed control I/O. The transcript is the observable
+    wire protocol; no NPU operation or backend cancellation is simulated.
+    """
+
+    def __init__(
+        self,
+        role: str,
+        role_rank: int,
+        capabilities: HcclPlanCapabilities,
+        incoming: dict[int, list[HcclPlanMessage | Exception]],
+    ) -> None:
+        super().__init__(
+            role,
+            role_rank,
+            capabilities,
+            init_method="tcp://localhost:1",
+            local_device=0,
+        )
+        self.initialized = True
+        self.incoming = {rank: deque(messages) for rank, messages in incoming.items()}
+        self.transcript: list[tuple[str, int, int, HcclPlanMessage | Exception]] = []
+
+    def _send_control(self, rank: int, message: HcclPlanMessage) -> None:
+        delivered = decode_hccl_plan_message(encode_hccl_plan_message(message))
+        self.transcript.append(("send", self.world_rank, rank, delivered))
+
+    def _recv_control(self, rank: int) -> HcclPlanMessage:
+        message = self.incoming[rank].popleft()
+        self.transcript.append(("recv", rank, self.world_rank, message))
+        if isinstance(message, Exception):
+            raise message
+        return decode_hccl_plan_message(encode_hccl_plan_message(message))

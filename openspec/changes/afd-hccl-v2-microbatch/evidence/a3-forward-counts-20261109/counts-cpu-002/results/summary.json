@@ -1,0 +1,33 @@
+{
+  "scope": "CPU seams with actual installed dependencies",
+  "success": true,
+  "cpu": {
+    "scope": "forward-counts",
+    "command": [
+      "/mnt/workspace/code/.venvs/afd-v030-dsv41-c0/bin/python",
+      "-B",
+      "-m",
+      "pytest",
+      "-o",
+      "addopts=",
+      "-q",
+      "-rs",
+      "--tb=short",
+      "-p",
+      "no:cacheprovider",
+      "--junitxml=/mnt/workspace/tmp/afd-c0-20261104.hVgsIf/c4-forward-counts-20261109-6dtpln2l/results/cpu-forward-counts.xml",
+      "tests/unit/connectors/npu/test_hccl_staged_transport.py",
+      "tests/unit/distributed/test_hccl_plan.py",
+      "tests/unit/v1/worker/npu/test_ffn_worker.py",
+      "tests/unit/v1/worker/npu/test_ffn_model_runner.py",
+      "tests/unit/v1/worker/test_ffn_model_runner.py",
+      "tests/unit/v1/worker/test_npu_runtime.py",
+      "tests/unit/v1/worker/test_async_ffn_runtime.py",
+      "tests/unit/v1/worker/npu/test_hccl_v41_ffn_runner.py"
+    ],
+    "returncode": 0
+  },
+  "remote": "/mnt/workspace/tmp/afd-c0-20261104.hVgsIf/c4-forward-counts-20261109-6dtpln2l",
+  "source_files_match": true,
+  "device_probe_started": false
+}

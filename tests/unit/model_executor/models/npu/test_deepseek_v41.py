@@ -12,6 +12,7 @@ pytest.importorskip("torch_npu")
 pytest.importorskip("vllm_ascend")
 
 from vllm.distributed import parallel_state  # noqa: E402
+from vllm.forward_context import override_forward_context  # noqa: E402
 from vllm.model_executor.models.interfaces import (  # noqa: E402
     get_mixture_of_experts_model,
 )
@@ -23,12 +24,42 @@ from tests.unit.fakes.deepseek_v41 import (  # noqa: E402
     Attention,
     LayerNorm,
     MoE,
+    ParentEngramState,
     RemoteMoEPeer,
     attention_config,
     ffn_config,
     make_attention_loader,
 )
 from tests.unit.fakes.vllm_config import v41_dspark_config  # noqa: E402
+
+
+@pytest.mark.parametrize("fails", [False, True])
+def test_attention_wrapper_keeps_native_forward_and_parent_engram_hook(
+    fails,
+):
+    model = object.__new__(adapter.AFDDeepseekV41AttentionForCausalLM)
+    torch.nn.Module.__init__(model)
+    mask = torch.tensor([True, False])
+    context = SimpleNamespace(additional_kwargs={})
+    state = ParentEngramState({"engram_mask": mask}, context)
+    model.register_forward_pre_hook(
+        state._prepare_engram_before_forward, with_kwargs=True
+    )
+
+    def native_forward(
+        input_ids, positions, intermediate_tensors, inputs_embeds, **kwargs
+    ):
+        if fails:
+            raise RuntimeError("native forward failed")
+        return kwargs["engram_mask"]
+
+    model.language_model = native_forward
+    with override_forward_context(context):
+        if fails:
+            with pytest.raises(RuntimeError, match="native forward failed"):
+                model(torch.tensor([1, 2]), torch.tensor([0, 1]))
+        else:
+            assert model(torch.tensor([1, 2]), torch.tensor([0, 1])) is mask
 
 
 @pytest.fixture

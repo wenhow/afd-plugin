@@ -1,0 +1,235 @@
+{
+  "role": "attention",
+  "role_rank": 0,
+  "world_rank": 2,
+  "pid": 4079213,
+  "device": 4,
+  "topology": "2a2f-tp2",
+  "native_tp_size": 2,
+  "native_tp_rank": 0,
+  "native_moe_executed": false,
+  "checkpoint_weights_loaded": false,
+  "scope": "real local-count HCCL and FFN service; controlled arithmetic",
+  "transactions": [
+    {
+      "transaction_id": "counts-u1-first",
+      "plan_digest": "b114c1570e50892249eda1cfd3e5770ad98dd9e000188e5654d44a0e6893c158",
+      "local_valid": [
+        1
+      ],
+      "local_padded": [
+        2
+      ],
+      "verified_layer_stages": [
+        [
+          0,
+          0
+        ],
+        [
+          2,
+          0
+        ]
+      ],
+      "stages": [
+        {
+          "stage_idx": 0,
+          "valid": [
+            1,
+            1
+          ],
+          "padded": [
+            2,
+            2
+          ]
+        }
+      ]
+    },
+    {
+      "transaction_id": "counts-u2-first",
+      "plan_digest": "671c35e2c5db1b158c3bc22676be25403b4662f3468cf94b62b7a00c91478a06",
+      "local_valid": [
+        0,
+        3
+      ],
+      "local_padded": [
+        0,
+        4
+      ],
+      "verified_layer_stages": [
+        [
+          0,
+          1
+        ],
+        [
+          2,
+          1
+        ]
+      ],
+      "stages": [
+        {
+          "stage_idx": 0,
+          "valid": [
+            0,
+            0
+          ],
+          "padded": [
+            0,
+            0
+          ]
+        },
+        {
+          "stage_idx": 1,
+          "valid": [
+            3,
+            3
+          ],
+          "padded": [
+            4,
+            4
+          ]
+        }
+      ]
+    },
+    {
+      "transaction_id": "counts-u1-fallback",
+      "plan_digest": "31e00cec039545d5a32966962619e31682ab0332721561d47d4222de04b16c02",
+      "local_valid": [
+        3
+      ],
+      "local_padded": [
+        4
+      ],
+      "verified_layer_stages": [
+        [
+          0,
+          0
+        ],
+        [
+          2,
+          0
+        ]
+      ],
+      "stages": [
+        {
+          "stage_idx": 0,
+          "valid": [
+            3,
+            3
+          ],
+          "padded": [
+            4,
+            4
+          ]
+        }
+      ]
+    },
+    {
+      "transaction_id": "counts-u2-second",
+      "plan_digest": "2a23ac18785caba881c7b2bebb9749007eab9f11a2b552e0276b35cccd5f4aee",
+      "local_valid": [
+        1,
+        0
+      ],
+      "local_padded": [
+        2,
+        2
+      ],
+      "verified_layer_stages": [
+        [
+          0,
+          0
+        ],
+        [
+          0,
+          1
+        ],
+        [
+          2,
+          0
+        ],
+        [
+          2,
+          1
+        ]
+      ],
+      "stages": [
+        {
+          "stage_idx": 0,
+          "valid": [
+            1,
+            1
+          ],
+          "padded": [
+            2,
+            2
+          ]
+        },
+        {
+          "stage_idx": 1,
+          "valid": [
+            0,
+            0
+          ],
+          "padded": [
+            2,
+            2
+          ]
+        }
+      ]
+    },
+    {
+      "transaction_id": "counts-empty",
+      "plan_digest": "a71f015cf28e04a5f16aa37e9b15e4c3a55525acf8295c964bc2fea7072fc260",
+      "local_valid": [
+        0,
+        0
+      ],
+      "local_padded": [
+        0,
+        0
+      ],
+      "verified_layer_stages": [],
+      "stages": [
+        {
+          "stage_idx": 0,
+          "valid": [
+            0,
+            0
+          ],
+          "padded": [
+            0,
+            0
+          ]
+        },
+        {
+          "stage_idx": 1,
+          "valid": [
+            0,
+            0
+          ],
+          "padded": [
+            0,
+            0
+          ]
+        }
+      ]
+    }
+  ],
+  "rejections": [],
+  "success": true,
+  "native_tp_before_transport": [
+    3.0
+  ],
+  "native_tp_after_initialize": [
+    3.0
+  ],
+  "ffn_runner_constructor_called": false,
+  "local_counts_version": 1,
+  "all_attention_stop_completed": true,
+  "stop_acknowledged": true,
+  "native_tp_after_close": [
+    3.0
+  ],
+  "native_groups_destroyed": true,
+  "elapsed_seconds": 9.720104235224426
+}

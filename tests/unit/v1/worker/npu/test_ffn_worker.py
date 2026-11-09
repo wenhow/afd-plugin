@@ -4,6 +4,7 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from types import SimpleNamespace
 
 import pytest
@@ -12,8 +13,12 @@ pytest.importorskip("torch")
 pytest.importorskip("vllm")
 pytest.importorskip("vllm_ascend")
 
+from afd_plugin.config import parse_afd_config
 from afd_plugin.connectors.metadata import AFDTransferContext, AFDTransferMetadata
 from afd_plugin.connectors.npu.hccl_protocol import HcclForwardPlan
+from afd_plugin.connectors.npu.hccl_staged import HcclStagedAFDConnector
+from afd_plugin.distributed.hccl import HcclStageLayout
+from afd_plugin.distributed.hccl_plan import HcclParentPlan
 from afd_plugin.v1.worker.npu import ffn_model_runner as runner_module
 from afd_plugin.v1.worker.npu import ffn_worker as worker_module
 from tests.unit.fakes.hccl import (
@@ -27,7 +32,150 @@ from tests.unit.fakes.hccl import (
     make_hccl_connector_pair,
     make_hccl_runner,
     make_hccl_worker,
+    make_staged_ffn_service_case,
 )
+
+
+@pytest.fixture
+def staged_service(monkeypatch):
+    plans = [
+        HcclParentPlan(
+            f"service-parent-{index}",
+            (0,),
+            tuple(HcclStageLayout(stage, (0,), (0,), 1) for stage in range(count)),
+        )
+        for index, count in enumerate((1, 2, 1))
+    ]
+    case = make_staged_ffn_service_case(
+        runner_module.AFDNPUFFNModelRunner, worker_module.AFDNPUFFNWorker, plans
+    )
+    monkeypatch.setattr(
+        worker_module,
+        "torch",
+        SimpleNamespace(
+            npu=HcclCpuDeviceRuntime(), bfloat16=runner_module.torch.bfloat16
+        ),
+    )
+    return case
+
+
+def test_bound_staged_service_completes_u1_u2_parents_and_acknowledges_stop(
+    staged_service,
+):
+    case = staged_service
+    case.worker.bind_hccl_v41_transport(case.peer)
+    case.worker.start_ffn_server_loop()
+    join_hccl_worker(case.worker)
+    case.worker.stop_ffn_server_loop()
+
+    assert case.peer.messages == [
+        message
+        for index in range(3)
+        for message in (
+            ("FORWARD", f"service-parent-{index}"),
+            ("COMPLETE", f"service-parent-{index}"),
+        )
+    ] + [("STOP_ACK",)]
+    assert case.peer.closed
+    assert case.worker.poll_hccl_ffn_service() is False
+    assert case.worker.stop_ffn_server_loop() is None
+
+
+def test_bound_staged_service_preserves_compute_failure_and_retains_resources(
+    staged_service,
+):
+    case = staged_service
+    case.peer.parents[0] = HcclParentPlan(
+        "unloaded-model", (0,), (HcclStageLayout(0, (1,), (1,), 1),)
+    )
+    case.worker.bind_hccl_v41_transport(case.peer)
+    case.worker.start_ffn_server_loop()
+    join_hccl_worker(case.worker)
+
+    for action in (case.worker.poll_hccl_ffn_service, case.worker.stop_ffn_server_loop):
+        with pytest.raises(RuntimeError, match="worker loop failed") as failure:
+            action()
+        assert "model has not been loaded" in str(failure.value.__cause__)
+    assert case.peer.terminal and not case.peer.closed
+    assert case.peer.messages == [("FORWARD", "unloaded-model")]
+
+
+def test_bound_staged_service_cannot_release_initialized_transport_before_peer_stop(
+    staged_service,
+):
+    case = staged_service
+    case.worker.bind_hccl_v41_transport(case.peer)
+    case.peer.initialize()
+
+    with pytest.raises(RuntimeError, match="requires peer STOP; retain resources"):
+        case.worker.stop_ffn_server_loop()
+
+    assert not case.peer.closed
+
+
+@pytest.mark.parametrize(
+    "boundary",
+    [
+        "role",
+        "version",
+        "native-tp",
+        "dp",
+        "eager",
+        "device",
+        "hidden",
+        "vocab",
+        "layers",
+        "capacity",
+    ],
+)
+def test_staged_service_rejects_unsupported_binding_before_protocol(
+    staged_service, boundary
+):
+    case = staged_service
+    if boundary == "role":
+        case.peer.role = "attention"
+    elif boundary == "version":
+        case.peer.negotiated_capabilities = replace(
+            case.peer.negotiated_capabilities, local_counts_version=0
+        )
+    elif boundary == "native-tp":
+        case.worker.vllm_config.parallel_config.tensor_parallel_size = 2
+    elif boundary == "dp":
+        case.worker.vllm_config.parallel_config.data_parallel_size = 2
+    elif boundary == "eager":
+        case.worker.vllm_config.model_config.enforce_eager = False
+    elif boundary == "device":
+        case.peer.local_device = 1
+    else:
+        field, value = {
+            "hidden": ("hidden_size", 32),
+            "vocab": ("vocab_size", 2048),
+            "layers": ("layer_indices", (0, 1)),
+            "capacity": ("max_tokens", 17),
+        }[boundary]
+        case.peer.negotiated_capabilities = replace(
+            case.peer.negotiated_capabilities, **{field: value}
+        )
+
+    with pytest.raises(ValueError, match="(?i)hccl"):
+        case.worker.bind_hccl_v41_transport(case.peer)
+
+    assert not case.peer.initialized
+    assert case.peer.messages == []
+
+
+def test_staged_service_rejects_a_second_transport_for_its_connector(staged_service):
+    case = staged_service
+    config = case.runner.vllm_config
+    connector = HcclStagedAFDConnector(0, 0, config, parse_afd_config(config), 0)
+    case.runner.connector = connector
+
+    with pytest.raises(ValueError, match="must use its connector transport"):
+        case.worker.bind_hccl_v41_transport(case.peer)
+
+    assert not case.peer.initialized
+    assert not connector.is_initialized
+    assert case.peer.messages == []
 
 
 @pytest.fixture

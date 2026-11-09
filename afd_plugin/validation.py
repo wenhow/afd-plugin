@@ -198,9 +198,16 @@ def validate_npu_model_runner_v2_config(
     if afd_config.connector == "P2pHcclAFDConnector":
         # NPU-only admission is deferred so this common validator stays usable
         # on CPU hosts. The model feature guard remains independently closed.
-        from afd_plugin.connectors.npu.hccl_config import validate_hccl_runtime
+        from afd_plugin.connectors.npu.hccl_config import (
+            uses_staged_hccl_runtime,
+            validate_hccl_runtime,
+            validate_staged_hccl_runtime,
+        )
 
-        validate_hccl_runtime(vllm_config, afd_config, role_rank=0)
+        if uses_staged_hccl_runtime(vllm_config, afd_config):
+            validate_staged_hccl_runtime(vllm_config, afd_config, role_rank=0)
+        else:
+            validate_hccl_runtime(vllm_config, afd_config, role_rank=0)
         return
     if afd_config.connector == AFD_ASYNC_CONNECTOR:
         if not afd_config.async_dp or not afd_config.compute_gate_on_attention:

@@ -4,6 +4,7 @@
 """One table owns upstream signature checks for scoped runtime patches."""
 
 import inspect
+from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
@@ -14,6 +15,7 @@ import pytest
     [
         "capture-inputs",
         "camp2p-dispatch",
+        "hccl-native-prepare",
         "npu-model-loader",
         "ds-mxfp8",
         "ds-mxfp4",
@@ -42,6 +44,27 @@ def test_scoped_patch_preserves_upstream_signature(hook):  # long-test: shared t
 
         symbol = "dispatch_cg_and_sync_dp"
         scope = adapter._use_camp2p_dp_padding(4, 2)
+    elif hook == "hccl-native-prepare":
+        pytest.importorskip("torch_npu")
+        pytest.importorskip("vllm_ascend")
+        from vllm.v1.worker.gpu.ubatch_utils import UBatchRunner
+
+        from afd_plugin.v1.worker.npu.hccl_v41_execution import HcclV41Execution
+        from tests.unit.fakes.deepseek_v41 import ParentEngramState
+
+        target = object.__new__(UBatchRunner)
+        # Keep a stable bound-method alias so restoration can use the table's
+        # identity assertion as well as its exact signature comparison.
+        target.prepare = target.prepare
+        owner = SimpleNamespace(model_state=ParentEngramState({}), ubatch_runner=target)
+        symbol = "prepare"
+        scope = HcclV41Execution(
+            owner,
+            SimpleNamespace(terminal=False),
+            mode="target",
+            valid_tokens=0,
+            dummy_run=False,
+        ).scope()
     elif hook == "ds-mxfp8":
         pytest.importorskip("torch_npu")
         pytest.importorskip("vllm_ascend")

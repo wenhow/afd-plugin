@@ -8,6 +8,8 @@ import numpy as np
 import torch
 from vllm_ascend.worker.v2.input_batch import AscendInputBatch, AscendInputBuffers
 
+from tests.unit.fakes.vllm_config import npu_vllm_config
+
 
 def make_ascend_batch(real=5, padded=8):
     buffers = AscendInputBuffers(2, padded, torch.device("cpu"))
@@ -46,3 +48,32 @@ def snapshot_ascend_child(
             slot_mappings=slot_mappings.clone(),
         )
     }
+
+
+def make_hccl_ubatch_seam(runner_type, *, model_state, dp_size=1):
+    """Construct only CPU preparation state; no runner device constructor."""
+    runner = object.__new__(runner_type)
+    runner.vllm_config = npu_vllm_config(
+        connector="P2pHcclAFDConnector",
+        data_parallel_size=dp_size,
+        use_ubatching=True,
+        num_ubatches=2,
+        cp_kv_cache_interleave_size=1,
+    )
+    runner.vllm_config.compilation_config.static_forward_context = {}
+    runner.parallel_config = runner.vllm_config.parallel_config
+    runner.model_state = model_state
+    runner.num_ubatches, runner.dcp_size, runner.dcp_rank = 2, 1, 0
+    runner.cp_interleave = 1
+    runner.ubatch_query_start_loc = [
+        torch.zeros(3, dtype=torch.int32) for _ in range(2)
+    ]
+    runner.ubatch_seq_lens = [torch.zeros(2, dtype=torch.int32) for _ in range(2)]
+    runner.ubatch_dcp_local_seq_lens = [None, None]
+    runner.attn_groups = []
+    runner.kv_cache_config = SimpleNamespace(
+        kv_cache_groups=[SimpleNamespace(layer_names=["layer"])]
+    )
+    runner._prepare_attn = snapshot_ascend_child
+    runner._uses_mla_graph_params = False
+    return runner

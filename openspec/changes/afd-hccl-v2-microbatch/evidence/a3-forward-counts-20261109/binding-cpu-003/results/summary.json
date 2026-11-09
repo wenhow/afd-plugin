@@ -1,0 +1,27 @@
+{
+  "scope": "CPU seams with actual installed dependencies",
+  "success": false,
+  "cpu": {
+    "scope": "binding",
+    "command": [
+      "/mnt/workspace/code/.venvs/afd-v030-dsv41-c0/bin/python",
+      "-B",
+      "-m",
+      "pytest",
+      "-o",
+      "addopts=",
+      "-q",
+      "-rs",
+      "--tb=short",
+      "-p",
+      "no:cacheprovider",
+      "--junitxml=/mnt/workspace/tmp/afd-c0-20261104.hVgsIf/c4-forward-counts-20261109-7yye1d7j/results/cpu-binding.xml",
+      "tests/unit/connectors/npu/test_hccl_config.py",
+      "tests/unit/v1/worker/npu/test_ffn_worker.py"
+    ],
+    "returncode": 1
+  },
+  "remote": "/mnt/workspace/tmp/afd-c0-20261104.hVgsIf/c4-forward-counts-20261109-7yye1d7j",
+  "source_files_match": true,
+  "device_probe_started": false
+}

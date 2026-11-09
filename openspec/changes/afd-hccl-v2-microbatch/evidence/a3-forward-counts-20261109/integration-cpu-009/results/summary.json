@@ -1,0 +1,35 @@
+{
+  "scope": "CPU seams with actual installed dependencies",
+  "success": true,
+  "cpu": {
+    "scope": "integration",
+    "command": [
+      "/mnt/workspace/code/.venvs/afd-v030-dsv41-c0/bin/python",
+      "-B",
+      "-m",
+      "pytest",
+      "-o",
+      "addopts=",
+      "-q",
+      "-rs",
+      "--tb=short",
+      "-p",
+      "no:cacheprovider",
+      "--junitxml=/mnt/workspace/tmp/afd-c0-20261104.hVgsIf/c4-forward-counts-20261109-w69nnjuy/results/cpu-integration.xml",
+      "-m",
+      "not npu and not gpu",
+      "tests/unit/model_executor",
+      "tests/unit/v1/worker",
+      "tests/unit/connectors",
+      "tests/unit/distributed",
+      "tests/unit/compat/npu/test_feature_validation.py",
+      "tests/unit/config/test_validation.py",
+      "tests/unit/compat/npu/test_runtime_config.py",
+      "tests/unit/compat/patches/test_signatures.py"
+    ],
+    "returncode": 0
+  },
+  "remote": "/mnt/workspace/tmp/afd-c0-20261104.hVgsIf/c4-forward-counts-20261109-w69nnjuy",
+  "source_files_match": true,
+  "device_probe_started": false
+}
