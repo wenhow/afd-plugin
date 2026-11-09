@@ -26,6 +26,7 @@ def patched_mxfp4(monkeypatch):
     monkeypatch.setattr(
         target, "_process_scale_2d", staticmethod(target._process_scale_2d)
     )
+    monkeypatch.setattr(target, "apply_gmm2", target.apply_gmm2)
     monkeypatch.setattr(torch_npu, "npu_format_cast", lambda tensor, *a, **k: tensor)
     mxfp4.apply_dsv41_mxfp4_scale_patch()
 
@@ -52,6 +53,11 @@ def test_moe_post_load_preserves_expert_weights_and_scales(
             scale = getattr(layer, f"{stem}_weight_scale")
         expected = weights[f"{stem}_weight_scale"]
         unpacked = scale.transpose(-3, -2).flatten(-2)
-        torch.testing.assert_close(actual_weight, weights[f"{stem}_weight"])
+        expected_weight = weights[f"{stem}_weight"]
+        valid_width = expected_weight.shape[-1]
+        torch.testing.assert_close(actual_weight[..., :valid_width], expected_weight)
+        assert torch.count_nonzero(actual_weight[..., valid_width:]) == 0
+        if stem == "w2":
+            assert actual_weight.shape[-1] % 32 == 0
         torch.testing.assert_close(unpacked[..., : expected.shape[-1]], expected)
         assert torch.count_nonzero(unpacked[..., expected.shape[-1] :]) == 0

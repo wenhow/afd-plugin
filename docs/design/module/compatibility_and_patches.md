@@ -81,6 +81,19 @@ patch when the pinned DS MoE methods support odd pairs. See the
 [patch review](../../../openspec/changes/afd-v41-hccl-text-eager/evidence/mxfp4-scale-patch-review.md)
 for source identity, loading costs and validation limits.
 
+The A5 probe rejected W2 K=288 because its WeightNz kernel requires
+`K == 64 * perTokenScale.shape[1]`. The opt-in DS patch therefore zero-pads
+physical W2 K to 320 before NZ conversion, including the list path, and copies
+the inherited native `apply_gmm2` to pad quantized activation K at the same
+boundary. Valid FP4/FP8/E8M0 values and logical intermediate size are retained;
+only unused input scale bytes are made finite. The probe calls this production
+GMM2 hook, rather than applying an independent probe-only workaround.
+CPU tests cover exact bytes, empty rows, strided scales and dequantized dot
+products; they do not qualify NPU padding, GMM, EPLB or full-model execution.
+W2 E=384/N=5120 adds 30 MiB per layer plus activation padding/scale copying at
+runtime. Removal also requires upstream support for the paired weight/input
+K alignment or target-kernel acceptance of the original K.
+
 The connector-driven FFN forward scope also binds native current VllmConfig,
 matching Ascend's configuration lifetime while retaining the real V2 platform
 hook. Normal and exceptional exits restore the caller's configuration; this

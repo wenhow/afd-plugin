@@ -1,0 +1,91 @@
+{
+  "scope": "User A5 component result; full model and new alignment remain unaccepted",
+  "source_filename": "ce3253b74327413faf3d2062c094305b.txt",
+  "source_sha256": "8e21f79bd0b0f2e805c98a9ad55da795fce88772e8721b979d2ef0ca5349af09",
+  "passed_case_count": 6,
+  "passed_cases": [
+    {
+      "intermediate_width": 256,
+      "projection": "w13",
+      "scale_alg": 0
+    },
+    {
+      "intermediate_width": 256,
+      "projection": "w13",
+      "scale_alg": 1
+    },
+    {
+      "intermediate_width": 256,
+      "projection": "w2",
+      "scale_alg": 0
+    },
+    {
+      "intermediate_width": 256,
+      "projection": "w2",
+      "scale_alg": 1
+    },
+    {
+      "intermediate_width": 288,
+      "projection": "w13",
+      "scale_alg": 0
+    },
+    {
+      "intermediate_width": 288,
+      "projection": "w13",
+      "scale_alg": 1
+    }
+  ],
+  "failed_case": {
+    "intermediate_width": 288,
+    "projection": "w2",
+    "scale_alg": 0,
+    "logical_input_width": 288,
+    "scale_pair_count": 5,
+    "required_physical_input_width": 320
+  },
+  "error_code": 161002,
+  "error_type": "Invalid_Argument_Tensor_Shape(EZ0009)",
+  "operator": "aclnnGroupedMatmulWeightNzGetWorkspaceSize",
+  "error_detail": "The second dim of x must be 64 times the second dim of perTokenScale.",
+  "upstream_locked_sha": "7e37e29a7803d6897a7113088e2b771f83205bc0",
+  "reported_upstream_sha256_matches_lock": true,
+  "afd_revision_in_log": null,
+  "patch_signatures": [
+    {
+      "owner": "AscendW4A8MXFPDSDynamicFusedMoEMethod",
+      "symbol": "process_weights_after_loading",
+      "line": 584,
+      "signature_matches": true
+    },
+    {
+      "owner": "AscendW4A8MXFPDSDynamicFusedMoEMethod",
+      "symbol": "_process_scale_2d",
+      "line": 561,
+      "signature_matches": true
+    },
+    {
+      "owner": "AscendW4A8MXFPDynamicFusedMoEMethod",
+      "symbol": "apply_gmm2",
+      "line": 499,
+      "signature_matches": true
+    }
+  ],
+  "gmm2_copied_body_only_delta": "align_mxfp_gmm_input assignment; all other AST statements match locked source",
+  "runtime_seam": "moe_comm_method.fused_experts -> apply_moe_mlp -> quant_method.apply_gmm2",
+  "fix": {
+    "physical_w2_k": [
+      288,
+      320
+    ],
+    "checkpoint_unchanged": true,
+    "valid_weight_activation_and_scale_bytes_preserved": true,
+    "unused_input_scale_byte": 127,
+    "extra_packed_w2_bytes_per_layer_for_E384_N5120": 31457280,
+    "extra_scale_bytes_per_layer_from_earlier_patch": 1966080
+  },
+  "pending": [
+    "New A5 probe 12 cases",
+    "full checkpoint startup and inference",
+    "EPLB/Graph/U2/PD/device performance acceptance"
+  ]
+}

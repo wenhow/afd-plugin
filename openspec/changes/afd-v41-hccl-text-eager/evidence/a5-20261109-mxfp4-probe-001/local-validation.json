@@ -1,0 +1,66 @@
+{
+  "scope": "Local CPU/static checks only; newly aligned A5 FP4 GMM pending",
+  "prior_device_result": "6 cases passed; unaligned W2 K=288 failed kernel shape validation",
+  "cpu_tests": {
+    "command": [
+      "D:\\Programs\\python314\\python.exe",
+      "-B",
+      "-c",
+      "import sys; sys.path.append('D:\\\\openSource\\\\afd-plugin-dsv41-flash-v030\\\\.venv\\\\Lib\\\\site-packages'); import pytest; raise SystemExit(pytest.main(['-o','addopts=','-p','no:cacheprovider','-q','tests/unit/compat/patches/npu/test_mxfp_scales.py']))"
+    ],
+    "exit_code": 0,
+    "output": "............................                                             [100%]\r\n28 passed in 3.67s\r\n",
+    "scope": "real CPU tensor bytes and independent dequantized dot products; no NPU operator emulation"
+  },
+  "package_tests": {
+    "command": [
+      "D:\\openSource\\afd-plugin-dsv41-flash-v030\\.venv\\Scripts\\python.exe",
+      "-B",
+      "-m",
+      "pytest",
+      "-o",
+      "addopts=",
+      "-p",
+      "no:cacheprovider",
+      "-q",
+      "tests/unit/package/test_package.py",
+      "tests/unit/compat/patches/test_signatures.py",
+      "tests/unit/compat/patches/npu/test_mxfp4.py",
+      "tests/unit/compat/patches/npu/test_mxfp8.py"
+    ],
+    "exit_code": 0,
+    "output": ".........sssssssssssssss..sssssss                                        [100%]\r\n11 passed, 24 skipped in 0.10s\r\n",
+    "scope": "CPU-only package/collection; runtime imports skipped without torch/vLLM/Ascend"
+  },
+  "lint": {
+    "ruff_check": "passed",
+    "ruff_format_check": "8 files passed",
+    "git_diff_check": "passed"
+  },
+  "upstream_contracts": {
+    "signature_ast_matches": "3/3",
+    "copied_gmm2_body": "matches locked upstream except marked alignment assignment",
+    "source_hash": "matches user-reported upstream file"
+  },
+  "cpu_reference_scope": "independent FP4 nibble/E8M0 dequantized dot products; finite unused scale slots, exact valid bytes, odd/even K, empty rows and non-contiguous scales",
+  "probe_help": "passed on CPU without runtime imports",
+  "source_sha256": {
+    "afd_plugin/__init__.py": "52fe7b65e93a0e0fce8610ac7b3c5fbf8005845c4133dae629ea11e0eb55aa71",
+    "afd_plugin/compat/patches/npu/mxfp4.py": "b016ff5403061e2d045819c61a7d7bb0c518408e763469b86f256423015a982d",
+    "afd_plugin/compat/patches/npu/mxfp_scales.py": "95952f7961af9af3d788c4c4598e388d8de807bf34940ccd162848254193cdca",
+    "tests/npu/dsv41_mxfp4_moe_probe.py": "872318c0e71ff11dbd95596e6c7a239516b0abc4c48d68f08c78e03209cf2e1c",
+    "tests/unit/compat/patches/npu/test_mxfp_scales.py": "c3d8a27a9f2c1b306fb7bd9c904083e55a6f5096768630a575a79eaa8cf00b8b",
+    "tests/unit/fakes/mxfp_scales.py": "8ab60b8e998c0a0d01469144bbb713635448bda231b5a8c39a22e78b1759ec89"
+  },
+  "npu_acceptance": "User must rerun all 12 probe cases before attempting full TP8 startup",
+  "harness": {
+    "check": {
+      "exit_code": 0,
+      "scope": "local plan checks only; not official CLI or NPU qualification"
+    },
+    "guard": {
+      "exit_code": 0,
+      "upstreams_unchanged": true
+    }
+  }
+}

@@ -1,0 +1,133 @@
+{
+  "scope": "DS MoE post-load NZ/scales and FP4 grouped-matmul only",
+  "torch": "2.10.0+cpu",
+  "torch_npu": "2.10.0.post4",
+  "device": "npu:0",
+  "device_name": "Ascend950DT_9582",
+  "upstream_file": "/opt/vllm-ascend/vllm_ascend/quantization/methods/w4a8/w4a8_mxfp4.py",
+  "upstream_sha256": "3185d3c7194b95357c57c345b7b1e1041a3039d7cb3089d398a7d63a09fc96a5",
+  "cases": [
+    {
+      "intermediate_width": 256,
+      "projection": "w13",
+      "scale_alg": 0,
+      "logical_input_width": 5120,
+      "weight_shape": [
+        2,
+        2560,
+        512
+      ],
+      "scale_shape": [
+        2,
+        80,
+        512,
+        2
+      ],
+      "max_absolute_error": 0.0,
+      "last_group_nonzero": true,
+      "passed": true
+    },
+    {
+      "intermediate_width": 256,
+      "projection": "w13",
+      "scale_alg": 1,
+      "logical_input_width": 5120,
+      "weight_shape": [
+        2,
+        2560,
+        512
+      ],
+      "scale_shape": [
+        2,
+        80,
+        512,
+        2
+      ],
+      "max_absolute_error": 0.0,
+      "last_group_nonzero": true,
+      "passed": true
+    },
+    {
+      "intermediate_width": 256,
+      "projection": "w2",
+      "scale_alg": 0,
+      "logical_input_width": 256,
+      "weight_shape": [
+        2,
+        128,
+        5120
+      ],
+      "scale_shape": [
+        2,
+        4,
+        5120,
+        2
+      ],
+      "max_absolute_error": 0.0,
+      "last_group_nonzero": true,
+      "passed": true
+    },
+    {
+      "intermediate_width": 256,
+      "projection": "w2",
+      "scale_alg": 1,
+      "logical_input_width": 256,
+      "weight_shape": [
+        2,
+        128,
+        5120
+      ],
+      "scale_shape": [
+        2,
+        4,
+        5120,
+        2
+      ],
+      "max_absolute_error": 0.0,
+      "last_group_nonzero": true,
+      "passed": true
+    },
+    {
+      "intermediate_width": 288,
+      "projection": "w13",
+      "scale_alg": 0,
+      "logical_input_width": 5120,
+      "weight_shape": [
+        2,
+        2560,
+        576
+      ],
+      "scale_shape": [
+        2,
+        80,
+        576,
+        2
+      ],
+      "max_absolute_error": 0.0,
+      "last_group_nonzero": true,
+      "passed": true
+    },
+    {
+      "intermediate_width": 288,
+      "projection": "w13",
+      "scale_alg": 1,
+      "logical_input_width": 5120,
+      "weight_shape": [
+        2,
+        2560,
+        576
+      ],
+      "scale_shape": [
+        2,
+        80,
+        576,
+        2
+      ],
+      "max_absolute_error": 0.0,
+      "last_group_nonzero": true,
+      "passed": true
+    }
+  ],
+  "passed": false,
+  "traceback": "Traceback (most recent call last):\n  File \"/home/z00569729/dsv41-afd/src/afd-plugin-dsv41-a5/tests/npu/dsv41_mxfp4_moe_probe.py\", line 114, in run_probe\n    result = torch_npu.npu_grouped_matmul(\n             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/usr/local/python3.11.10/lib/python3.11/site-packages/torch/_ops.py\", line 1209, in __call__\n    return self._op(*args, **kwargs)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^\nRuntimeError: npu_grouped_matmul:../third_party/op-plugin/op_plugin/ops/opapi/GroupedMatmulKernelNpuOpApi.cpp:323 NPU function error: call aclnnGroupedMatmulWeightNz failed, error code is 161002\n[ERROR] 2026-11-09-20:55:10 (PID:26030, Device:0, RankID:-1) ERR00100 PTA call acl api failed.\n[PID: 26030] 2026-11-09-20:55:10.729.568 Invalid_Argument_Tensor_Shape(EZ0009): Parameter perTokenScale of aclnnGroupedMatmulWeightNzGetWorkspaceSize has incorrect shape 5. Reason: The second dim of x must be 64 times the second dim of perTokenScale.\n        Solution: Check whether the shape of input/output tensor is correct.\n\n"
+}

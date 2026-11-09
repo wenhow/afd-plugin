@@ -6,7 +6,9 @@
 此前的 MXFP base、原生 wheel norm、缩小构造和 TP2 组件已经通过。
 **完整 checkpoint 控制组已回传三次启动：首次参数解析失败，第二次加载后在
 MXFP8 Linear scale 打包失败；第三次 Linear 探针 6 项通过，但 routed MoE 的
-MXFP4 scale 打包失败。服务和首请求尚未通过，模型支持和 AFD 总 guard 均未放开。**
+MXFP4 scale 打包失败。后续 MoE 探针前 6 项通过，在 K=288 的 W2 遇到
+WeightNz 的 K 对齐要求；已补物理 K 对齐，待重新探测。
+服务和首请求尚未通过，模型支持和 AFD 总 guard 均未放开。**
 
 ## 容量候选
 
@@ -163,8 +165,33 @@ RuntimeError: shape '[384, 5120, 4, 2]' is invalid for input of size 17694720
 
 修复位于 afd-plugin 的 `mxfp4.py`，现有 `afd_dsv41_mxfp8` 入口和
 `AFD_DSV41_MXFP8_SCALE_PATCH=1` 同时启用 Linear/MoE 两项修正。
-它保留原生 FP4 权重、NZ 转换、逻辑维度与 TP/Engram；不修改 vLLM-Ascend。
+它保留原生 FP4 有效权重、NZ 转换、逻辑维度与 TP/Engram；不修改 vLLM-Ascend。
 W13/W2 和 EPLB 单 expert scale 使用相同打包，EPLB 的设备行为仍未验收。
+
+### MoE 探针 20:55 回传：补齐物理 K
+
+`ce3253b74327413faf3d2062c094305b.txt` 中前 6 项数值误差为 0，
+覆盖 K=256 的 W13/W2 及 intermediate=288 的 W13。
+第 7 项，即 W2 K=288、scale_alg=0，在算子 shape 校验阶段失败：
+
+```text
+161002 / EZ0009: The second dim of x must be 64 times
+the second dim of perTokenScale.
+```
+
+9 个 scale 组成 5 对，但当前 kernel 要求实际 K=5×64=320。
+此前仅补 scale 元数据，不能满足这个约束。新修复在原生 post-load 的 NZ 转换前
+给 W2 的 packed FP4 K 轴补 16 个零 byte（32 个 FP4 零值），
+并在生产使用的 `apply_gmm2` 中给 FP8 激活补 32 个零值。
+有效量化字节保持不变，只把未使用的激活 scale byte 设为 E8M0 单位值，
+避免未初始化的 NaN 元数据参与新增的零值 group。
+checkpoint、W13 的有效输出宽度和逻辑 intermediate=288 均不变。
+
+物理 W2/激活 K 变为 320，输入 scale 仍为 5 对。
+每层 E=384、N=5120 的 W2 增加约 30 MiB，先前的 scale 补齐另增加约 1.875 MiB；
+GMM2 还增加激活 padding 和 scale copy，不将其作为已验收的性能优化。
+详见 [探针诊断](a5-20261109-mxfp4-probe-001/diagnosis.json) 和
+[补丁审查](mxfp4-scale-patch-review.md)。
 
 在 A5 回传中使用的 afd-plugin 源码目录，从当前开发分支更新：
 已有相关本地改动或分叉时保留现场，不使用 reset/clean 强行覆盖。
@@ -189,8 +216,10 @@ cat "$afd_native_run/mxfp4-moe-probe.json"
 printf 'MoE probe exit=%s\n' "$afd_probe_status"
 ```
 
-该探针使用 2 个 synthetic experts，真实执行原生 DS post-load/NZ 转换及 FP4 GMM，
+新版探针使用 2 个 synthetic experts，真实执行原生 DS post-load/NZ 转换及 FP4 GMM，
 覆盖 W13/W2、intermediate=256/288/320 和两种 MX 动态量化算法，共 12 项。
+W2 通过与生产相同的 `scheme.apply_gmm2` 调用，报告 logical/physical K、
+实际 hook 源文件 hash；发生错误时也保留本次失败 case 的形状和调用入口。
 每个 expert 分别检查全 K 与最后一个有效 group 的输出，对照 CPU 数值。
 只有退出码 0、`passed=true` 且 12 项均通过才继续下面 TP8 启动；
 否则回传 `mxfp4-moe-probe.json` 和 `.log`，先诊断组件异常。
