@@ -31,17 +31,15 @@ def test_sp_shared_experts_gather_before_mlp_and_reduce_scatter_after(
     expert.is_sequence_parallel = True
     expert.weights_replicated = False
     monkeypatch.setattr(shared, "get_tensor_model_parallel_world_size", lambda: tp_size)
-    monkeypatch.setattr(ascend_forward_context, "_USE_V2_EXTRA_KWARGS", use_mrv2)
+    monkeypatch.setattr(
+        ascend_forward_context.envs_vllm, "VLLM_USE_V2_MODEL_RUNNER", use_mrv2
+    )
     context = ForwardContext(
         no_compile_layers={},
         attn_metadata={},
         slot_mapping={},
-        additional_kwargs={"num_tokens": num_tokens} if use_mrv2 else {},
+        additional_kwargs={},
     )
-    if use_mrv2:
-        assert "num_tokens" not in vars(context)
-    else:
-        context.num_tokens = num_tokens
 
     local_size = (num_tokens + tp_size - 1) // tp_size
     full_tokens = torch.arange(local_size * tp_size, dtype=torch.float32).unsqueeze(-1)
@@ -75,6 +73,9 @@ def test_sp_shared_experts_gather_before_mlp_and_reduce_scatter_after(
     monkeypatch.setattr(expert, "_run_local_mlp", local_mlp)
 
     with override_forward_context(context):
+        # The locked proxy selects V1 attributes or V2 additional_kwargs from
+        # VLLM_USE_V2_MODEL_RUNNER; use the same native token-count entry.
+        ascend_forward_context._EXTRA_CTX.num_tokens = num_tokens
         assert torch.equal(expert(local_tokens), expected[local_slice])
     assert calls == ["gather", "mlp", "reduce_scatter"]
 

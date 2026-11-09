@@ -54,11 +54,19 @@ from afd_plugin.validation import (  # noqa: E402
 from tests.unit.fakes.connector import (  # noqa: E402
     FakeRoutedConnector,
 )
+from tests.unit.fakes.platform import stub_platform_forward_context  # noqa: E402
 from tests.unit.fakes.profiler import StepProfiler as _StepProfiler  # noqa: E402
 
 TEST_MODEL_MAX_LEN = 163840
 TEST_HIDDEN_SIZE = 2048
 TEST_CUDAGRAPH_CAPTURE_SIZE = 8
+
+
+@pytest.fixture(autouse=True)
+def cpu_platform_forward_context(monkeypatch):
+    # Native KV helper contexts still execute their real creation/provider
+    # lifecycle; accelerator-only additional kwargs require device groups.
+    stub_platform_forward_context(monkeypatch)
 
 
 class _RecordingConnector:

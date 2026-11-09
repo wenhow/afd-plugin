@@ -14,6 +14,7 @@ from afd_plugin.compat.npu import (
     fail_if_unsupported_npu_afd_features,
     npu_afd_num_ubatches,
 )
+from afd_plugin.config import AFDConfig
 from tests.unit.fakes.vllm_config import (
     async_moe_config as _async_moe_config,
 )
@@ -26,6 +27,25 @@ TWO_UBATCH_DBO = dict(
     enable_dbo=True, use_ubatching=True, num_ubatches=2, ubatch_size=4
 )
 ASYNC_CAM = dict(connector="CAMAsyncAFDConnector", async_dp=True)
+
+
+@pytest.mark.parametrize(
+    "role,connector,model_type,message",
+    [
+        ("attention", "CAMAsyncAFDConnector", "deepseek_v4", "FFN role"),
+        ("ffn", "CAMP2pAFDConnector", "deepseek_v4", "async CAM"),
+        ("ffn", "CAMAsyncAFDConnector", "deepseek_v2", "only DeepSeek V4"),
+    ],
+)
+def test_layered_switch_rejects_other_roles_connectors_and_models(
+    monkeypatch, role, connector, model_type, message
+):
+    config = _vllm_config(role=role, connector=connector, model_type=model_type)
+    afd_config = AFDConfig(role=role, connector=connector)
+    monkeypatch.setenv("AFD_ASYNC_CAM_LAYERED_GMM", "1")
+
+    with pytest.raises(RuntimeError, match=message):
+        fail_if_unsupported_npu_afd_features(config, afd_config=afd_config)
 
 
 @pytest.fixture
