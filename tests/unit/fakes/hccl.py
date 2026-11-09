@@ -176,6 +176,7 @@ def make_hccl_runner(runner_type, connector, model):
     runner.connector = connector
     runner.vllm_config = connector.vllm_config
     runner.model = model
+    runner.hccl_v41_graph_service = None
     return runner
 
 

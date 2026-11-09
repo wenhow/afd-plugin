@@ -121,6 +121,17 @@ failed preparation requires external supervision. Graph phases use tensor-only
 operations and commit their complete schedule once outside capture/replay.
 Version zero preserves the previous v3 bytes and factory selection.
 
+The explicit model-capture preflight also binds the complete ordered native
+capture-key sequence and its profiling prefix through an optional
+`capture_sequence_digest`. It is allowed only for a zero-row warmup preflight;
+the digest never becomes a model/cache key or metadata shape. Every Attention
+rank compares the entire sequence before entering native factories, including
+empty lists, so a shorter capture loop cannot leave another rank waiting.
+Fresh FFN caches report an honest miss. Unsupported or unequal schedules agree
+an empty eager parent and skip FULL capture together. The absent optional field
+preserves existing payload bytes; old strict graph-one readers reject the new
+field, so this explicit component schema is deployed as one matching version.
+
 The [Graph cache](../../../afd_plugin/connectors/npu/hccl_graph_cache.py) belongs
 to one fixed model/transport session. It advertises only completed captures
 after device synchronization and retains graphs together with every dependent

@@ -367,6 +367,8 @@ class AFDNPUFFNWorker(NPUWorker):
                     raise RuntimeError(
                         "staged HCCL service requires peer STOP; retain resources"
                     )
+                if staged.negotiated_capabilities.graph_execution_version == 1:
+                    self.model_runner.close_hccl_v41_graph_service(staged)
                 staged.close()
             else:
                 self.model_runner.connector.close()

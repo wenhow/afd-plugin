@@ -17,6 +17,8 @@ primary_code_paths:
   - "afd_plugin/v1/worker/npu/hccl_v41_graph_control.py"
   - "afd_plugin/v1/worker/npu/hccl_v41_graph_execution.py"
   - "afd_plugin/v1/worker/npu/hccl_v41_graph_session.py"
+  - "afd_plugin/v1/worker/npu/hccl_v41_graph_coordinator.py"
+  - "afd_plugin/v1/worker/npu/hccl_v41_graph_eager.py"
   - "afd_plugin/v1/worker/npu/attention_worker.py"
 related_code_paths:
   - "afd_plugin/connectors/**"
@@ -39,6 +41,9 @@ validation_paths:
   - "tests/unit/v1/worker/npu/test_hccl_v41_graph_control.py"
   - "tests/unit/v1/worker/npu/test_hccl_v41_graph_execution.py"
   - "tests/unit/v1/worker/npu/test_hccl_v41_graph_session.py"
+  - "tests/unit/v1/worker/npu/test_hccl_v41_graph_coordinator.py"
+  - "tests/unit/v1/worker/npu/test_hccl_v41_graph_eager.py"
+  - "tests/unit/v1/worker/npu/test_attention_model_runner_v2.py"
   - "tests/unit/model_executor/test_async_cam_dbo.py"
   - "tests/npu/test_mrv2_dbo.py"
   - "tests/npu/v41_ubatch_constructor_probe.py"
@@ -106,6 +111,20 @@ peer counts, which every Attention rank checks against its own report.
 initialization, execute/dummy and idle shutdown. The backend constructor
 automatically binds a staged adapter to its own transport. Full-model U2
 qualification remains separate from this software wiring.
+
+Explicit Graph assembly adds a pre-KV eager bridge and a later real-KV
+coordinator. `bind_hccl_v41_graph_eager` binds the owning transport, cache,
+generation source and U2 session after model loading; native profiling then
+reserves eager mode before preparing inputs. KV initialization gives the same
+session to the native U2 factory. `bind_hccl_v41_graph_coordinator` retains
+those identities after the actual native manager and KV buffers exist.
+Native `execute_model` selects the appropriate scope, and `capture_model`
+uses all-peer preflight and the coordinator's owned native capture call.
+Normal connector construction keeps its eager policy; the explicit graph
+binding requires FULL_DECODE_ONLY, compilation NONE and speculation off.
+Production V4.1 Graph admission and full-model hardware acceptance remain
+separate. After acknowledged STOP, graph reset precedes native KV/state
+release and process-group closure; failed reset retains those owners.
 
 The independent [Graph geometry helper](../../../afd_plugin/v1/worker/npu/hccl_v41_graph.py)
 previews request and token bounds from the actual ordered native `BatchReqState`.

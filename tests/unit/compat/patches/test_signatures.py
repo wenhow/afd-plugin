@@ -20,6 +20,7 @@ import pytest
         "hccl-graph-dispatch",
         "hccl-graph-begin",
         "hccl-graph-capture",
+        "hccl-graph-replay",
         "hccl-u1-prepare",
         "npu-model-loader",
         "ds-mxfp8",
@@ -102,6 +103,26 @@ def test_scoped_patch_preserves_upstream_signature(hook):  # long-test: shared t
             object.__new__(CudaGraphManager),
             before_factory=lambda descriptor, warmup: None,
             after_capture=lambda: None,
+            fail=lambda: None,
+        )
+    elif hook == "hccl-graph-replay":
+        pytest.importorskip("torch_npu")
+        pytest.importorskip("vllm_ascend")
+        from contextlib import nullcontext
+
+        from vllm_ascend.worker.v2.aclgraph_utils import ModelAclGraphManager
+
+        from afd_plugin.compat.patches.npu.hccl_graph_replay import (
+            use_hccl_graph_replay,
+        )
+
+        target = object.__new__(ModelAclGraphManager)
+        target.run_fullgraph = target.run_fullgraph
+        symbol = "run_fullgraph"
+        scope = use_hccl_graph_replay(
+            target,
+            before_replay=lambda descriptor: nullcontext(),
+            after_replay=lambda descriptor: None,
             fail=lambda: None,
         )
     elif hook == "hccl-u1-prepare":

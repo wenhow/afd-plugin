@@ -105,3 +105,16 @@ behavior; `service-fix-011/results/cpu.xml` then contains 29 F-service cases
 with zero failures, errors or skips. These are actual-dependency CPU results,
 not NPU capture or inference acceptance. Coverage/cache changes await the
 separate final broad-regression manifest for their current bytes.
+
+Later targeted validation: `capture-seams-013` passed its other ten modules
+(450 cases), while two F-service test assertions incorrectly referenced a
+nonexistent `HcclParentPlan.all_empty` property. Those assertions now inspect
+the actual stage padded-token counts. The unchanged raw failure remains.
+`service-close-014/results/cpu.xml` has 42 F-service passes and zero failures,
+errors or skips, with `source_files_match=true`. Its source SHA256 is
+`cda23c7e17c192a4cd59c55e99dafd8e7168ae063a2999c7327285b0fda0a2c5`;
+test SHA256 is
+`0f445b60d5c1f8248f4ba540d50c1500bbe69f51200a1eaae9a91dc11789f16f`.
+The latter run includes acknowledged-STOP/cache-close ownership and public
+cache-close-before-STOP rejection. Counts from separate snapshots are not
+presented as one aggregate run or as device evidence.

@@ -21,6 +21,7 @@ from afd_plugin.distributed.hccl import HcclStageLayout
 from afd_plugin.distributed.hccl_plan import HcclParentPlan
 from afd_plugin.v1.worker.npu import ffn_model_runner as runner_module
 from afd_plugin.v1.worker.npu import ffn_worker as worker_module
+from afd_plugin.v1.worker.npu import hccl_v41_graph_service as service_module
 from tests.unit.fakes.hccl import (
     ExitedHcclWorkerThread,
     HcclCpuDeviceRuntime,
@@ -34,6 +35,53 @@ from tests.unit.fakes.hccl import (
     make_hccl_worker,
     make_staged_ffn_service_case,
 )
+from tests.unit.fakes.hccl_v41_graph_service import make_graph_service_case
+
+
+@pytest.fixture
+def graph_service(monkeypatch):
+    case = make_graph_service_case(service_module, monkeypatch)
+    case.worker = make_hccl_worker(worker_module.AFDNPUFFNWorker, case.runner)
+    case.worker.device = case.runner.device
+    monkeypatch.setattr(
+        worker_module,
+        "torch",
+        SimpleNamespace(
+            npu=HcclCpuDeviceRuntime(), bfloat16=runner_module.torch.bfloat16
+        ),
+    )
+    case.worker.bind_hccl_v41_transport(case.transport)
+    case.runner.bind_hccl_v41_graph_service(case.service)
+    return case
+
+
+def test_graph_worker_releases_cache_after_stop_before_communicators(graph_service):
+    case = graph_service
+    case.transport.queue_parent("capture", identifier="capture-1")
+    case.transport.queue_parent("replay", identifier="replay-1", valid=(1, 0))
+    case.transport.queue_stop()
+    case.worker.start_ffn_server_loop()
+    join_hccl_worker(case.worker)
+    case.worker.stop_ffn_server_loop()
+    assert case.worker.poll_hccl_ffn_service() is False
+    assert case.cache.closed and case.transport.closed
+    assert case.events[-3:] == ["device-sync", "graph-reset", "groups-close"]
+
+
+def test_graph_worker_preserves_failed_capture_and_communicator_ownership(
+    graph_service,
+):
+    case = graph_service
+    case.api.fail_body = True
+    case.transport.queue_parent("capture", identifier="capture-1")
+    case.worker.start_ffn_server_loop()
+    join_hccl_worker(case.worker)
+    with pytest.raises(RuntimeError, match="worker loop failed") as failure:
+        case.worker.stop_ffn_server_loop()
+    assert "controlled tensor body failure" in str(failure.value.__cause__)
+    assert case.cache.terminal and not case.cache.closed
+    assert case.transport.terminal and not case.transport.closed
+    assert "graph-reset" not in case.events and "groups-close" not in case.events
 
 
 @pytest.fixture

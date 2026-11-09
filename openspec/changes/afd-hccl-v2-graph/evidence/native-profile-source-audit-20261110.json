@@ -1,0 +1,374 @@
+{
+  "scope": "read-only pinned source audit and design input; no runtime validation",
+  "captured_at_utc": "2026-11-09T19:56:14.448021+00:00",
+  "head_commit": "a897223f1d3489b588c68ed3cf3d099df4dbf0d4",
+  "upstream_reads": "git show exact locked commits; no checkout or upstream changes",
+  "sources": [
+    {
+      "repo": "vllm",
+      "commit": "ced6857afa0ea7b2e3f0846a62e1394e90f15607",
+      "path": "vllm/v1/engine/core.py",
+      "sha256": "268bf40534a853812867ae8e80040f190983cb364b41182b55969aace20c93f5",
+      "excerpts": [
+        {
+          "start_line": 305,
+          "end_line": 309,
+          "text": "            else:\n                # Profiles the peak memory usage of the model to determine how\n                # much memory can be allocated for kv cache.\n                available_gpu_memory = self.model_executor.determine_available_memory()\n                self.available_gpu_memory_for_kv_cache = available_gpu_memory[0]"
+        },
+        {
+          "start_line": 350,
+          "end_line": 356,
+          "text": "            update_kv_cache_capacity(vllm_config, scheduler_kv_cache_config)\n\n        vllm_config.validate_block_size()\n\n        self.model_executor.initialize_from_config(kv_cache_configs)\n        if not envs.VLLM_ELASTIC_EP_SCALE_UP_LAUNCH:\n            self.model_executor.compile_or_warm_up_model()"
+        }
+      ]
+    },
+    {
+      "repo": "vllm_ascend",
+      "commit": "7e37e29a7803d6897a7113088e2b771f83205bc0",
+      "path": "vllm_ascend/worker/worker.py",
+      "sha256": "51cfb3da18046af8c72ccefe940de5f24d9502bfdae75b941e1798c0a165cda4",
+      "excerpts": [
+        {
+          "start_line": 557,
+          "end_line": 608,
+          "text": "    def determine_available_memory(self) -> int:\n        \"\"\"Profiles the peak memory usage of the model to determine how much\n        memory can be used for KV cache without OOMs.\n\n        The engine will first conduct a profiling of the existing memory usage.\n        Then, it calculates the free memory that can be used for KV cache in\n        bytes.\n        \"\"\"\n        GiB = lambda b: b / GiB_bytes\n\n        maybe_apply_startup_plan(self)\n\n        # Fast path: user has explicitly specified KV cache size via\n        # --kv-cache-memory. Still run profile_run() to compile the model,\n        # but skip the memory profiling calculation entirely.\n        if kv_cache_memory_bytes := self.cache_config.kv_cache_memory_bytes:\n            self.model_runner.profile_run()\n            logger.info(\n                \"Initial free memory %.2f GiB, reserved %.2f GiB for KV Cache \"\n                \"as specified by kv_cache_memory_bytes, skipping memory profiling. \"\n                \"This does not respect the gpu_memory_utilization config. \"\n                \"Only use kv_cache_memory_bytes when you want manual control of \"\n                \"KV cache memory size. If OOM'ed, check the difference of initial \"\n                \"free memory between the current run and the previous run where \"\n                \"kv_cache_memory_bytes is suggested and update it correspondingly.\",\n                GiB(self.init_snapshot.free_memory),\n                GiB(kv_cache_memory_bytes),\n            )\n            return self._apply_kvpp_memory_budget(\n                self._apply_kv_offload_decode_memory_constraints(kv_cache_memory_bytes)\n            )\n\n        # Execute a forward pass with dummy inputs to profile the memory usage\n        # of the model.\n        with memory_profiling(\n            self.init_snapshot,\n            weights_memory=int(self.model_runner.model_memory_usage),\n        ) as profile_result:\n            self.model_runner.profile_run()\n\n            # Record torch peak INSIDE the context and BEFORE graph capture,\n            # so that graph pool allocations don't inflate the activation peak.\n            # The memory_profiling context will also compute torch_peak_increase\n            # on exit, but we override it below with this pre-graph value.\n            profile_torch_peak = torch.npu.memory_stats(self.device).get(\"allocated_bytes.all.peak\", 0)\n\n        # Override torch_peak_increase with the pre-graph-capture value to\n        # avoid double-counting graph pool memory as activation memory.\n        profile_result.torch_peak_increase = profile_torch_peak - profile_result.before_profile.torch_peak\n        profile_result.non_kv_cache_memory = (\n            profile_result.non_torch_increase + profile_result.torch_peak_increase + profile_result.weights_memory\n        )"
+        },
+        {
+          "start_line": 610,
+          "end_line": 627,
+          "text": "        # Save per-category memory for use in compile_or_warm_up_model() (step 5).\n        self.peak_activation_memory = profile_result.torch_peak_increase\n        self.non_torch_memory = profile_result.non_torch_increase\n\n        free_gpu_memory = profile_result.after_profile.free_memory\n        assert self.init_snapshot.free_memory > free_gpu_memory, (\n            \"Error in memory profiling. \"\n            f\"Initial free memory {GiB(self.init_snapshot.free_memory)} GiB, \"\n            f\"current free memory {GiB(free_gpu_memory)} GiB. \"\n            \"This happens when other processes sharing the same container \"\n            \"release GPU memory while vLLM is profiling during initialization. \"\n            \"To fix this, ensure consistent GPU memory allocation or \"\n            \"isolate vLLM in its own container.\"\n        )\n        self.available_kv_cache_memory_bytes = self.requested_memory - profile_result.non_kv_cache_memory\n        self.available_kv_cache_memory_bytes = self._scale_kv_cache_memory_for_multi_group(\n            self.available_kv_cache_memory_bytes,\n        )"
+        },
+        {
+          "start_line": 882,
+          "end_line": 910,
+          "text": "        for size in sorted(warmup_sizes, reverse=True):\n            logger.info(\"Compile and warming up model for size %d\", size)\n            self.model_runner._dummy_run(size)\n\n        from vllm_ascend.model_executor.warmup.kernel_warmup import kernel_warmup\n\n        kernel_warmup(self)\n\n        npugraph_memory_bytes = 0\n        if not self.model_config.enforce_eager:\n            npugraph_memory_bytes = self.model_runner.capture_model()\n\n        # Suggest an optimal --kv-cache-memory value for future runs.\n        # Only emitted when we ran full profiling (kv_cache_memory_bytes was not\n        # pre-specified) so that peak_activation_memory etc. are available.\n        # non_kv_memory already includes NPU graph memory, so the suggestion\n        # accounts for all measured memory categories. A 150 MiB buffer is kept\n        # because memory_profiling may slightly underestimate non-torch\n        # allocations (ACL context, HCCL buffers, driver layer, etc.).\n        if self.cache_config.kv_cache_memory_bytes is None and hasattr(self, \"peak_activation_memory\"):\n            redundancy_buffer = 150 * (1 << 20)  # 150 MiB safety margin\n            non_kv_memory = (\n                self.model_runner.model_memory_usage\n                + self.peak_activation_memory\n                + self.non_torch_memory\n                + npugraph_memory_bytes\n            )\n            self.npugraph_memory_bytes = npugraph_memory_bytes\n            suggested_to_requested = int(self.requested_memory) - non_kv_memory - redundancy_buffer"
+        },
+        {
+          "start_line": 1194,
+          "end_line": 1201,
+          "text": "        ensure_kv_transfer_initialized(self.vllm_config, kv_cache_config)\n        # Restrict the discardable kv_cache pool to backing cache allocations.\n        # Persistent metadata created during initialize_kv_cache must stay\n        # outside this pool so sleep/wake does not drop its contents.\n        self.model_runner.initialize_kv_cache(\n            kv_cache_config,\n            kv_cache_allocation_context=self._maybe_get_memory_pool_context(tag=\"kv_cache\"),\n        )"
+        }
+      ]
+    },
+    {
+      "repo": "vllm_ascend",
+      "commit": "7e37e29a7803d6897a7113088e2b771f83205bc0",
+      "path": "vllm_ascend/worker/v2/model_runner.py",
+      "sha256": "a3471a9f181b45742b8f985c86137cdaafc2871d2ef6f96aa6a45236a242969b",
+      "excerpts": [
+        {
+          "start_line": 352,
+          "end_line": 359,
+          "text": "    def initialize_kv_cache(\n        self,\n        kv_cache_config: KVCacheConfig,\n        kv_cache_allocation_context: AbstractContextManager | None = None,\n    ) -> None:\n        # Match V1's physical buffer plan without mutating the scheduler's\n        # logical cache configuration. Allocation must honor zero-stride aliases.\n        kv_cache_config = deepcopy(kv_cache_config)"
+        },
+        {
+          "start_line": 385,
+          "end_line": 389,
+          "text": "        with graph_manager_wrapper(self):\n            super().initialize_kv_cache(\n                kv_cache_config,\n                kv_cache_allocation_context=kv_cache_allocation_context,\n            )"
+        },
+        {
+          "start_line": 415,
+          "end_line": 422,
+          "text": "        prepare_v41_source_rope(self)\n        # Recreate along with KV initialization: profiling capture owns a\n        # throwaway model state and must not leak event/buffer bindings.\n        self.model_state.device_metadata = (\n            TargetDeviceMetadata()\n            if uses_a5_packed_cache() and self.model_config.architecture == \"DeepseekV41ForCausalLM\"\n            else None\n        )"
+        },
+        {
+          "start_line": 583,
+          "end_line": 613,
+          "text": "    @torch.inference_mode()\n    def profile_run(self) -> None:\n        \"\"\"Override GPUModelRunner.profile_run for Ascend NPUs.\n        When running moe models, we need an extra dummy run with mc2_tokens_capacity tokens to reserve\n        necessary HCCL buffer for the MC2 operator before standard `profile_run`. Additionally, we set\n        override_mrv2_in_profile_run to True to force moe load to be balanced when executing `profile_run`\n        \"\"\"\n        sparse_cfg = self.ascend_config.sparse_kv_offload_config\n        if sparse_cfg.enabled:\n            allocate_kv_offload_topk_profile_buffers(self.get_kv_cache_spec(), self.vllm_config, sparse_cfg)\n        mc2_tokens_capacity = get_mc2_tokens_capacity()\n        # The initial dummy profile bypasses PCP batch partitioning. Profile\n        # rank-local tokens; the existing MoE preparation still handles TP.\n        pcp_size = self.vllm_config.parallel_config.prefill_context_parallel_size\n        global_max_num_tokens: int = self.max_num_tokens\n        profile_max_num_tokens = (global_max_num_tokens + pcp_size - 1) // pcp_size\n        with override_mrv2_in_profile_run(True):\n            if (\n                mc2_tokens_capacity is not None\n                and profile_max_num_tokens > mc2_tokens_capacity\n                and select_moe_comm_method(mc2_tokens_capacity, self.vllm_config)\n                in {MoECommType.MC2, MoECommType.FUSED_MC2}\n            ):\n                # Use a call-scoped bypass because skip_compiled would require runner-specific ForwardContext plumbing.\n                with disable_compilation(self.get_model()):\n                    self._dummy_run(mc2_tokens_capacity, skip_attn=True, skip_eplb=True, is_profile=True)\n            self.max_num_tokens: int = profile_max_num_tokens\n            try:\n                super().profile_run()\n            finally:\n                self.max_num_tokens = global_max_num_tokens"
+        }
+      ]
+    },
+    {
+      "repo": "vllm",
+      "commit": "ced6857afa0ea7b2e3f0846a62e1394e90f15607",
+      "path": "vllm/v1/worker/gpu/model_runner.py",
+      "sha256": "174c93db921c23cf0396eee4764be25b2bd2d4b6a06e9fa41ce3598b884ce8ce",
+      "excerpts": [
+        {
+          "start_line": 576,
+          "end_line": 581,
+          "text": "    def initialize_kv_cache(\n        self,\n        kv_cache_config: KVCacheConfig,\n        is_profiling: bool = False,\n        kv_cache_allocation_context: AbstractContextManager | None = None,\n    ) -> None:"
+        },
+        {
+          "start_line": 705,
+          "end_line": 724,
+          "text": "        cudagraph_mode = self.compilation_config.resolve_cudagraph_mode_and_sizes(\n            attn_cg_support.min_cg_support,\n            attn_cg_support.min_cg_attn_backend,\n            self.decode_query_len,\n            use_v2_model_runner=True,\n            tensor_parallel_size=self.parallel_config.tensor_parallel_size,\n            kv_cache_config=self.kv_cache_config,\n            max_num_reqs=self.max_num_reqs,\n            is_profiling=is_profiling,\n            piecewise_capture_available=piecewise_capture_available,\n        )\n        self.cudagraph_manager = ModelCudaGraphManager(\n            self.vllm_config,\n            self.device,\n            cudagraph_mode,\n            decode_query_len=self.decode_query_len,\n            lora_capture_cases=self.lora_capture_cases,\n            varlen_decode=self.adaptive_verification is not None,\n            ubatch_runner=self.ubatch_runner,\n        )"
+        },
+        {
+          "start_line": 744,
+          "end_line": 761,
+          "text": "        # Capture warmup providers that depend on allocated KV-cache strides.\n        with self.jit_warmup_registry.activate():\n            kv_caches_dict = init_kv_cache(\n                self.compilation_config.static_forward_context,\n                self.kv_cache_config,\n                self.device,\n                self.kernel_block_sizes,\n                self.vllm_config,\n                kv_cache_allocation_context=kv_cache_allocation_context,\n                block_tables=self.block_tables,\n            )\n        self.kv_caches = [\n            cache for cache in kv_caches_dict.values() if cache.device == self.device\n        ]\n        if is_profiling:\n            self.kv_connector = NO_OP_KV_CONNECTOR\n        else:\n            self.kv_connector = get_kv_connector(self.vllm_config, kv_caches_dict)"
+        },
+        {
+          "start_line": 937,
+          "end_line": 970,
+          "text": "    @torch.inference_mode()\n    def profile_run(self) -> None:\n        if self.supports_mm_inputs and self.is_first_pp_rank:\n            mm_config = self.model_config.multimodal_config\n            if mm_config is not None and not mm_config.skip_mm_profiling:\n                mm_budget = MultiModalBudget(\n                    self.vllm_config,\n                    self.mm_registry,\n                    enable_cache=False,\n                )\n                dummy_mm_inputs = get_dummy_encoder_profile_inputs(\n                    self.mm_registry,\n                    mm_budget,\n                )\n                self.model_state.encoder_runner.profile_encoder_cache(\n                    dummy_mm_inputs, mm_budget\n                )\n\n        hidden_states, sample_hidden_states = self._dummy_run(\n            self.max_num_tokens, skip_attn=True, is_profile=True\n        )\n\n        # Only run sampler/pooler on last PP rank (non-last ranks return None).\n        if self.is_last_pp_rank:\n            assert sample_hidden_states is not None\n            if self.pooling_runner is None:\n                self._dummy_sampler_run(sample_hidden_states)\n            else:\n                self._dummy_pooler_run(hidden_states)\n\n        torch.accelerator.synchronize()\n        del hidden_states, sample_hidden_states\n        self.reset_encoder_cache()\n        gc.collect()"
+        },
+        {
+          "start_line": 982,
+          "end_line": 985,
+          "text": "    @torch.inference_mode()\n    def profile_cudagraph_memory(self) -> int:\n        \"\"\"Estimate the GPU memory required to capture CUDA graphs.\"\"\"\n        return _profile_cudagraph_memory(self)"
+        },
+        {
+          "start_line": 998,
+          "end_line": 1060,
+          "text": "    def capture_model(self, *, profile_only: bool = False) -> int:\n        assert self.cudagraph_manager is not None\n        capture_encoder = (\n            self.model_state.supports_mm_inputs\n            and self.model_state.encoder_runner.has_cudagraph()\n        )\n        capture_decoder = self.cudagraph_manager.needs_capture()\n        if not capture_encoder and not capture_decoder:\n            logger.warning(\n                \"Skipping encoder and decoder CUDA graph capture. To enable \"\n                \"encoder capture, ensure `cudagraph_mm_encoder` is enabled; \"\n                \"to enable decoder capture, ensure `cudagraph_mode` is not `NONE`.\"\n            )\n            return 0\n\n        compilation_counter.num_gpu_runner_capture_triggers += 1\n\n        start_time = time.perf_counter()\n        with freeze_gc_for_cudagraph_capture():\n            torch.accelerator.empty_cache()\n            start_free_gpu_memory = torch.accelerator.get_memory_info()[0]\n\n            with self.maybe_setup_dummy_loras(self.lora_config):\n                if capture_encoder:\n                    self.model_state.encoder_runner.capture()\n\n                if capture_decoder:\n                    input_buffers = self.input_buffers\n                    if self.pcp_manager is not None:\n                        input_buffers = self.pcp_manager.input_buffers\n                    self.cudagraph_manager.capture(\n                        self.model,\n                        self.model_state,\n                        input_buffers,\n                        self.intermediate_tensors,\n                        self.block_tables,\n                        self.attn_groups,\n                        self.kv_cache_config,\n                        pcp_manager=self.pcp_manager,\n                        has_lora=self.lora_config is not None,\n                        use_aux_hidden_state_outputs=self.use_aux_hidden_state_outputs,\n                        lora_capture_hook=create_lora_capture_hook(\n                            self.lora_config, self\n                        ),\n                    )\n                    if self.speculator is not None:\n                        with use_workspace_lane(self._draft_workspace_lane):\n                            self.speculator.capture()\n                    if self.adaptive_verification is not None:\n                        with self.step_timing.collect() as timings:\n                            for batch in self.adaptive_verification.batches_to_profile(\n                                self.cudagraph_manager.captured_token_counts()\n                            ):\n                                self._dummy_run(**batch)\n                        self.adaptive_verification.set_initial_cost_curves(timings)\n                    self.kv_connector.reset_capture_state()\n\n            end_free_gpu_memory = torch.accelerator.get_memory_info()[0]\n\n        if not profile_only:\n            # Lock workspace to prevent resizing during execution. A resize after\n            # capture frees the static cuda graph buffer.\n            lock_workspace()"
+        }
+      ]
+    },
+    {
+      "repo": "vllm",
+      "commit": "ced6857afa0ea7b2e3f0846a62e1394e90f15607",
+      "path": "vllm/v1/worker/gpu/cudagraph_utils.py",
+      "sha256": "6e9c042890603535e300a40df8ee159dbed1058a64a83ae50ff0329e332e05ff",
+      "excerpts": [
+        {
+          "start_line": 423,
+          "end_line": 431,
+          "text": "                descs = self._capture_descs[mode]\n                if (\n                    mode == CUDAGraphMode.FULL\n                    and self._max_full_descs_to_capture is not None\n                ):\n                    # Profiling only: capture a sample of the largest FULL\n                    # graphs; the total cost is extrapolated from their\n                    # per-graph memory deltas.\n                    descs = descs[: self._max_full_descs_to_capture]"
+        },
+        {
+          "start_line": 847,
+          "end_line": 861,
+          "text": "def profile_cudagraph_memory(runner: \"GPUModelRunner\") -> int:\n    \"\"\"Estimate the GPU memory needed for CUDA graph capture.\n\n    Called during memory profiling, *before* the real KV cache is allocated,\n    so that ``Worker.determine_available_memory`` can reserve headroom for\n    graph capture. Bootstraps a minimal KV cache, runs ``capture_model()``\n    once, then releases everything so the real init/capture path starts clean.\n\n    FULL graphs bake in KV cache pointers, so only the largest few are\n    captured (into a throwaway pool) and their total cost is extrapolated.\n    PIECEWISE, encoder and speculator graphs are measured in full. All\n    profiling captures are discarded afterwards: replaying graphs recorded\n    against the throwaway profiling state is unsafe (e.g. inductor graph\n    partition reclaims the storages of earlier cudagraph recordings once the\n    real capture records new ones, leading to use-after-free crashes)."
+        },
+        {
+          "start_line": 878,
+          "end_line": 887,
+          "text": "    platform_cls = type(current_platform)\n    saved_global_pool = platform_cls._global_graph_pool\n    throwaway_pool = current_platform.graph_pool_handle()\n    platform_cls._global_graph_pool = throwaway_pool\n\n    try:\n        with set_current_vllm_config(runner.vllm_config):\n            _init_minimal_kv_cache_for_profiling(runner)\n\n        manager = runner.cudagraph_manager"
+        },
+        {
+          "start_line": 917,
+          "end_line": 949,
+          "text": "            manager._max_full_descs_to_capture = _FULL_GRAPH_PROFILING_SAMPLES\n            mem_samples: list[int] = []\n            manager._capture_mem_samples = mem_samples\n\n            measured = int(runner.capture_model(profile_only=True))\n\n            # The measured delta covers PIECEWISE, encoder and speculator graphs\n            # plus the sampled FULL graphs; swap the sampled FULL cost for the\n            # extrapolated total. FULL and PIECEWISE share one pool here just as\n            # they share the global pool at runtime, so the overlap is not\n            # double-counted.\n            num_full_graphs = len(manager._capture_descs.get(CUDAGraphMode.FULL, []))\n            full_estimate = _extrapolate_full_graph_memory(mem_samples, num_full_graphs)\n            return max(measured - sum(mem_samples) + full_estimate, 0)\n        finally:\n            compilation_counter.num_cudagraph_captured = saved_num_cudagraph_captured\n            compilation_counter.num_gpu_runner_capture_triggers = saved_capture_triggers\n            CUDAGraphWrapper.clear_all_graphs()\n            BreakableCUDAGraphWrapper.clear_all_graphs()\n            for wrapper in all_wrappers:\n                if id(wrapper) in original_pools:\n                    wrapper.graph_pool = original_pools[id(wrapper)]\n            # Drop the speculator's cudagraph managers; the real\n            # initialize_kv_cache re-creates them. Their profiling graphs\n            # release the throwaway pool here rather than after the real init.\n            for name in spec_manager_names:\n                setattr(speculator, name, None)\n            # Drop local references before teardown detaches the runner's\n            # manager and flushes the allocator.\n            del manager\n            _teardown_profiling_state(runner)\n    finally:\n        platform_cls._global_graph_pool = saved_global_pool"
+        },
+        {
+          "start_line": 963,
+          "end_line": 987,
+          "text": "def _init_minimal_kv_cache_for_profiling(runner: \"GPUModelRunner\") -> None:\n    \"\"\"Allocate the smallest KV cache that still lets every graph be captured.\"\"\"\n    from vllm.v1.core.kv_cache_utils import (\n        get_kv_cache_config_from_groups,\n        get_kv_cache_groups,\n    )\n\n    kv_cache_spec = runner.get_kv_cache_spec()\n    kv_cache_groups = get_kv_cache_groups(runner.vllm_config, kv_cache_spec)\n    # At least one block per sequence is required to capture the graphs.\n    min_blocks = (\n        min(runner.max_num_reqs, runner.compilation_config.max_cudagraph_capture_size)\n        or 1\n    )\n    saved_override = runner.cache_config.num_gpu_blocks_override\n    runner.cache_config.num_gpu_blocks_override = min_blocks\n    try:\n        minimal_config = get_kv_cache_config_from_groups(\n            runner.vllm_config, kv_cache_groups, available_memory=0\n        )\n    finally:\n        runner.cache_config.num_gpu_blocks_override = saved_override\n\n    runner.initialize_kv_cache(minimal_config, is_profiling=True)\n    runner.cache_config.num_gpu_blocks = minimal_config.num_blocks"
+        },
+        {
+          "start_line": 990,
+          "end_line": 1026,
+          "text": "def _teardown_profiling_state(runner: \"GPUModelRunner\") -> None:\n    \"\"\"Release the profiling KV cache and captured graphs while keeping model\n    weights, so the real ``initialize_kv_cache`` starts from a clean slate.\"\"\"\n    torch.accelerator.synchronize()\n    if hasattr(runner.model_state, \"_mamba_ctx\"):\n        runner.model_state._mamba_ctx = None\n    # Invalidate the align-mode Mamba group metadata cached from the\n    # profiling KVCacheConfig: the real (e.g. PP-projected) config may\n    # place Mamba layers into a different group layout, so it must be\n    # re-derived from the real config.\n    if hasattr(runner.model_state, \"_mamba_group_ids\"):\n        runner.model_state._mamba_group_ids = []\n    if hasattr(runner.model_state, \"_mamba_spec\"):\n        runner.model_state._mamba_spec = None\n    if hasattr(runner, \"kv_caches\"):\n        runner.kv_caches.clear()\n    if hasattr(runner, \"attn_groups\"):\n        runner.attn_groups.clear()\n    if hasattr(runner, \"kv_cache_config\"):\n        del runner.kv_cache_config\n    # Dropping the manager releases the profiling graphs and throwaway pool.\n    runner.cudagraph_manager = None\n    # Release encoder graphs captured during profiling; the real\n    # capture_model() re-captures them.\n    if runner.model_state.supports_mm_inputs:\n        runner.model_state.encoder_runner.clear()\n    # Detach profiling KV tensors held by attention layers. The layers live\n    # in the static forward context for compiled models.\n    layers: Iterable[Any] = runner.compilation_config.static_forward_context.values()\n    if (model := getattr(runner, \"model\", None)) is not None:\n        layers = itertools.chain(layers, model.modules())\n    clear_layer_kv_caches(layers)\n    release_hisparse_profiling_cache(runner.compilation_config.static_forward_context)\n    runner.cache_config.num_gpu_blocks = None\n    runner.maybe_remove_all_loras(runner.lora_config)\n    gc.collect()\n    torch.accelerator.empty_cache()"
+        }
+      ]
+    },
+    {
+      "repo": "vllm",
+      "commit": "ced6857afa0ea7b2e3f0846a62e1394e90f15607",
+      "path": "vllm/v1/worker/gpu_worker.py",
+      "sha256": "6994436e4547c0996ab555b3e814e8ccea26b650dfc1b378b97d640745309347",
+      "excerpts": [
+        {
+          "start_line": 580,
+          "end_line": 591,
+          "text": "        cudagraph_memory_estimate = 0\n        if (\n            current_platform.is_cuda_alike()\n            and self.vllm_config.compilation_config.cudagraph_mode != CUDAGraphMode.NONE\n        ):\n            cudagraph_memory_estimate = self.model_runner.profile_cudagraph_memory()\n\n        # Respect the opt-in flag as originally designed.\n        cudagraph_memory_estimate_applied = (\n            cudagraph_memory_estimate\n            if envs.VLLM_MEMORY_PROFILER_ESTIMATE_CUDAGRAPHS\n            else 0"
+        }
+      ]
+    },
+    {
+      "repo": "vllm_ascend",
+      "commit": "7e37e29a7803d6897a7113088e2b771f83205bc0",
+      "path": "vllm_ascend/worker/v2/aclgraph_utils.py",
+      "sha256": "b2271eb4aab5876e85370897236a99ece7e9a9541b05f2fc0dd923b32bb8193d",
+      "excerpts": [
+        {
+          "start_line": 256,
+          "end_line": 300,
+          "text": "    def capture(\n        self,\n        model: nn.Module,\n        model_state: ModelState,\n        input_buffers: InputBuffers,\n        intermediate_tensors: IntermediateTensors | None,\n        block_tables: BlockTables,\n        attn_groups: list[list[AttentionGroup]],\n        kv_cache_config: KVCacheConfig,\n        has_lora: bool = False,\n        use_aux_hidden_state_outputs: bool = False,\n        lora_capture_hook: Callable[[int, int, int], None] | None = None,\n        progress_bar_desc: str = \"Capturing CUDA graphs\",\n        # vLLM #53869 supplies PCP slot mappings during graph capture.\n        pcp_manager: Any = None,\n    ) -> None:\n        \"\"\"Capture CUDA graphs for model forward pass.\"\"\"\n        metadata = getattr(model_state, \"device_metadata\", None)\n        model = ModelWithContext(model, device_metadata=metadata)\n        pcp_manager = getattr(self.model_runner, \"pcp_manager\", None)\n        if pcp_manager is not None:\n            cudagraph_utils.prepare_inputs_to_capture = partial(\n                _prepare_pcp_inputs_to_capture,\n                pcp_manager=pcp_manager,\n            )\n        try:\n            with communicator_switch():\n                return super().capture(\n                    model,\n                    model_state,\n                    input_buffers,\n                    intermediate_tensors,\n                    block_tables,\n                    attn_groups,\n                    kv_cache_config,\n                    pcp_manager=pcp_manager,\n                    has_lora=has_lora,\n                    use_aux_hidden_state_outputs=use_aux_hidden_state_outputs,\n                    lora_capture_hook=lora_capture_hook,\n                    progress_bar_desc=progress_bar_desc,\n                )\n        finally:\n            # Input preparation can fail before ModelWithContext.forward runs.\n            if metadata is not None:\n                metadata.finish()"
+        },
+        {
+          "start_line": 315,
+          "end_line": 339,
+          "text": "    def forward(self, *args, **kwargs):\n        forward_context = get_forward_context()\n        # In warmup phase, capturing=False by default.\n        # when capturing, we need to set capturing=True in forward context.\n        _EXTRA_CTX.capturing = (\n            torch.npu.is_current_stream_capturing()\n            and forward_context.cudagraph_runtime_mode != CUDAGraphMode.PIECEWISE\n        )\n        if self.is_draft_model:\n            _EXTRA_CTX.is_draft_model = True\n        if self.is_draft_model_prefill:\n            _EXTRA_CTX.is_draft_model_prefill = True\n\n        try:\n            if self.device_metadata is not None:\n                self.device_metadata.begin_forward()\n            return self.original_model(*args, **kwargs)\n        finally:\n            # Warmup and actual capture receive separate prepare_attn calls.\n            # Retire each submission, including unused producers, after its\n            # consumers; do not wait for metadata at graph entry.\n            if self.device_metadata is not None:\n                self.device_metadata.finish()\n\n    def get_original_model(self):"
+        }
+      ]
+    }
+  ],
+  "working_tree_sources": [
+    {
+      "path": "afd_plugin/v1/worker/npu/attention_model_runner_v2.py",
+      "sha256": "1fdfc6ef13b5fdefa20a98c762e0a1dc9ec23068d2b5683245ed4d1286d1079c",
+      "excerpts": [
+        {
+          "start_line": 402,
+          "end_line": 417,
+          "text": "    # Delegate native Engram/shared-KV/cache-plan ownership unchanged. Remove\n    # the scoped factory override when upstream accepts an ubatch factory.\n    def initialize_kv_cache(\n        self,\n        kv_cache_config: KVCacheConfig,\n        kv_cache_allocation_context: AbstractContextManager | None = None,\n    ) -> None:\n        # ### PATCH START: create the native NPU ubatch adapter.\n        transport = (\n            self.hccl_v41_transport\n            if self.vllm_config.parallel_config.use_ubatching\n            else None\n        )\n        with use_npu_ubatch_factory(self, hccl_transport=transport):\n            super().initialize_kv_cache(kv_cache_config, kv_cache_allocation_context)\n        # ### PATCH END: create the native NPU ubatch adapter."
+        }
+      ]
+    },
+    {
+      "path": "afd_plugin/connectors/npu/hccl_graph_cache.py",
+      "sha256": "82a8c52ce2f6429ded6768b1c53949486d3281606a650b05e11836e95a10c285",
+      "excerpts": [
+        {
+          "start_line": 38,
+          "end_line": 53,
+          "text": "    \"\"\"Hold graph lifetimes; a failed capture makes the whole cache terminal.\n\n    Create a fresh instance for each transport session. Model/layer/TP/payload\n    capabilities are immutable within that session. ``generation`` is the local\n    native input/metadata storage generation, never a cross-peer pointer value.\n    A generation mismatch is a miss and keeps the old storage alive for cleanup.\n    Recapture of an existing key requires a new session in this first version.\n    \"\"\"\n\n    def __init__(self, synchronize: Callable[[], None]) -> None:\n        self._synchronize = synchronize\n        self._pending: dict[str, HcclGraphCacheEntry[ResourcesT]] = {}\n        self._ready: dict[str, HcclGraphCacheEntry[ResourcesT]] = {}\n        self.terminal = self.closed = False\n\n    @property"
+        },
+        {
+          "start_line": 82,
+          "end_line": 97,
+          "text": "        digest = key.digest\n        if digest in self._pending or digest in self._ready:\n            raise ValueError(\"graph key already reserved; restart before recapture\")\n        if len(self._pending) + len(self._ready) >= MAX_GRAPH_CACHE_ENTRIES:\n            raise ValueError(\"graph cache entry limit reached\")\n        self._pending[digest] = HcclGraphCacheEntry(key, generation, graph, resources)\n\n    def publish_capture(self, key: HcclGraphKey, generation: int) -> None:\n        \"\"\"Advertise readiness only after capture returned and the device finished.\"\"\"\n        self._require_active()\n        self._validate_generation(generation)\n        entry = self._pending.get(key.digest)\n        if entry is None or entry.generation != generation:\n            raise ValueError(\n                \"capture publication requires its reserved key and generation\"\n            )"
+        },
+        {
+          "start_line": 113,
+          "end_line": 128,
+          "text": "\n    def contains(self, key: HcclGraphKey) -> bool:\n        \"\"\"Reject recapture even when old or pending storage is unavailable.\"\"\"\n        self._require_active()\n        return key.digest in self._ready or key.digest in self._pending\n\n    def fail(self) -> None:\n        \"\"\"Retain every graph/buffer for supervised cleanup after a device failure.\"\"\"\n        self.terminal = True\n\n    def close(self) -> None:\n        \"\"\"Synchronize and reset before releasing even failed/pending resources.\n\n        The owner must first stop all graph users and peer execution. A failure\n        retains references and propagates to external supervision; it never\n        claims that a blocked device operation has been cancelled."
+        },
+        {
+          "start_line": 121,
+          "end_line": 136,
+          "text": "        self.terminal = True\n\n    def close(self) -> None:\n        \"\"\"Synchronize and reset before releasing even failed/pending resources.\n\n        The owner must first stop all graph users and peer execution. A failure\n        retains references and propagates to external supervision; it never\n        claims that a blocked device operation has been cancelled.\n        \"\"\"\n        if self.closed:\n            return\n        self.terminal = True\n        self._synchronize()\n        for entry in (*self._ready.values(), *self._pending.values()):\n            entry.graph.reset()\n        self._ready.clear()"
+        }
+      ]
+    },
+    {
+      "path": "afd_plugin/v1/worker/npu/hccl_v41_graph_coordinator.py",
+      "sha256": "e6e19629364ac4c447c447aa23fc4e7ba976a7140b2b69dad5d8fe24f497c4c6",
+      "excerpts": [
+        {
+          "start_line": 102,
+          "end_line": 117,
+          "text": "    returned result is true. A false result means all peers agreed to skip\n    FULL capture, not that native capture or model execution succeeded.\n    Profiling and later real-KV captures require fresh session/cache ownership;\n    recapture of an existing key is intentionally unsupported.\n    \"\"\"\n\n    def __init__(\n        self,\n        owner: AFDNPUAttentionModelRunnerV2,\n        control: HcclV41GraphControl[HcclV41GraphResources],\n        session: HcclV41GraphSession,\n        *,\n        next_transaction_id: Callable[[], str],\n    ) -> None:\n        manager = owner.cudagraph_manager\n        transport = control.transport"
+        },
+        {
+          "start_line": 103,
+          "end_line": 118,
+          "text": "    FULL capture, not that native capture or model execution succeeded.\n    Profiling and later real-KV captures require fresh session/cache ownership;\n    recapture of an existing key is intentionally unsupported.\n    \"\"\"\n\n    def __init__(\n        self,\n        owner: AFDNPUAttentionModelRunnerV2,\n        control: HcclV41GraphControl[HcclV41GraphResources],\n        session: HcclV41GraphSession,\n        *,\n        next_transaction_id: Callable[[], str],\n    ) -> None:\n        manager = owner.cudagraph_manager\n        transport = control.transport\n        capabilities = transport.negotiated_capabilities"
+        },
+        {
+          "start_line": 175,
+          "end_line": 190,
+          "text": "        self.attn_group_refs = tuple(tuple(groups) for groups in owner.attn_groups)\n        self.block_tables = owner.block_tables\n        self.kv_cache_config = owner.kv_cache_config\n        self.kv_caches = tuple(owner.kv_caches)\n        self.intermediate_tensors = owner.intermediate_tensors\n        self.capture_descriptors = tuple(descriptors)\n        self.capture_prefix = manager._max_full_descs_to_capture\n        self.control, self.session = control, session\n        self.transport = transport\n        self.next_transaction_id = next_transaction_id\n        self.current_execution: HcclV41GraphExecution | None = None\n        self._u1_context: ForwardContext | None = None\n        self._preflight_done = self._capture_enabled = self._capture_started = False\n        self._runtime_active = False\n\n    def _require_storage(self) -> None:"
+        },
+        {
+          "start_line": 176,
+          "end_line": 191,
+          "text": "        self.block_tables = owner.block_tables\n        self.kv_cache_config = owner.kv_cache_config\n        self.kv_caches = tuple(owner.kv_caches)\n        self.intermediate_tensors = owner.intermediate_tensors\n        self.capture_descriptors = tuple(descriptors)\n        self.capture_prefix = manager._max_full_descs_to_capture\n        self.control, self.session = control, session\n        self.transport = transport\n        self.next_transaction_id = next_transaction_id\n        self.current_execution: HcclV41GraphExecution | None = None\n        self._u1_context: ForwardContext | None = None\n        self._preflight_done = self._capture_enabled = self._capture_started = False\n        self._runtime_active = False\n\n    def _require_storage(self) -> None:\n        owner, manager = self.owner, self.manager"
+        },
+        {
+          "start_line": 238,
+          "end_line": 253,
+          "text": "        self.control.cache.fail()\n\n    def preflight_capture(self) -> bool:\n        \"\"\"Agree capture eligibility with an honest miss and zero-row fallback.\n\n        A replay availability query names a real native descriptor that is\n        genuinely uncaptured. Eligible peers report missing; unsupported peers\n        report unsupported. No peer advertises ready or executes that graph.\n        The common eager result is retired as an empty parent on every role.\n        \"\"\"\n        try:\n            self._require_storage()\n            if (\n                self._preflight_done\n                or not self.control.cache.is_empty\n                or self.manager.graphs"
+        },
+        {
+          "start_line": 255,
+          "end_line": 270,
+          "text": "                or self.transport.graph_reservation is not None\n            ):\n                raise ValueError(\"capture eligibility requires a fresh graph session\")\n            native = self.owner.model.language_model.model\n            supported = bool(self.coverage.geometries) and (\n                not native.has_engram or native.can_capture_engram_producer()\n            )\n            keys = tuple(\n                self.control.key_for(geometry) for geometry in self.coverage.geometries\n            )\n            sequence_digest = graph_capture_sequence_digest(\n                keys, max_full_descs_to_capture=self.capture_prefix\n            )\n\n            def resolve(candidate: HcclGraphCandidate) -> HcclGraphReport:\n                if ("
+        },
+        {
+          "start_line": 379,
+          "end_line": 394,
+          "text": "            raise\n\n    def _retain(self, execution: HcclV41GraphExecution) -> HcclV41GraphResources:\n        manager = self.manager\n        return HcclV41GraphResources(\n            execution.bank,\n            execution,\n            execution.model_state,\n            self.input_buffers,\n            self.ubatch_runner,\n            self.attn_group_refs,\n            self.block_tables,\n            self.kv_cache_config,\n            self.kv_caches,\n            manager,\n            manager.hidden_states,"
+        },
+        {
+          "start_line": 481,
+          "end_line": 496,
+          "text": "            raise\n\n    def capture_native(self, *, profile_only: bool = False) -> int:\n        \"\"\"Call the pinned native lifecycle with this runner's exact storage.\n\n        The Ascend runner inherits GPUModelRunner.capture_model unchanged at\n        ced6857afa0ea7b2e3f0846a62e1394e90f15607. That method supplies this\n        owner's model, ModelState, inputs, block tables and cache configuration\n        to its ModelAclGraphManager; callers cannot inject foreign capture\n        parameters. Its ModelWithContext still owns metadata begin/finish and\n        its native factory still prepares inputs and stores outputs once.\n        Legacy AFD capture scopes must not surround this selected native call.\n        \"\"\"\n        if not self._preflight_done:\n            raise ValueError(\"native capture requires all-peer eligibility preflight\")\n        if not self._capture_enabled:"
+        }
+      ]
+    },
+    {
+      "path": "afd_plugin/v1/worker/npu/hccl_v41_graph_service.py",
+      "sha256": "cda23c7e17c192a4cd59c55e99dafd8e7168ae063a2999c7327285b0fda0a2c5",
+      "excerpts": [
+        {
+          "start_line": 72,
+          "end_line": 87,
+          "text": "        self.graph_factory = graph_factory or torch.npu.NPUGraph\n        self.graph_capture = graph_capture or (\n            lambda graph: torch.npu.graph(graph, pool=runner.graph_pool)\n        )\n        # Keep warmup or partly built resources too: they have no cache entry\n        # to retain them if context construction or the body fails.\n        self._active_bank: HcclGraphStageBank | None = None\n        self._active_contexts: list[ForwardContext] = []\n        self._active_resources: HcclV41FFNGraphResources | None = None\n        self._active_graph: HcclReplayGraph | None = None\n        self._reserved_generation: int | None = None\n        self._session_model: AFDDeepseekV41FFNForCausalLM | None = None\n        self._acknowledged_stop = self._failed = False\n        self._validate_binding()\n\n    @property"
+        },
+        {
+          "start_line": 90,
+          "end_line": 105,
+          "text": "        return self._acknowledged_stop\n\n    def close(self) -> None:\n        \"\"\"Retire cache dependencies after STOP; the caller still owns groups.\n\n        An active or failed service cannot claim peer cancellation or release\n        storage under device work. External supervision owns that recovery.\n        \"\"\"\n        if (\n            not self.acknowledged_stop\n            or self._failed\n            or self.transport.plan is not None\n            or self.transport.graph_reservation is not None\n            or self._active_bank is not None\n            or self._active_contexts\n            or self._active_resources is not None"
+        },
+        {
+          "start_line": 234,
+          "end_line": 249,
+          "text": "            # Attention peers own the native ordered capture list. FFN has no\n            # corresponding manager list: it must report an honest miss from\n            # a fresh cache, never make preflight look ready after a stale or\n            # pending capture. Generation and model/session ownership were\n            # checked before this availability report. A genuinely empty\n            # Attention capture list requests eager with no invented key.\n            self._model()\n            if not self.cache.is_empty:\n                raise ValueError(\"capture preflight requires a fresh FFN graph cache\")\n            return HcclGraphReport(\n                \"unsupported\" if candidate.key is None else \"missing\"\n            )\n        if candidate.key is None:\n            return HcclGraphReport(\"unsupported\")\n        self._model()\n        if candidate.phase in (\"warmup\", \"capture\"):"
+        },
+        {
+          "start_line": 240,
+          "end_line": 255,
+          "text": "            self._model()\n            if not self.cache.is_empty:\n                raise ValueError(\"capture preflight requires a fresh FFN graph cache\")\n            return HcclGraphReport(\n                \"unsupported\" if candidate.key is None else \"missing\"\n            )\n        if candidate.key is None:\n            return HcclGraphReport(\"unsupported\")\n        self._model()\n        if candidate.phase in (\"warmup\", \"capture\"):\n            if self.cache.contains(candidate.key):\n                raise ValueError(\n                    \"FFN graph key already reserved; restart before recapture\"\n                )\n            return HcclGraphReport(\"missing\")\n        entry = self.cache.find(candidate.key, self._reserved_generation)"
+        },
+        {
+          "start_line": 250,
+          "end_line": 265,
+          "text": "            if self.cache.contains(candidate.key):\n                raise ValueError(\n                    \"FFN graph key already reserved; restart before recapture\"\n                )\n            return HcclGraphReport(\"missing\")\n        entry = self.cache.find(candidate.key, self._reserved_generation)\n        if entry is None:\n            return HcclGraphReport(\"missing\")\n        self._validate_resources(entry.resources)\n        if entry.resources.bank.key != candidate.key:\n            raise ValueError(\"FFN graph cache key does not match its retained bank\")\n        return HcclGraphReport(\"ready\")\n\n    def _prepare_resources(self, plan: HcclParentPlan) -> HcclV41FFNGraphResources:\n        decision = plan.graph_execution\n        assert decision is not None and decision.key is not None"
+        }
+      ]
+    },
+    {
+      "path": "afd_plugin/v1/worker/npu/ffn_model_runner.py",
+      "sha256": "17d41d459a95a347858362e2fbed889c50e723ff0e1d4b5a071f8fec0ce25cba",
+      "excerpts": [
+        {
+          "start_line": 100,
+          "end_line": 115,
+          "text": "        self.use_aclgraph = _use_npu_aclgraph(vllm_config)\n        self._acl_graphs: dict[tuple, dict[str, Any]] = {}\n        self.graph_pool = (\n            current_platform.get_global_graph_pool() if self.use_aclgraph else None\n        )\n        self.prof = create_afd_npu_profiler(\"ffn\")\n        self._is_shutdown = False\n        self.hccl_v41_graph_service: HcclV41GraphService | None = None\n\n    @staticmethod\n    def parse_config(vllm_config: VllmConfig) -> AFDConfig:\n        return parse_afd_config(vllm_config, expected_role=\"ffn\")\n\n    def load_model(self) -> None:\n        # Load inside the initialized worker. The native loader owns weight\n        # materialization and quantization postprocessing; FFN does not need"
+        },
+        {
+          "start_line": 101,
+          "end_line": 116,
+          "text": "        self._acl_graphs: dict[tuple, dict[str, Any]] = {}\n        self.graph_pool = (\n            current_platform.get_global_graph_pool() if self.use_aclgraph else None\n        )\n        self.prof = create_afd_npu_profiler(\"ffn\")\n        self._is_shutdown = False\n        self.hccl_v41_graph_service: HcclV41GraphService | None = None\n\n    @staticmethod\n    def parse_config(vllm_config: VllmConfig) -> AFDConfig:\n        return parse_afd_config(vllm_config, expected_role=\"ffn\")\n\n    def load_model(self) -> None:\n        # Load inside the initialized worker. The native loader owns weight\n        # materialization and quantization postprocessing; FFN does not need\n        # Attention request, sampler, KV or compilation-runner state."
+        },
+        {
+          "start_line": 189,
+          "end_line": 204,
+          "text": "        self.hccl_v41_graph_service = service\n\n    def close_hccl_v41_graph_service(self, transport: HcclStagedTransport) -> None:\n        \"\"\"Release graph storage after service STOP and before its groups.\"\"\"\n        service = self.hccl_v41_graph_service\n        if service is None:\n            raise RuntimeError(\"FFN graph service has not been bound\")\n        if service.transport is not transport:\n            raise ValueError(\"FFN graph cleanup requires its bound transport\")\n        service.close()\n\n    def execute_hccl_v41_step(self, transport: HcclStagedTransport) -> bool:\n        \"\"\"Receive and execute one v3 parent; False means acknowledged peer STOP.\n\n        The worker owns transport initialization, shutdown and error reporting.\n        No legacy connector plan or native scheduler participates in this path."
+        },
+        {
+          "start_line": 275,
+          "end_line": 290,
+          "text": "        return {}\n\n    def initialize_kv_cache(self, kv_cache_config: KVCacheConfig) -> None:\n        return None\n\n    def profile_run(self) -> None:\n        return None\n\n    def execute_ffn_step(\n        self,\n        *,\n        dp_metadata_list: dict[int, DPMetadata | AFDDPMetadata],\n        is_graph_capturing: bool = False,\n        is_warmup: bool = False,\n        is_profile: bool = False,\n        is_graph_replaying: bool = False,"
+        },
+        {
+          "start_line": 424,
+          "end_line": 439,
+          "text": "                    num_tokens_across_dp,\n                )\n                # DBO stages can have different token counts. Build a fresh\n                # Ascend context for each stage so its MC2 padding mask matches\n                # the hidden states received for that stage.\n                dp_num_tokens_across_dp = _to_dp_level_token_counts(\n                    num_tokens_across_dp,\n                    dp_size=int(self.vllm_config.parallel_config.data_parallel_size),\n                )\n                # A model whose router is keyed by token identity needs the ids\n                # of the tokens this rank computes on installed in the forward\n                # context before the FFN compute runs. They arrive on the\n                # transfer payload, so the receive must happen before the\n                # context is built rather than inside it.\n                payload = self.connector.recv_attn_output(\n                    ubatch_idx=stage_idx,"
+        },
+        {
+          "start_line": 557,
+          "end_line": 572,
+          "text": "        logger.debug(\"AFD NPU FFN created NPUGraph for key=%s\", graph_key)\n        logger.debug(\"AFD NPU FFN updated connector state for key=%s\", graph_key)\n        with torch.npu.graph(graph, pool=self.graph_pool):\n            logger.debug(\n                \"AFD NPU FFN entered NPU graph context for key=%s\",\n                graph_key,\n            )\n            output = self._ffn_forward(\n                dp_metadata_list=dp_metadata_list,\n                aclgraph_runtime_mode=aclgraph_runtime_mode,\n                is_graph_capturing=is_attn_graph_capturing,\n                update_connector_state=False,\n            )\n            logger.debug(\"AFD NPU FFN left _ffn_forward for key=%s\", graph_key)\n        self._acl_graphs[graph_key] = {\n            \"graph\": graph,"
+        },
+        {
+          "start_line": 595,
+          "end_line": 610,
+          "text": "            graph_info[\"graph\"].reset()\n        self._acl_graphs.clear()\n        self.graph_pool = None\n        free_before_shutdown(self.vllm_config)\n        self.model = None\n        self._is_shutdown = True\n\n\ndef _send_ffn_output(\n    connector: AFDConnectorBase,\n    ffn_output: torch.Tensor | AFDF2ATransferPayload,\n    context: AFDTransferContext,\n    *,\n    stage_idx: int,\n) -> None:\n    if not isinstance(ffn_output, AFDF2ATransferPayload):"
+        }
+      ]
+    },
+    {
+      "path": "afd_plugin/v1/worker/npu/hccl_v41_graph_control.py",
+      "sha256": "918c6a036cf6c2686117ed596410f36ec1faa996bb59bad175a1abaa9dbef1ee",
+      "excerpts": [
+        {
+          "start_line": 130,
+          "end_line": 145,
+          "text": "        self._current_reservation = None\n\n    def reserve_batch(\n        self,\n        batch_state: BatchReqState,\n        *,\n        parallel_config: ParallelConfig,\n        allow_ubatching: bool,\n        need_eager: bool = False,\n        max_query_len: int | None = None,\n        num_active_loras: int = 0,\n        transaction_id: str | None = None,\n        mode: str = \"target\",\n    ) -> HcclV41GraphReservation | None:\n        \"\"\"Reserve from the actual ordered native gather result, exactly once.\"\"\"\n        self._current_reservation = None"
+        },
+        {
+          "start_line": 229,
+          "end_line": 244,
+          "text": "        mode: str = \"warmup\",\n    ) -> HcclV41GraphReservation | None:\n        \"\"\"Agree a fresh native dummy factory phase before its input writes.\"\"\"\n        self._current_reservation = None\n        geometry: HcclV41GraphGeometry | None = None\n        generation: int | None = None\n\n        def resolve(candidate: HcclGraphCandidate) -> HcclGraphReport:\n            nonlocal geometry, generation\n            generation = self._generation()\n            geometry = capture_hccl_v41_geometry(descriptor)\n            key = self.key_for(geometry)\n            if (\n                candidate.phase != (\"warmup\" if warmup else \"capture\")\n                or candidate.mode != mode\n                or candidate.key != key"
+        },
+        {
+          "start_line": 251,
+          "end_line": 266,
+          "text": "                raise ValueError(\n                    \"graph capture key already pending or retained; \"\n                    \"restart before recapture\"\n                )\n            if self.manager is not None and any(\n                captured.max_query_len in (None, 1)\n                and replace(captured, max_query_len=1)\n                == replace(descriptor, max_query_len=1)\n                for captured in self.manager.graphs\n            ):\n                raise ValueError(\n                    \"native manager already retains the graph capture descriptor\"\n                )\n            return HcclGraphReport(\"missing\")\n\n        try:"
+        },
+        {
+          "start_line": 291,
+          "end_line": 306,
+          "text": "            raise\n\n    def reserve_eager(\n        self,\n        geometry: HcclV41GraphGeometry,\n        *,\n        mode: str,\n        transaction_id: str | None = None,\n    ) -> HcclV41GraphReservation | None:\n        \"\"\"Reserve caller-owned native eager/dummy geometry, including empty.\n\n        Whole-empty batches deliberately avoid a fabricated BatchReqState or\n        the nonempty-only native preview helper.\n        \"\"\"\n        self._current_reservation = None\n        generation: int | None = None"
+        }
+      ]
+    }
+  ],
+  "normal_npu_startup_invokes_gpu_graph_memory_helper": false,
+  "cpu_or_device_process_started": false
+}

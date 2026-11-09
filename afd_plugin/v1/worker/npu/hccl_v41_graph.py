@@ -177,6 +177,27 @@ def preview_hccl_v41_geometry(
     )
 
 
+def eager_hccl_v41_geometry(
+    descriptor: BatchExecutionDescriptor,
+) -> HcclV41GraphGeometry:
+    """Project a native eager U1 dummy/empty descriptor without request state.
+
+    Real gathered batches use ``preview_hccl_v41_geometry``. A native dummy
+    dispatch already supplies its dimensions and needs no synthetic request
+    vector; reservation validates the resulting complete parent geometry.
+    """
+    if (
+        descriptor.cg_mode != CUDAGraphMode.NONE
+        or descriptor.num_ubatches != 1
+        or descriptor.num_reqs is None
+    ):
+        raise ValueError("native dummy reservation requires an eager U1 descriptor")
+    return HcclV41GraphGeometry(
+        descriptor,
+        (HcclV41StageGeometry(0, descriptor.num_reqs, 0, descriptor.num_tokens),),
+    )
+
+
 def capture_hccl_v41_geometry(
     descriptor: BatchExecutionDescriptor,
 ) -> HcclV41GraphGeometry:

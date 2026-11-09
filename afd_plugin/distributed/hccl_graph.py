@@ -20,6 +20,8 @@ MAX_GRAPH_INTEGER = (1 << 31) - 1
 MAX_GRAPH_METADATA_SHAPES = 64
 MAX_GRAPH_SHAPE_DIMENSIONS = 8
 MAX_GRAPH_TRANSACTION_BYTES = 256
+MAX_GRAPH_CAPTURE_KEYS = 1_024
+GRAPH_DIGEST_HEX_LENGTH = 64
 GRAPH_PHASES = frozenset({"eager", "warmup", "capture", "replay"})
 GRAPH_AVAILABILITY = frozenset({"ready", "missing", "unsupported"})
 GRAPH_REASONS = frozenset({"requested", "cache_miss", "unsupported"})
@@ -150,6 +152,7 @@ class HcclGraphCandidate:
     mode: str
     key: HcclGraphKey | None
     eager_padded_tokens: tuple[int, ...]
+    capture_sequence_digest: str | None = None
 
     def __post_init__(self) -> None:
         if (
@@ -166,6 +169,24 @@ class HcclGraphCandidate:
             raise ValueError("graph candidate key must be HcclGraphKey")
         if self.mode == "profile" and self.phase != "eager":
             raise ValueError("profile graph reservations must remain eager")
+        if self.capture_sequence_digest is not None:
+            if (
+                not isinstance(self.capture_sequence_digest, str)
+                or len(self.capture_sequence_digest) != GRAPH_DIGEST_HEX_LENGTH
+                or any(
+                    char not in "0123456789abcdef"
+                    for char in self.capture_sequence_digest
+                )
+            ):
+                raise ValueError("capture sequence digest must be 64 lowercase hex")
+            if (
+                self.phase not in ("replay", "eager")
+                or self.mode != "warmup"
+                or self.eager_padded_tokens != (0,)
+            ):
+                raise ValueError(
+                    "capture sequence agreement requires empty capture preflight"
+                )
 
     @property
     def digest(self) -> str:
@@ -262,12 +283,43 @@ def graph_key_payload(key: HcclGraphKey) -> dict[str, JsonValue]:
 
 
 def graph_candidate_payload(candidate: HcclGraphCandidate) -> dict[str, JsonValue]:
-    return {
+    payload: dict[str, JsonValue] = {
         "phase": candidate.phase,
         "mode": candidate.mode,
         "key": graph_key_payload(candidate.key) if candidate.key is not None else None,
         "eager_padded_tokens": list(candidate.eager_padded_tokens),
     }
+    if candidate.capture_sequence_digest is not None:
+        payload["capture_sequence_digest"] = candidate.capture_sequence_digest
+    return payload
+
+
+def graph_capture_sequence_digest(
+    keys: tuple[HcclGraphKey, ...],
+    *,
+    max_full_descs_to_capture: int | None,
+) -> str:
+    """Bind an ordered native capture schedule and its profiling prefix.
+
+    Keys describe the complete effective FULL list in native capture order.
+    The explicit native prefix distinguishes profiling from an otherwise equal
+    full list. This control identity is never appended to a model/cache key or
+    metadata shape. Peers compare it before any native factory is entered.
+    """
+    if (
+        not isinstance(keys, tuple)
+        or len(keys) > MAX_GRAPH_CAPTURE_KEYS
+        or any(not isinstance(key, HcclGraphKey) for key in keys)
+    ):
+        raise ValueError("capture sequence requires a bounded tuple of graph keys")
+    if max_full_descs_to_capture is not None:
+        _integer("max_full_descs_to_capture", max_full_descs_to_capture)
+    return _digest(
+        {
+            "keys": [key.digest for key in keys],
+            "max_full_descs_to_capture": max_full_descs_to_capture,
+        }
+    )
 
 
 def graph_decision_payload(decision: HcclGraphDecision) -> dict[str, JsonValue]:
@@ -349,14 +401,22 @@ def decode_graph_key(value: JsonValue) -> HcclGraphKey:
 
 
 def decode_graph_candidate(value: JsonValue) -> HcclGraphCandidate:
-    record = _fields(value, {"phase", "mode", "key", "eager_padded_tokens"})
+    names = {"phase", "mode", "key", "eager_padded_tokens"}
+    has_sequence = isinstance(value, dict) and "capture_sequence_digest" in value
+    if has_sequence:
+        names.add("capture_sequence_digest")
+    record = _fields(value, names)
     if not isinstance(record["phase"], str) or not isinstance(record["mode"], str):
         raise ValueError("graph phase/mode must be text")
+    sequence_digest = record["capture_sequence_digest"] if has_sequence else None
+    if has_sequence and not isinstance(sequence_digest, str):
+        raise ValueError("capture sequence digest must be text when present")
     return HcclGraphCandidate(
         record["phase"],
         record["mode"],
         decode_graph_key(record["key"]) if record["key"] is not None else None,
         _decode_rows(record["eager_padded_tokens"]),
+        sequence_digest,
     )
 
 

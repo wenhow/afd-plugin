@@ -72,14 +72,22 @@ def validate_hccl_runtime(
 
 
 def validate_staged_hccl_runtime(
-    vllm_config: VllmConfig, afd_config: AFDConfig, role_rank: int
+    vllm_config: VllmConfig,
+    afd_config: AFDConfig,
+    role_rank: int,
+    *,
+    graph: bool = False,
 ) -> HcclPlanCapabilities:
-    """Describe the eager V4.1 DP1 native-TP service without admitting models.
+    """Describe a V4.1 DP1 native-TP component without admitting models.
 
     Logical U1 and native U2 share the counts-enabled protocol. The existing
     model guard still controls production admission; this allocates no groups.
+    Normal connector construction retains eager admission. Only an explicitly
+    injected graph session requests the restricted FULL_DECODE_ONLY contract.
     """
-    caps = _validate_hccl_runtime(vllm_config, afd_config, role_rank, staged=True)
+    caps = _validate_hccl_runtime(
+        vllm_config, afd_config, role_rank, staged=True, graph=graph
+    )
     result = HcclPlanCapabilities(
         hidden_size=caps.hidden_size,
         vocab_size=caps.vocab_size,
@@ -89,6 +97,7 @@ def validate_staged_hccl_runtime(
         ffn_size=afd_config.num_ffn_ranks,
         native_tp_size=caps.native_tp_size,
         local_counts_version=1,
+        graph_execution_version=1 if graph else 0,
     )
     result.validate()
     return result
@@ -114,11 +123,14 @@ def validate_staged_hccl_binding(
 ) -> None:
     """Bind an injected wire to its actual model, native rank and device."""
     afd_config = parse_afd_config(vllm_config, expected_role=transport.role)
-    expected = validate_staged_hccl_runtime(
-        vllm_config, afd_config, transport.role_rank
-    )
     caps = transport.negotiated_capabilities
     caps.validate()
+    expected = validate_staged_hccl_runtime(
+        vllm_config,
+        afd_config,
+        transport.role_rank,
+        graph=caps.graph_execution_version == 1,
+    )
     if (
         device.type != "npu"
         or device.index != transport.local_device
@@ -126,6 +138,8 @@ def validate_staged_hccl_binding(
         or transport.closed
         or transport.terminal
         or transport.plan is not None
+        or caps.graph_execution_version == 1
+        and transport.graph_reservation is not None
         or caps.hidden_size != expected.hidden_size
         or caps.vocab_size != expected.vocab_size
         or caps.layer_indices != expected.layer_indices
@@ -133,6 +147,7 @@ def validate_staged_hccl_binding(
         or caps.ffn_size != expected.ffn_size
         or caps.native_tp_size != expected.native_tp_size
         or caps.local_counts_version != expected.local_counts_version
+        or caps.graph_execution_version != expected.graph_execution_version
         or caps.max_tokens > expected.max_tokens
     ):
         raise ValueError(
@@ -147,6 +162,7 @@ def _validate_hccl_runtime(
     role_rank: int,
     *,
     staged: bool,
+    graph: bool = False,
 ) -> HcclCapabilities:
     afd_config.validate()
     if afd_config.connector != HCCL_P2P_CONNECTOR:
@@ -216,7 +232,9 @@ def _validate_hccl_runtime(
         )
     ):
         raise ValueError("P2pHcclAFDConnector supports decoder-only text models")
-    if not model.enforce_eager:
+    if graph and model.enforce_eager:
+        raise ValueError("graph HCCL requires enforce_eager=False")
+    if not graph and not model.enforce_eager:
         raise ValueError("P2pHcclAFDConnector requires enforce_eager=True")
     if model.dtype != torch.bfloat16:
         raise ValueError("P2pHcclAFDConnector requires BF16 model activations")
@@ -226,9 +244,14 @@ def _validate_hccl_runtime(
         raise ValueError("P2pHcclAFDConnector does not support sequence parallelism")
     if (
         compilation.mode != CompilationMode.NONE
-        or compilation.cudagraph_mode != CUDAGraphMode.NONE
+        or compilation.cudagraph_mode
+        != (CUDAGraphMode.FULL_DECODE_ONLY if graph else CUDAGraphMode.NONE)
         or compilation.use_inductor_graph_partition
     ):
+        if graph:
+            raise ValueError(
+                "graph HCCL requires compilation NONE and FULL_DECODE_ONLY"
+            )
         raise ValueError(
             "P2pHcclAFDConnector requires compilation and graph modes NONE"
         )

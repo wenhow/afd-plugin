@@ -1,0 +1,97 @@
+{
+  "scope": "CPU module seams with actual installed dependencies; no device probe",
+  "remote": "/mnt/workspace/tmp/afd-c0-20261104.hVgsIf/c5-control-cpu-20261109-sa5hy2qj",
+  "command": [
+    "/mnt/workspace/code/.venvs/afd-v030-dsv41-c0/bin/python",
+    "-B",
+    "-m",
+    "pytest",
+    "-o",
+    "addopts=",
+    "-q",
+    "-rs",
+    "--tb=short",
+    "-p",
+    "no:cacheprovider",
+    "-m",
+    "not npu and not gpu",
+    "--junitxml=/mnt/workspace/tmp/afd-c0-20261104.hVgsIf/c5-control-cpu-20261109-sa5hy2qj/results/cpu.xml",
+    "tests/unit/v1/worker/npu/test_hccl_v41_graph_eager.py",
+    "tests/unit/v1/worker/npu/test_attention_model_runner_v2.py",
+    "tests/unit/v1/worker/npu/test_hccl_v41_execution.py"
+  ],
+  "returncode": 1,
+  "source_files_match": true,
+  "snapshot_exclusions": [],
+  "device_probe_started": false,
+  "success": false
+}
+FFFFFF....................F.................................             [100%]
+=================================== FAILURES ===================================
+_ test_pre_kv_entry_agrees_eager_before_native_parent_and_completes[target-False-1] _
+tests/unit/v1/worker/npu/test_hccl_v41_graph_eager.py:66: in test_pre_kv_entry_agrees_eager_before_native_parent_and_completes
+    assert [message.kind for message in sent] == [
+E   AssertionError: assert ['GRAPH_QUERY...', 'COMPLETE'] == ['GRAPH_QUERY...', 'COMPLETE']
+E     
+E     At index 2 diff: 'GRAPH_ACK' != 'COUNTS_REQUEST'
+E     Left contains one more item: 'COMPLETE'
+E     Use -v to get more diff
+_ test_pre_kv_entry_agrees_eager_before_native_parent_and_completes[target-False-2] _
+tests/unit/v1/worker/npu/test_hccl_v41_graph_eager.py:66: in test_pre_kv_entry_agrees_eager_before_native_parent_and_completes
+    assert [message.kind for message in sent] == [
+E   AssertionError: assert ['GRAPH_QUERY...', 'COMPLETE'] == ['GRAPH_QUERY...', 'COMPLETE']
+E     
+E     At index 2 diff: 'GRAPH_ACK' != 'COUNTS_REQUEST'
+E     Left contains one more item: 'COMPLETE'
+E     Use -v to get more diff
+_ test_pre_kv_entry_agrees_eager_before_native_parent_and_completes[dummy-True-1] _
+tests/unit/v1/worker/npu/test_hccl_v41_graph_eager.py:66: in test_pre_kv_entry_agrees_eager_before_native_parent_and_completes
+    assert [message.kind for message in sent] == [
+E   AssertionError: assert ['GRAPH_QUERY...', 'COMPLETE'] == ['GRAPH_QUERY...', 'COMPLETE']
+E     
+E     At index 2 diff: 'GRAPH_ACK' != 'COUNTS_REQUEST'
+E     Left contains one more item: 'COMPLETE'
+E     Use -v to get more diff
+_ test_pre_kv_entry_agrees_eager_before_native_parent_and_completes[dummy-True-2] _
+tests/unit/v1/worker/npu/test_hccl_v41_graph_eager.py:66: in test_pre_kv_entry_agrees_eager_before_native_parent_and_completes
+    assert [message.kind for message in sent] == [
+E   AssertionError: assert ['GRAPH_QUERY...', 'COMPLETE'] == ['GRAPH_QUERY...', 'COMPLETE']
+E     
+E     At index 2 diff: 'GRAPH_ACK' != 'COUNTS_REQUEST'
+E     Left contains one more item: 'COMPLETE'
+E     Use -v to get more diff
+_ test_pre_kv_entry_agrees_eager_before_native_parent_and_completes[profile-True-1] _
+tests/unit/v1/worker/npu/test_hccl_v41_graph_eager.py:66: in test_pre_kv_entry_agrees_eager_before_native_parent_and_completes
+    assert [message.kind for message in sent] == [
+E   AssertionError: assert ['GRAPH_QUERY...', 'COMPLETE'] == ['GRAPH_QUERY...', 'COMPLETE']
+E     
+E     At index 2 diff: 'GRAPH_ACK' != 'COUNTS_REQUEST'
+E     Left contains one more item: 'COMPLETE'
+E     Use -v to get more diff
+_ test_pre_kv_entry_agrees_eager_before_native_parent_and_completes[profile-True-2] _
+tests/unit/v1/worker/npu/test_hccl_v41_graph_eager.py:66: in test_pre_kv_entry_agrees_eager_before_native_parent_and_completes
+    assert [message.kind for message in sent] == [
+E   AssertionError: assert ['GRAPH_QUERY...', 'COMPLETE'] == ['GRAPH_QUERY...', 'COMPLETE']
+E     
+E     At index 2 diff: 'GRAPH_ACK' != 'COUNTS_REQUEST'
+E     Left contains one more item: 'COMPLETE'
+E     Use -v to get more diff
+___________ test_native_dispatch_binding_is_restored_after_exception ___________
+tests/unit/v1/worker/npu/test_hccl_v41_graph_eager.py:226: in test_native_dispatch_binding_is_restored_after_exception
+    descriptor = dispatch_runtime(case)
+tests/unit/fakes/hccl_v41_graph_coordinator.py:315: in dispatch_runtime
+    descriptor, sync = native_runner.dispatch_cg_and_sync_dp(
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/vllm/v1/worker/gpu/dp_utils.py:271: in dispatch_cg_and_sync_dp
+    assert cudagraph_manager is not None, (
+E   AssertionError: cudagraph_manager should only be None during profile run, where need_eager must be True
+=============================== warnings summary ===============================
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/torch/jit/_script.py:362: 14 warnings
+  /mnt/workspace/code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/torch/jit/_script.py:362: DeprecationWarning: `torch.jit.script_method` is deprecated. Please switch to `torch.compile` or `torch.export`.
+    warnings.warn(
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+- generated xml file: /mnt/workspace/tmp/afd-c0-20261104.hVgsIf/c5-control-cpu-20261109-sa5hy2qj/results/cpu.xml -
+7 failed, 53 passed, 14 warnings in 3.14s
+
+
+Warning: Permanently added '[127.0.0.1]:43078' (ED25519) to the list of known hosts.

@@ -60,6 +60,14 @@ scope supplies the existing no-op policy and restores the selected binding
 on normal and exceptional exit. Native stream/buffer allocation remains
 upstream; this scope adds no device cancellation or model Graph admission.
 
+The explicit HCCL replay scope preserves the pinned
+`ModelAclGraphManager.run_fullgraph` signature and delegates its native Engram,
+graph update and `finish_replay` lifecycle once. A selected-instance callback
+temporarily hands it the accepted child metadata; the original metadata is
+restored before HCCL parent completion. This interface is limited to the pinned
+V4.1 SFA/DSA backend update contract. It does not combine children into generic
+UpdatableGraph metadata. Its exact signature belongs to the shared patch table.
+
 The explicit `afd_dsv41_mxfp8` general-plugin entry point installs the
 DS MXFP8 Linear and MXFP4 MoE odd scale-pair packing corrections only when
 `AFD_DSV41_MXFP8_SCALE_PATCH=1`. It does not register AFD models or workers.

@@ -10,7 +10,7 @@ placement is metadata for service ownership checks, never device evidence.
 import weakref
 from contextlib import contextmanager
 from dataclasses import replace
-from types import MethodType, SimpleNamespace
+from types import SimpleNamespace
 
 import torch
 from vllm.config import CompilationMode, CUDAGraphMode
@@ -179,19 +179,41 @@ class FFNGraphControlPeer(ScriptedStagedControlPeer):
         self.events, self.base_bank = events, bank
         self.before_forward = None
 
+    def close(self):
+        """Observe caller-owned group release without simulating device groups."""
+        if not self.closed:
+            self.events.append("groups-close")
+            self.closed = self.terminal = True
+            self.data_groups, self.control_group = [], None
+
     def _recv_control(self, rank):
         message = super()._recv_control(rank)
         if message.kind == "FORWARD" and self.before_forward is not None:
             self.before_forward()
         return message
 
-    def queue_parent(self, phase, *, identifier, valid=(2, 2), fallback=False):
+    def queue_parent(
+        self,
+        phase,
+        *,
+        identifier,
+        valid=(2, 2),
+        fallback=False,
+        capture_sequence_digest=None,
+    ):
         candidate = make_graph_candidate(
             phase=phase,
             mode="warmup" if phase in ("warmup", "capture") else "target",
             rows=self.base_bank.stage_rows,
             eager_rows=(0,) * len(valid) if fallback else None,
         )
+        if capture_sequence_digest is not None:
+            candidate = replace(
+                candidate,
+                mode="warmup",
+                eager_padded_tokens=(0,),
+                capture_sequence_digest=capture_sequence_digest,
+            )
         state = "missing" if fallback or phase in ("warmup", "capture") else "ready"
         decision = decide_graph_execution(
             identifier, candidate, (HcclGraphReport(state),)
@@ -246,8 +268,15 @@ class FFNGraphControlPeer(ScriptedStagedControlPeer):
             (HcclPlanMessage("STOP"), HcclPlanMessage("STOP_ACK"))
         )
 
-    def queue_rejection(self, phase, *, error):
+    def queue_rejection(self, phase, *, error, capture_sequence_digest=None):
         candidate = make_graph_candidate(phase=phase, rows=self.base_bank.stage_rows)
+        if capture_sequence_digest is not None:
+            candidate = replace(
+                candidate,
+                mode="warmup",
+                eager_padded_tokens=(0,),
+                capture_sequence_digest=capture_sequence_digest,
+            )
         self.incoming[self.coordinator_rank].extend(
             (
                 HcclPlanMessage(
@@ -275,14 +304,13 @@ def make_graph_service_case(service_module, monkeypatch):
     config.parallel_config.rank = 0
     config.model_config.hf_text_config.hidden_size = 4
     config.model_config.hf_text_config.vocab_size = 128
-    runner = SimpleNamespace(
-        vllm_config=config,
-        model=model_case.model,
-        device=torch.device("npu", 0),
-        connector=SimpleNamespace(),
-        graph_pool=None,
-    )
-    runner.get_model = MethodType(AFDNPUFFNModelRunner.get_model, runner)
+    runner = object.__new__(AFDNPUFFNModelRunner)
+    runner.vllm_config = config
+    runner.model = model_case.model
+    runner.device = torch.device("npu", 0)
+    runner.connector = SimpleNamespace(is_initialized=False)
+    runner.graph_pool = None
+    runner.hccl_v41_graph_service = None
     api, banks = GraphServiceAPI(events), ServiceGraphBanks()
     cache = HcclGraphCache(api.synchronize)
     bodies = ServiceGraphBodies(api)

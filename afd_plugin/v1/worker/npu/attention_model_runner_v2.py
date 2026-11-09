@@ -64,6 +64,11 @@ from afd_plugin.v1.worker.npu.hccl_v41_execution import (
 from afd_plugin.validation import validate_npu_model_runner_v2_config
 
 if TYPE_CHECKING:
+    from afd_plugin.v1.worker.npu.hccl_v41_graph_coordinator import (
+        HcclV41GraphCoordinator,
+    )
+    from afd_plugin.v1.worker.npu.hccl_v41_graph_eager import HcclV41GraphEager
+    from afd_plugin.v1.worker.npu.hccl_v41_graph_session import HcclV41GraphSession
     from afd_plugin.v1.worker.npu.ubatch_runner import NPUUBatchRunner
 
 _AFD_FULLGRAPH_HOOK_MARKER = "_afd_fullgraph_replay_hook_active"
@@ -226,6 +231,9 @@ class AFDNPUAttentionModelRunnerV2(AFDMetadataProviderMixin, NPUModelRunnerV2):
     afd_expected_role = "attention"
     ubatch_runner: NPUUBatchRunner | None
     hccl_v41_transport: HcclStagedTransport | None = None
+    hccl_v41_graph_eager: HcclV41GraphEager | None = None
+    hccl_v41_graph_session: HcclV41GraphSession | None = None
+    hccl_v41_graph_coordinator: HcclV41GraphCoordinator | None = None
 
     def __init__(
         self,
@@ -274,6 +282,9 @@ class AFDNPUAttentionModelRunnerV2(AFDMetadataProviderMixin, NPUModelRunnerV2):
             self._afd_suppress_metadata_send = False
             self._afd_transaction_counter = 0
             self._afd_hccl_execution: tuple[str, int] | None = None
+            self.hccl_v41_graph_eager = None
+            self.hccl_v41_graph_session = None
+            self.hccl_v41_graph_coordinator = None
             self.prof = create_afd_npu_profiler("attention")
             if isinstance(connector, HcclStagedAFDConnector):
                 self.bind_hccl_v41_transport(connector.transport)
@@ -372,6 +383,75 @@ class AFDNPUAttentionModelRunnerV2(AFDMetadataProviderMixin, NPUModelRunnerV2):
             raise RuntimeError("staged transport must bind before connector/KV startup")
         self.hccl_v41_transport = transport
 
+    def bind_hccl_v41_graph_eager(
+        self, eager: HcclV41GraphEager, session: HcclV41GraphSession
+    ) -> None:
+        """Bind the explicit graph protocol before native pre-KV profiling.
+
+        The caller supplies the cache and generation source after loading the
+        model. Native KV initialization later installs this same session on
+        its U2 runner. This API does not change ordinary connector selection or
+        production model admission.
+        """
+        transport = self.hccl_v41_transport
+        if (
+            self.hccl_v41_graph_eager is not None
+            or self.hccl_v41_graph_session is not None
+            or self.hccl_v41_graph_coordinator is not None
+            or eager.owner is not self
+            or transport is None
+            or eager.control.transport is not transport
+            or eager.control.manager is not None
+            or eager.control.cache.closed
+            or eager.control.cache.terminal
+            or session.transport is not transport
+            or self.cudagraph_manager is not None
+            or self.ubatch_runner is not None
+            or not transport.initialized
+            or transport.closed
+            or transport.terminal
+            or transport.plan is not None
+            or transport.graph_reservation is not None
+            or transport.negotiated_capabilities.graph_execution_version != 1
+        ):
+            raise RuntimeError("graph eager binding requires its idle pre-KV owners")
+        validate_hccl_v41_binding(self.vllm_config, transport, self.device)
+        self.hccl_v41_graph_eager = eager
+        self.hccl_v41_graph_session = session
+
+    def bind_hccl_v41_graph_coordinator(
+        self, coordinator: HcclV41GraphCoordinator
+    ) -> None:
+        """Hand the same graph session to its real-KV native coordinator."""
+        eager = self.hccl_v41_graph_eager
+        transport = self.hccl_v41_transport
+        if (
+            self.hccl_v41_graph_coordinator is not None
+            or eager is None
+            or coordinator.owner is not self
+            or coordinator.manager is not self.cudagraph_manager
+            or transport is None
+            or coordinator.transport is not transport
+            or coordinator.control.transport is not transport
+            or coordinator.control.manager is not self.cudagraph_manager
+            or coordinator.session is not self.hccl_v41_graph_session
+            or coordinator.session.transport is not transport
+            or coordinator.control.cache is not eager.control.cache
+            or coordinator.control.generation is not eager.control.generation
+            or coordinator.control.metadata_shapes is not eager.control.metadata_shapes
+            or not transport.initialized
+            or transport.closed
+            or transport.terminal
+            or transport.plan is not None
+            or transport.graph_reservation is not None
+            or coordinator.control.cache.closed
+            or coordinator.control.cache.terminal
+        ):
+            raise RuntimeError(
+                "graph coordinator must retain its pre-KV session owners"
+            )
+        self.hccl_v41_graph_coordinator = coordinator
+
     # Patch reason: native V2 load_model has no AFD connector lifecycle.
     # Patch functionality: preserve native model loading, then rendezvous the
     # AFD connector after both worker roles have loaded their weights.
@@ -397,7 +477,8 @@ class AFDNPUAttentionModelRunnerV2(AFDMetadataProviderMixin, NPUModelRunnerV2):
         # ### PATCH END: AFD connector rendezvous
 
     # Native MRV2 imports its factory by value; scope that exact binding while
-    # preserving Ascend's KV initialization (too large to copy). Eager DBO only.
+    # preserving Ascend's KV initialization (too large to copy). A controlled
+    # Graph binding passes its pre-KV session to that same native U2 factory.
     # Signature matches Ascend 7e37e29a; restore the alias even on failure.
     # Delegate native Engram/shared-KV/cache-plan ownership unchanged. Remove
     # the scoped factory override when upstream accepts an ubatch factory.
@@ -412,7 +493,19 @@ class AFDNPUAttentionModelRunnerV2(AFDMetadataProviderMixin, NPUModelRunnerV2):
             if self.vllm_config.parallel_config.use_ubatching
             else None
         )
-        with use_npu_ubatch_factory(self, hccl_transport=transport):
+        binding = self.hccl_v41_transport
+        graph_session = self.hccl_v41_graph_session
+        if (
+            binding is not None
+            and binding.negotiated_capabilities.graph_execution_version == 1
+            and graph_session is None
+        ):
+            raise RuntimeError("bind the graph session before native KV initialization")
+        with use_npu_ubatch_factory(
+            self,
+            hccl_transport=transport,
+            hccl_graph_owner=graph_session if transport is not None else None,
+        ):
             super().initialize_kv_cache(kv_cache_config, kv_cache_allocation_context)
         # ### PATCH END: create the native NPU ubatch adapter.
 
@@ -422,7 +515,8 @@ class AFDNPUAttentionModelRunnerV2(AFDMetadataProviderMixin, NPUModelRunnerV2):
     # Patch functionality: temporarily wrap the exact upstream input-preparation
     # symbol so each native FULL descriptor publishes one warmup and one capture
     # payload before its forward, while the provider installs the pending AFD
-    # sidecar without sending control from inside torch.cuda.graph.
+    # sidecar without sending control from inside torch.cuda.graph. Explicit
+    # counts/Graph sessions instead use their owned native coordinator.
     # Signature: matches vLLM v0.30.0 GPUModelRunner.capture_model exactly.
     # Upstream source: vllm/v1/worker/gpu/model_runner.py,
     # GPUModelRunner.capture_model; commit
@@ -433,6 +527,16 @@ class AFDNPUAttentionModelRunnerV2(AFDMetadataProviderMixin, NPUModelRunnerV2):
     # warmup/capture metadata hooks around prepare_inputs_to_capture.
     def capture_model(self, *, profile_only: bool = False) -> int:
         # ### PATCH START: publish AFD FULL graph warmup/capture control.
+        transport = self.hccl_v41_transport
+        if (
+            transport is not None
+            and transport.negotiated_capabilities.graph_execution_version == 1
+        ):
+            coordinator = self.hccl_v41_graph_coordinator
+            if coordinator is None:
+                raise RuntimeError("bind the real-KV graph coordinator before capture")
+            coordinator.preflight_capture()
+            return coordinator.capture_native(profile_only=profile_only)
         manager = self.cudagraph_manager
         # Native graph-memory profiling captures only this descriptor prefix.
         capture_descs = manager._capture_descs.get(CUDAGraphMode.FULL, [])[
@@ -485,7 +589,9 @@ class AFDNPUAttentionModelRunnerV2(AFDMetadataProviderMixin, NPUModelRunnerV2):
     # Patch reason: native V2 creates ForwardContext inside execute_model, so
     # AFD must install its sidecar at that exact context-construction seam.
     # Patch functionality: delegate all request/input/Attention/KV/sampling/
-    # output work to native V2 while temporarily installing AFD metadata.
+    # output work to native V2 while temporarily installing AFD metadata. An
+    # explicit Graph session reserves its mode before native input preparation,
+    # using its eager bridge before KV initialization and coordinator after KV.
     # Signature: matches Ascend 7e37e29a NPUModelRunner.execute_model, including
     # its missing return annotation and the forwarded dummy-state parameters.
     # Upstream source: vllm_ascend/worker/v2/model_runner.py,
@@ -512,13 +618,35 @@ class AFDNPUAttentionModelRunnerV2(AFDMetadataProviderMixin, NPUModelRunnerV2):
         step_afd_npu_profiler(self.prof)
         transport = self.hccl_v41_transport
         if transport is not None:
+            mode = "profile" if is_profile else "dummy" if dummy_run else "target"
+            valid_tokens = (
+                0 if dummy_run else int(scheduler_output.total_num_scheduled_tokens)
+            )
+            if transport.negotiated_capabilities.graph_execution_version == 1:
+                graph_execution = (
+                    self.hccl_v41_graph_eager
+                    if self.cudagraph_manager is None
+                    else self.hccl_v41_graph_coordinator
+                )
+                if graph_execution is None:
+                    raise RuntimeError("bind the owning graph lifecycle before execute")
+                with graph_execution.execution_scope(
+                    mode=mode, valid_tokens=valid_tokens, dummy_run=dummy_run
+                ):
+                    return super().execute_model(
+                        scheduler_output,
+                        intermediate_tensors,
+                        dummy_run=dummy_run,
+                        skip_attn_for_dummy_run=skip_attn_for_dummy_run,
+                        is_profile=is_profile,
+                        context_len=context_len,
+                        valid_dummy_state_slots=valid_dummy_state_slots,
+                    )
             execution = HcclV41Execution(
                 self,
                 transport,
-                mode="profile" if is_profile else "dummy" if dummy_run else "target",
-                valid_tokens=0
-                if dummy_run
-                else int(scheduler_output.total_num_scheduled_tokens),
+                mode=mode,
+                valid_tokens=valid_tokens,
                 dummy_run=dummy_run,
             )
             with execution.scope():
@@ -602,7 +730,9 @@ class AFDNPUAttentionModelRunnerV2(AFDMetadataProviderMixin, NPUModelRunnerV2):
     # Patch reason: native V2 shutdown does not know about AFD's profiler,
     # connector, pending metadata sidecar, or stage-local graph inputs.
     # Patch functionality: preserve delegated native cleanup and guarantee all
-    # AFD cleanup layers run when any earlier layer raises.
+    # AFD cleanup layers run when any earlier layer raises. Explicit Graph
+    # caches are reset only after STOP and before native storage release; a
+    # failed STOP or cache reset retains native state for worker supervision.
     # Signature: matches vLLM v0.30.0 GPUModelRunner.shutdown exactly.
     # Upstream source: vllm/v1/worker/gpu/model_runner.py,
     # GPUModelRunner.shutdown; commit
@@ -620,6 +750,11 @@ class AFDNPUAttentionModelRunnerV2(AFDMetadataProviderMixin, NPUModelRunnerV2):
                 raise RuntimeError("failed staged session requires worker supervision")
             transport.stop_attention()
             staged_stop_completed = True
+            if self.hccl_v41_graph_eager is not None:
+                # Peers have acknowledged STOP. Synchronize/reset graphs while
+                # native KV, ModelState, streams and groups are still alive.
+                # A failure escapes before native cleanup and retains owners.
+                self.hccl_v41_graph_eager.control.cache.close()
         elif transport is None and (
             isinstance(self.connector, P2pHcclAFDConnector)
             and self.connector.is_initialized
@@ -642,6 +777,9 @@ class AFDNPUAttentionModelRunnerV2(AFDMetadataProviderMixin, NPUModelRunnerV2):
                     # state, captured MLA registries and persistent RoPE inputs.
                     # If native completion fails, retain it for process cleanup.
                     self.ubatch_runner = None
+                    self.hccl_v41_graph_coordinator = None
+                    self.hccl_v41_graph_session = None
+                    self.hccl_v41_graph_eager = None
                     native_cleanup_complete = True
                 finally:
                     self._afd_pending_metadata = None

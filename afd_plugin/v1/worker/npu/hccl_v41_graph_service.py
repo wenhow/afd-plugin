@@ -3,9 +3,10 @@
 """Explicit FFN graph-phase service; no production factory selects this owner.
 
 The caller initializes native TP/model/MC2 state and owns the transport and
-cache. After acknowledged STOP it closes the cache before groups. A failed
-service retains its active dependencies and marks the session/cache terminal;
-only external supervision can recover peers blocked in device communication.
+cache. After acknowledged STOP, close() retires the cache before the caller
+closes groups. A failed service retains its active dependencies and marks the
+session/cache terminal; only external supervision can recover peers blocked
+in device communication.
 """
 
 from __future__ import annotations
@@ -80,7 +81,42 @@ class HcclV41GraphService:
         self._active_graph: HcclReplayGraph | None = None
         self._reserved_generation: int | None = None
         self._session_model: AFDDeepseekV41FFNForCausalLM | None = None
+        self._acknowledged_stop = self._failed = False
         self._validate_binding()
+
+    @property
+    def acknowledged_stop(self) -> bool:
+        """Whether the transport completed the idle STOP/STOP_ACK handshake."""
+        return self._acknowledged_stop
+
+    def close(self) -> None:
+        """Retire cache dependencies after STOP; the caller still owns groups.
+
+        An active or failed service cannot claim peer cancellation or release
+        storage under device work. External supervision owns that recovery.
+        """
+        if (
+            not self.acknowledged_stop
+            or self._failed
+            or self.transport.plan is not None
+            or self.transport.graph_reservation is not None
+            or self._active_bank is not None
+            or self._active_contexts
+            or self._active_resources is not None
+            or self._active_graph is not None
+        ):
+            raise RuntimeError(
+                "FFN graph service close requires acknowledged idle STOP"
+            )
+        if self.cache.closed:
+            return
+        if self.cache.terminal:
+            raise RuntimeError("FFN graph service close retains a failed graph cache")
+        try:
+            self.cache.close()
+        except BaseException:
+            self._failed = True
+            raise
 
     def _validate_binding(self) -> None:
         runner, transport = self.runner, self.transport
@@ -188,14 +224,27 @@ class HcclV41GraphService:
 
     def _resolve(self, candidate: HcclGraphCandidate) -> HcclGraphReport:
         self._reserved_generation = self._generation()
-        if candidate.key is None:
-            return HcclGraphReport("unsupported")
         caps = self.transport.negotiated_capabilities
-        if (
+        if candidate.key is not None and (
             candidate.key.num_tokens > caps.max_tokens
             or candidate.key.num_ubatches > caps.max_stages
         ):
             raise ValueError("FFN graph key exceeds this bank's session capacity")
+        if candidate.capture_sequence_digest is not None:
+            # Attention peers own the native ordered capture list. FFN has no
+            # corresponding manager list: it must report an honest miss from
+            # a fresh cache, never make preflight look ready after a stale or
+            # pending capture. Generation and model/session ownership were
+            # checked before this availability report. A genuinely empty
+            # Attention capture list requests eager with no invented key.
+            self._model()
+            if not self.cache.is_empty:
+                raise ValueError("capture preflight requires a fresh FFN graph cache")
+            return HcclGraphReport(
+                "unsupported" if candidate.key is None else "missing"
+            )
+        if candidate.key is None:
+            return HcclGraphReport("unsupported")
         self._model()
         if candidate.phase in ("warmup", "capture"):
             if self.cache.contains(candidate.key):
@@ -281,6 +330,7 @@ class HcclV41GraphService:
             with set_current_vllm_config(self.runner.vllm_config):
                 decision = self.transport.receive_graph_reservation(self._resolve)
                 if decision is None:
+                    self._acknowledged_stop = True
                     return False
                 plan = self.transport.receive_forward()
                 if plan is None:
@@ -327,6 +377,7 @@ class HcclV41GraphService:
                 self._active_contexts = []
                 return True
         except BaseException:
+            self._failed = True
             self.transport.terminal = True
             self.cache.fail()
             raise

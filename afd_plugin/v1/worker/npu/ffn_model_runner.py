@@ -31,7 +31,10 @@ from afd_plugin.connectors import (
     AFDTransferContext,
 )
 from afd_plugin.connectors.npu.hccl_protocol import HcclForwardPlan
-from afd_plugin.connectors.npu.hccl_staged import create_npu_runtime_connector
+from afd_plugin.connectors.npu.hccl_staged import (
+    HcclStagedAFDConnector,
+    create_npu_runtime_connector,
+)
 from afd_plugin.connectors.npu.p2p_hccl import P2pHcclAFDConnector
 from afd_plugin.v1.worker.attention_metadata import (
     _resolve_world_ranks,
@@ -56,6 +59,7 @@ if TYPE_CHECKING:
     from afd_plugin.model_executor.models.npu.deepseek_v41 import (
         AFDDeepseekV41FFNForCausalLM,
     )
+    from afd_plugin.v1.worker.npu.hccl_v41_graph_service import HcclV41GraphService
 
 logger = init_logger(__name__)
 
@@ -100,6 +104,7 @@ class AFDNPUFFNModelRunner:
         )
         self.prof = create_afd_npu_profiler("ffn")
         self._is_shutdown = False
+        self.hccl_v41_graph_service: HcclV41GraphService | None = None
 
     @staticmethod
     def parse_config(vllm_config: VllmConfig) -> AFDConfig:
@@ -153,6 +158,45 @@ class AFDNPUFFNModelRunner:
     def initialize_afd_connector(self) -> None:
         self.connector.init_afd_connector()
 
+    def bind_hccl_v41_graph_service(self, service: HcclV41GraphService) -> None:
+        """Bind the explicit phase service before the owning worker loop starts.
+
+        The caller initializes the transport and constructs its cache/service
+        after loading the isolated FFN model. This API changes no connector
+        factory or production model admission.
+        """
+        transport = service.transport
+        if self.hccl_v41_graph_service is not None:
+            raise RuntimeError("FFN graph service is already bound")
+        if (
+            service.runner is not self
+            or transport.role != "ffn"
+            or not transport.initialized
+            or transport.closed
+            or transport.terminal
+            or transport.plan is not None
+            or transport.graph_reservation is not None
+            or transport.negotiated_capabilities.graph_execution_version != 1
+            or service.cache.closed
+            or service.cache.terminal
+        ):
+            raise ValueError("bind the idle graph service for this FFN runner/session")
+        if (
+            isinstance(self.connector, HcclStagedAFDConnector)
+            and self.connector.transport is not transport
+        ):
+            raise ValueError("FFN graph service must use its connector transport")
+        self.hccl_v41_graph_service = service
+
+    def close_hccl_v41_graph_service(self, transport: HcclStagedTransport) -> None:
+        """Release graph storage after service STOP and before its groups."""
+        service = self.hccl_v41_graph_service
+        if service is None:
+            raise RuntimeError("FFN graph service has not been bound")
+        if service.transport is not transport:
+            raise ValueError("FFN graph cleanup requires its bound transport")
+        service.close()
+
     def execute_hccl_v41_step(self, transport: HcclStagedTransport) -> bool:
         """Receive and execute one v3 parent; False means acknowledged peer STOP.
 
@@ -162,6 +206,13 @@ class AFDNPUFFNModelRunner:
         if transport.role != "ffn":
             raise ValueError("V4.1 service requires an FFN transport")
         try:
+            if transport.negotiated_capabilities.graph_execution_version == 1:
+                service = self.hccl_v41_graph_service
+                if service is None:
+                    raise RuntimeError("FFN graph service has not been bound")
+                if service.runner is not self or service.transport is not transport:
+                    raise ValueError("FFN graph execution requires its bound session")
+                return service.execute_step()
             if transport.receive_forward() is None:
                 return False
             execute_hccl_v41_parent(self, transport)
@@ -533,6 +584,9 @@ class AFDNPUFFNModelRunner:
         if self._is_shutdown:
             return
         stop_afd_npu_profiler(self.prof)
+        service = self.hccl_v41_graph_service
+        if service is not None:
+            service.close()
         if self.connector.is_initialized:
             self.connector.close()
         from vllm.v1.worker.gpu.shutdown import free_before_shutdown

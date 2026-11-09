@@ -21,6 +21,7 @@ from vllm.forward_context import (
 )
 
 from afd_plugin.connectors.npu.hccl_graph_cache import HcclGraphCache
+from afd_plugin.distributed.hccl_graph import graph_capture_sequence_digest
 from afd_plugin.v1.worker.npu import hccl_v41_graph_service as service_module
 from tests.unit.fakes.hccl_v41_ffn_graph import make_ffn_graph_case
 from tests.unit.fakes.hccl_v41_graph_service import make_graph_service_case
@@ -34,6 +35,7 @@ def case(monkeypatch):
 def test_graph_phase_sequence_keeps_caller_ownership(
     case,
 ):  # long-test: complete phase/STOP lifecycle
+    assert not case.service.acknowledged_stop
     case.transport.queue_parent("warmup", identifier="warmup-1", valid=(0, 0))
     assert case.service.execute_step()
     assert case.events == [
@@ -81,12 +83,45 @@ def test_graph_phase_sequence_keeps_caller_ownership(
     case.events.clear()
     case.transport.queue_stop()
     assert case.service.execute_step() is False
+    assert case.service.acknowledged_stop
     assert case.events == ["STOP_ACK"]
     assert (
         not case.cache.closed and not case.cache.terminal and not case.transport.closed
     )
-    case.cache.close()
+    case.service.close()
     assert case.cache.closed and case.events[-2:] == ["device-sync", "graph-reset"]
+
+
+def test_service_close_before_acknowledged_stop_keeps_cache_and_groups_active(case):
+    with pytest.raises(RuntimeError, match="acknowledged idle STOP"):
+        case.service.close()
+    assert not case.cache.closed and not case.cache.terminal
+    assert not case.transport.closed and not case.transport.terminal
+    assert not case.service.acknowledged_stop
+    assert case.events == []
+
+
+def test_external_cache_close_does_not_replace_the_service_stop_handshake(case):
+    case.cache.close()
+    with pytest.raises(RuntimeError, match="acknowledged idle STOP"):
+        case.service.close()
+    assert case.cache.closed and not case.transport.closed
+    assert not case.service.acknowledged_stop
+
+
+def test_service_close_after_stop_keeps_failed_graph_dependencies_for_supervision(case):
+    case.transport.queue_parent("capture", identifier="capture-before-close")
+    assert case.service.execute_step()
+    case.transport.queue_stop()
+    assert case.service.execute_step() is False
+    case.api.fail_sync = True
+    with pytest.raises(RuntimeError, match="controlled device synchronization failure"):
+        case.service.close()
+    gc.collect()
+    assert case.cache.terminal and not case.cache.closed
+    assert not case.transport.closed
+    assert case.api.graphs[-1]() is not None
+    assert case.banks.allocations[-1]() is not None
 
 
 def test_native_context_capture_flags_and_outer_context_are_restored(case):
@@ -169,6 +204,94 @@ def test_generation_miss_uses_negotiated_fresh_eager_parent_without_replaying_ol
     ]
     assert case.cache.find(case.transport.base_bank.key, 1) is None
     assert case.cache.find(case.transport.base_bank.key, 0) is not None
+
+
+@pytest.mark.parametrize("phase", ["replay", "eager"])
+def test_capture_preflight_reports_honest_availability_and_retires_empty_parent(
+    case, phase
+):
+    digest = graph_capture_sequence_digest(
+        (case.transport.base_bank.key,) if phase == "replay" else (),
+        max_full_descs_to_capture=None,
+    )
+    _, decision, plan = case.transport.queue_parent(
+        phase,
+        identifier="capture-preflight",
+        valid=(0,),
+        fallback=True,
+        capture_sequence_digest=digest,
+    )
+    assert case.service.execute_step()
+    assert not any(any(stage.attention_padded_tokens) for stage in plan.stages)
+    assert decision.phase == "eager"
+    assert case.cache.is_empty
+    reports = [
+        message.graph_report.availability
+        for direction, _sender, _receiver, message in case.transport.transcript
+        if direction == "send" and message.kind == "GRAPH_REPORT"
+    ]
+    assert reports == ["missing" if phase == "replay" else "unsupported"]
+    assert case.events == [
+        "GRAPH_REPORT",
+        "GRAPH_ACK",
+        "ACCEPT",
+        "device-sync",
+        "COMPLETE",
+    ]
+
+
+@pytest.mark.parametrize("state", ["pending", "ready", "stale"])
+@pytest.mark.parametrize("phase", ["replay", "eager"])
+def test_capture_preflight_rejects_any_retained_cache_dependencies(case, state, phase):
+    case.transport.queue_parent("capture", identifier="existing-capture")
+    assert case.service.execute_step()
+    entry = case.cache.find(case.transport.base_bank.key, 0)
+    assert entry is not None
+    if state == "pending":
+        pending = HcclGraphCache(case.api.synchronize)
+        pending.reserve_capture(entry.key, 0, entry.graph, entry.resources)
+        case.service.cache = case.cache = pending
+    elif state == "stale":
+        case.generation.value = 1
+    case.events.clear()
+    case.transport.queue_rejection(
+        phase,
+        error="capture preflight requires a fresh FFN graph cache",
+        capture_sequence_digest=graph_capture_sequence_digest(
+            (entry.key,), max_full_descs_to_capture=None
+        ),
+    )
+    with pytest.raises(RuntimeError, match="fresh FFN graph cache"):
+        case.service.execute_step()
+    assert case.events == ["ERROR"]
+    assert case.transport.terminal and case.cache.terminal
+
+
+@pytest.mark.parametrize(
+    "invalid,reason",
+    [
+        ("generation", "generation must be a nonnegative integer"),
+        ("weights", "NPU FFN model has not been loaded"),
+    ],
+)
+def test_keyless_capture_preflight_still_validates_current_model_and_generation(
+    case, invalid, reason
+):
+    if invalid == "generation":
+        case.generation.value = True
+    else:
+        case.runner.model = None
+    case.transport.queue_rejection(
+        "eager",
+        error=reason,
+        capture_sequence_digest=graph_capture_sequence_digest(
+            (), max_full_descs_to_capture=None
+        ),
+    )
+    with pytest.raises(RuntimeError, match=reason):
+        case.service.execute_step()
+    assert case.events == ["ERROR"]
+    assert case.transport.terminal and case.cache.terminal
 
 
 @pytest.mark.parametrize("phase", ["warmup", "capture"])
@@ -272,6 +395,9 @@ def test_failed_graph_phase_is_terminal_keeps_resources_and_sends_no_complete(
     assert case.bodies.resources[-1]() is not None
     if case.api.graphs:
         assert case.api.graphs[-1]() is not None
+    with pytest.raises(RuntimeError, match="acknowledged idle STOP"):
+        case.service.close()
+    assert not case.cache.closed and not case.transport.closed
 
 
 @pytest.mark.parametrize(

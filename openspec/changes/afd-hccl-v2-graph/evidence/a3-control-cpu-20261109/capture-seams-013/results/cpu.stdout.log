@@ -1,0 +1,24 @@
+........................................................................ [ 14%]
+........................................................................ [ 29%]
+........................................................................ [ 43%]
+........................................................................ [ 58%]
+.FF..................................................................... [ 73%]
+........................................................................ [ 87%]
+...........................................................              [100%]
+=================================== FAILURES ===================================
+_ test_capture_preflight_reports_honest_availability_and_retires_empty_parent[replay] _
+tests/unit/v1/worker/npu/test_hccl_v41_graph_service.py:217: in test_capture_preflight_reports_honest_availability_and_retires_empty_parent
+    assert plan.all_empty and decision.phase == "eager"
+E   AttributeError: 'HcclParentPlan' object has no attribute 'all_empty'
+_ test_capture_preflight_reports_honest_availability_and_retires_empty_parent[eager] _
+tests/unit/v1/worker/npu/test_hccl_v41_graph_service.py:217: in test_capture_preflight_reports_honest_availability_and_retires_empty_parent
+    assert plan.all_empty and decision.phase == "eager"
+E   AttributeError: 'HcclParentPlan' object has no attribute 'all_empty'
+=============================== warnings summary ===============================
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/torch/jit/_script.py:362: 14 warnings
+  /mnt/workspace/code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/torch/jit/_script.py:362: DeprecationWarning: `torch.jit.script_method` is deprecated. Please switch to `torch.compile` or `torch.export`.
+    warnings.warn(
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+- generated xml file: /mnt/workspace/tmp/afd-c0-20261104.hVgsIf/c5-control-cpu-20261109-nr2cn_s9/results/cpu.xml -
+2 failed, 489 passed, 14 warnings in 4.88s

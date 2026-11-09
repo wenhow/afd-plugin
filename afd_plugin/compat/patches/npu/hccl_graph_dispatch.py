@@ -148,6 +148,10 @@ class _HcclGraphDispatchScope:
         effective_eager = (
             need_eager
             or self.batch_state is None
+            # The explicit pre-KV owner has no manager yet. Force native
+            # NONE before its dispatch; the selector still reserves that
+            # actual batch before any input/Engram preparation.
+            or cudagraph_manager is None
             or dp_sync is not None
             and dp_sync.eager
         )

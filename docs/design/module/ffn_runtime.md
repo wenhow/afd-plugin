@@ -106,6 +106,11 @@ existing staged executor. This service requires paired native TP and an
 isolated FFN configuration; production construction does not select it yet.
 The caller closes its graph cache after acknowledged STOP and before groups.
 Failed captures retain their dependencies for external supervision.
+The synchronous runner's explicit `bind_hccl_v41_graph_service` attaches that
+owner to its existing worker loop. Graph/counts version-one execution requires
+the bound runner and exact transport. After the loop acknowledges STOP, worker
+shutdown joins it and closes the service/cache before releasing communicators.
+An active or failed service refuses normal close and retains graph storage.
 
 FFN is launched as a `vllm serve` process, and AFD config normalization selects
 its role-specific worker when `worker_cls="auto"`. It does not serve requests.

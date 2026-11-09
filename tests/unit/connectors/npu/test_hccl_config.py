@@ -43,6 +43,16 @@ def afd_config():
     return AFDConfig(connector=HCCL_P2P_CONNECTOR)
 
 
+@pytest.fixture
+def graph_runtime(runtime, hccl_config_module):
+    runtime.model_config.enforce_eager = False
+    runtime.compilation_config.cudagraph_mode = (
+        hccl_config_module.CUDAGraphMode.FULL_DECODE_ONLY
+    )
+    runtime.parallel_config.rank = 0
+    return runtime
+
+
 def test_common_config_accepts_hccl_without_importing_device_runtime():
     config = afd_config_from_mapping({"connector": HCCL_P2P_CONNECTOR})
 
@@ -225,6 +235,75 @@ def test_staged_runtime_preserves_unimplemented_feature_boundaries(
 
     with pytest.raises(ValueError, match=reason):
         hccl_config_module.validate_staged_hccl_runtime(runtime, afd_config, 0)
+
+
+def test_explicit_graph_component_reports_its_protocol_without_mutating_config(
+    hccl_config_module, graph_runtime, afd_config
+):
+    before = deepcopy(graph_runtime)
+    caps = hccl_config_module.validate_staged_hccl_runtime(
+        graph_runtime, afd_config, 0, graph=True
+    )
+    assert caps.graph_execution_version == caps.local_counts_version == 1
+    assert (caps.attention_size, caps.ffn_size, caps.native_tp_size) == (1, 1, 1)
+    assert graph_runtime == before
+    with pytest.raises(ValueError, match="enforce_eager=True"):
+        hccl_config_module.validate_staged_hccl_runtime(graph_runtime, afd_config, 0)
+
+
+@pytest.mark.parametrize(
+    "section,field,value,reason",
+    [
+        ("model_config", "enforce_eager", True, "enforce_eager=False"),
+        ("compilation_config", "cudagraph_mode", "NONE", "FULL_DECODE_ONLY"),
+        ("compilation_config", "cudagraph_mode", "FULL", "FULL_DECODE_ONLY"),
+        ("compilation_config", "mode", "COMPILE", "compilation NONE"),
+        (
+            "compilation_config",
+            "use_inductor_graph_partition",
+            True,
+            "compilation NONE",
+        ),
+        ("parallel_config", "data_parallel_size", 2, "data_parallel_size=1"),
+        (None, "speculative_config", True, "speculation off"),
+        (None, "kv_transfer_config", True, "KV transfer/PD"),
+        (None, "lora_config", True, "LoRA"),
+    ],
+)
+def test_explicit_graph_component_preserves_its_restricted_execution_contract(
+    hccl_config_module, graph_runtime, afd_config, section, field, value, reason
+):
+    target = graph_runtime if section is None else vars(graph_runtime)[section]
+    setattr(target, field, value)
+    with pytest.raises(ValueError, match=reason):
+        hccl_config_module.validate_staged_hccl_runtime(
+            graph_runtime, afd_config, 0, graph=True
+        )
+
+
+def test_explicit_graph_wire_binds_to_actual_rank_and_native_device(
+    hccl_config_module, graph_runtime, afd_config
+):
+    caps = hccl_config_module.validate_staged_hccl_runtime(
+        graph_runtime, afd_config, 0, graph=True
+    )
+    transport = SimpleNamespace(
+        role="attention",
+        role_rank=0,
+        local_device=0,
+        negotiated_capabilities=caps,
+        closed=False,
+        terminal=False,
+        plan=None,
+        graph_reservation=None,
+    )
+    hccl_config_module.validate_staged_hccl_binding(
+        graph_runtime, transport, SimpleNamespace(type="npu", index=0)
+    )
+    with pytest.raises(ValueError, match="idle transport"):
+        hccl_config_module.validate_staged_hccl_binding(
+            graph_runtime, transport, SimpleNamespace(type="npu", index=1)
+        )
 
 
 @pytest.mark.parametrize(

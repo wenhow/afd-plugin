@@ -135,7 +135,12 @@ class HcclV41Execution:
         )
 
     @contextmanager
-    def scope(self) -> Iterator[None]:
+    def scope(self, *, manage_dispatch: bool = True) -> Iterator[None]:
+        """Own eager preparation; an outer graph selector may own dispatch.
+
+        ``manage_dispatch=False`` keeps the already selected native descriptor
+        and the outer pre-preparation agreement hook in control of dispatch.
+        """
         runner = self.owner.ubatch_runner
         if not isinstance(self.owner.model_state, EngramModelState):
             raise ValueError("staged execution requires the native Engram ModelState")
@@ -189,7 +194,9 @@ class HcclV41Execution:
             # This existing scope applies native thresholds locally at DP1;
             # its implementation is independent of connector selection.
             with (
-                use_async_cam_dbo_dispatch() if runner is not None else nullcontext(),
+                use_async_cam_dbo_dispatch()
+                if runner is not None and manage_dispatch
+                else nullcontext(),
                 use_afd_metadata_provider(self.install_context),
             ):
                 yield

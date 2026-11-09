@@ -111,7 +111,7 @@ def native_case(monkeypatch):
         owner.device = SimpleNamespace(type="npu", index=0)
         owner.connector = object.__new__(P2pHcclAFDConnector)
         owner.connector._initialized = False
-        owner.ubatch_runner, owner.prof = None, None
+        owner.ubatch_runner, owner.prof, owner.cudagraph_manager = None, None, None
         owner._afd_transaction_counter = 0
         owner.select_u2 = False
         peer = StagedAttentionPeer()
@@ -172,7 +172,7 @@ def test_same_native_entry_alternates_u1_and_u2_without_reusing_parent_ids(nativ
 
 
 @pytest.mark.parametrize("u2,padded", [(False, (8,)), (True, (4, 4))])
-def test_graph_eager_fallback_uses_the_previously_agreed_transaction(
+def test_reserved_eager_execution_reuses_the_agreed_transaction(
     native_case, u2, padded
 ):
     case = native_case()
@@ -185,7 +185,18 @@ def test_graph_eager_fallback_uses_the_previously_agreed_transaction(
     )
     case.peer.graph_reservation = decision
 
-    output, _ = case.owner.execute_model(SimpleNamespace(total_num_scheduled_tokens=5))
+    # The outer graph lifecycle already owns this reservation. Exercise its
+    # eager execution seam directly; the main runner now owns that outer
+    # reservation lifecycle and cannot accept a manually injected decision.
+    with (
+        torch.inference_mode(),
+        execution.HcclV41Execution(
+            case.owner, case.peer, mode="target", valid_tokens=5, dummy_run=False
+        ).scope(),
+    ):
+        output, _ = NPUModelRunner.execute_model(
+            case.owner, SimpleNamespace(total_num_scheduled_tokens=5)
+        )
 
     assert output.shape == (8, 4)
     assert case.peer.forwards[-1].transaction_id == "agreed-eager"

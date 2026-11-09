@@ -15,8 +15,14 @@ from afd_plugin.distributed.hccl_graph import (
     decode_graph_decision,
     decode_graph_key,
     graph_candidate_payload,
+    graph_capture_sequence_digest,
     graph_decision_payload,
     graph_key_payload,
+)
+from afd_plugin.distributed.hccl_plan import (
+    HcclPlanMessage,
+    decode_hccl_plan_message,
+    encode_hccl_plan_message,
 )
 from tests.unit.fakes.hccl_graph_control import make_graph_candidate, make_graph_key
 
@@ -135,3 +141,103 @@ def test_runtime_transaction_identity_does_not_change_static_key():
 def test_wire_key_rejects_unknown_fields_and_wrong_types(change):
     with pytest.raises(ValueError):
         decode_graph_key({**graph_key_payload(make_graph_key()), **change})
+
+
+@pytest.mark.parametrize("change", ["order", "count", "later_key", "profile_prefix"])
+def test_capture_sequence_binds_every_native_key_in_order_and_profile_prefix(change):
+    keys = (make_graph_key(rows=(4,)), make_graph_key(rows=(2, 2)))
+    original = graph_capture_sequence_digest(keys, max_full_descs_to_capture=None)
+    alternative = {
+        "order": (keys[::-1], None),
+        "count": (keys[:1], None),
+        "later_key": ((keys[0], make_graph_key(rows=(3, 3))), None),
+        "profile_prefix": (keys, 2),
+    }[change]
+    assert original != graph_capture_sequence_digest(
+        alternative[0], max_full_descs_to_capture=alternative[1]
+    )
+    assert original == graph_capture_sequence_digest(
+        keys, max_full_descs_to_capture=None
+    )
+
+
+def test_preflight_sequence_round_trip_binds_query_without_changing_model_key():
+    key = make_graph_key()
+    ordinary = HcclGraphCandidate("replay", "warmup", key, (0,))
+    candidate = replace(
+        ordinary,
+        capture_sequence_digest=graph_capture_sequence_digest(
+            (key,), max_full_descs_to_capture=None
+        ),
+    )
+    assert decode_graph_candidate(graph_candidate_payload(candidate)) == candidate
+    assert candidate.digest != ordinary.digest
+    assert candidate.key == ordinary.key
+    assert "capture_sequence_digest" not in graph_candidate_payload(ordinary)
+    assert decode_graph_candidate(graph_candidate_payload(ordinary)) == ordinary
+
+
+def test_capture_sequence_survives_the_framed_graph_query_protocol():
+    key = make_graph_key()
+    candidate = HcclGraphCandidate(
+        "replay",
+        "warmup",
+        key,
+        (0,),
+        graph_capture_sequence_digest((key,), max_full_descs_to_capture=1),
+    )
+    query = HcclPlanMessage(
+        "GRAPH_QUERY", transaction_id="capture-preflight", graph_candidate=candidate
+    )
+    assert decode_hccl_plan_message(encode_hccl_plan_message(query)) == query
+
+
+def test_empty_native_capture_list_uses_eager_preflight_without_an_invented_key():
+    candidate = HcclGraphCandidate(
+        "eager",
+        "warmup",
+        None,
+        (0,),
+        graph_capture_sequence_digest((), max_full_descs_to_capture=None),
+    )
+    assert decode_graph_candidate(graph_candidate_payload(candidate)) == candidate
+    decision = decide_graph_execution(
+        "empty-capture-preflight", candidate, (HcclGraphReport("unsupported"),)
+    )
+    assert (decision.phase, decision.key, decision.padded_tokens) == (
+        "eager",
+        None,
+        (0,),
+    )
+
+
+@pytest.mark.parametrize("value", [None, True, 1, "", "A" * 64, "0" * 63])
+def test_wire_preflight_rejects_noncanonical_capture_sequence_digest(value):
+    payload = graph_candidate_payload(
+        HcclGraphCandidate("replay", "warmup", make_graph_key(), (0,))
+    )
+    with pytest.raises(ValueError, match="capture sequence digest"):
+        decode_graph_candidate({**payload, "capture_sequence_digest": value})
+
+
+@pytest.mark.parametrize(
+    "change", [{"phase": "capture"}, {"mode": "target"}, {"eager_padded_tokens": (1,)}]
+)
+def test_capture_sequence_is_only_valid_for_empty_capture_preflight(change):
+    candidate = HcclGraphCandidate("replay", "warmup", make_graph_key(), (0,), "0" * 64)
+    with pytest.raises(ValueError, match="empty capture preflight"):
+        replace(candidate, **change)
+
+
+@pytest.mark.parametrize("prefix", [-1, True, 1.0, "1"])
+def test_capture_sequence_rejects_invalid_native_profile_prefix(prefix):
+    with pytest.raises(ValueError, match="max_full_descs_to_capture"):
+        graph_capture_sequence_digest(
+            (make_graph_key(),), max_full_descs_to_capture=prefix
+        )
+
+
+@pytest.mark.parametrize("keys", [[], (None,)])
+def test_capture_sequence_requires_concrete_graph_keys(keys):
+    with pytest.raises(ValueError, match="tuple of graph keys"):
+        graph_capture_sequence_digest(keys, max_full_descs_to_capture=None)

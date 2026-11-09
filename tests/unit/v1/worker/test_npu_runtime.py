@@ -283,6 +283,7 @@ def _new_ffn_runner():
     runner.prof = None
     runner.device = SimpleNamespace(type="npu")
     runner._is_shutdown = False
+    runner.hccl_v41_graph_service = None
     runner.effective_mode = "eager"
     # _ffn_layer_indices reads these; production runs with the gate on the
     # Attention side, so every layer index is a MoE FFN layer here.

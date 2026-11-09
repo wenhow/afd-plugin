@@ -1,0 +1,10 @@
+{
+  "python": "3.12.9",
+  "packages": {
+    "torch": "2.10.0",
+    "torch-npu": "2.10.0.post4",
+    "vllm": "0.30.0+empty",
+    "vllm-ascend": "0.1.dev1+g7e37e29a7",
+    "fastapi": "0.123.10"
+  }
+}

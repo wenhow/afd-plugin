@@ -24,6 +24,15 @@ prepare_dummy_inputs while preserving its original graph pools, output storage
 and registration. The persistent session binds one phase owner at a time.
 The exact native signature checks remain in the single upstream-alignment table.
 
+The explicit outer capture coordinator now performs a separate, empty-parent
+preflight over a digest of the complete ordered native capture keys and the
+actual profiling prefix. Each Attention rank compares the whole sequence.
+An empty list or unsupported producer selects a common skip before any native
+factory. The coordinator calls the selected native runner's capture lifecycle
+with its own frozen model, ModelState, input, builder and KV identities; callers
+cannot inject another capture argument set. This remains an explicit component
+API and does not select production Graph execution.
+
 Capture coverage consumes the real native manager's descriptor list, including
 its U2 twins and profiling prefix. It validates query-one, LoRA-off layouts and
 the negotiated token/stage capacity before factories write inputs. It preserves
@@ -95,8 +104,27 @@ abort of a blocked HCCL operation.
   checks the exact preparation signature, native deferred metadata lifecycle,
   unchanged slot views, capacity validation and per-rank storage accounting.
 
-The explicit FFN service now owns graph phases and eager fallback. The complete
-A/F service assembly, native U1 capture/replay handoff, actual
-ModelAclGraphManager lifecycle and A5 model/state comparisons remain required.
+The explicit FFN service now owns graph phases and eager fallback. Explicit
+Attention entry APIs connect pre-KV profiling, the native U2 factory and the
+real-KV capture/replay coordinator. Normal factory selection, actual
+ModelAclGraphManager device lifecycle and A5 model/state comparisons remain
+required before production model admission.
+The FFN runner can explicitly bind that service to its existing worker loop.
+Normal shutdown requires its completed STOP handshake, then resets the cache
+before closing groups. An externally closed cache cannot bypass that STOP
+requirement. Capture coordination and runtime replay assembly have separate
+CPU snapshots; earlier base-manager NPU probes do not qualify those model paths.
+The pinned native Ascend worker profiles through `profile_run` before real KV
+initialization; it does not call GPU `profile_cudagraph_memory`. The new explicit
+pre-KV bridge obtains a Graph-protocol eager reservation before native inputs
+are prepared, then hands the same cache/generation/session to the real-KV
+coordinator. The manager-free native dispatch selects NONE before its native
+manager assertion. Its [independent review](pre-kv-graph-lifecycle-independent-review-20261110.md)
+and the [runner entry review](native-runner-entry-independent-review-20261110.md)
+separate software wiring and CPU evidence from device acceptance.
+A separate optional temporary-KV graph-memory
+profiling workflow would need a two-sided cache lifecycle and compatible KV
+initialization signature. Passing `profile_only` on a fresh explicit capture
+session does not establish that additional workflow.
 The centralized [A5 instructions](../../../../docs/npu/DSV41_A5_BATCH_VALIDATION_ZH.md)
 collect independently runnable component checks without opening the model guard.

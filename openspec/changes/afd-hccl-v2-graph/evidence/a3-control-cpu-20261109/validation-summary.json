@@ -207,6 +207,287 @@
     "device_probe_started": false,
     "package_or_upstream_changes": false
   },
+  "capture_sequence_first_attempt": {
+    "label": "capture-seams-013",
+    "head_commit": "a897223f1d3489b588c68ed3cf3d099df4dbf0d4",
+    "snapshot_manifest_sha256": "54d9b795f68c9e1496a51c3c209b424afc530f2c078b5f36534138364834a616",
+    "passed": 489,
+    "failed": 2,
+    "errors": 0,
+    "skipped": 0,
+    "elapsed_seconds": 4.88,
+    "returncode": 1,
+    "snapshot_exclusions": [],
+    "cases_by_module": {
+      "test_hccl_graph.py (distributed)": {"passed": 62, "failed": 0},
+      "test_hccl_plan.py": {"passed": 135, "failed": 0},
+      "test_hccl_staged_transport.py": {"passed": 84, "failed": 0},
+      "test_hccl_v41_graph_service.py": {"passed": 39, "failed": 2},
+      "test_ffn_model_runner.py (npu)": {"passed": 15, "failed": 0},
+      "test_ffn_worker.py (npu)": {"passed": 21, "failed": 0},
+      "test_npu_runtime.py": {"passed": 55, "failed": 0},
+      "test_hccl_v41_graph_coordinator.py": {"passed": 33, "failed": 0},
+      "test_signatures.py": {"passed": 14, "failed": 0},
+      "test_hccl_graph_replay.py": {"passed": 9, "failed": 0},
+      "test_hccl_v41_execution.py": {"passed": 22, "failed": 0}
+    },
+    "failure": "two F service preflight test assertions access nonexistent HcclParentPlan.all_empty",
+    "coordinator_sha256": "475b42ff057c4f4c68885c509fabfd88245a828cb338f1a647b958d94a4b47a1",
+    "graph_schema_sha256": "ed9f425e0fd5a486a7d66adce77a17e57c7dd5ea2103b78a3d53740188804742",
+    "service_sha256": "1d58e4ea7f2866c47f63c294b738bacb1e2edd9114d8397dd6b776a8fd0e99ee",
+    "replay_patch_sha256": "d243acc272cbdd5d2f97d08a41e44e094f42ae34ee73aed0ac4755cf4b08b16f",
+    "execution_sha256": "a5fa30c78f3bb6696662f2c708bd6a9e7c71f150c81d43e293735ca550b1f200",
+    "raw_attempt_preserved": true,
+    "device_probe_started": false
+  },
+  "capture_sequence_service_repair": {
+    "label": "service-close-014",
+    "head_commit": "a897223f1d3489b588c68ed3cf3d099df4dbf0d4",
+    "snapshot_manifest_sha256": "8e1b65b1b0a2761b21a9b930e4602d25c6b7a3da5a9b71eff4735fa6920f02c6",
+    "passed": 42,
+    "failed": 0,
+    "errors": 0,
+    "skipped": 0,
+    "elapsed_seconds_stdout": 2.11,
+    "elapsed_seconds_junit": 2.115,
+    "returncode": 0,
+    "service_sha256": "cda23c7e17c192a4cd59c55e99dafd8e7168ae063a2999c7327285b0fda0a2c5",
+    "test_sha256": "0f445b60d5c1f8248f4ba540d50c1500bbe69f51200a1eaae9a91dc11789f16f",
+    "fake_sha256": "49767da1ac74917b0d7b7d34c31594aa1f85e99705cbd866018bc5d863d26206",
+    "repairs": [
+      "test assertions use actual stage attention_padded_tokens instead of nonexistent plan.all_empty",
+      "service close checks acknowledged STOP/failed/active before cache.closed idempotence",
+      "one new external-cache-close-before-STOP rejection case"
+    ],
+    "snapshot_exclusions": [
+      "afd_plugin/v1/worker/npu/hccl_v41_graph_coordinator.py",
+      "tests/unit/v1/worker/npu/test_hccl_v41_graph_coordinator.py",
+      "tests/unit/fakes/hccl_v41_graph_coordinator.py"
+    ],
+    "excluded_paths_absent_from_manifest": true,
+    "other_ten_modules_in_013_passed": 450,
+    "other_modules_not_repeated": true,
+    "device_probe_started": false
+  },
+  "runtime_coordinator_delta": {
+    "label": "runtime-coordinator-015",
+    "head_commit": "a897223f1d3489b588c68ed3cf3d099df4dbf0d4",
+    "snapshot_manifest_sha256": "d385badf03b81391f3bd1ab2efee70ef2fa2e7cb66741165ffa2621ac4f190fb",
+    "target": "tests/unit/v1/worker/npu/test_hccl_v41_graph_coordinator.py",
+    "passed": 54,
+    "failed": 0,
+    "errors": 0,
+    "skipped": 0,
+    "elapsed_seconds": 2.46,
+    "returncode": 0,
+    "coordinator_sha256": "b36558a1ca4d92d67628e17ac79736e76acea549f9d9b4139859a47af630e0b5",
+    "fake_sha256": "16ad4a9510228f3daaea76ad278394bd402f25cb2942b4acbf3abb5305eaba97",
+    "test_sha256": "77e491a82efa18184818aea351ba7b5ccc62caf170d6822b16826dd6bc07e425",
+    "geometry_helper_sha256": "7e7f56c640b01d7e101b39747096ee520f46e08370b7deac7a22426ac595015a",
+    "snapshot_exclusions": [],
+    "installed_locked_upstream_files_match": 10,
+    "device_probe_started": false,
+    "not_validated": [
+      "normal automatic graph startup selector/config",
+      "main Attention runner graph bootstrap integration",
+      "native device graph capture/replay",
+      "full model inference"
+    ]
+  },
+  "startup_bridge_increment": {
+    "scope": "actual-dependency CPU seams only; pass coverage comes from separate immutable attempts",
+    "single_run_claim": false,
+    "attempts": [
+      {
+        "label": "startup-bridge-016",
+        "head_commit": "a897223f1d3489b588c68ed3cf3d099df4dbf0d4",
+        "snapshot_manifest_sha256": "534d48553bfcf542c25a046aefc02b3c77cdabb357698a1ee4a1a3a0ca125596",
+        "passed": 441,
+        "failed": 40,
+        "errors": 0,
+        "skipped": 0,
+        "elapsed_seconds_junit": 4.47,
+        "returncode": 1,
+        "cases_by_module": {
+          "tests.unit.connectors.npu.test_hccl_config": {
+            "passed": 119,
+            "failed": 0,
+            "errors": 0,
+            "skipped": 0
+          },
+          "tests.unit.compat.patches.npu.test_hccl_graph_dispatch": {
+            "passed": 23,
+            "failed": 0,
+            "errors": 0,
+            "skipped": 0
+          },
+          "tests.unit.compat.patches.test_signatures": {
+            "passed": 14,
+            "failed": 0,
+            "errors": 0,
+            "skipped": 0
+          },
+          "tests.unit.v1.worker.npu.test_hccl_v41_graph_eager": {
+            "passed": 0,
+            "failed": 27,
+            "errors": 0,
+            "skipped": 0
+          },
+          "tests.unit.v1.worker.npu.test_attention_model_runner_v2": {
+            "passed": 0,
+            "failed": 11,
+            "errors": 0,
+            "skipped": 0
+          },
+          "tests.unit.v1.worker.npu.test_hccl_v41_execution": {
+            "passed": 20,
+            "failed": 2,
+            "errors": 0,
+            "skipped": 0
+          },
+          "tests.unit.v1.worker.npu.test_hccl_v41_graph_coordinator": {
+            "passed": 54,
+            "failed": 0,
+            "errors": 0,
+            "skipped": 0
+          },
+          "tests.unit.v1.worker.test_npu_model_runner_v2": {
+            "passed": 156,
+            "failed": 0,
+            "errors": 0,
+            "skipped": 0
+          },
+          "tests.unit.v1.worker.test_npu_runtime": {
+            "passed": 55,
+            "failed": 0,
+            "errors": 0,
+            "skipped": 0
+          }
+        },
+        "production_differences_from_016": {},
+        "device_probe_started": false,
+        "raw_attempt_preserved": true
+      },
+      {
+        "label": "startup-fix-017",
+        "head_commit": "a897223f1d3489b588c68ed3cf3d099df4dbf0d4",
+        "snapshot_manifest_sha256": "0bab61abd1f9501976111d2afff4d155417fbf74b13c685925bcd8f89c64f18a",
+        "passed": 53,
+        "failed": 7,
+        "errors": 0,
+        "skipped": 0,
+        "elapsed_seconds_junit": 3.142,
+        "returncode": 1,
+        "cases_by_module": {
+          "tests.unit.v1.worker.npu.test_hccl_v41_graph_eager": {
+            "passed": 20,
+            "failed": 7,
+            "errors": 0,
+            "skipped": 0
+          },
+          "tests.unit.v1.worker.npu.test_attention_model_runner_v2": {
+            "passed": 11,
+            "failed": 0,
+            "errors": 0,
+            "skipped": 0
+          },
+          "tests.unit.v1.worker.npu.test_hccl_v41_execution": {
+            "passed": 22,
+            "failed": 0,
+            "errors": 0,
+            "skipped": 0
+          }
+        },
+        "production_differences_from_016": {},
+        "device_probe_started": false,
+        "raw_attempt_preserved": true
+      },
+      {
+        "label": "eager-bridge-018",
+        "head_commit": "a897223f1d3489b588c68ed3cf3d099df4dbf0d4",
+        "snapshot_manifest_sha256": "fc26c37a127cc5ba07aa2e24a726d8e4f3017b17691bacfdc45ca1550a5b4896",
+        "passed": 21,
+        "failed": 6,
+        "errors": 0,
+        "skipped": 0,
+        "elapsed_seconds_junit": 1.904,
+        "returncode": 1,
+        "cases_by_module": {
+          "tests.unit.v1.worker.npu.test_hccl_v41_graph_eager": {
+            "passed": 21,
+            "failed": 6,
+            "errors": 0,
+            "skipped": 0
+          }
+        },
+        "production_differences_from_016": {},
+        "device_probe_started": false,
+        "raw_attempt_preserved": true
+      },
+      {
+        "label": "eager-protocol-019",
+        "head_commit": "a897223f1d3489b588c68ed3cf3d099df4dbf0d4",
+        "snapshot_manifest_sha256": "20ad966881a01e6710a65dfdbd095604c4540667095e926a52476ccea4a13ee2",
+        "passed": 6,
+        "failed": 0,
+        "errors": 0,
+        "skipped": 0,
+        "elapsed_seconds_junit": 1.878,
+        "returncode": 0,
+        "cases_by_module": {
+          "tests.unit.v1.worker.npu.test_hccl_v41_graph_eager": {
+            "passed": 6,
+            "failed": 0,
+            "errors": 0,
+            "skipped": 0
+          }
+        },
+        "production_differences_from_016": {
+          "afd_plugin/connectors/npu/hccl_graph_pipeline.py": {
+            "before": null,
+            "after": "0c7a9142bbc57358614b6c3d325977cbc5089bd92004cc615602f7b777832d6e"
+          }
+        },
+        "device_probe_started": false,
+        "raw_attempt_preserved": true
+      }
+    ],
+    "failure_history": {
+      "016": {
+        "missing native parallel_config.rank in preKV fixture": 38,
+        "old component tests bypassed new main-entry ownership": 2
+      },
+      "017": {
+        "bridge protocol expectation omits GRAPH_ACK": 6,
+        "restored native None-manager dispatch requires need_eager=True": 1
+      },
+      "018": {
+        "single-A protocol expectation invents COUNTS_REQUEST and omits ACCEPT": 6
+      }
+    },
+    "final_pass_coverage": {
+      "016 unaffected six modules": 421,
+      "017 main Attention runner and execution component": 33,
+      "018 other bridge cases": 21,
+      "019 corrected bridge protocol parameter cases": 6
+    },
+    "relevant_production_sha256": {
+      "afd_plugin/connectors/npu/hccl_config.py": "8390a5a49633b60c452206f804963bd97ca7c88572dc0fabb0a52095dc7fba99",
+      "afd_plugin/compat/patches/npu/hccl_graph_dispatch.py": "a845dcc6490f9a4a58afedf95c6f6fbd19ff43445df9fd1de4079064d9969d7f",
+      "afd_plugin/v1/worker/npu/attention_model_runner_v2.py": "ec5785cf81989002ed7c64070563a5ab2d2e5b48c11bd55067e181ba72729598",
+      "afd_plugin/v1/worker/npu/hccl_v41_graph_eager.py": "cd0f31fdc74ec1e3acb23d17d790e221015f617fe95d8f2ff35c3fc7b83961c3",
+      "afd_plugin/v1/worker/npu/hccl_v41_execution.py": "a5fa30c78f3bb6696662f2c708bd6a9e7c71f150c81d43e293735ca550b1f200",
+      "afd_plugin/v1/worker/npu/hccl_v41_graph_coordinator.py": "b36558a1ca4d92d67628e17ac79736e76acea549f9d9b4139859a47af630e0b5",
+      "afd_plugin/v1/worker/npu/hccl_v41_graph.py": "7e7f56c640b01d7e101b39747096ee520f46e08370b7deac7a22426ac595015a"
+    },
+    "relevant_production_unchanged_across_attempts": true,
+    "final_bridge_test_sha256": "d783f450b76dbeb6bbf3d633016dad2c436a079ec2bb409c58296d737d7f1b1f",
+    "019_extra_unvalidated_candidate": "afd_plugin/connectors/npu/hccl_graph_pipeline.py",
+    "019_extra_candidate_is_not_C5_acceptance": true,
+    "installed_locked_upstream_files_match": 10,
+    "package_or_upstream_changes": false,
+    "device_probe_started": false
+  },
   "not_acceptance_for": [
     "device graph capture/replay",
     "device graph cache",
