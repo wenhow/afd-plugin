@@ -23,7 +23,7 @@ def ffn_config():
     )
     return SimpleNamespace(
         model_config=SimpleNamespace(hf_config=text),
-        parallel_config=SimpleNamespace(),
+        parallel_config=SimpleNamespace(tensor_parallel_size=1),
         quant_config=None,
         engram_config=None,
         speculative_config=None,

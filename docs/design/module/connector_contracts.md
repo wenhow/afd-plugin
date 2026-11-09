@@ -77,6 +77,15 @@ uses its rank mapping only after existing runtime validation; unequal topology,
 U2 wire exchange and V4.1 model execution remain guarded pending integration
 and device acceptance. Layout construction does not establish runtime support.
 
+The independent version-3 [parent-plan codec](../../../afd_plugin/distributed/hccl_plan.py)
+and [global scheduling contract](../../../afd_plugin/distributed/hccl_session.py)
+cover bounded stage/capacity negotiation, plan-digest ACKs, layer-major peer
+order, aggregate/fanout/native-TP readiness, parent completion and terminal
+shutdown. Tests mirror these modules under `tests/unit/distributed/`. These CPU
+components are not imported by the current version-2 transport. The global ACK
+contract still needs a network adapter and stage-group lifecycle before runtime
+integration; it does not establish U2 model support.
+
 ## Factory and construction
 
 `AFDConnectorFactory` stores lazy loaders, so importing the factory does not
