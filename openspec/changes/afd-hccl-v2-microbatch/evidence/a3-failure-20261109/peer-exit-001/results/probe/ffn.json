@@ -1,0 +1,36 @@
+{
+  "case": "peer-exit",
+  "role": "ffn",
+  "pid": 4096687,
+  "device": 0,
+  "native_tp_size": 1,
+  "checkpoint_weights_loaded": false,
+  "native_moe_executed": false,
+  "ffn_runner_constructor_called": false,
+  "blocked_hccl_abort_exercised": false,
+  "device_fault_recovery_exercised": false,
+  "success": true,
+  "native_tp_before": [
+    1.0
+  ],
+  "received_layer_stages": [
+    [
+      0,
+      0
+    ],
+    [
+      0,
+      1
+    ],
+    [
+      2,
+      0
+    ],
+    [
+      2,
+      1
+    ]
+  ],
+  "first_parent_completed": true,
+  "intentional_exit_code": 17
+}

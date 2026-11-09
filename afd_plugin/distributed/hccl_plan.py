@@ -16,6 +16,15 @@ from dataclasses import dataclass
 from typing import TypeAlias
 
 from afd_plugin.distributed.hccl import MAX_HCCL_STAGES, HcclStageLayout
+from afd_plugin.distributed.hccl_graph import (
+    HcclGraphCandidate,
+    HcclGraphDecision,
+    HcclGraphReport,
+    decode_graph_candidate,
+    decode_graph_decision,
+    graph_candidate_payload,
+    graph_decision_payload,
+)
 
 HCCL_PLAN_PROTOCOL_VERSION = 3
 MAX_ROLE_RANKS = 1_024
@@ -38,6 +47,10 @@ MESSAGE_KINDS = frozenset(
         "ERROR",
         "COUNTS_REQUEST",
         "COUNTS_REPORT",
+        "GRAPH_QUERY",
+        "GRAPH_REPORT",
+        "GRAPH_DECISION",
+        "GRAPH_ACK",
     }
 )
 
@@ -88,6 +101,7 @@ class HcclPlanCapabilities:
     native_tp_size: int = 1
     max_stages: int = MAX_HCCL_STAGES
     local_counts_version: int = 0
+    graph_execution_version: int = 0
 
     def validate(self) -> None:
         _integer("hidden_size", self.hidden_size, minimum=1)
@@ -102,6 +116,9 @@ class HcclPlanCapabilities:
         )
         _integer("max_stages", self.max_stages, minimum=1, maximum=MAX_HCCL_STAGES)
         _integer("local_counts_version", self.local_counts_version, maximum=1)
+        _integer("graph_execution_version", self.graph_execution_version, maximum=1)
+        if self.graph_execution_version and self.local_counts_version != 1:
+            raise ValueError("graph execution requires local_counts_version=1")
         if self.local_counts_version == 1 and not (
             self.attention_size == self.ffn_size == self.native_tp_size
         ):
@@ -128,6 +145,11 @@ class HcclPlanCapabilities:
                 self.local_counts_version,
                 peer.local_counts_version,
             ),
+            (
+                "graph_execution_version",
+                self.graph_execution_version,
+                peer.graph_execution_version,
+            ),
         ):
             if local != remote:
                 raise ValueError(f"HCCL peer {name} does not match")
@@ -141,6 +163,7 @@ class HcclPlanCapabilities:
             self.native_tp_size,
             min(self.max_stages, peer.max_stages),
             self.local_counts_version,
+            self.graph_execution_version,
         )
 
 
@@ -179,6 +202,7 @@ class HcclParentPlan:
     layer_indices: tuple[int, ...]
     stages: tuple[HcclStageLayout, ...]
     mode: str = "target"
+    graph_execution: HcclGraphDecision | None = None
 
     def __post_init__(self) -> None:
         _text("transaction_id", self.transaction_id, MAX_TRANSACTION_ID_BYTES)
@@ -206,9 +230,31 @@ class HcclParentPlan:
             if topology is not None and current != topology:
                 raise ValueError("all parent stages must use the same topology")
             topology = current
+        if self.graph_execution is not None:
+            decision = self.graph_execution
+            if not isinstance(decision, HcclGraphDecision):
+                raise ValueError("graph_execution must be HcclGraphDecision")
+            if (
+                decision.transaction_id != self.transaction_id
+                or decision.mode != self.mode
+                or len(decision.padded_tokens) != len(self.stages)
+                or any(
+                    any(rows != expected for rows in stage.attention_padded_tokens)
+                    for stage, expected in zip(
+                        self.stages, decision.padded_tokens, strict=True
+                    )
+                )
+            ):
+                raise ValueError("parent plan does not match reserved graph execution")
 
     def validate(self, capabilities: HcclPlanCapabilities) -> None:
         capabilities.validate()
+        if bool(capabilities.graph_execution_version) != (
+            self.graph_execution is not None
+        ):
+            raise ValueError(
+                "parent graph execution does not match negotiated capability"
+            )
         if self.layer_indices != capabilities.layer_indices:
             raise ValueError("plan layer_indices do not match negotiated target layers")
         if len(self.stages) > capabilities.max_stages:
@@ -253,6 +299,10 @@ class HcclPlanMessage:
     plan_digest: str | None = None
     error: str | None = None
     local_forward: HcclLocalForward | None = None
+    graph_candidate: HcclGraphCandidate | None = None
+    graph_report: HcclGraphReport | None = None
+    graph_decision: HcclGraphDecision | None = None
+    graph_digest: str | None = None
 
     def validate(self) -> None:
         if not isinstance(self.kind, str) or self.kind not in MESSAGE_KINDS:
@@ -268,6 +318,10 @@ class HcclPlanMessage:
                 ("plan_digest", self.plan_digest),
                 ("error", self.error),
                 ("local_forward", self.local_forward),
+                ("graph_candidate", self.graph_candidate),
+                ("graph_report", self.graph_report),
+                ("graph_decision", self.graph_decision),
+                ("graph_digest", self.graph_digest),
             )
             if value is not None
         }
@@ -284,6 +338,14 @@ class HcclPlanMessage:
             required = {"transaction_id"}
         elif self.kind == "COUNTS_REPORT":
             required = {"transaction_id", "world_rank", "local_forward"}
+        elif self.kind == "GRAPH_QUERY":
+            required = {"transaction_id", "graph_candidate"}
+        elif self.kind == "GRAPH_REPORT":
+            required = {"transaction_id", "world_rank", "graph_digest", "graph_report"}
+        elif self.kind == "GRAPH_DECISION":
+            required = {"graph_decision"}
+        elif self.kind == "GRAPH_ACK":
+            required = {"transaction_id", "world_rank", "graph_digest"}
         elif self.kind == "ERROR":
             required = {"error"} | (
                 {"transaction_id"} if self.transaction_id is not None else set()
@@ -317,6 +379,21 @@ class HcclPlanMessage:
             if not isinstance(self.local_forward, HcclLocalForward):
                 raise ValueError("COUNTS_REPORT requires an HcclLocalForward")
             self.local_forward.validate()
+        for value, expected in (
+            (self.graph_candidate, HcclGraphCandidate),
+            (self.graph_report, HcclGraphReport),
+            (self.graph_decision, HcclGraphDecision),
+        ):
+            if value is not None and not isinstance(value, expected):
+                raise ValueError("graph message has an invalid record type")
+        if self.graph_digest is not None and (
+            not isinstance(self.graph_digest, str)
+            or len(self.graph_digest) != 64
+            or any(
+                character not in "0123456789abcdef" for character in self.graph_digest
+            )
+        ):
+            raise ValueError("graph_digest must be a lowercase SHA256 digest")
         if self.transaction_id is not None:
             _text("transaction_id", self.transaction_id, MAX_TRANSACTION_ID_BYTES)
         if self.plan_digest is not None and (
@@ -342,7 +419,7 @@ def _canonical_json(payload: dict[str, JsonValue]) -> bytes:
 
 
 def _plan_payload(plan: HcclParentPlan) -> dict[str, JsonValue]:
-    return {
+    payload: dict[str, JsonValue] = {
         "transaction_id": plan.transaction_id,
         "layer_indices": list(plan.layer_indices),
         "mode": plan.mode,
@@ -357,6 +434,9 @@ def _plan_payload(plan: HcclParentPlan) -> dict[str, JsonValue]:
             for stage in plan.stages
         ],
     }
+    if plan.graph_execution is not None:
+        payload["graph_execution"] = graph_decision_payload(plan.graph_execution)
+    return payload
 
 
 def encode_hccl_plan_message(message: HcclPlanMessage) -> bytes:
@@ -373,6 +453,7 @@ def encode_hccl_plan_message(message: HcclPlanMessage) -> bytes:
         ("transaction_id", message.transaction_id),
         ("plan_digest", message.plan_digest),
         ("error", message.error),
+        ("graph_digest", message.graph_digest),
     ):
         if value is not None:
             payload[name] = value
@@ -392,6 +473,8 @@ def encode_hccl_plan_message(message: HcclPlanMessage) -> bytes:
         # strict decoders reject this extension during HELLO, before tensor I/O.
         if cap.local_counts_version:
             capability_payload["local_counts_version"] = cap.local_counts_version
+        if cap.graph_execution_version:
+            capability_payload["graph_execution_version"] = cap.graph_execution_version
         payload["capabilities"] = capability_payload
     if message.plan is not None:
         payload["plan"] = _plan_payload(message.plan)
@@ -402,6 +485,12 @@ def encode_hccl_plan_message(message: HcclPlanMessage) -> bytes:
             "valid_tokens": list(local.valid_tokens),
             "padded_tokens": list(local.padded_tokens),
         }
+    if message.graph_candidate is not None:
+        payload["graph_candidate"] = graph_candidate_payload(message.graph_candidate)
+    if message.graph_report is not None:
+        payload["graph_report"] = {"availability": message.graph_report.availability}
+    if message.graph_decision is not None:
+        payload["graph_decision"] = graph_decision_payload(message.graph_decision)
     encoded = _canonical_json(payload)
     if len(encoded) > MAX_CONTROL_MESSAGE_BYTES:
         raise ValueError("HCCL plan message exceeds maximum size")
@@ -440,7 +529,7 @@ def _decode_capabilities(value: JsonValue) -> HcclPlanCapabilities:
             "native_tp_size",
             "max_stages",
         },
-        {"local_counts_version"},
+        {"local_counts_version", "graph_execution_version"},
     )
     result = HcclPlanCapabilities(
         _integer("hidden_size", cap["hidden_size"], minimum=1),
@@ -456,6 +545,9 @@ def _decode_capabilities(value: JsonValue) -> HcclPlanCapabilities:
         ),
         _integer("max_stages", cap["max_stages"], minimum=1, maximum=MAX_HCCL_STAGES),
         _integer("local_counts_version", cap.get("local_counts_version", 0), maximum=1),
+        _integer(
+            "graph_execution_version", cap.get("graph_execution_version", 0), maximum=1
+        ),
     )
     result.validate()
     return result
@@ -479,7 +571,11 @@ def _decode_local_forward(value: JsonValue) -> HcclLocalForward:
 
 
 def _decode_plan(value: JsonValue) -> HcclParentPlan:
-    plan = _fields(value, {"transaction_id", "layer_indices", "stages", "mode"})
+    plan = _fields(
+        value,
+        {"transaction_id", "layer_indices", "stages", "mode"},
+        {"graph_execution"},
+    )
     stages = plan["stages"]
     if not isinstance(stages, list) or not 1 <= len(stages) <= MAX_HCCL_STAGES:
         raise ValueError("parent plan requires one or two JSON stages")
@@ -516,6 +612,9 @@ def _decode_plan(value: JsonValue) -> HcclParentPlan:
         _decode_layers(plan["layer_indices"]),
         tuple(decoded),
         _text("mode", plan["mode"], MAX_CONTROL_MESSAGE_BYTES),
+        decode_graph_decision(plan["graph_execution"])
+        if "graph_execution" in plan
+        else None,
     )
 
 
@@ -570,6 +669,51 @@ def decode_hccl_plan_message(data: bytes) -> HcclPlanMessage:
     elif kind == "FORWARD":
         _fields(payload, envelope | {"plan"})
         message = HcclPlanMessage(kind, plan=_decode_plan(payload["plan"]))
+    elif kind == "GRAPH_QUERY":
+        _fields(payload, envelope | {"transaction_id", "graph_candidate"})
+        message = HcclPlanMessage(
+            kind,
+            transaction_id=_text(
+                "transaction_id", payload["transaction_id"], MAX_TRANSACTION_ID_BYTES
+            ),
+            graph_candidate=decode_graph_candidate(payload["graph_candidate"]),
+        )
+    elif kind == "GRAPH_REPORT":
+        _fields(
+            payload,
+            envelope | {"transaction_id", "world_rank", "graph_digest", "graph_report"},
+        )
+        report = _fields(payload["graph_report"], {"availability"})
+        message = HcclPlanMessage(
+            kind,
+            transaction_id=_text(
+                "transaction_id", payload["transaction_id"], MAX_TRANSACTION_ID_BYTES
+            ),
+            world_rank=_integer("world_rank", payload["world_rank"]),
+            graph_digest=_text(
+                "graph_digest", payload["graph_digest"], MAX_CONTROL_MESSAGE_BYTES
+            ),
+            graph_report=HcclGraphReport(
+                _text("availability", report["availability"], MAX_CONTROL_MESSAGE_BYTES)
+            ),
+        )
+    elif kind == "GRAPH_DECISION":
+        _fields(payload, envelope | {"graph_decision"})
+        message = HcclPlanMessage(
+            kind, graph_decision=decode_graph_decision(payload["graph_decision"])
+        )
+    elif kind == "GRAPH_ACK":
+        _fields(payload, envelope | {"transaction_id", "world_rank", "graph_digest"})
+        message = HcclPlanMessage(
+            kind,
+            transaction_id=_text(
+                "transaction_id", payload["transaction_id"], MAX_TRANSACTION_ID_BYTES
+            ),
+            world_rank=_integer("world_rank", payload["world_rank"]),
+            graph_digest=_text(
+                "graph_digest", payload["graph_digest"], MAX_CONTROL_MESSAGE_BYTES
+            ),
+        )
     elif kind in ("COUNTS_REQUEST", "COUNTS_REPORT"):
         _fields(
             payload,

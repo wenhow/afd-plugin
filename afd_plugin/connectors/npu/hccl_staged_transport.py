@@ -11,7 +11,7 @@ external supervisor must bound failed peers. Each instance needs its own port.
 
 from __future__ import annotations
 
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from contextlib import suppress
 from datetime import timedelta
 
@@ -22,6 +22,13 @@ from torch.distributed.distributed_c10d import ProcessGroup
 from afd_plugin.connectors.npu.hccl_transport import HcclLayerInputs
 from afd_plugin.distributed.afd_process_group import init_afd_process_group
 from afd_plugin.distributed.hccl import HcclPeerSlice, HcclStageLayout
+from afd_plugin.distributed.hccl_graph import (
+    HcclGraphCandidate,
+    HcclGraphDecision,
+    HcclGraphKey,
+    HcclGraphReport,
+    decide_graph_execution,
+)
 from afd_plugin.distributed.hccl_plan import (
     MAX_CONTROL_MESSAGE_BYTES,
     MAX_ERROR_BYTES,
@@ -87,12 +94,23 @@ class HcclStagedTransport:
         self._pending_inputs: HcclLayerInputs | None = None
         self._counts_transaction_id: str | None = None
         self._local_forward: HcclLocalForward | None = None
+        self._graph_transaction_id: str | None = None
+        self._graph_decision: HcclGraphDecision | None = None
         self._completed: set[str] = set()
         self.initialized = self.terminal = self.closed = False
 
     @property
     def is_coordinator(self) -> bool:
         return self.world_rank == self.coordinator_rank
+
+    @property
+    def graph_reservation(self) -> HcclGraphDecision | None:
+        """The globally accepted decision, cleared when its parent retires.
+
+        This read-only identity lets the controller reject stale or foreign
+        preparation handles without inspecting transport implementation state.
+        """
+        return self._graph_decision
 
     @property
     def _other_ranks(self) -> tuple[int, ...]:
@@ -188,6 +206,10 @@ class HcclStagedTransport:
         if self.plan is not None:
             raise RuntimeError("previous parent transaction has not completed")
         plan.validate(self.negotiated_capabilities)
+        if plan.graph_execution != self._graph_decision:
+            raise ValueError(
+                "parent graph execution does not match accepted reservation"
+            )
         encode_hccl_plan_message(HcclPlanMessage("FORWARD", plan=plan))
         if plan.transaction_id in self._completed:
             raise ValueError("transaction_id has already completed")
@@ -217,6 +239,258 @@ class HcclStagedTransport:
             or max(local.padded_tokens) > capabilities.max_tokens
         ):
             raise ValueError("local counts exceed negotiated stage or token capacity")
+        if self._graph_decision is not None and (
+            local.mode != self._graph_decision.mode
+            or local.padded_tokens != self._graph_decision.padded_tokens
+        ):
+            raise ValueError("actual local counts do not match reserved graph geometry")
+
+    def _require_graph_idle(self) -> None:
+        self._require_active()
+        if self.negotiated_capabilities.graph_execution_version != 1:
+            raise RuntimeError("graph reservations require graph_execution_version=1")
+        if (
+            self.plan is not None
+            or self._counts_transaction_id is not None
+            or self._graph_transaction_id is not None
+        ):
+            raise RuntimeError("previous graph reservation or parent has not completed")
+
+    def _validate_graph_candidate(self, candidate: HcclGraphCandidate) -> None:
+        capabilities = self.negotiated_capabilities
+        for rows in (
+            candidate.eager_padded_tokens,
+            candidate.key.padded_tokens if candidate.key is not None else (),
+        ):
+            if len(rows) > capabilities.max_stages or any(
+                count > capabilities.max_tokens for count in rows
+            ):
+                raise ValueError(
+                    "graph geometry exceeds negotiated stage or token capacity"
+                )
+
+    @staticmethod
+    def _validate_graph_decision(
+        candidate: HcclGraphCandidate,
+        decision: HcclGraphDecision,
+        report: HcclGraphReport,
+    ) -> None:
+        if candidate.phase == "replay" and decision.phase == "eager":
+            if (
+                decision.mode != candidate.mode
+                or decision.key is not None
+                or decision.padded_tokens != candidate.eager_padded_tokens
+                or decision.reason not in ("cache_miss", "unsupported")
+            ):
+                raise ValueError("graph fallback decision does not match the query")
+        elif (
+            decide_graph_execution(decision.transaction_id, candidate, (report,))
+            != decision
+        ):
+            raise ValueError(
+                "graph decision does not match the query or local readiness"
+            )
+
+    def reserve_attention_forward(
+        self,
+        resolve: Callable[[HcclGraphCandidate], HcclGraphReport],
+        *,
+        candidate: HcclGraphCandidate | None = None,
+        transaction_id: str | None = None,
+    ) -> HcclGraphDecision | None:
+        """Agree a phase before native input/Engram preparation on every A.
+
+        Only Attention0 supplies the candidate and ID. Other ranks receive
+        QUERY or idle STOP first. The resolver checks actual local geometry
+        and cache generation without preparing model inputs. Its return is
+        availability; an incompatible native batch raises ValueError instead.
+        """
+        self._require_active("attention")
+        self._require_graph_idle()
+        if not self.is_coordinator:
+            if candidate is not None or transaction_id is not None:
+                raise ValueError(
+                    "only Attention0 supplies graph candidate and transaction_id"
+                )
+            return self._receive_graph_reservation(resolve)
+        try:
+            try:
+                query = HcclPlanMessage(
+                    "GRAPH_QUERY",
+                    transaction_id=transaction_id,
+                    graph_candidate=candidate,
+                )
+                encode_hccl_plan_message(query)
+                assert candidate is not None and transaction_id is not None
+                self._validate_graph_candidate(candidate)
+                if transaction_id in self._completed:
+                    raise ValueError("transaction_id has already completed")
+                if len(self._completed) >= MAX_SESSION_TRANSACTIONS:
+                    raise ValueError("session transaction limit reached; reconnect")
+                local_report = resolve(candidate)
+                if not isinstance(local_report, HcclGraphReport):
+                    raise ValueError("graph resolver must return HcclGraphReport")
+            except (ValueError, RuntimeError) as exc:
+                self._reject_peers(str(exc))
+            self._graph_transaction_id = transaction_id
+            self._broadcast_control(query)
+            reports, error = [local_report], None
+            for rank in self._other_ranks:
+                try:
+                    message = self._recv_control(rank)
+                except ValueError as exc:
+                    error = error or str(exc)
+                    continue
+                try:
+                    self._validate_reply(message, "GRAPH_REPORT", None)
+                    if (
+                        message.world_rank != rank
+                        or message.transaction_id != transaction_id
+                        or message.graph_digest != candidate.digest
+                    ):
+                        raise ValueError(
+                            "GRAPH_REPORT does not match the query or sender"
+                        )
+                    assert message.graph_report is not None
+                    reports.append(message.graph_report)
+                except (ValueError, RuntimeError) as exc:
+                    error = error or str(exc)
+            if error is not None:
+                self._reject_peers(error)
+            try:
+                decision = decide_graph_execution(
+                    transaction_id, candidate, tuple(reports)
+                )
+                decided = HcclPlanMessage("GRAPH_DECISION", graph_decision=decision)
+                encode_hccl_plan_message(decided)
+            except (ValueError, RuntimeError) as exc:
+                self._reject_peers(str(exc))
+            self._broadcast_control(decided)
+            self._collect_graph_acks(decision)
+            self._broadcast_control(
+                HcclPlanMessage(
+                    "GRAPH_ACK",
+                    transaction_id=transaction_id,
+                    world_rank=self.world_rank,
+                    graph_digest=decision.digest,
+                )
+            )
+            self._graph_decision = decision
+            return decision
+        except BaseException:
+            self.terminal = True
+            raise
+
+    def receive_graph_reservation(
+        self, resolve: Callable[[HcclGraphCandidate], HcclGraphReport]
+    ) -> HcclGraphDecision | None:
+        """FFN idle service: resolve a solicited cache query, or acknowledge STOP."""
+        self._require_active("ffn")
+        self._require_graph_idle()
+        return self._receive_graph_reservation(resolve)
+
+    def _receive_graph_reservation(
+        self, resolve: Callable[[HcclGraphCandidate], HcclGraphReport]
+    ) -> HcclGraphDecision | None:
+        try:
+            try:
+                query = self._recv_control(self.coordinator_rank)
+            except ValueError as exc:
+                self._report_rejection(str(exc))
+                raise
+            if query.kind == "STOP":
+                self._acknowledge_stop()
+                return None
+            if query.kind == "ERROR":
+                raise RuntimeError(f"coordinator rejected session: {query.error}")
+            try:
+                if query.kind != "GRAPH_QUERY":
+                    raise ValueError("expected GRAPH_QUERY or STOP")
+                assert query.graph_candidate is not None
+                candidate = query.graph_candidate
+                self._validate_graph_candidate(candidate)
+                if query.transaction_id in self._completed:
+                    raise ValueError("transaction_id has already completed")
+                if len(self._completed) >= MAX_SESSION_TRANSACTIONS:
+                    raise ValueError("session transaction limit reached; reconnect")
+                report = resolve(candidate)
+                if not isinstance(report, HcclGraphReport):
+                    raise ValueError("graph resolver must return HcclGraphReport")
+            except (ValueError, RuntimeError) as exc:
+                self._report_rejection(str(exc))
+                raise
+            self._graph_transaction_id = query.transaction_id
+            self._send_control(
+                self.coordinator_rank,
+                HcclPlanMessage(
+                    "GRAPH_REPORT",
+                    transaction_id=query.transaction_id,
+                    world_rank=self.world_rank,
+                    graph_digest=candidate.digest,
+                    graph_report=report,
+                ),
+            )
+            try:
+                message = self._recv_control(self.coordinator_rank)
+            except ValueError as exc:
+                self._report_rejection(str(exc))
+                raise
+            if message.kind == "ERROR":
+                raise RuntimeError(f"coordinator rejected session: {message.error}")
+            try:
+                self._validate_reply(message, "GRAPH_DECISION", None)
+                assert message.graph_decision is not None
+                decision = message.graph_decision
+                if decision.transaction_id != query.transaction_id:
+                    raise ValueError(
+                        "GRAPH_DECISION does not match reserved transaction_id"
+                    )
+                self._validate_graph_decision(candidate, decision, report)
+            except (ValueError, RuntimeError) as exc:
+                self._report_rejection(str(exc))
+                raise
+            self._send_control(
+                self.coordinator_rank,
+                HcclPlanMessage(
+                    "GRAPH_ACK",
+                    transaction_id=decision.transaction_id,
+                    world_rank=self.world_rank,
+                    graph_digest=decision.digest,
+                ),
+            )
+            ready = self._expect(self.coordinator_rank, "GRAPH_ACK")
+            if (
+                ready.world_rank != self.coordinator_rank
+                or ready.transaction_id != decision.transaction_id
+                or ready.graph_digest != decision.digest
+            ):
+                raise ValueError("global GRAPH_ACK does not match accepted decision")
+            self._graph_decision = decision
+            return decision
+        except BaseException:
+            self.terminal = True
+            raise
+
+    def _collect_graph_acks(self, decision: HcclGraphDecision) -> None:
+        error = None
+        for rank in self._other_ranks:
+            try:
+                message = self._recv_control(rank)
+            except ValueError as exc:
+                error = error or str(exc)
+                continue
+            try:
+                self._validate_reply(message, "GRAPH_ACK", None)
+                if (
+                    message.world_rank != rank
+                    or message.transaction_id != decision.transaction_id
+                    or message.graph_digest != decision.digest
+                ):
+                    raise ValueError("GRAPH_ACK does not match decision or sender")
+            except (ValueError, RuntimeError) as exc:
+                error = error or str(exc)
+        if error is not None:
+            self._reject_peers(error)
 
     def submit_forward(
         self,
@@ -243,6 +517,10 @@ class HcclStagedTransport:
             raise ValueError(
                 "local count collection requires one native TP world per role"
             )
+        if capabilities.graph_execution_version == 1 and self._graph_decision is None:
+            raise RuntimeError(
+                "graph-enabled Attention must reserve before native preparation"
+            )
         if self.plan is not None or self._counts_transaction_id is not None:
             raise RuntimeError("previous parent or count round has not completed")
         try:
@@ -252,6 +530,13 @@ class HcclStagedTransport:
                         "COUNTS_REQUEST", transaction_id=transaction_id
                     )
                     encode_hccl_plan_message(request)
+                    if (
+                        self._graph_decision is not None
+                        and transaction_id != self._graph_decision.transaction_id
+                    ):
+                        raise ValueError(
+                            "counts transaction_id does not match graph reservation"
+                        )
                     self._validate_local_forward(local)
                     if transaction_id in self._completed:
                         raise ValueError("transaction_id has already completed")
@@ -319,6 +604,7 @@ class HcclStagedTransport:
                             for stage_idx in range(len(local.valid_tokens))
                         ),
                         local.mode,
+                        self._graph_decision,
                     )
                     self._validate_plan(plan)
                 except (ValueError, RuntimeError) as exc:
@@ -332,6 +618,8 @@ class HcclStagedTransport:
                 self._report_rejection(str(exc))
                 raise
             if request.kind == "STOP":
+                if self._graph_transaction_id is not None:
+                    raise ValueError("STOP requires an idle graph reservation boundary")
                 self._acknowledge_stop()
                 return None
             if request.kind == "ERROR":
@@ -339,6 +627,13 @@ class HcclStagedTransport:
             try:
                 if request.kind != "COUNTS_REQUEST":
                     raise ValueError("expected COUNTS_REQUEST or STOP")
+                if (
+                    self._graph_decision is not None
+                    and request.transaction_id != self._graph_decision.transaction_id
+                ):
+                    raise ValueError(
+                        "COUNTS_REQUEST transaction_id does not match graph reservation"
+                    )
                 if (
                     transaction_id is not None
                     and transaction_id != request.transaction_id
@@ -419,6 +714,13 @@ class HcclStagedTransport:
         if self.plan is not None:
             raise RuntimeError("previous parent transaction has not completed")
         if (
+            self.negotiated_capabilities.graph_execution_version == 1
+            and self._graph_decision is None
+        ):
+            raise RuntimeError(
+                "graph-enabled peers must accept reservation before FORWARD"
+            )
+        if (
             self.role == "attention"
             and self.negotiated_capabilities.local_counts_version == 1
             and self._local_forward is None
@@ -431,8 +733,11 @@ class HcclStagedTransport:
                 self._report_rejection(str(exc))
                 raise
             if message.kind == "STOP":
-                if self._counts_transaction_id is not None:
-                    raise ValueError("STOP requires an idle count boundary")
+                if (
+                    self._counts_transaction_id is not None
+                    or self._graph_transaction_id is not None
+                ):
+                    raise ValueError("STOP requires an idle count/reservation boundary")
                 self._acknowledge_stop()
                 return None
             if message.kind == "ERROR":
@@ -508,6 +813,14 @@ class HcclStagedTransport:
         ):
             raise ValueError("layer/stage does not match the active parent sequence")
         assert self.plan is not None
+        if (
+            self.plan.graph_execution is not None
+            and self.plan.graph_execution.phase != "eager"
+        ):
+            raise RuntimeError(
+                "graph phases require tensor-only execution and whole-schedule "
+                "completion"
+            )
         stage = self.plan.stages[stage_idx]
         return (
             stage.for_attention(self.role_rank)
@@ -714,6 +1027,29 @@ class HcclStagedTransport:
             self.terminal = True
             raise
 
+    def complete_graph_forward(self, key: HcclGraphKey) -> None:
+        """Retire one graph phase; this API does not prove device execution.
+
+        The owner calls after warmup execution, successful capture recording,
+        or replay, as selected by the accepted phase. Recording alone does not
+        execute the captured payload or validate its output.
+        No Python eager step can run during a graph phase. COMPLETE retains
+        the existing device synchronization and all-world digest handshake.
+        """
+        self._require_active()
+        if (
+            self.plan is None
+            or self.plan.graph_execution is None
+            or self.plan.graph_execution.phase == "eager"
+            or self.plan.graph_execution.key != key
+            or self._pending_inputs is not None
+        ):
+            raise RuntimeError(
+                "graph completion requires the accepted static key and graph phase"
+            )
+        self._steps, self._next_step = iter(()), None
+        self.finish_forward()
+
     def stop_attention(self) -> None:
         """Stop an idle session from every Attention worker, without reports.
 
@@ -722,7 +1058,11 @@ class HcclStagedTransport:
         use the same shutdown handshake. FFN remains in receive_forward.
         """
         self._require_active("attention")
-        if self.plan is not None or self._counts_transaction_id is not None:
+        if (
+            self.plan is not None
+            or self._counts_transaction_id is not None
+            or self._graph_transaction_id is not None
+        ):
             raise RuntimeError("STOP requires an idle parent boundary")
         if self.is_coordinator:
             self.stop()
@@ -747,7 +1087,11 @@ class HcclStagedTransport:
         self._require_active()
         if not self.is_coordinator:
             raise RuntimeError("only Attention0 requests STOP")
-        if self.plan is not None or self._counts_transaction_id is not None:
+        if (
+            self.plan is not None
+            or self._counts_transaction_id is not None
+            or self._graph_transaction_id is not None
+        ):
             raise RuntimeError("STOP requires an idle parent boundary")
         try:
             self._broadcast_control(HcclPlanMessage("STOP"))
@@ -806,6 +1150,8 @@ class HcclStagedTransport:
         self._pending_inputs = None
         self._counts_transaction_id = None
         self._local_forward = None
+        self._graph_transaction_id = None
+        self._graph_decision = None
 
     def close(self) -> None:
         """Destroy plugin groups in reverse creation order, never native TP."""

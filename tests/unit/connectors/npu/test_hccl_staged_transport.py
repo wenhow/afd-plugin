@@ -13,6 +13,7 @@ pytest.importorskip("torch_npu")
 
 from afd_plugin.connectors.npu.hccl_staged_transport import HcclStagedTransport
 from afd_plugin.distributed.hccl import HcclStageLayout
+from afd_plugin.distributed.hccl_graph import HcclGraphReport
 from afd_plugin.distributed.hccl_plan import (
     HcclLocalForward,
     HcclParentPlan,
@@ -20,6 +21,422 @@ from afd_plugin.distributed.hccl_plan import (
     HcclPlanMessage,
 )
 from tests.unit.fakes.hccl import ScriptedStagedControlPeer
+from tests.unit.fakes.hccl_graph_control import (
+    make_graph_control_round,
+    make_graph_key,
+)
+
+
+@pytest.fixture
+def graph_round(monkeypatch):
+    monkeypatch.setattr("torch.npu.synchronize", lambda device: None)
+    return make_graph_control_round()
+
+
+def test_graph_reservation_commits_every_ack_before_native_counts(graph_round):
+    case = graph_round
+    peer = ScriptedStagedControlPeer("attention", 0, case.capabilities, case.incoming)
+    assert (
+        peer.reserve_attention_forward(
+            lambda candidate: case.reports[2],
+            candidate=case.candidate,
+            transaction_id="graph-1",
+        )
+        == case.decision
+    )
+    assert peer.submit_forward(case.local, transaction_id="graph-1") == case.plan
+    kinds = [message.kind for _, _, _, message in peer.transcript]
+    assert kinds[:15] == [
+        *(["GRAPH_QUERY"] * 3),
+        *(["GRAPH_REPORT"] * 3),
+        *(["GRAPH_DECISION"] * 3),
+        *(["GRAPH_ACK"] * 6),
+    ]
+    assert kinds[15] == "COUNTS_REQUEST"
+
+
+@pytest.mark.parametrize("role,role_rank", [("attention", 1), ("ffn", 0)])
+def test_graph_peer_waits_for_query_and_global_commit_before_return(
+    graph_round, role, role_rank
+):
+    case = graph_round
+    peer = ScriptedStagedControlPeer(
+        role, role_rank, case.capabilities, {2: case.peer_incoming}
+    )
+
+    def resolve(candidate):
+        return case.reports[peer.world_rank]
+
+    decision = (
+        peer.reserve_attention_forward(resolve)
+        if role == "attention"
+        else peer.receive_graph_reservation(resolve)
+    )
+    assert decision == case.decision
+    assert [
+        (direction, message.kind) for direction, _, _, message in peer.transcript
+    ] == [
+        ("recv", "GRAPH_QUERY"),
+        ("send", "GRAPH_REPORT"),
+        ("recv", "GRAPH_DECISION"),
+        ("send", "GRAPH_ACK"),
+        ("recv", "GRAPH_ACK"),
+    ]
+
+
+@pytest.mark.parametrize("role,rank", [("attention", 1), ("ffn", 0)])
+def test_graph_idle_peer_acknowledges_stop_without_unsolicited_report(
+    graph_round, role, rank
+):
+    peer = ScriptedStagedControlPeer(
+        role,
+        rank,
+        graph_round.capabilities,
+        {2: [HcclPlanMessage("STOP"), HcclPlanMessage("STOP_ACK")]},
+    )
+
+    def resolve(candidate):
+        return HcclGraphReport("missing")
+
+    decision = (
+        peer.reserve_attention_forward(resolve)
+        if role == "attention"
+        else peer.receive_graph_reservation(resolve)
+    )
+    assert decision is None
+    assert [
+        message.kind
+        for direction, _, _, message in peer.transcript
+        if direction == "send"
+    ] == ["STOP_ACK"]
+    assert peer.terminal
+
+
+@pytest.mark.parametrize("bad_kind", ["report", "ack"])
+def test_graph_coordinator_drains_bad_complete_replies_before_global_error(
+    graph_round, bad_kind
+):
+    case = graph_round
+    index = 0 if bad_kind == "report" else 1
+    case.incoming[0][index] = ValueError("invalid complete graph JSON")
+    peer = ScriptedStagedControlPeer("attention", 0, case.capabilities, case.incoming)
+    with pytest.raises(RuntimeError, match="invalid complete graph JSON"):
+        peer.reserve_attention_forward(
+            lambda candidate: case.reports[2],
+            candidate=case.candidate,
+            transaction_id="graph-1",
+        )
+    events = [
+        (
+            direction,
+            source,
+            message.kind if isinstance(message, HcclPlanMessage) else "bad",
+        )
+        for direction, source, _, message in peer.transcript
+    ]
+    first_error = next(
+        index for index, event in enumerate(events) if event[2] == "ERROR"
+    )
+    assert events[first_error - 3 : first_error] == [
+        (
+            "recv",
+            rank,
+            "bad"
+            if rank == 0
+            else f"GRAPH_{'REPORT' if bad_kind == 'report' else 'ACK'}",
+        )
+        for rank in (0, 1, 3)
+    ]
+    assert peer.terminal and peer.plan is None
+
+
+@pytest.mark.parametrize(
+    "field,value",
+    [("world_rank", 2), ("transaction_id", "stale"), ("graph_digest", "0" * 64)],
+)
+def test_graph_report_cannot_impersonate_another_query_or_sender(
+    graph_round, field, value
+):
+    case = graph_round
+    case.incoming[0][0] = replace(case.report_messages[0], **{field: value})
+    peer = ScriptedStagedControlPeer("attention", 0, case.capabilities, case.incoming)
+    with pytest.raises(RuntimeError, match="query or sender"):
+        peer.reserve_attention_forward(
+            lambda candidate: case.reports[2],
+            candidate=case.candidate,
+            transaction_id="graph-1",
+        )
+    assert peer.terminal
+
+
+def test_graph_miss_selects_eager_geometry_before_input_preparation():
+    case = make_graph_control_round(
+        states=("missing", "ready", "ready", "ready"), eager_rows=(1, 1)
+    )
+    peer = ScriptedStagedControlPeer("attention", 0, case.capabilities, case.incoming)
+    decision = peer.reserve_attention_forward(
+        lambda candidate: case.reports[2],
+        candidate=case.candidate,
+        transaction_id="graph-1",
+    )
+    assert decision.phase == "eager" and decision.padded_tokens == (1, 1)
+    assert (
+        peer.submit_forward(case.local, transaction_id="graph-1").graph_execution
+        == decision
+    )
+
+
+def test_graph_completion_retains_parent_complete_digest_and_releases_reservation(
+    graph_round,
+):
+    case = graph_round
+    peer = ScriptedStagedControlPeer("attention", 0, case.capabilities, case.incoming)
+    peer.reserve_attention_forward(
+        lambda candidate: case.reports[2],
+        candidate=case.candidate,
+        transaction_id="graph-1",
+    )
+    peer.submit_forward(case.local, transaction_id="graph-1")
+    peer.complete_graph_forward(case.candidate.key)
+    sent = [
+        message for direction, _, _, message in peer.transcript if direction == "send"
+    ]
+    assert sent[-3:] == [case.complete] * 3
+    assert peer.plan is None
+    with pytest.raises(RuntimeError, match="graph completion requires"):
+        peer.complete_graph_forward(case.candidate.key)
+
+
+@pytest.mark.parametrize(
+    "operation", ["stop", "second-reservation", "different-id", "actual-rows"]
+)
+def test_reserved_graph_rejects_stop_reentry_or_changed_postprepare_geometry(
+    graph_round, operation
+):
+    case = graph_round
+    peer = ScriptedStagedControlPeer("attention", 0, case.capabilities, case.incoming)
+    peer.reserve_attention_forward(
+        lambda candidate: case.reports[2],
+        candidate=case.candidate,
+        transaction_id="graph-1",
+    )
+    with pytest.raises((ValueError, RuntimeError)):
+        if operation == "stop":
+            peer.stop_attention()
+        elif operation == "second-reservation":
+            peer.reserve_attention_forward(
+                lambda candidate: case.reports[2],
+                candidate=case.candidate,
+                transaction_id="graph-2",
+            )
+        else:
+            peer.submit_forward(
+                case.local
+                if operation == "different-id"
+                else HcclLocalForward("target", (1, 1), (1, 1)),
+                transaction_id="other" if operation == "different-id" else "graph-1",
+            )
+    assert peer.plan is None
+
+
+@pytest.mark.parametrize(
+    "operation", ["wrong-key", "eager-send", "eager-recv", "premature-finish"]
+)
+def test_graph_parent_rejects_partial_eager_execution_and_wrong_completion_key(
+    graph_round, operation
+):
+    case = graph_round
+    peer = ScriptedStagedControlPeer("attention", 0, case.capabilities, case.incoming)
+    peer.reserve_attention_forward(
+        lambda candidate: case.reports[2],
+        candidate=case.candidate,
+        transaction_id="graph-1",
+    )
+    peer.submit_forward(case.local, transaction_id="graph-1")
+    with pytest.raises((ValueError, RuntimeError)):
+        if operation == "wrong-key":
+            peer.complete_graph_forward(make_graph_key(rows=(4,)))
+        elif operation == "eager-send":
+            peer.send_layer_inputs(0, 0, None, None, None)
+        elif operation == "eager-recv":
+            peer.receive_layer_output(0, 0)
+        else:
+            peer.finish_forward()
+    assert peer.plan == case.plan
+
+
+@pytest.mark.parametrize("stage", ["query", "decision"])
+def test_graph_peer_rejects_complete_bad_frame_with_coordinated_error(
+    graph_round, stage
+):
+    case = graph_round
+    incoming = [] if stage == "query" else [case.query]
+    incoming += [
+        ValueError("invalid complete graph JSON"),
+        HcclPlanMessage("ERROR", error="graph rejected"),
+    ]
+    peer = ScriptedStagedControlPeer("ffn", 0, case.capabilities, {2: incoming})
+    with pytest.raises((ValueError, RuntimeError)):
+        peer.receive_graph_reservation(lambda candidate: case.reports[0])
+    sent = [
+        message.kind
+        for direction, _, _, message in peer.transcript
+        if direction == "send"
+    ]
+    assert sent == (["ERROR"] if stage == "query" else ["GRAPH_REPORT", "ERROR"])
+    assert peer.terminal
+
+
+def test_graph_peer_receiving_global_error_does_not_send_an_unsolicited_ack(
+    graph_round,
+):
+    case = graph_round
+    peer = ScriptedStagedControlPeer(
+        "ffn",
+        0,
+        case.capabilities,
+        {2: [case.query, HcclPlanMessage("ERROR", error="peer miss")]},
+    )
+    with pytest.raises(RuntimeError, match="peer miss"):
+        peer.receive_graph_reservation(lambda candidate: case.reports[0])
+    assert [
+        message.kind
+        for direction, _, _, message in peer.transcript
+        if direction == "send"
+    ] == ["GRAPH_REPORT"]
+    assert peer.terminal
+
+
+@pytest.mark.parametrize("boundary", ["report", "ack"])
+def test_graph_broken_io_is_terminal_without_claiming_coordinated_abort(
+    graph_round, boundary
+):
+    case = graph_round
+    case.incoming[0][0 if boundary == "report" else 1] = RuntimeError(
+        "broken graph frame"
+    )
+    peer = ScriptedStagedControlPeer("attention", 0, case.capabilities, case.incoming)
+    with pytest.raises(RuntimeError, match="broken graph frame"):
+        peer.reserve_attention_forward(
+            lambda candidate: case.reports[2],
+            candidate=case.candidate,
+            transaction_id="graph-1",
+        )
+    assert "ERROR" not in [
+        message.kind
+        for direction, _, _, message in peer.transcript
+        if direction == "send"
+    ]
+    assert peer.terminal
+
+
+@pytest.mark.parametrize("changed", ["transaction_id", "graph_digest", "world_rank"])
+def test_graph_peer_rejects_incorrect_global_commit(graph_round, changed):
+    case = graph_round
+    value = {"transaction_id": "other", "graph_digest": "0" * 64, "world_rank": 3}[
+        changed
+    ]
+    case.peer_incoming[-1] = replace(case.acks[2], **{changed: value})
+    peer = ScriptedStagedControlPeer(
+        "ffn", 0, case.capabilities, {2: case.peer_incoming}
+    )
+    with pytest.raises(ValueError, match="global GRAPH_ACK"):
+        peer.receive_graph_reservation(lambda candidate: case.reports[0])
+    assert peer.terminal and peer.plan is None
+
+
+def test_graph_peer_cannot_accept_replay_when_its_cache_report_was_missing(graph_round):
+    case = graph_round
+    incoming = [
+        *case.peer_incoming[:2],
+        HcclPlanMessage("ERROR", error="bad replay decision"),
+    ]
+    peer = ScriptedStagedControlPeer("ffn", 0, case.capabilities, {2: incoming})
+    with pytest.raises(RuntimeError, match="bad replay decision"):
+        peer.receive_graph_reservation(lambda candidate: HcclGraphReport("missing"))
+    assert [
+        message.kind
+        for direction, _, _, message in peer.transcript
+        if direction == "send"
+    ] == ["GRAPH_REPORT", "ERROR"]
+    assert peer.terminal
+
+
+def test_graph_ffn_rejects_stop_between_reservation_and_actual_forward(graph_round):
+    case = graph_round
+    peer = ScriptedStagedControlPeer(
+        "ffn", 0, case.capabilities, {2: [*case.peer_incoming, HcclPlanMessage("STOP")]}
+    )
+    peer.receive_graph_reservation(lambda candidate: case.reports[0])
+    with pytest.raises(ValueError, match="idle count/reservation"):
+        peer.receive_forward()
+    assert [
+        message.kind
+        for direction, _, _, message in peer.transcript
+        if direction == "send"
+    ] == ["GRAPH_REPORT", "GRAPH_ACK"]
+    assert peer.terminal
+
+
+def test_graph_attention_rejects_stop_between_reservation_and_actual_counts(
+    graph_round,
+):
+    case = graph_round
+    peer = ScriptedStagedControlPeer(
+        "attention",
+        1,
+        case.capabilities,
+        {2: [*case.peer_incoming, HcclPlanMessage("STOP")]},
+    )
+    peer.reserve_attention_forward(lambda candidate: case.reports[3])
+    with pytest.raises(ValueError, match="idle graph reservation"):
+        peer.submit_forward(case.local)
+    assert [
+        message.kind
+        for direction, _, _, message in peer.transcript
+        if direction == "send"
+    ] == ["GRAPH_REPORT", "GRAPH_ACK"]
+    assert peer.terminal
+
+
+def test_graph_attention_rejects_changed_counts_request_before_sending_local_counts(
+    graph_round,
+):
+    case = graph_round
+    peer = ScriptedStagedControlPeer(
+        "attention",
+        1,
+        case.capabilities,
+        {
+            2: [
+                *case.peer_incoming,
+                HcclPlanMessage("COUNTS_REQUEST", transaction_id="other"),
+                HcclPlanMessage("ERROR", error="wrong reserved ID"),
+            ]
+        },
+    )
+    peer.reserve_attention_forward(lambda candidate: case.reports[3])
+    with pytest.raises(RuntimeError, match="wrong reserved ID"):
+        peer.submit_forward(case.local)
+    assert [
+        message.kind
+        for direction, _, _, message in peer.transcript
+        if direction == "send"
+    ] == ["GRAPH_REPORT", "GRAPH_ACK", "ERROR"]
+    assert peer.terminal
+
+
+@pytest.mark.parametrize("role", ["attention", "ffn"])
+def test_graph_enabled_peers_require_reservation_before_actual_forward(
+    graph_round, role
+):
+    peer = ScriptedStagedControlPeer(role, 0, graph_round.capabilities, {})
+    with pytest.raises(RuntimeError, match="reserv"):
+        if role == "attention":
+            peer.submit_forward(graph_round.local, transaction_id="graph-1")
+        else:
+            peer.receive_forward()
+    assert peer.transcript == []
 
 
 @pytest.fixture

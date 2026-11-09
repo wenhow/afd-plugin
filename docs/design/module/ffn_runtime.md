@@ -12,6 +12,8 @@ primary_code_paths:
   - "afd_plugin/v1/worker/ffn_worker.py"
   - "afd_plugin/v1/worker/npu/ffn_model_runner.py"
   - "afd_plugin/v1/worker/npu/hccl_v41_ffn_runner.py"
+  - "afd_plugin/v1/worker/npu/hccl_v41_ffn_graph.py"
+  - "afd_plugin/v1/worker/npu/hccl_v41_graph_service.py"
   - "afd_plugin/v1/worker/npu/async_ffn_model_runner.py"
   - "afd_plugin/v1/worker/npu/async_ffn_two_stream.py"
   - "afd_plugin/v1/worker/npu/ffn_worker.py"
@@ -94,6 +96,16 @@ Both roles must use the same U2 configuration. Default U1 and DSpark/U1 retain
 v2; unsupported DSpark/U2 is rejected before the FFN role erases its draft
 identity. Binding leaves native TP ownership and model admission unchanged.
 Full-checkpoint qualification remains pending.
+
+The explicit `HcclV41GraphService` consumes phase reservations before parent
+counts and device payloads. It retains a separate static bank, FULL contexts,
+model body and graph for each key and storage generation. Warmup never
+publishes readiness; capture publishes only after device synchronization, and
+replay refreshes valid counts outside the graph. Its eager branch uses the
+existing staged executor. This service requires paired native TP and an
+isolated FFN configuration; production construction does not select it yet.
+The caller closes its graph cache after acknowledged STOP and before groups.
+Failed captures retain their dependencies for external supervision.
 
 FFN is launched as a `vllm serve` process, and AFD config normalization selects
 its role-specific worker when `worker_cls="auto"`. It does not serve requests.

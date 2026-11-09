@@ -94,6 +94,18 @@ from production admission. CPU seams and the
 boundaries; native HC/indexer/Engram operators and full-model U2 need separate
 target-device qualification.
 
+The separate [graph tensor driver](../../../afd_plugin/model_executor/models/npu/deepseek_v41_graph.py)
+retains those stage views before recording and preserves the same layer-major
+HC/pre_mix, auxiliary and MTP sequence. It uses fixed stage exchange storage
+and tensor masks instead of eager transport cursors. The graph parent enters
+the native captured Engram producer once with unsliced request coordinates;
+children share ordinary readiness events and token views. Unsupported external
+producer layouts must select eager before native input preparation. The native
+ModelWithContext wrapper still owns the single parent metadata frontier and
+Ascend retains final ModelState retirement. CPU arithmetic seams qualify
+scheduling and payload contracts only, without validating native HC, Engram,
+Attention or MoE operators on the target device.
+
 DSpark preparation keeps the native same-checkpoint draft on Attention. The
 loader examines the requested ModelConfig because native DSpark passes its
 draft config separately while retaining the target in VllmConfig. FFN receives

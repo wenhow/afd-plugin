@@ -1,0 +1,216 @@
+{
+  "scope": "C5 CPU module seams with actual dependencies; no NPU validation",
+  "label": "control-003",
+  "head_commit": "45356b2ff0f81e1d3fcf9b660026bdc904738a19",
+  "snapshot_manifest_sha256": "c812931ee16be1418c234403f45fb2e702071d770b9010045dfb333765c9b690",
+  "passed": 519,
+  "failed": 0,
+  "errors": 0,
+  "skipped": 0,
+  "elapsed_seconds": 4.63,
+  "returncode": 0,
+  "cases_by_module": {
+    "tests/unit/distributed/test_hccl_graph.py": 40,
+    "tests/unit/distributed/test_hccl_plan.py": 135,
+    "tests/unit/connectors/npu/test_hccl_staged_transport.py": 84,
+    "tests/unit/connectors/npu/test_hccl_graph_cache.py": 14,
+    "tests/unit/v1/worker/npu/test_hccl_v41_graph.py": 46,
+    "tests/unit/v1/worker/test_npu_model_runner_v2.py": 156,
+    "tests/unit/v1/worker/npu/test_hccl_v41_ubatch_runner.py": 44
+  },
+  "installed_locked_upstream_files_match": 10,
+  "device_probe_started": false,
+  "package_or_upstream_changes": false,
+  "production_source_changes_by_this_task": false,
+  "later_endpoint_cache_delta": {
+    "label": "endpoint-004",
+    "snapshot_manifest_sha256": "c79d6754e7028122f3c12732042864a04f2cb5d6c1a89b115f1965255a5b8f2e",
+    "passed": 38,
+    "failed": 0,
+    "errors": 0,
+    "skipped": 0,
+    "elapsed_seconds": 1.70,
+    "endpoint_sha256": "95a9ae01aef550fd0dd5967aa35458455c74c898ff9909316d89003bedf34ab7",
+    "cache_sha256": "07e45259d4c0ec034f4c7b21e9dcab8aec26eaab8377b328cfa5ec6839e60020",
+    "device_probe_started": false
+  },
+  "later_consumer_delta": {
+    "label": "consumer-005",
+    "snapshot_manifest_sha256": "c0487f0a9f8fc9ee3a0720e1bdabcb0196a97f835c050cd25fa5a2ba64b651db",
+    "passed": 129,
+    "failed": 0,
+    "errors": 0,
+    "skipped": 0,
+    "elapsed_seconds": 3.80,
+    "cases_by_module": {
+      "test_hccl_v41_graph_control.py": 36,
+      "test_hccl_v41_graph.py": 46,
+      "test_hccl_graph_dispatch.py": 23,
+      "test_signatures.py": 10,
+      "test_hccl_graph_cache.py": 14
+    },
+    "controller_sha256": "1680e2922c0e3f1d23a6b060c34ac81b35ca15a875a8832b3e6385ef77b49955",
+    "dispatch_sha256": "4b8800f54dd6cde11a7c1bbf21dc12b8ac24dd70272bbbd4f0f7654693255e0c",
+    "device_probe_started": false
+  },
+  "final_consumer_delta": {
+    "label": "consumer-006",
+    "snapshot_manifest_sha256": "f8a7751d54417617e84a9283a37b9d202323c06626c0233b72caa85dacb8cf23",
+    "passed": 132,
+    "failed": 0,
+    "errors": 0,
+    "skipped": 0,
+    "elapsed_seconds": 3.85,
+    "cases_by_module": {
+      "test_hccl_v41_graph_control.py": 39,
+      "test_hccl_v41_graph.py": 46,
+      "test_hccl_graph_dispatch.py": 23,
+      "test_signatures.py": 10,
+      "test_hccl_graph_cache.py": 14
+    },
+    "controller_sha256": "d961c7ae0ce2ebde9ca80d488b74ee56052843d0e74bc1682404151db792ed54",
+    "transport_sha256": "9ae40a90dab184fc4f1d17f934520318c2bd50eea75b5d082ed284e9a4e79128",
+    "same_controller_and_transport_as_device_label": "native-manager-006",
+    "device_probe_started": false
+  },
+  "model_seams_first_attempt": {
+    "label": "model-seams-007",
+    "snapshot_manifest_sha256": "8b7e9804c3db62d3382b41de6e167483dbf5392e4da5e3ae7f114bace9b972c1",
+    "passed": 187,
+    "failed": 11,
+    "errors": 0,
+    "skipped": 0,
+    "elapsed_seconds": 2.48,
+    "success": false,
+    "failure_groups": {
+      "duplicate batch keyword in A execution fixture": 10,
+      "runner test expected int64 versus actual int32": 1
+    },
+    "device_probe_started": false,
+    "raw_attempt_preserved": true
+  },
+  "model_seams_repaired_and_capture_session_delta": {
+    "label": "model-seams-008",
+    "snapshot_manifest_sha256": "f44d23b580a9db95f2911b26e91a84fd68852531adddee8aae6ffbf5afad861a",
+    "passed": 119,
+    "failed": 0,
+    "errors": 0,
+    "skipped": 0,
+    "elapsed_seconds": 3.36,
+    "cases_by_module": {
+      "test_hccl_v41_ubatch_runner.py": 67,
+      "test_hccl_v41_graph_execution.py": 10,
+      "test_hccl_graph_capture.py": 11,
+      "test_hccl_v41_graph_session.py": 19,
+      "test_signatures.py": 12
+    },
+    "device_probe_started": false
+  },
+  "later_owner_stale_guard_delta": {
+    "label": "owner-009",
+    "snapshot_manifest_sha256": "f09b162a5739b8b2a75655515c39499206098a001ff98004e671db41ce493c31",
+    "execution_sha256": "c021fe036f8083a9bcbd7e17d21bcebbff36eeb46373035d0056a66e88be2f10",
+    "passed": 12,
+    "failed": 0,
+    "errors": 0,
+    "skipped": 0,
+    "elapsed_seconds": 1.96,
+    "device_probe_started": false
+  },
+  "service_first_attempt": {
+    "label": "service-010",
+    "snapshot_manifest_sha256": "84831f3470395f7368111bf42e39119e54707ce64836cca179df2245a6827076",
+    "passed": 129,
+    "failed": 19,
+    "errors": 0,
+    "skipped": 0,
+    "elapsed_seconds": 3.21,
+    "success": false,
+    "cases_by_module": {
+      "test_hccl_v41_u1_graph.py": {"passed": 14, "failed": 0},
+      "test_hccl_v41_graph_service.py": {"passed": 10, "failed": 19},
+      "test_hccl_v41_ubatch_runner.py": {"passed": 70, "failed": 0},
+      "test_hccl_v41_execution.py": {"passed": 22, "failed": 0},
+      "test_signatures.py": {"passed": 13, "failed": 0}
+    },
+    "failure": "F graph service scripted handshake: receive_forward expected ACCEPT",
+    "raw_attempt_preserved": true,
+    "device_probe_started": false
+  },
+  "service_fixture_repair": {
+    "label": "service-fix-011",
+    "snapshot_manifest_sha256": "92b905874fc2fc6f47080010ec7a100b17d3a5efa1961794ac57664fffa82b30",
+    "passed": 29,
+    "failed": 0,
+    "errors": 0,
+    "skipped": 0,
+    "elapsed_seconds": 1.96,
+    "service_sha256": "6a4dcd6c4a56a1bc2a439816269339f2be2377ab01d2046cd66b088b601c9fc3",
+    "test_sha256": "7ff41a85bd3c88fac3949133d2c17deb96faeb8d9032fedc9f588e16bbbe01f7",
+    "fake_sha256": "a7901699d4919878d53a98a8cb0242bbf9009310759bbbefbcb49c124ac0276d",
+    "repair": "scripted peer supplies global ACCEPT after FORWARD; production/test unchanged",
+    "snapshot_exclusions": [
+      "afd_plugin/v1/worker/npu/hccl_v41_graph_coordinator.py",
+      "tests/unit/v1/worker/npu/test_hccl_v41_graph_coordinator.py",
+      "tests/unit/fakes/hccl_v41_graph_coordinator.py"
+    ],
+    "excluded_paths_absent_from_manifest": true,
+    "device_probe_started": false
+  },
+  "stable_integration": {
+    "label": "integration-012",
+    "head_commit": "45356b2ff0f81e1d3fcf9b660026bdc904738a19",
+    "snapshot_manifest_sha256": "92b905874fc2fc6f47080010ec7a100b17d3a5efa1961794ac57664fffa82b30",
+    "same_source_snapshot_as": "service-fix-011",
+    "passed": 2609,
+    "failed": 0,
+    "errors": 0,
+    "skipped": 2,
+    "deselected": 4,
+    "elapsed_seconds_stdout": 43.57,
+    "elapsed_seconds_junit": 43.556,
+    "returncode": 0,
+    "skip_reason": "two DeepSeek V2 proxy fused top-k cases require CUDA",
+    "targets": [
+      "tests/unit/model_executor",
+      "tests/unit/v1/worker",
+      "tests/unit/connectors",
+      "tests/unit/distributed",
+      "tests/unit/compat/npu/test_feature_validation.py",
+      "tests/unit/config/test_validation.py",
+      "tests/unit/compat/npu/test_runtime_config.py",
+      "tests/unit/compat/patches/test_signatures.py"
+    ],
+    "snapshot_exclusions": [
+      "afd_plugin/v1/worker/npu/hccl_v41_graph_coordinator.py",
+      "tests/unit/v1/worker/npu/test_hccl_v41_graph_coordinator.py",
+      "tests/unit/fakes/hccl_v41_graph_coordinator.py"
+    ],
+    "excluded_paths_absent_from_manifest": true,
+    "cases_by_selected_module": {
+      "test_hccl_v41_graph.py": 54,
+      "test_hccl_graph_cache.py": 15,
+      "test_hccl_v41_graph_control.py": 39,
+      "test_hccl_v41_graph_service.py": 29,
+      "test_hccl_graph_stage.py": 29,
+      "test_hccl_v41_ffn_graph.py": 23,
+      "test_hccl_v41_graph_execution.py": 12,
+      "test_hccl_v41_ubatch_runner.py": 70,
+      "test_hccl_v41_execution.py": 22
+    },
+    "geometry_sha256": "38994c5ba42a7325409bece462b2ea385d05bd5ffeb3f908d7feba26dee848da",
+    "cache_sha256": "82a8c52ce2f6429ded6768b1c53949486d3281606a650b05e11836e95a10c285",
+    "controller_sha256": "918c6a036cf6c2686117ed596410f36ec1faa996bb59bad175a1abaa9dbef1ee",
+    "installed_locked_upstream_files_match": 10,
+    "working_tree_manifest_files_match_at_collection": true,
+    "fastapi_version": "0.123.10",
+    "device_probe_started": false,
+    "package_or_upstream_changes": false
+  },
+  "not_acceptance_for": [
+    "device graph capture/replay",
+    "device graph cache",
+    "full model inference",
+    "performance"
+  ]
+}

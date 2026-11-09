@@ -86,6 +86,7 @@ class StagedAttentionPeer(StagedModelPeer):
         self.local_device = 0
         self.initialized, self.closed = True, False
         self.proposals, self.forwards = [], []
+        self.graph_reservation = None
 
     @property
     def is_coordinator(self):
@@ -108,6 +109,7 @@ class StagedAttentionPeer(StagedModelPeer):
                 )
             ),
             local.mode,
+            graph_execution=self.graph_reservation,
         )
         self.proposals.append(local)
         self.forwards.append(self.plan)
@@ -117,6 +119,7 @@ class StagedAttentionPeer(StagedModelPeer):
     def finish_forward(self):
         super().finish_forward()
         self.plan = None
+        self.graph_reservation = None
 
     def stop_attention(self):
         if self.plan is not None:

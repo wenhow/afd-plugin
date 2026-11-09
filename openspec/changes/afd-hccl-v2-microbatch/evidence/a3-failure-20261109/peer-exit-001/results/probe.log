@@ -1,0 +1,5 @@
+{"event": "initialized", "pid": 4096688, "role": "attention"}
+{"event": "initialized", "pid": 4096687, "role": "ffn"}
+{"event": "parent-complete-awaiting-peer-exit", "pid": 4096688, "role": "attention"}
+{"event": "parent-complete-exiting", "pid": 4096687, "role": "ffn"}
+{"event": "closed-native-tp-preserved", "pid": 4096688, "role": "attention"}

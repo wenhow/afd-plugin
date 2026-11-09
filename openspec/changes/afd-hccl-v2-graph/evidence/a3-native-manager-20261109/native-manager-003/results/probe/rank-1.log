@@ -1,0 +1,80 @@
+INFO 11-10 00:11:42 [__init__.py:52] Available plugins for group vllm.platform_plugins:
+INFO 11-10 00:11:42 [__init__.py:54] - ascend -> vllm_ascend:register
+INFO 11-10 00:11:42 [__init__.py:66] Loading plugin ascend
+INFO 11-10 00:11:42 [__init__.py:272] Platform plugin ascend is activated
+INFO 11-10 00:11:42 [platform.py:74] Breakable CUDAGraph on Ascend is opt-in; using VLLM_USE_BREAKABLE_CUDAGRAPH=0.
+WARNING 11-10 00:11:48 [indexer_topk.py:29] Failed to import the DeepSelect extension (vllm._deepselect_C): No module named 'vllm._deepselect_C'
+INFO 11-10 00:11:48 [patch_indexer_kv_dtype.py:102] Patched AttentionConfig.indexer_kv_dtype to accept 'int8' (DeepSeek V4 Ascend indexer K cache dtype).
+INFO 11-10 00:11:48 [patch_kv_cache_dtype.py:117] Patched CacheConfig.cache_dtype to accept 'int8' and 'mxfp8' (Ascend KV cache dtypes).
+INFO 11-10 00:11:48 [__init__.py:112] Registered model loader `<class 'vllm_ascend.model_loader.netloader.netloader.ModelNetLoaderElastic'>` with load format `netloader`
+INFO 11-10 00:11:48 [__init__.py:112] Registered model loader `<class 'vllm_ascend.model_loader.rfork.rfork_loader.RForkModelLoader'>` with load format `rfork`
+WARNING 11-10 00:11:51 [patch_triton.py:332] NPU Triton causal_conv1d_update is unavailable (cannot import name 'causal_conv1d_update_npu' from 'vllm_ascend.ops.triton.mamba.causal_conv1d' (/mnt/workspace/code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/vllm_ascend/ops/triton/mamba/causal_conv1d.py)); falling back to the PyTorch implementation, which syncs per request and therefore stalls ACL graph capture at decode-FULL.
+INFO 11-10 00:11:51 [config.py:849] Detected quantization_config.scale_fmt=ue8m0; enabling UE8M0 for DeepGEMM.
+INFO 11-10 00:11:51 [model.py:692] Resolved architecture: DeepseekV41ForCausalLM
+INFO 11-10 00:11:51 [model.py:715] Defaulting to tokenizer_mode='deepseek_v41' for DeepseekV41ForCausalLM
+INFO 11-10 00:11:51 [model.py:2030] Using max model len 128
+INFO 11-10 00:11:51 [registry.py:146] All limits of multimodal modalities supported by the model are set to 0, running in text-only mode.
+INFO 11-10 00:11:51 [model.py:900] Disabled mm_prefix attention mode because multimodal inputs are configuration-disabled. Attention backends without mm_prefix support may now be selected.
+INFO 11-10 00:11:51 [scheduler.py:288] Chunked prefill is enabled with max_num_batched_tokens=2048.
+WARNING 11-10 00:11:51 [vllm.py:1547] Enforce eager set, disabling torch.compile and CUDAGraphs. This is equivalent to setting -cc.mode=none -cc.cudagraph_mode=none
+WARNING 11-10 00:11:51 [vllm.py:1570] Inductor compilation was disabled by user settings, optimizations settings that are only active during inductor compilation will be ignored.
+INFO 11-10 00:11:51 [kernel.py:416] Final IR op priority after setting platform defaults: IrOpPriorityConfig(rms_norm=['native'], fused_add_rms_norm=['native'], gelu_and_mul_sparse=['native'])
+INFO 11-10 00:11:51 [vllm.py:1780] Cudagraph is disabled under eager mode
+INFO 11-10 00:11:51 [compilation.py:336] Enabled custom fusions: norm_quant, act_quant
+INFO 11-10 00:11:51 [ascend_config.py:359] Dynamic EPLB is False and convert moe's weights to list is False
+INFO 11-10 00:11:51 [ascend_config.py:363] The number of redundant experts is 0
+INFO 11-10 00:11:51 [ascend_config.py:796] FlashComm1 is disabled. Using flashinfer_all2allv as the all2all backend.
+INFO 11-10 00:11:51 [utils.py:40] Wrapping torch.cuda with torch.npu.
+INFO 11-10 00:11:51 [parallel_state.py:1827] world_size=1 rank=0 local_rank=2 distributed_init_method=tcp://127.0.0.1:55347 backend=hccl
+[W1110 00:11:51.082151722 ProcessGroupHCCL.cpp:1294] Warning: The watchdog timeout 45000ms(which is set by init_process_group) is less than or equal to HCCL execution timeout 1836000ms! The plog may not be recorded. (function ProcessGroupHCCL)
+[Gloo] Rank 0 is connected to 0 peer ranks. Expected number of connected peer ranks is : 0
+[Gloo] Rank 0 is connected to 0 peer ranks. Expected number of connected peer ranks is : 0
+[Gloo] Rank 0 is connected to 0 peer ranks. Expected number of connected peer ranks is : 0
+[Gloo] Rank 0 is connected to 0 peer ranks. Expected number of connected peer ranks is : 0
+[Gloo] Rank 0 is connected to 0 peer ranks. Expected number of connected peer ranks is : 0
+[Gloo] Rank 0 is connected to 0 peer ranks. Expected number of connected peer ranks is : 0
+[Gloo] Rank 0 is connected to 0 peer ranks. Expected number of connected peer ranks is : 0
+[rank0]:[W1110 00:11:51.170702562 NPUCachingAllocator.cpp:202] Warning: The current CANN and HDK(driver) versions require processing for 32 padding size, with memory allocation. (function operator())
+[Gloo] Rank 1 is connected to 1 peer ranks. Expected number of connected peer ranks is : 1
+[rank0]:[W1110 00:11:52.895318354 ProcessGroupHCCL.cpp:1294] Warning: The watchdog timeout 45000ms(which is set by init_process_group) is less than or equal to HCCL execution timeout 1836000ms! The plog may not be recorded. (function ProcessGroupHCCL)
+[rank0]:[W1110 00:11:52.897447312 ProcessGroupHCCL.cpp:1294] Warning: The watchdog timeout 45000ms(which is set by init_process_group) is less than or equal to HCCL execution timeout 1836000ms! The plog may not be recorded. (function ProcessGroupHCCL)
+AFD paired component (FULL):   0%|          | 0/4 [00:00<?, ?it/s]AFD paired component (FULL):   0%|          | 0/4 [00:00<?, ?it/s]
+Traceback (most recent call last):
+  File "/mnt/workspace/tmp/afd-c0-20261104.hVgsIf/c5-native-manager-20261109-30dtibkz/snapshot/tests/npu/hccl_graph_manager_probe.py", line 416, in run_worker
+    manager.capture(factory, progress_bar_desc="AFD paired component")
+  File "/mnt/workspace/code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/torch/utils/_contextlib.py", line 124, in decorate_context
+    return func(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "/mnt/workspace/code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/vllm/v1/worker/gpu/cudagraph_utils.py", line 436, in capture
+    forward_fn = create_forward_fn(desc, warmup=True)
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/mnt/workspace/tmp/afd-c0-20261104.hVgsIf/c5-native-manager-20261109-30dtibkz/snapshot/tests/npu/hccl_graph_manager_probe.py", line 410, in factory
+    bundle = allocate(key)
+             ^^^^^^^^^^^^^
+  File "/mnt/workspace/tmp/afd-c0-20261104.hVgsIf/c5-native-manager-20261109-30dtibkz/snapshot/tests/npu/hccl_graph_manager_probe.py", line 181, in allocate
+    endpoint = HcclGraphEndpoint.from_process_group(
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/mnt/workspace/tmp/afd-c0-20261104.hVgsIf/c5-native-manager-20261109-30dtibkz/snapshot/afd_plugin/connectors/npu/hccl_graph.py", line 45, in from_process_group
+    raise ValueError("graph exchange requires a different peer")
+ValueError: graph exchange requires a different peer
+[rank0]: Traceback (most recent call last):
+[rank0]:   File "/mnt/workspace/tmp/afd-c0-20261104.hVgsIf/c5-native-manager-20261109-30dtibkz/snapshot/tests/npu/hccl_graph_manager_probe.py", line 675, in <module>
+[rank0]:     run_worker(options)
+[rank0]:   File "/mnt/workspace/tmp/afd-c0-20261104.hVgsIf/c5-native-manager-20261109-30dtibkz/snapshot/tests/npu/hccl_graph_manager_probe.py", line 416, in run_worker
+[rank0]:     manager.capture(factory, progress_bar_desc="AFD paired component")
+[rank0]:   File "/mnt/workspace/code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/torch/utils/_contextlib.py", line 124, in decorate_context
+[rank0]:     return func(*args, **kwargs)
+[rank0]:            ^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "/mnt/workspace/code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/vllm/v1/worker/gpu/cudagraph_utils.py", line 436, in capture
+[rank0]:     forward_fn = create_forward_fn(desc, warmup=True)
+[rank0]:                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "/mnt/workspace/tmp/afd-c0-20261104.hVgsIf/c5-native-manager-20261109-30dtibkz/snapshot/tests/npu/hccl_graph_manager_probe.py", line 410, in factory
+[rank0]:     bundle = allocate(key)
+[rank0]:              ^^^^^^^^^^^^^
+[rank0]:   File "/mnt/workspace/tmp/afd-c0-20261104.hVgsIf/c5-native-manager-20261109-30dtibkz/snapshot/tests/npu/hccl_graph_manager_probe.py", line 181, in allocate
+[rank0]:     endpoint = HcclGraphEndpoint.from_process_group(
+[rank0]:                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "/mnt/workspace/tmp/afd-c0-20261104.hVgsIf/c5-native-manager-20261109-30dtibkz/snapshot/afd_plugin/connectors/npu/hccl_graph.py", line 45, in from_process_group
+[rank0]:     raise ValueError("graph exchange requires a different peer")
+[rank0]: ValueError: graph exchange requires a different peer
+[ERROR] 2026-11-10-00:11:53 (PID:4101712, Device:2, RankID:-1) ERR99999 UNKNOWN applicaiton exception

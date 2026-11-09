@@ -1,0 +1,14 @@
+{
+  "command": [
+    "ssh",
+    "-F",
+    "C:/Users/zq/.atomgitdevenv/.ssh/config",
+    "-o",
+    "BatchMode=yes",
+    "-o",
+    "ConnectTimeout=15",
+    "devenvc_rissvg.4ff038c993bf40219c03182f786a9def.atomgit.0",
+    "python3 -B /mnt/workspace/tmp/afd-c0-20261104.hVgsIf/c4-failure-20261109-n0lbo77c/run_a3_failure.py --remote-root /mnt/workspace/tmp/afd-c0-20261104.hVgsIf/c4-failure-20261109-n0lbo77c --case compute-cancel --model /mnt/workspace/models/DeepSeek-V4.1-Flash"
+  ],
+  "returncode": 0
+}

@@ -37,6 +37,16 @@ def test_attention_sends_original_payloads_with_group_relative_peer(attention):
         assert torch.equal(message[7], expected)
 
 
+def test_endpoint_uses_its_independent_process_group_rank(monkeypatch):
+    # Native default-world translation reports zero, but this AFD domain's
+    # actual local coordinate is one. Peer zero remains a valid remote peer.
+    group = graph_process_group(monkeypatch, hccl_graph, ranks=(0, 1), group_rank=1)
+    endpoint = HcclGraphEndpoint.from_process_group(group, 0)
+    assert endpoint.peer_group_rank == 0
+    with pytest.raises(ValueError, match="different peer"):
+        HcclGraphEndpoint.from_process_group(group, 1)
+
+
 def test_received_output_updates_the_existing_buffer(attention):
     exchange, recorder = attention
     output = exchange.buffers.output

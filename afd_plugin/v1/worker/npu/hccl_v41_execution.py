@@ -91,7 +91,15 @@ class HcclV41Execution:
                 (int(context.batch_descriptor.num_tokens),),
             )
         transaction_id = None
-        if self.transport.is_coordinator:
+        if self.transport.negotiated_capabilities.graph_execution_version:
+            decision = self.transport.graph_reservation
+            if decision is None or decision.phase != "eager":
+                raise ValueError(
+                    "native eager execution requires its eager reservation"
+                )
+            if self.transport.is_coordinator:
+                transaction_id = decision.transaction_id
+        elif self.transport.is_coordinator:
             self.owner._afd_transaction_counter += 1
             transaction_id = f"native-{self.owner._afd_transaction_counter}"
         plan = self.transport.submit_forward(self.local, transaction_id=transaction_id)

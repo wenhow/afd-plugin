@@ -49,8 +49,10 @@ class GraphCollectiveRecorder:
         return self.incoming.popleft().clone()
 
 
-def graph_process_group(monkeypatch, graph_module, *, backend="hccl", ranks=(10, 20)):
-    group = SimpleNamespace()
+def graph_process_group(
+    monkeypatch, graph_module, *, backend="hccl", ranks=(10, 20), group_rank=0
+):
+    group = SimpleNamespace(rank=lambda: group_rank)
     monkeypatch.setattr(
         graph_module,
         "dist",
@@ -78,10 +80,15 @@ def make_graph_exchange(
     monkeypatch.setattr(
         graph_module.torch.ops.npu_define._recv, "default", recorder.receive
     )
-    buffers = HcclGraphBuffers(
+    return HcclGraphExchange(
+        endpoint, make_graph_buffers(rows=rows, hidden=hidden), role=role
+    ), recorder
+
+
+def make_graph_buffers(*, rows=3, hidden=2):
+    return HcclGraphBuffers(
         torch.zeros((rows, hidden), dtype=torch.bfloat16),
         torch.zeros((rows, hidden), dtype=torch.float32),
         torch.zeros(rows, dtype=torch.int32),
         torch.zeros((rows, hidden), dtype=torch.bfloat16),
     )
-    return HcclGraphExchange(endpoint, buffers, role=role), recorder

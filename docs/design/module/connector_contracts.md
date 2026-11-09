@@ -111,6 +111,24 @@ transport to its model and actual device. The Attention runner and FFN worker
 can explicitly bind this protocol. Native NPU construction also selects it
 for the configured U2 target path, without opening the V4.1 model guard.
 
+The optional `graph_execution_version=1` adds an early phase reservation to
+the v3 component. All peers agree QUERY/REPORT/DECISION/ACK/global ACK before
+native input preparation; the final parent digest includes that reservation.
+Its [CPU records](../../../afd_plugin/distributed/hccl_graph.py) retain static
+request/token stage geometry, while runtime valid counts and IDs remain inputs.
+An FFN cache miss selects eager for every peer. A reservation forbids idle STOP;
+failed preparation requires external supervision. Graph phases use tensor-only
+operations and commit their complete schedule once outside capture/replay.
+Version zero preserves the previous v3 bytes and factory selection.
+
+The [Graph cache](../../../afd_plugin/connectors/npu/hccl_graph_cache.py) belongs
+to one fixed model/transport session. It advertises only completed captures
+after device synchronization and retains graphs together with every dependent
+buffer/view/event bundle. Local native storage generation changes cause a miss.
+Failed or pending resources remain owned until supervised synchronization and
+graph reset permit release. Native Attention managers retain model-state
+updates and replay ownership; this cache does not replace those lifecycles.
+
 ## Factory and construction
 
 `AFDConnectorFactory` stores lazy loaders, so importing the factory does not

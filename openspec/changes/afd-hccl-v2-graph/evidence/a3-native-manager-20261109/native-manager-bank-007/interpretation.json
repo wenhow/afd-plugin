@@ -1,0 +1,55 @@
+{
+  "scope": "actual NPU stage bank with native manager/control component; controlled arithmetic",
+  "snapshot_manifest_sha256": "b2534487ea30eef23579a500388b54ecaab62af1bce8b71ab07189f6a94de9c3",
+  "probe_sha256": "a17e799558e628503e00424a8a2588879558abe455361ba81694024aa920c530",
+  "bank_sha256": "b55e8dce0a72109bfcceaca52163ac2177ca0d0d6697664af64ed3dd4460a00f",
+  "body_and_inner_supervisor": {
+    "status": "passed",
+    "exit_codes": [0, 0],
+    "elapsed_seconds": 31.426948106847703,
+    "supervisor_cleanup": [],
+    "transactions_per_role": {"warmup": 4, "capture": 4, "replay": 12, "eager": 6},
+    "cross_layer_bank_reuse_and_stable_addresses_asserted": true,
+    "logical_tensor_storage_bytes_by_geometry": [552, 556, 1100, 1104],
+    "graph_device_padding_ids_and_ffn_output_mask_asserted": true,
+    "native_tp_after_close_passed": true
+  },
+  "first_outer_sample_preserved": {
+    "path": "results/summary.json",
+    "success": false,
+    "probe_returncode": 0,
+    "upstream_source_files_match": 28,
+    "idle_boards_before": 8,
+    "idle_boards_after": 7,
+    "remaining_pid": 4115288,
+    "remaining_pid_in_observed_bank_owned_process_record": false,
+    "remaining_pid_origin": "unconfirmed",
+    "timed_out": false,
+    "outer_killed_owned_pids": []
+  },
+  "follow_up_read_only_samples": [
+    {
+      "path": "postcheck.json",
+      "all_observed_pids_no_longer_exist": true,
+      "npu_smi_returncode": 127,
+      "error": "unprepared environment lacked libc_sec.so; not an idle measurement"
+    },
+    {
+      "path": "postcheck-002.json",
+      "collected_utc": "2026-11-09T18:10:23.376921+00:00",
+      "all_observed_pids_no_longer_exist": true,
+      "npu_smi_returncode": 0,
+      "idle_boards": 8,
+      "environment": "existing pinned CANN/ATB environment"
+    }
+  ],
+  "process_signals_sent_by_follow_up": [],
+  "exact_recovery_time_or_pid_origin_not_inferred": true,
+  "body_not_repeated": true,
+  "not_acceptance_for": [
+    "real ModelState or ModelAclGraphManager",
+    "Engram or native MoE",
+    "full model or performance",
+    "fault recovery"
+  ]
+}

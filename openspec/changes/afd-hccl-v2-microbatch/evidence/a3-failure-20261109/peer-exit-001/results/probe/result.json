@@ -1,0 +1,110 @@
+{
+  "case": "peer-exit",
+  "scope": "real HCCL quiescent cancellation / between-parent peer exit",
+  "blocked_hccl_abort_exercised": false,
+  "device_fault_recovery_exercised": false,
+  "elapsed_seconds": 28.245353003032506,
+  "timed_out": false,
+  "forced_owned_processes": [],
+  "exit_codes": {
+    "ffn": 17,
+    "attention": 0
+  },
+  "events": [
+    {
+      "event": "initialized",
+      "pid": 4096688,
+      "role": "attention"
+    },
+    {
+      "event": "initialized",
+      "pid": 4096687,
+      "role": "ffn"
+    },
+    {
+      "event": "parent-complete-awaiting-peer-exit",
+      "pid": 4096688,
+      "role": "attention"
+    },
+    {
+      "event": "parent-complete-exiting",
+      "pid": 4096687,
+      "role": "ffn"
+    },
+    {
+      "event": "closed-native-tp-preserved",
+      "pid": 4096688,
+      "role": "attention"
+    }
+  ],
+  "ranks": {
+    "ffn": {
+      "case": "peer-exit",
+      "role": "ffn",
+      "pid": 4096687,
+      "device": 0,
+      "native_tp_size": 1,
+      "checkpoint_weights_loaded": false,
+      "native_moe_executed": false,
+      "ffn_runner_constructor_called": false,
+      "blocked_hccl_abort_exercised": false,
+      "device_fault_recovery_exercised": false,
+      "success": true,
+      "native_tp_before": [
+        1.0
+      ],
+      "received_layer_stages": [
+        [
+          0,
+          0
+        ],
+        [
+          0,
+          1
+        ],
+        [
+          2,
+          0
+        ],
+        [
+          2,
+          1
+        ]
+      ],
+      "first_parent_completed": true,
+      "intentional_exit_code": 17
+    },
+    "attention": {
+      "case": "peer-exit",
+      "role": "attention",
+      "pid": 4096688,
+      "device": 2,
+      "native_tp_size": 1,
+      "checkpoint_weights_loaded": false,
+      "native_moe_executed": false,
+      "ffn_runner_constructor_called": false,
+      "blocked_hccl_abort_exercised": false,
+      "device_fault_recovery_exercised": false,
+      "success": true,
+      "native_tp_before": [
+        1.0
+      ],
+      "accepted_plan_digest": "0f916fcf161cb34cfbf529d945ac961a9cfa00c3540fc54ac600fddd20488bfe",
+      "first_parent_completed": true,
+      "expected_peer_failure": {
+        "type": "RuntimeError",
+        "message": "[/pytorch/third_party/gloo/gloo/transport/tcp/pair.cc:547] Connection closed by peer [192.169.91.106]:14744"
+      },
+      "terminal_after_failure": true,
+      "public_reuse_rejections": {
+        "resubmit": "transport session is not active",
+        "stop": "transport session is not active"
+      },
+      "plugin_closed": true,
+      "native_tp_after_plugin_close": [
+        1.0
+      ]
+    }
+  },
+  "success": true
+}

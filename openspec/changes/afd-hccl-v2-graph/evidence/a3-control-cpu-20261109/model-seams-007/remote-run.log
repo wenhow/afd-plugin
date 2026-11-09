@@ -1,0 +1,110 @@
+{
+  "scope": "CPU module seams with actual installed dependencies; no device probe",
+  "remote": "/mnt/workspace/tmp/afd-c0-20261104.hVgsIf/c5-control-cpu-20261109-z8y7ftvm",
+  "command": [
+    "/mnt/workspace/code/.venvs/afd-v030-dsv41-c0/bin/python",
+    "-B",
+    "-m",
+    "pytest",
+    "-o",
+    "addopts=",
+    "-q",
+    "-rs",
+    "--tb=short",
+    "-p",
+    "no:cacheprovider",
+    "-m",
+    "not npu and not gpu",
+    "--junitxml=/mnt/workspace/tmp/afd-c0-20261104.hVgsIf/c5-control-cpu-20261109-z8y7ftvm/results/cpu.xml",
+    "tests/unit/connectors/npu/test_hccl_graph_stage.py",
+    "tests/unit/v1/worker/npu/test_hccl_v41_ffn_graph.py",
+    "tests/unit/model_executor/models/npu/test_deepseek_v41_graph.py",
+    "tests/unit/v1/worker/npu/test_hccl_v41_graph_execution.py",
+    "tests/unit/v1/worker/npu/test_hccl_v41_ubatch_runner.py",
+    "tests/unit/compat/patches/test_signatures.py",
+    "tests/unit/v1/worker/npu/test_hccl_v41_graph_control.py"
+  ],
+  "returncode": 1,
+  "source_files_match": true,
+  "device_probe_started": false,
+  "success": false
+}
+.......................................................................F [ 36%]
+FFFFFFFFF.................................................F............. [ 72%]
+......................................................                   [100%]
+=================================== FAILURES ===================================
+_ test_native_parent_callback_uses_actual_counts_and_one_unsliced_producer[False-True] _
+tests/unit/v1/worker/npu/test_hccl_v41_graph_execution.py:45: in test_native_parent_callback_uses_actual_counts_and_one_unsliced_producer
+    case = graph_case(warmup=warmup, engram=engram)
+tests/unit/fakes/hccl_v41_graph_execution.py:66: in make_graph_execution_case
+    return SimpleNamespace(
+E   TypeError: types.SimpleNamespace() got multiple values for keyword argument 'batch'
+_ test_native_parent_callback_uses_actual_counts_and_one_unsliced_producer[False-False] _
+tests/unit/v1/worker/npu/test_hccl_v41_graph_execution.py:45: in test_native_parent_callback_uses_actual_counts_and_one_unsliced_producer
+    case = graph_case(warmup=warmup, engram=engram)
+tests/unit/fakes/hccl_v41_graph_execution.py:66: in make_graph_execution_case
+    return SimpleNamespace(
+E   TypeError: types.SimpleNamespace() got multiple values for keyword argument 'batch'
+_ test_native_parent_callback_uses_actual_counts_and_one_unsliced_producer[True-True] _
+tests/unit/v1/worker/npu/test_hccl_v41_graph_execution.py:45: in test_native_parent_callback_uses_actual_counts_and_one_unsliced_producer
+    case = graph_case(warmup=warmup, engram=engram)
+tests/unit/fakes/hccl_v41_graph_execution.py:66: in make_graph_execution_case
+    return SimpleNamespace(
+E   TypeError: types.SimpleNamespace() got multiple values for keyword argument 'batch'
+_ test_native_parent_callback_uses_actual_counts_and_one_unsliced_producer[True-False] _
+tests/unit/v1/worker/npu/test_hccl_v41_graph_execution.py:45: in test_native_parent_callback_uses_actual_counts_and_one_unsliced_producer
+    case = graph_case(warmup=warmup, engram=engram)
+tests/unit/fakes/hccl_v41_graph_execution.py:66: in make_graph_execution_case
+    return SimpleNamespace(
+E   TypeError: types.SimpleNamespace() got multiple values for keyword argument 'batch'
+________ test_foreign_reservation_handle_fails_before_counts_submission ________
+tests/unit/v1/worker/npu/test_hccl_v41_graph_execution.py:75: in test_foreign_reservation_handle_fails_before_counts_submission
+    case = graph_case()
+tests/unit/fakes/hccl_v41_graph_execution.py:66: in make_graph_execution_case
+    return SimpleNamespace(
+E   TypeError: types.SimpleNamespace() got multiple values for keyword argument 'batch'
+______ test_actual_native_request_boundary_mismatch_rejects_before_counts ______
+tests/unit/v1/worker/npu/test_hccl_v41_graph_execution.py:102: in test_actual_native_request_boundary_mismatch_rejects_before_counts
+    case = graph_case()
+tests/unit/fakes/hccl_v41_graph_execution.py:66: in make_graph_execution_case
+    return SimpleNamespace(
+E   TypeError: types.SimpleNamespace() got multiple values for keyword argument 'batch'
+_____ test_foreign_native_wrapper_is_rejected_before_parent_payload[model] _____
+tests/unit/v1/worker/npu/test_hccl_v41_graph_execution.py:120: in test_foreign_native_wrapper_is_rejected_before_parent_payload
+    case = graph_case()
+tests/unit/fakes/hccl_v41_graph_execution.py:66: in make_graph_execution_case
+    return SimpleNamespace(
+E   TypeError: types.SimpleNamespace() got multiple values for keyword argument 'batch'
+___ test_foreign_native_wrapper_is_rejected_before_parent_payload[metadata] ____
+tests/unit/v1/worker/npu/test_hccl_v41_graph_execution.py:120: in test_foreign_native_wrapper_is_rejected_before_parent_payload
+    case = graph_case()
+tests/unit/fakes/hccl_v41_graph_execution.py:66: in make_graph_execution_case
+    return SimpleNamespace(
+E   TypeError: types.SimpleNamespace() got multiple values for keyword argument 'batch'
+__________ test_retired_reservation_cannot_launch_the_prepared_parent __________
+tests/unit/v1/worker/npu/test_hccl_v41_graph_execution.py:140: in test_retired_reservation_cannot_launch_the_prepared_parent
+    case = graph_case()
+tests/unit/fakes/hccl_v41_graph_execution.py:66: in make_graph_execution_case
+    return SimpleNamespace(
+E   TypeError: types.SimpleNamespace() got multiple values for keyword argument 'batch'
+_ test_parent_payload_failure_retains_terminal_state_and_restores_native_context _
+tests/unit/v1/worker/npu/test_hccl_v41_graph_execution.py:159: in test_parent_payload_failure_retains_terminal_state_and_restores_native_context
+    case = graph_case(engram=True)
+tests/unit/fakes/hccl_v41_graph_execution.py:66: in make_graph_execution_case
+    return SimpleNamespace(
+E   TypeError: types.SimpleNamespace() got multiple values for keyword argument 'batch'
+_ test_capture_callback_keeps_one_native_parent_wrapper_and_both_metadata_frontiers[False] _
+tests/unit/v1/worker/npu/test_hccl_v41_ubatch_runner.py:556: in test_capture_callback_keeps_one_native_parent_wrapper_and_both_metadata_frontiers
+    torch.testing.assert_close(output, expected, rtol=0, atol=0)
+E   AssertionError: The values for attribute 'dtype' do not match: torch.int32 != torch.int64.
+=============================== warnings summary ===============================
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/torch/jit/_script.py:362: 14 warnings
+  /mnt/workspace/code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/torch/jit/_script.py:362: DeprecationWarning: `torch.jit.script_method` is deprecated. Please switch to `torch.compile` or `torch.export`.
+    warnings.warn(
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+- generated xml file: /mnt/workspace/tmp/afd-c0-20261104.hVgsIf/c5-control-cpu-20261109-z8y7ftvm/results/cpu.xml -
+11 failed, 187 passed, 14 warnings in 2.48s
+
+
+Warning: Permanently added '[127.0.0.1]:43078' (ED25519) to the list of known hosts.

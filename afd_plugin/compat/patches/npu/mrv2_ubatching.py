@@ -42,6 +42,7 @@ if TYPE_CHECKING:
     from afd_plugin.v1.worker.npu.attention_model_runner_v2 import (
         AFDNPUAttentionModelRunnerV2,
     )
+    from afd_plugin.v1.worker.npu.hccl_v41_ubatch_runner import HcclV41GraphOwner
 
 
 class NPUUBatchContext(ubatching.UBatchContext):
@@ -107,22 +108,46 @@ class NPUUBatchContext(ubatching.UBatchContext):
 
 
 @contextmanager
+def use_npu_ubatch_sm_control() -> Iterator[None]:
+    """Use the existing NPU policy while native UBatchRunner allocates streams.
+
+    Native SMControlContextManager requires CUDA/ROCm. NPU runners and the
+    paired Graph component retain their native stream construction without
+    creating this unsupported GPU resource manager. Restore the exact binding
+    even when construction fails.
+    """
+    original_sm_control = ubatch_utils.create_sm_control_context
+    try:
+        ubatch_utils.create_sm_control_context = lambda parallel: nullcontext()
+        yield
+    finally:
+        ubatch_utils.create_sm_control_context = original_sm_control
+
+
+@contextmanager
 def use_npu_ubatch_factory(
     runner: "AFDNPUAttentionModelRunnerV2",
     *,
     hccl_transport: "HcclStagedTransport | None" = None,
+    hccl_graph_owner: "HcclV41GraphOwner | None" = None,
 ) -> Iterator[None]:
-    """Scope native construction; staged HCCL requires explicit transport injection.
+    """Scope native construction with explicit HCCL transport/graph ownership.
 
     Production callers omit ``hccl_transport`` and retain their existing
-    connector admission. This injection does not open the V4.1 model guard.
+    connector admission. An optional graph owner must belong to that injected
+    transport and passes the controlled runner's graph admission checks. This
+    injection does not open the V4.1 model guard.
     """
+    if hccl_graph_owner is not None and (
+        hccl_transport is None or hccl_graph_owner.transport is not hccl_transport
+    ):
+        raise ValueError("native graph owner must use its injected HCCL transport")
     original_factory = model_runner.maybe_build_ubatch_runner
-    original_sm_control = ubatch_utils.create_sm_control_context
 
     # Patch reason: the native factory builds CUDA runners and excludes DP1.
     # Patch functionality: select the NPU runner, with controlled HCCL U2 at
-    # DP1 only through this scope's added hccl_transport keyword. Ordinary
+    # DP1 only through this scope's added hccl_transport keyword. Its optional
+    # hccl_graph_owner binds the controlled Graph phase session. Ordinary
     # callers retain admission; U1/profile direct model calls are not routed.
     # Signature matches maybe_build_ubatch_runner at ced6857a; no added args
     # on the native factory. Remove when upstream supports NPU runner injection.
@@ -153,6 +178,7 @@ def use_npu_ubatch_factory(
                 kernel_block_sizes=runner.kernel_block_sizes,
                 timeout_s=parse_afd_config(vllm_config).afd_process_group_timeout_s,
                 transport=hccl_transport,
+                graph_owner=hccl_graph_owner,
             )
         if not parallel.use_ubatching or (
             parallel.data_parallel_size <= 1 and not is_afd_async_dp(vllm_config)
@@ -172,11 +198,10 @@ def use_npu_ubatch_factory(
 
     try:
         model_runner.maybe_build_ubatch_runner = maybe_build_ubatch_runner
-        ubatch_utils.create_sm_control_context = lambda parallel: nullcontext()
-        yield
+        with use_npu_ubatch_sm_control():
+            yield
     finally:
         model_runner.maybe_build_ubatch_runner = original_factory
-        ubatch_utils.create_sm_control_context = original_sm_control
 
 
 @contextmanager

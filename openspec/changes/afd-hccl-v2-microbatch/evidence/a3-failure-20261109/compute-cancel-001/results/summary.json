@@ -1,0 +1,25 @@
+{
+  "scope": "quiescent component failures; excludes HCCL abort/device recovery",
+  "remote": "/mnt/workspace/tmp/afd-c0-20261104.hVgsIf/c4-failure-20261109-n0lbo77c",
+  "case": "compute-cancel",
+  "command": [
+    "/mnt/workspace/code/.venvs/afd-v030-dsv41-c0/bin/python",
+    "-B",
+    "/mnt/workspace/tmp/afd-c0-20261104.hVgsIf/c4-failure-20261109-n0lbo77c/snapshot/tests/npu/hccl_staged_failure_probe.py",
+    "--case",
+    "compute-cancel",
+    "--devices",
+    "0,2",
+    "--model",
+    "/mnt/workspace/models/DeepSeek-V4.1-Flash",
+    "--output-dir",
+    "/mnt/workspace/tmp/afd-c0-20261104.hVgsIf/c4-failure-20261109-n0lbo77c/results/probe"
+  ],
+  "source_files_match": true,
+  "returncode": 0,
+  "timed_out": false,
+  "killed_owned_processes": false,
+  "idle_boards_before": 8,
+  "idle_boards_after": 8,
+  "success": true
+}

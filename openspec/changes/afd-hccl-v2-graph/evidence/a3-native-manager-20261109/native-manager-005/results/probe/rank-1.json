@@ -1,0 +1,147 @@
+{
+  "rank": 1,
+  "role": "attention",
+  "device": "npu:2",
+  "scope": "native base manager and HCCL phase/cache component",
+  "checkpoint_weights_loaded": false,
+  "engram_or_native_attention_executed": false,
+  "transactions": [
+    {
+      "id": "capture-1",
+      "phase": "warmup",
+      "key": "e5347fe97597cc9eb8f24162af790c653f20ca569c85264ab758f2f38e2198e5"
+    },
+    {
+      "id": "capture-2",
+      "phase": "capture",
+      "key": "e5347fe97597cc9eb8f24162af790c653f20ca569c85264ab758f2f38e2198e5"
+    },
+    {
+      "id": "capture-3",
+      "phase": "warmup",
+      "key": "9c765bb87c311dafb9d10151213143e7cd86a7fcd6b24c01e4d45e0556d4305f"
+    },
+    {
+      "id": "capture-4",
+      "phase": "capture",
+      "key": "9c765bb87c311dafb9d10151213143e7cd86a7fcd6b24c01e4d45e0556d4305f"
+    },
+    {
+      "id": "capture-5",
+      "phase": "warmup",
+      "key": "5651035d435596fefc68b2aae0f80a16675c9243d39afa310eb87ad67990bfd9"
+    },
+    {
+      "id": "capture-6",
+      "phase": "capture",
+      "key": "5651035d435596fefc68b2aae0f80a16675c9243d39afa310eb87ad67990bfd9"
+    },
+    {
+      "id": "capture-7",
+      "phase": "warmup",
+      "key": "88359666a93d218989ed1a68654af2b6be08400596df3aa05781aaac0588a4bb"
+    },
+    {
+      "id": "capture-8",
+      "phase": "capture",
+      "key": "88359666a93d218989ed1a68654af2b6be08400596df3aa05781aaac0588a4bb"
+    },
+    {
+      "id": "replay-0-0",
+      "phase": "replay",
+      "reason": "requested"
+    },
+    {
+      "id": "replay-0-1",
+      "phase": "replay",
+      "reason": "requested"
+    },
+    {
+      "id": "replay-0-2",
+      "phase": "replay",
+      "reason": "requested"
+    },
+    {
+      "id": "replay-1-0",
+      "phase": "replay",
+      "reason": "requested"
+    },
+    {
+      "id": "replay-1-1",
+      "phase": "replay",
+      "reason": "requested"
+    },
+    {
+      "id": "replay-1-2",
+      "phase": "replay",
+      "reason": "requested"
+    },
+    {
+      "id": "replay-2-0",
+      "phase": "replay",
+      "reason": "requested"
+    },
+    {
+      "id": "replay-2-1",
+      "phase": "replay",
+      "reason": "requested"
+    },
+    {
+      "id": "replay-2-2",
+      "phase": "replay",
+      "reason": "requested"
+    },
+    {
+      "id": "replay-3-0",
+      "phase": "replay",
+      "reason": "requested"
+    },
+    {
+      "id": "replay-3-1",
+      "phase": "replay",
+      "reason": "requested"
+    },
+    {
+      "id": "replay-3-2",
+      "phase": "replay",
+      "reason": "requested"
+    },
+    {
+      "id": "replay-4-0-ffn-generation-miss",
+      "phase": "eager",
+      "reason": "cache_miss"
+    },
+    {
+      "id": "replay-4-1-ffn-generation-miss",
+      "phase": "eager",
+      "reason": "cache_miss"
+    },
+    {
+      "id": "replay-4-2-ffn-generation-miss",
+      "phase": "eager",
+      "reason": "cache_miss"
+    },
+    {
+      "id": "replay-5-0",
+      "phase": "eager",
+      "reason": "cache_miss"
+    },
+    {
+      "id": "replay-5-1",
+      "phase": "eager",
+      "reason": "cache_miss"
+    },
+    {
+      "id": "replay-5-2",
+      "phase": "eager",
+      "reason": "cache_miss"
+    }
+  ],
+  "native_tp_before": [
+    1.0
+  ],
+  "native_tp_after_close": [
+    1.0
+  ],
+  "status": "passed"
+}

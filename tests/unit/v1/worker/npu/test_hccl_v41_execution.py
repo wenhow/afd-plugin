@@ -22,6 +22,7 @@ from vllm_ascend.worker.v2.model_runner import NPUModelRunner
 
 from afd_plugin.connectors.npu.hccl_staged import HcclStagedAFDConnector
 from afd_plugin.connectors.npu.p2p_hccl import P2pHcclAFDConnector
+from afd_plugin.distributed.hccl_graph import HcclGraphDecision
 from afd_plugin.model_executor.models import forward_context as context_module
 from afd_plugin.model_executor.models.npu.deepseek_v41 import (
     AFDDeepseekV41AttentionForCausalLM,
@@ -167,6 +168,28 @@ def test_same_native_entry_alternates_u1_and_u2_without_reusing_parent_ids(nativ
         "native-3",
         "native-4",
     ]
+    assert case.peer.plan is None and not case.peer.terminal
+
+
+@pytest.mark.parametrize("u2,padded", [(False, (8,)), (True, (4, 4))])
+def test_graph_eager_fallback_uses_the_previously_agreed_transaction(
+    native_case, u2, padded
+):
+    case = native_case()
+    case.owner.select_u2 = u2
+    case.peer.negotiated_capabilities = replace(
+        case.peer.negotiated_capabilities, graph_execution_version=1
+    )
+    decision = HcclGraphDecision(
+        "agreed-eager", "eager", "target", None, padded, "requested"
+    )
+    case.peer.graph_reservation = decision
+
+    output, _ = case.owner.execute_model(SimpleNamespace(total_num_scheduled_tokens=5))
+
+    assert output.shape == (8, 4)
+    assert case.peer.forwards[-1].transaction_id == "agreed-eager"
+    assert case.peer.forwards[-1].graph_execution == decision
     assert case.peer.plan is None and not case.peer.terminal
 
 

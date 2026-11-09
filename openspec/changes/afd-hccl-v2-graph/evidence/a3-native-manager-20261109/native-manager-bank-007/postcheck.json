@@ -1,0 +1,41 @@
+{
+  "scope": "read-only postcheck; no process signals",
+  "collected_utc": "2026-11-09T18:04:53.520703+00:00",
+  "observed_first_sample_pid": 4115288,
+  "observed_pid_belongs_to_bank_probe": false,
+  "processes": {
+    "4115288": {
+      "exists": false
+    },
+    "4114629": {
+      "exists": false
+    },
+    "4114631": {
+      "exists": false
+    },
+    "4114630": {
+      "exists": false
+    },
+    "4114779": {
+      "exists": false
+    },
+    "4114793": {
+      "exists": false
+    },
+    "4114795": {
+      "exists": false
+    },
+    "4114778": {
+      "exists": false
+    },
+    "4114792": {
+      "exists": false
+    },
+    "4114794": {
+      "exists": false
+    }
+  },
+  "npu_smi_returncode": 127,
+  "idle_boards": 0,
+  "npu_smi": "npu-smi: error while loading shared libraries: libc_sec.so: cannot open shared object file: No such file or directory\n"
+}

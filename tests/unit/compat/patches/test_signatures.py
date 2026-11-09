@@ -16,6 +16,11 @@ import pytest
         "capture-inputs",
         "camp2p-dispatch",
         "hccl-native-prepare",
+        "hccl-graph-gather",
+        "hccl-graph-dispatch",
+        "hccl-graph-begin",
+        "hccl-graph-capture",
+        "hccl-u1-prepare",
         "npu-model-loader",
         "ds-mxfp8",
         "ds-mxfp4",
@@ -65,6 +70,62 @@ def test_scoped_patch_preserves_upstream_signature(hook):  # long-test: shared t
             valid_tokens=0,
             dummy_run=False,
         ).scope()
+    elif hook in ("hccl-graph-gather", "hccl-graph-dispatch"):
+        pytest.importorskip("torch_npu")
+        pytest.importorskip("vllm_ascend")
+        from vllm.v1.worker.gpu import model_runner
+        from vllm_ascend.worker.v2.model_runner import NPUModelRunner
+
+        from afd_plugin.compat.patches.npu.hccl_graph_dispatch import (
+            use_hccl_graph_dispatch,
+        )
+
+        owner = object.__new__(NPUModelRunner)
+        owner.cudagraph_manager = None
+        owner.parallel_config = SimpleNamespace()
+        owner.gather_batch_req_state = owner.gather_batch_req_state
+        if hook == "hccl-graph-gather":
+            target, symbol = owner, "gather_batch_req_state"
+        else:
+            target, symbol = model_runner, "dispatch_cg_and_sync_dp"
+        scope = use_hccl_graph_dispatch(owner, lambda state, args, desc: desc)
+    elif hook == "hccl-graph-capture":
+        from vllm.v1.worker.gpu.cudagraph_utils import CudaGraphManager
+
+        from afd_plugin.compat.patches.npu.hccl_graph_capture import (
+            use_hccl_graph_capture,
+        )
+
+        target = CudaGraphManager
+        symbol = "capture"
+        scope = use_hccl_graph_capture(
+            object.__new__(CudaGraphManager),
+            before_factory=lambda descriptor, warmup: None,
+            after_capture=lambda: None,
+            fail=lambda: None,
+        )
+    elif hook == "hccl-u1-prepare":
+        pytest.importorskip("torch_npu")
+        pytest.importorskip("vllm_ascend")
+        from afd_plugin.compat.patches.npu.hccl_v41_u1_graph import (
+            use_hccl_v41_u1_preparation,
+        )
+        from tests.unit.fakes.deepseek_v41 import ParentEngramState
+
+        target = ParentEngramState({})
+        target.prepare_attn = target.prepare_attn
+        symbol = "prepare_attn"
+        scope = use_hccl_v41_u1_preparation(target, None, lambda: None)
+    elif hook == "hccl-graph-begin":
+        pytest.importorskip("torch_npu")
+        pytest.importorskip("vllm_ascend")
+        from vllm.v1.worker.gpu.ubatch_utils import UBatchRunner
+
+        from afd_plugin.v1.worker.npu.hccl_v41_ubatch_runner import HcclV41UBatchRunner
+
+        target = UBatchRunner
+        symbol = "begin_capturable_run"
+        scope = patch.object(target, symbol, HcclV41UBatchRunner.begin_capturable_run)
     elif hook == "ds-mxfp8":
         pytest.importorskip("torch_npu")
         pytest.importorskip("vllm_ascend")

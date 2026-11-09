@@ -1,0 +1,29 @@
+{
+  "scope": "CPU module seams with actual installed dependencies; no device probe",
+  "remote": "/mnt/workspace/tmp/afd-c0-20261104.hVgsIf/c5-control-cpu-20261109-g14mm2gy",
+  "command": [
+    "/mnt/workspace/code/.venvs/afd-v030-dsv41-c0/bin/python",
+    "-B",
+    "-m",
+    "pytest",
+    "-o",
+    "addopts=",
+    "-q",
+    "-rs",
+    "--tb=short",
+    "-p",
+    "no:cacheprovider",
+    "-m",
+    "not npu and not gpu",
+    "--junitxml=/mnt/workspace/tmp/afd-c0-20261104.hVgsIf/c5-control-cpu-20261109-g14mm2gy/results/cpu.xml",
+    "tests/unit/distributed/test_hccl_graph.py",
+    "tests/unit/distributed/test_hccl_plan.py",
+    "tests/unit/connectors/npu/test_hccl_staged_transport.py",
+    "tests/unit/connectors/npu/test_hccl_graph_cache.py",
+    "tests/unit/v1/worker/npu/test_hccl_v41_graph.py"
+  ],
+  "returncode": 0,
+  "source_files_match": true,
+  "device_probe_started": false,
+  "success": true
+}

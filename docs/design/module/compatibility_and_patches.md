@@ -53,6 +53,13 @@ in [`test_model_loader.py`](../../../tests/unit/compat/patches/npu/test_model_lo
 signature alignment remains in the shared patch signature table. Full V4.1
 runtime entry is still guarded.
 
+The NPU microbatch construction scope reuses `use_npu_ubatch_sm_control` for
+both the existing runner factory and paired Graph components. The pinned
+upstream SM manager asserts CUDA/ROCm support at construction, so the NPU
+scope supplies the existing no-op policy and restores the selected binding
+on normal and exceptional exit. Native stream/buffer allocation remains
+upstream; this scope adds no device cancellation or model Graph admission.
+
 The explicit `afd_dsv41_mxfp8` general-plugin entry point installs the
 DS MXFP8 Linear and MXFP4 MoE odd scale-pair packing corrections only when
 `AFD_DSV41_MXFP8_SCALE_PATCH=1`. It does not register AFD models or workers.

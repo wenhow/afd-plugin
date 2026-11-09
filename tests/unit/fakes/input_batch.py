@@ -6,6 +6,7 @@ from types import SimpleNamespace
 
 import numpy as np
 import torch
+from vllm.config import CUDAGraphMode
 from vllm_ascend.worker.v2.input_batch import AscendInputBatch, AscendInputBuffers
 
 from tests.unit.fakes.vllm_config import npu_vllm_config
@@ -21,6 +22,15 @@ def make_ascend_batch(real=5, padded=8):
     batch.seq_lens += 12
     batch.seq_lens_cpu_upper_bound += 12
     batch.seq_lens_np = np.array([real + 12], dtype=np.int32)
+    return batch
+
+
+def make_ascend_decode_batch(rows=8):
+    """Real native uniform-query dummy geometry on CPU, without graph capture."""
+    buffers = AscendInputBuffers(rows, rows, torch.device("cpu"))
+    batch = AscendInputBatch.make_dummy(rows, rows, buffers)
+    batch.input_ids.copy_(torch.arange(rows))
+    batch.positions.copy_(torch.arange(rows))
     return batch
 
 
@@ -50,7 +60,9 @@ def snapshot_ascend_child(
     }
 
 
-def make_hccl_ubatch_seam(runner_type, *, model_state, dp_size=1):
+def make_hccl_ubatch_seam(
+    runner_type, *, model_state, dp_size=1, max_num_reqs=2, graph_owner=None
+):
     """Construct only CPU preparation state; no runner device constructor."""
     runner = object.__new__(runner_type)
     runner.vllm_config = npu_vllm_config(
@@ -63,14 +75,19 @@ def make_hccl_ubatch_seam(runner_type, *, model_state, dp_size=1):
     runner.vllm_config.compilation_config.static_forward_context = {}
     runner.parallel_config = runner.vllm_config.parallel_config
     runner.model_state = model_state
+    runner.graph_owner = graph_owner
+    runner._preparing_cg_mode = CUDAGraphMode.NONE
     runner.num_ubatches, runner.dcp_size, runner.dcp_rank = 2, 1, 0
     runner.cp_interleave = 1
     runner.ubatch_query_start_loc = [
-        torch.zeros(3, dtype=torch.int32) for _ in range(2)
+        torch.zeros(max_num_reqs + 1, dtype=torch.int32) for _ in range(2)
     ]
-    runner.ubatch_seq_lens = [torch.zeros(2, dtype=torch.int32) for _ in range(2)]
+    runner.ubatch_seq_lens = [
+        torch.zeros(max_num_reqs, dtype=torch.int32) for _ in range(2)
+    ]
     runner.ubatch_dcp_local_seq_lens = [None, None]
     runner.attn_groups = []
+    runner.stage_attn_groups = [[], []]
     runner.kv_cache_config = SimpleNamespace(
         kv_cache_groups=[SimpleNamespace(layer_names=["layer"])]
     )

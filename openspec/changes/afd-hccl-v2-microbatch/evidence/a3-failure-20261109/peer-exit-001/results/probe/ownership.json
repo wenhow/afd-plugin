@@ -1,0 +1,7 @@
+{
+  "supervisor_pid": 4096686,
+  "worker_pids": {
+    "ffn": 4096687,
+    "attention": 4096688
+  }
+}

@@ -1,0 +1,30 @@
+{
+  "scope": "native base manager/UBR + HCCL phase/cache; controlled arithmetic",
+  "stage_bank": true,
+  "remote": "/mnt/workspace/tmp/afd-c0-20261104.hVgsIf/c5-native-manager-20261109-3evfaply",
+  "command": [
+    "/mnt/workspace/code/.venvs/afd-v030-dsv41-c0/bin/python",
+    "-B",
+    "/mnt/workspace/tmp/afd-c0-20261104.hVgsIf/c5-native-manager-20261109-3evfaply/snapshot/tests/npu/hccl_graph_manager_probe.py",
+    "--devices",
+    "0,2",
+    "--model",
+    "/mnt/workspace/models/DeepSeek-V4.1-Flash",
+    "--timeout",
+    "300",
+    "--output-dir",
+    "/mnt/workspace/tmp/afd-c0-20261104.hVgsIf/c5-native-manager-20261109-3evfaply/results/probe",
+    "--stage-bank"
+  ],
+  "source_files_match": true,
+  "upstream_files_checked": 28,
+  "returncode": 0,
+  "elapsed_seconds": 33.45695399399847,
+  "timed_out": false,
+  "outer_killed_owned_pids": [],
+  "cpu_repeated": false,
+  "idle_boards_before": 8,
+  "idle_boards_after": 7,
+  "success": false
+}
+Warning: Permanently added '[127.0.0.1]:43078' (ED25519) to the list of known hosts.

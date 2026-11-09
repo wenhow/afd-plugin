@@ -1,0 +1,9 @@
+{
+  "scope": "local uploader preparation failure; no SSH or device work started",
+  "command": "run_a3_graph_manager.py --label native-manager-001",
+  "returncode": 1,
+  "error": "UnicodeDecodeError: gbk codec cannot decode byte 0x8e in sources.lock.json at position 3925",
+  "cause": "Windows default encoding used for UTF-8 source lock",
+  "device_probe_started": false,
+  "fix": "read source lock explicitly as UTF-8; use a new evidence label"
+}

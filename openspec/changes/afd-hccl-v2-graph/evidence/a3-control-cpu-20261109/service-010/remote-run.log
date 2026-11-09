@@ -1,0 +1,324 @@
+{
+  "scope": "CPU module seams with actual installed dependencies; no device probe",
+  "remote": "/mnt/workspace/tmp/afd-c0-20261104.hVgsIf/c5-control-cpu-20261109-9m2dgsaa",
+  "command": [
+    "/mnt/workspace/code/.venvs/afd-v030-dsv41-c0/bin/python",
+    "-B",
+    "-m",
+    "pytest",
+    "-o",
+    "addopts=",
+    "-q",
+    "-rs",
+    "--tb=short",
+    "-p",
+    "no:cacheprovider",
+    "-m",
+    "not npu and not gpu",
+    "--junitxml=/mnt/workspace/tmp/afd-c0-20261104.hVgsIf/c5-control-cpu-20261109-9m2dgsaa/results/cpu.xml",
+    "tests/unit/compat/patches/npu/test_hccl_v41_u1_graph.py",
+    "tests/unit/v1/worker/npu/test_hccl_v41_graph_service.py",
+    "tests/unit/v1/worker/npu/test_hccl_v41_ubatch_runner.py",
+    "tests/unit/v1/worker/npu/test_hccl_v41_execution.py",
+    "tests/unit/compat/patches/test_signatures.py"
+  ],
+  "returncode": 1,
+  "source_files_match": true,
+  "device_probe_started": false,
+  "success": false
+}
+..............FFFFFFFFFFFF...FFFFFFF.................................... [ 48%]
+........................................................................ [ 97%]
+....                                                                     [100%]
+=================================== FAILURES ===================================
+_______________ test_graph_phase_sequence_keeps_caller_ownership _______________
+tests/unit/v1/worker/npu/test_hccl_v41_graph_service.py:38: in test_graph_phase_sequence_keeps_caller_ownership
+    assert case.service.execute_step()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/torch/utils/_contextlib.py:124: in decorate_context
+    return func(*args, **kwargs)
+afd_plugin/v1/worker/npu/hccl_v41_graph_service.py:285: in execute_step
+    plan = self.transport.receive_forward()
+afd_plugin/connectors/npu/hccl_staged_transport.py:762: in receive_forward
+    ready = self._expect(self.coordinator_rank, "ACCEPT", plan)
+afd_plugin/connectors/npu/hccl_staged_transport.py:1132: in _expect
+    self._validate_reply(message, kind, plan)
+afd_plugin/connectors/npu/hccl_staged_transport.py:799: in _validate_reply
+    raise ValueError(f"expected {kind}")
+E   ValueError: expected ACCEPT
+_______ test_native_context_capture_flags_and_outer_context_are_restored _______
+tests/unit/v1/worker/npu/test_hccl_v41_graph_service.py:97: in test_native_context_capture_flags_and_outer_context_are_restored
+    assert case.service.execute_step()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/torch/utils/_contextlib.py:124: in decorate_context
+    return func(*args, **kwargs)
+afd_plugin/v1/worker/npu/hccl_v41_graph_service.py:285: in execute_step
+    plan = self.transport.receive_forward()
+afd_plugin/connectors/npu/hccl_staged_transport.py:762: in receive_forward
+    ready = self._expect(self.coordinator_rank, "ACCEPT", plan)
+afd_plugin/connectors/npu/hccl_staged_transport.py:1132: in _expect
+    self._validate_reply(message, kind, plan)
+afd_plugin/connectors/npu/hccl_staged_transport.py:799: in _validate_reply
+    raise ValueError(f"expected {kind}")
+E   ValueError: expected ACCEPT
+_ test_service_owns_inference_mode_across_bank_allocation_and_next_parent_refresh _
+tests/unit/v1/worker/npu/test_hccl_v41_graph_service.py:108: in test_service_owns_inference_mode_across_bank_allocation_and_next_parent_refresh
+    assert case.service.execute_step()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/torch/utils/_contextlib.py:124: in decorate_context
+    return func(*args, **kwargs)
+afd_plugin/v1/worker/npu/hccl_v41_graph_service.py:285: in execute_step
+    plan = self.transport.receive_forward()
+afd_plugin/connectors/npu/hccl_staged_transport.py:762: in receive_forward
+    ready = self._expect(self.coordinator_rank, "ACCEPT", plan)
+afd_plugin/connectors/npu/hccl_staged_transport.py:1132: in _expect
+    self._validate_reply(message, kind, plan)
+afd_plugin/connectors/npu/hccl_staged_transport.py:799: in _validate_reply
+    raise ValueError(f"expected {kind}")
+E   ValueError: expected ACCEPT
+___ test_public_cache_bundle_replacement_rejects_body_storage_mismatch[bank] ___
+tests/unit/v1/worker/npu/test_hccl_v41_graph_service.py:121: in test_public_cache_bundle_replacement_rejects_body_storage_mismatch
+    assert case.service.execute_step()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/torch/utils/_contextlib.py:124: in decorate_context
+    return func(*args, **kwargs)
+afd_plugin/v1/worker/npu/hccl_v41_graph_service.py:285: in execute_step
+    plan = self.transport.receive_forward()
+afd_plugin/connectors/npu/hccl_staged_transport.py:762: in receive_forward
+    ready = self._expect(self.coordinator_rank, "ACCEPT", plan)
+afd_plugin/connectors/npu/hccl_staged_transport.py:1132: in _expect
+    self._validate_reply(message, kind, plan)
+afd_plugin/connectors/npu/hccl_staged_transport.py:799: in _validate_reply
+    raise ValueError(f"expected {kind}")
+E   ValueError: expected ACCEPT
+_ test_public_cache_bundle_replacement_rejects_body_storage_mismatch[contexts] _
+tests/unit/v1/worker/npu/test_hccl_v41_graph_service.py:121: in test_public_cache_bundle_replacement_rejects_body_storage_mismatch
+    assert case.service.execute_step()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/torch/utils/_contextlib.py:124: in decorate_context
+    return func(*args, **kwargs)
+afd_plugin/v1/worker/npu/hccl_v41_graph_service.py:285: in execute_step
+    plan = self.transport.receive_forward()
+afd_plugin/connectors/npu/hccl_staged_transport.py:762: in receive_forward
+    ready = self._expect(self.coordinator_rank, "ACCEPT", plan)
+afd_plugin/connectors/npu/hccl_staged_transport.py:1132: in _expect
+    self._validate_reply(message, kind, plan)
+afd_plugin/connectors/npu/hccl_staged_transport.py:799: in _validate_reply
+    raise ValueError(f"expected {kind}")
+E   ValueError: expected ACCEPT
+_ test_generation_miss_uses_negotiated_fresh_eager_parent_without_replaying_old_graph _
+tests/unit/v1/worker/npu/test_hccl_v41_graph_service.py:150: in test_generation_miss_uses_negotiated_fresh_eager_parent_without_replaying_old_graph
+    assert case.service.execute_step()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/torch/utils/_contextlib.py:124: in decorate_context
+    return func(*args, **kwargs)
+afd_plugin/v1/worker/npu/hccl_v41_graph_service.py:285: in execute_step
+    plan = self.transport.receive_forward()
+afd_plugin/connectors/npu/hccl_staged_transport.py:762: in receive_forward
+    ready = self._expect(self.coordinator_rank, "ACCEPT", plan)
+afd_plugin/connectors/npu/hccl_staged_transport.py:1132: in _expect
+    self._validate_reply(message, kind, plan)
+afd_plugin/connectors/npu/hccl_staged_transport.py:799: in _validate_reply
+    raise ValueError(f"expected {kind}")
+E   ValueError: expected ACCEPT
+_ test_existing_key_rejects_new_capture_phases_even_after_generation_change[0-warmup] _
+tests/unit/v1/worker/npu/test_hccl_v41_graph_service.py:180: in test_existing_key_rejects_new_capture_phases_even_after_generation_change
+    assert case.service.execute_step()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/torch/utils/_contextlib.py:124: in decorate_context
+    return func(*args, **kwargs)
+afd_plugin/v1/worker/npu/hccl_v41_graph_service.py:285: in execute_step
+    plan = self.transport.receive_forward()
+afd_plugin/connectors/npu/hccl_staged_transport.py:762: in receive_forward
+    ready = self._expect(self.coordinator_rank, "ACCEPT", plan)
+afd_plugin/connectors/npu/hccl_staged_transport.py:1132: in _expect
+    self._validate_reply(message, kind, plan)
+afd_plugin/connectors/npu/hccl_staged_transport.py:799: in _validate_reply
+    raise ValueError(f"expected {kind}")
+E   ValueError: expected ACCEPT
+_ test_existing_key_rejects_new_capture_phases_even_after_generation_change[0-capture] _
+tests/unit/v1/worker/npu/test_hccl_v41_graph_service.py:180: in test_existing_key_rejects_new_capture_phases_even_after_generation_change
+    assert case.service.execute_step()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/torch/utils/_contextlib.py:124: in decorate_context
+    return func(*args, **kwargs)
+afd_plugin/v1/worker/npu/hccl_v41_graph_service.py:285: in execute_step
+    plan = self.transport.receive_forward()
+afd_plugin/connectors/npu/hccl_staged_transport.py:762: in receive_forward
+    ready = self._expect(self.coordinator_rank, "ACCEPT", plan)
+afd_plugin/connectors/npu/hccl_staged_transport.py:1132: in _expect
+    self._validate_reply(message, kind, plan)
+afd_plugin/connectors/npu/hccl_staged_transport.py:799: in _validate_reply
+    raise ValueError(f"expected {kind}")
+E   ValueError: expected ACCEPT
+_ test_existing_key_rejects_new_capture_phases_even_after_generation_change[1-warmup] _
+tests/unit/v1/worker/npu/test_hccl_v41_graph_service.py:180: in test_existing_key_rejects_new_capture_phases_even_after_generation_change
+    assert case.service.execute_step()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/torch/utils/_contextlib.py:124: in decorate_context
+    return func(*args, **kwargs)
+afd_plugin/v1/worker/npu/hccl_v41_graph_service.py:285: in execute_step
+    plan = self.transport.receive_forward()
+afd_plugin/connectors/npu/hccl_staged_transport.py:762: in receive_forward
+    ready = self._expect(self.coordinator_rank, "ACCEPT", plan)
+afd_plugin/connectors/npu/hccl_staged_transport.py:1132: in _expect
+    self._validate_reply(message, kind, plan)
+afd_plugin/connectors/npu/hccl_staged_transport.py:799: in _validate_reply
+    raise ValueError(f"expected {kind}")
+E   ValueError: expected ACCEPT
+_ test_existing_key_rejects_new_capture_phases_even_after_generation_change[1-capture] _
+tests/unit/v1/worker/npu/test_hccl_v41_graph_service.py:180: in test_existing_key_rejects_new_capture_phases_even_after_generation_change
+    assert case.service.execute_step()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/torch/utils/_contextlib.py:124: in decorate_context
+    return func(*args, **kwargs)
+afd_plugin/v1/worker/npu/hccl_v41_graph_service.py:285: in execute_step
+    plan = self.transport.receive_forward()
+afd_plugin/connectors/npu/hccl_staged_transport.py:762: in receive_forward
+    ready = self._expect(self.coordinator_rank, "ACCEPT", plan)
+afd_plugin/connectors/npu/hccl_staged_transport.py:1132: in _expect
+    self._validate_reply(message, kind, plan)
+afd_plugin/connectors/npu/hccl_staged_transport.py:799: in _validate_reply
+    raise ValueError(f"expected {kind}")
+E   ValueError: expected ACCEPT
+_ test_changed_owner_after_reservation_rejects_before_any_graph_or_body[generation-storage changed after reservation] _
+tests/unit/v1/worker/npu/test_hccl_v41_graph_service.py:211: in test_changed_owner_after_reservation_rejects_before_any_graph_or_body
+    case.service.execute_step()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/torch/utils/_contextlib.py:124: in decorate_context
+    return func(*args, **kwargs)
+afd_plugin/v1/worker/npu/hccl_v41_graph_service.py:285: in execute_step
+    plan = self.transport.receive_forward()
+afd_plugin/connectors/npu/hccl_staged_transport.py:762: in receive_forward
+    ready = self._expect(self.coordinator_rank, "ACCEPT", plan)
+afd_plugin/connectors/npu/hccl_staged_transport.py:1132: in _expect
+    self._validate_reply(message, kind, plan)
+afd_plugin/connectors/npu/hccl_staged_transport.py:799: in _validate_reply
+    raise ValueError(f"expected {kind}")
+E   ValueError: expected ACCEPT
+
+During handling of the above exception, another exception occurred:
+tests/unit/v1/worker/npu/test_hccl_v41_graph_service.py:210: in test_changed_owner_after_reservation_rejects_before_any_graph_or_body
+    with pytest.raises(ValueError, match=reason):
+E   AssertionError: Regex pattern did not match.
+E    Regex: 'storage changed after reservation'
+E    Input: 'expected ACCEPT'
+_ test_changed_owner_after_reservation_rejects_before_any_graph_or_body[model-model changed inside its transport session] _
+tests/unit/v1/worker/npu/test_hccl_v41_graph_service.py:211: in test_changed_owner_after_reservation_rejects_before_any_graph_or_body
+    case.service.execute_step()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/torch/utils/_contextlib.py:124: in decorate_context
+    return func(*args, **kwargs)
+afd_plugin/v1/worker/npu/hccl_v41_graph_service.py:285: in execute_step
+    plan = self.transport.receive_forward()
+afd_plugin/connectors/npu/hccl_staged_transport.py:762: in receive_forward
+    ready = self._expect(self.coordinator_rank, "ACCEPT", plan)
+afd_plugin/connectors/npu/hccl_staged_transport.py:1132: in _expect
+    self._validate_reply(message, kind, plan)
+afd_plugin/connectors/npu/hccl_staged_transport.py:799: in _validate_reply
+    raise ValueError(f"expected {kind}")
+E   ValueError: expected ACCEPT
+
+During handling of the above exception, another exception occurred:
+tests/unit/v1/worker/npu/test_hccl_v41_graph_service.py:210: in test_changed_owner_after_reservation_rejects_before_any_graph_or_body
+    with pytest.raises(ValueError, match=reason):
+E   AssertionError: Regex pattern did not match.
+E    Regex: 'model changed inside its transport session'
+E    Input: 'expected ACCEPT'
+_ test_failed_graph_phase_is_terminal_keeps_resources_and_sends_no_complete[warmup] _
+tests/unit/v1/worker/npu/test_hccl_v41_graph_service.py:265: in test_failed_graph_phase_is_terminal_keeps_resources_and_sends_no_complete
+    case.service.execute_step()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/torch/utils/_contextlib.py:124: in decorate_context
+    return func(*args, **kwargs)
+afd_plugin/v1/worker/npu/hccl_v41_graph_service.py:285: in execute_step
+    plan = self.transport.receive_forward()
+afd_plugin/connectors/npu/hccl_staged_transport.py:762: in receive_forward
+    ready = self._expect(self.coordinator_rank, "ACCEPT", plan)
+afd_plugin/connectors/npu/hccl_staged_transport.py:1132: in _expect
+    self._validate_reply(message, kind, plan)
+afd_plugin/connectors/npu/hccl_staged_transport.py:799: in _validate_reply
+    raise ValueError(f"expected {kind}")
+E   ValueError: expected ACCEPT
+_ test_failed_graph_phase_is_terminal_keeps_resources_and_sends_no_complete[capture] _
+tests/unit/v1/worker/npu/test_hccl_v41_graph_service.py:265: in test_failed_graph_phase_is_terminal_keeps_resources_and_sends_no_complete
+    case.service.execute_step()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/torch/utils/_contextlib.py:124: in decorate_context
+    return func(*args, **kwargs)
+afd_plugin/v1/worker/npu/hccl_v41_graph_service.py:285: in execute_step
+    plan = self.transport.receive_forward()
+afd_plugin/connectors/npu/hccl_staged_transport.py:762: in receive_forward
+    ready = self._expect(self.coordinator_rank, "ACCEPT", plan)
+afd_plugin/connectors/npu/hccl_staged_transport.py:1132: in _expect
+    self._validate_reply(message, kind, plan)
+afd_plugin/connectors/npu/hccl_staged_transport.py:799: in _validate_reply
+    raise ValueError(f"expected {kind}")
+E   ValueError: expected ACCEPT
+_ test_failed_graph_phase_is_terminal_keeps_resources_and_sends_no_complete[body] _
+tests/unit/v1/worker/npu/test_hccl_v41_graph_service.py:265: in test_failed_graph_phase_is_terminal_keeps_resources_and_sends_no_complete
+    case.service.execute_step()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/torch/utils/_contextlib.py:124: in decorate_context
+    return func(*args, **kwargs)
+afd_plugin/v1/worker/npu/hccl_v41_graph_service.py:285: in execute_step
+    plan = self.transport.receive_forward()
+afd_plugin/connectors/npu/hccl_staged_transport.py:762: in receive_forward
+    ready = self._expect(self.coordinator_rank, "ACCEPT", plan)
+afd_plugin/connectors/npu/hccl_staged_transport.py:1132: in _expect
+    self._validate_reply(message, kind, plan)
+afd_plugin/connectors/npu/hccl_staged_transport.py:799: in _validate_reply
+    raise ValueError(f"expected {kind}")
+E   ValueError: expected ACCEPT
+_ test_failed_graph_phase_is_terminal_keeps_resources_and_sends_no_complete[publish] _
+tests/unit/v1/worker/npu/test_hccl_v41_graph_service.py:265: in test_failed_graph_phase_is_terminal_keeps_resources_and_sends_no_complete
+    case.service.execute_step()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/torch/utils/_contextlib.py:124: in decorate_context
+    return func(*args, **kwargs)
+afd_plugin/v1/worker/npu/hccl_v41_graph_service.py:285: in execute_step
+    plan = self.transport.receive_forward()
+afd_plugin/connectors/npu/hccl_staged_transport.py:762: in receive_forward
+    ready = self._expect(self.coordinator_rank, "ACCEPT", plan)
+afd_plugin/connectors/npu/hccl_staged_transport.py:1132: in _expect
+    self._validate_reply(message, kind, plan)
+afd_plugin/connectors/npu/hccl_staged_transport.py:799: in _validate_reply
+    raise ValueError(f"expected {kind}")
+E   ValueError: expected ACCEPT
+_ test_failed_graph_phase_is_terminal_keeps_resources_and_sends_no_complete[replay] _
+tests/unit/v1/worker/npu/test_hccl_v41_graph_service.py:249: in test_failed_graph_phase_is_terminal_keeps_resources_and_sends_no_complete
+    assert case.service.execute_step()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/torch/utils/_contextlib.py:124: in decorate_context
+    return func(*args, **kwargs)
+afd_plugin/v1/worker/npu/hccl_v41_graph_service.py:285: in execute_step
+    plan = self.transport.receive_forward()
+afd_plugin/connectors/npu/hccl_staged_transport.py:762: in receive_forward
+    ready = self._expect(self.coordinator_rank, "ACCEPT", plan)
+afd_plugin/connectors/npu/hccl_staged_transport.py:1132: in _expect
+    self._validate_reply(message, kind, plan)
+afd_plugin/connectors/npu/hccl_staged_transport.py:799: in _validate_reply
+    raise ValueError(f"expected {kind}")
+E   ValueError: expected ACCEPT
+_ test_foreign_cached_model_or_session_is_rejected_during_query[model-FFN graph model changed inside its transport session] _
+tests/unit/v1/worker/npu/test_hccl_v41_graph_service.py:288: in test_foreign_cached_model_or_session_is_rejected_during_query
+    assert case.service.execute_step()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/torch/utils/_contextlib.py:124: in decorate_context
+    return func(*args, **kwargs)
+afd_plugin/v1/worker/npu/hccl_v41_graph_service.py:285: in execute_step
+    plan = self.transport.receive_forward()
+afd_plugin/connectors/npu/hccl_staged_transport.py:762: in receive_forward
+    ready = self._expect(self.coordinator_rank, "ACCEPT", plan)
+afd_plugin/connectors/npu/hccl_staged_transport.py:1132: in _expect
+    self._validate_reply(message, kind, plan)
+afd_plugin/connectors/npu/hccl_staged_transport.py:799: in _validate_reply
+    raise ValueError(f"expected {kind}")
+E   ValueError: expected ACCEPT
+_ test_foreign_cached_model_or_session_is_rejected_during_query[groups-FFN graph resources belong to another model/session] _
+tests/unit/v1/worker/npu/test_hccl_v41_graph_service.py:288: in test_foreign_cached_model_or_session_is_rejected_during_query
+    assert case.service.execute_step()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/torch/utils/_contextlib.py:124: in decorate_context
+    return func(*args, **kwargs)
+afd_plugin/v1/worker/npu/hccl_v41_graph_service.py:285: in execute_step
+    plan = self.transport.receive_forward()
+afd_plugin/connectors/npu/hccl_staged_transport.py:762: in receive_forward
+    ready = self._expect(self.coordinator_rank, "ACCEPT", plan)
+afd_plugin/connectors/npu/hccl_staged_transport.py:1132: in _expect
+    self._validate_reply(message, kind, plan)
+afd_plugin/connectors/npu/hccl_staged_transport.py:799: in _validate_reply
+    raise ValueError(f"expected {kind}")
+E   ValueError: expected ACCEPT
+=============================== warnings summary ===============================
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/torch/jit/_script.py:362: 14 warnings
+  /mnt/workspace/code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/torch/jit/_script.py:362: DeprecationWarning: `torch.jit.script_method` is deprecated. Please switch to `torch.compile` or `torch.export`.
+    warnings.warn(
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+- generated xml file: /mnt/workspace/tmp/afd-c0-20261104.hVgsIf/c5-control-cpu-20261109-9m2dgsaa/results/cpu.xml -
+19 failed, 129 passed, 14 warnings in 3.21s
+
+
+Warning: Permanently added '[127.0.0.1]:43078' (ED25519) to the list of known hosts.

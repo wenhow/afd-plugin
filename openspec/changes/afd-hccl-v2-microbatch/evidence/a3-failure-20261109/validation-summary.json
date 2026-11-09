@@ -1,0 +1,53 @@
+{
+  "scope": "C4 real-NPU quiescent-boundary compute failure/external cooperative cancellation and between-parent peer exit",
+  "date": "2026-11-09",
+  "head_commit": "45356b2ff0f81e1d3fcf9b660026bdc904738a19",
+  "probe_sha256": "7f844a39823624117a5cfe1ecdea9b3b2ac08ede27ce04fd238d9f8fef9f9b87",
+  "oracle_sha256": "96112b8192e2f1ff1a186b46f3f4d2f71910e1c15fd5ea4c7fe9821c744b796d",
+  "cases": [
+    {
+      "label": "compute-cancel-001",
+      "success": true,
+      "elapsed_seconds": 27.30143504869193,
+      "snapshot_manifest_sha256": "80996fcd5a8c581cfa9daa3cfe2eeabd1efad0e66e751e07c84ad81ff3994bc3",
+      "transport_sha256": "8f38cb4e43c33d4431d975b36890b2659c39cf9e02691f622b25ce050bb24c63",
+      "exit_codes": {"ffn": 0, "attention": 0},
+      "native_tp_preserved_after_plugin_close": ["ffn", "attention"]
+    },
+    {
+      "label": "peer-exit-001",
+      "success": true,
+      "elapsed_seconds": 28.245353003032506,
+      "snapshot_manifest_sha256": "f9366a6a0f1827210a870567bbf3f0b1929585c6cf9c1732a11928b63ce31c64",
+      "transport_sha256": "5ec889818e2291fa441335c50c22bdb8bb2b3ffd838354bdbed2827585fc15a3",
+      "exit_codes": {"ffn": 17, "attention": 0},
+      "intentional_peer_exit_code": 17,
+      "next_parent_error": "RuntimeError: Gloo connection closed by peer",
+      "terminal_reuse_and_stop_rejected": true,
+      "native_tp_preserved_after_plugin_close": ["attention"]
+    }
+  ],
+  "all_cases": {
+    "topology": "1A1F native TP1",
+    "devices": [0, 2],
+    "timed_out": false,
+    "forced_owned_processes": [],
+    "idle_boards_before": 8,
+    "idle_boards_after": 8,
+    "locked_installed_upstream_files_match": 10
+  },
+  "not_exercised": [
+    "abort of blocked HCCL",
+    "device fault recovery",
+    "failed peer recovery within a native TP group",
+    "production CANCEL protocol",
+    "F worker or model constructor",
+    "checkpoint weight loading",
+    "native MoE/HC/indexer/Engram producer",
+    "full model inference or performance"
+  ],
+  "local_checks": ["Ruff check", "Ruff format check", "Python 3.11 AST", "probe --help"],
+  "production_source_changes_by_this_task": false,
+  "package_or_upstream_changes": false,
+  "device_resources_released": true
+}

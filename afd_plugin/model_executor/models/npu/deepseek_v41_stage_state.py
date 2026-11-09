@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: Copyright contributors to the AFD plugin project
-"""Eager, single-thread V4.1 shared-attention buffer views for one parent.
+"""Single-thread V4.1 shared-attention buffer views for one parent.
 
 The native reset is a no-op. Index sources and consumers instead share four
 fixed buffers and address their leading token rows. Binding disjoint parent
@@ -8,8 +8,10 @@ views keeps that native per-stage sharing without copying storage or KV caches.
 
 This component is not installed by the production model guard. Offset views
 still need validation with the target device operators. The scoped Python
-bindings are for a single-thread eager driver, not concurrent model forwards,
-graph capture or cross-stream ownership.
+bindings serve eager execution and controlled static graph recording on one
+owning thread. The graph driver constructs and retains these views before
+capture; replay reads the recorded addresses without rebinding Python objects.
+Concurrent model forwards and cross-stream ownership require separate support.
 """
 
 from __future__ import annotations

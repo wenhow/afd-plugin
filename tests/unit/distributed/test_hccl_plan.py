@@ -18,6 +18,95 @@ from afd_plugin.distributed.hccl_plan import (
     decode_hccl_plan_message,
     encode_hccl_plan_message,
 )
+from tests.unit.fakes.hccl_graph_control import make_graph_control_round
+
+
+@pytest.fixture
+def graph_round():
+    return make_graph_control_round()
+
+
+@pytest.mark.parametrize(
+    "kind", ["GRAPH_QUERY", "GRAPH_REPORT", "GRAPH_DECISION", "GRAPH_ACK", "FORWARD"]
+)
+def test_graph_capability_messages_round_trip_with_reserved_geometry(graph_round, kind):
+    case = graph_round
+    messages = {
+        "GRAPH_QUERY": case.query,
+        "GRAPH_REPORT": case.report_messages[0],
+        "GRAPH_DECISION": HcclPlanMessage(
+            "GRAPH_DECISION", graph_decision=case.decision
+        ),
+        "GRAPH_ACK": case.acks[0],
+        "FORWARD": HcclPlanMessage("FORWARD", plan=case.plan),
+    }
+    assert (
+        decode_hccl_plan_message(encode_hccl_plan_message(messages[kind]))
+        == messages[kind]
+    )
+
+
+def test_graph_capability_requires_exact_peer_version_and_local_counts(graph_round):
+    cap = graph_round.capabilities
+    with pytest.raises(ValueError, match="graph_execution_version"):
+        cap.negotiate(replace(cap, graph_execution_version=0))
+    with pytest.raises(ValueError, match="local_counts_version=1"):
+        replace(cap, local_counts_version=0).validate()
+
+
+@pytest.mark.parametrize("value", [True, 2, -1, "1"])
+def test_graph_capability_rejects_non_version_integer(graph_round, value):
+    with pytest.raises(ValueError, match="graph_execution_version"):
+        replace(graph_round.capabilities, graph_execution_version=value).validate()
+
+
+def test_graph_zero_keeps_pre_extension_hello_fields(capabilities):
+    message = HcclPlanMessage(
+        "HELLO", role="attention", world_rank=2, capabilities=capabilities
+    )
+    wire = json.loads(encode_hccl_plan_message(message))
+    assert "graph_execution_version" not in wire["capabilities"]
+
+
+def test_graph_parent_digest_binds_phase_and_static_key(graph_round):
+    plan = graph_round.plan
+    changed = replace(
+        plan, graph_execution=replace(plan.graph_execution, phase="capture")
+    )
+    assert changed.digest != plan.digest
+
+
+@pytest.mark.parametrize("change", ["id", "mode", "rows", "capability"])
+def test_graph_parent_rejects_unreserved_actual_plan(graph_round, change):
+    case = graph_round
+    with pytest.raises(ValueError, match="graph"):
+        if change == "id":
+            replace(case.plan, transaction_id="stale")
+        elif change == "mode":
+            replace(case.plan, mode="dummy")
+        elif change == "rows":
+            replace(
+                case.plan,
+                stages=(
+                    HcclStageLayout(0, (1, 1), (1, 1), 2, 2),
+                    *case.plan.stages[1:],
+                ),
+            )
+        else:
+            case.plan.validate(replace(case.capabilities, graph_execution_version=0))
+
+
+@pytest.mark.parametrize("kind", ["GRAPH_QUERY", "GRAPH_REPORT", "GRAPH_ACK"])
+def test_graph_message_rejects_unknown_nested_fields(graph_round, kind):
+    message = {
+        "GRAPH_QUERY": graph_round.query,
+        "GRAPH_REPORT": graph_round.report_messages[0],
+        "GRAPH_ACK": graph_round.acks[0],
+    }[kind]
+    wire = json.loads(encode_hccl_plan_message(message))
+    wire["unexpected"] = 1
+    with pytest.raises(ValueError, match="unexpected"):
+        decode_hccl_plan_message(json.dumps(wire).encode())
 
 
 @pytest.fixture

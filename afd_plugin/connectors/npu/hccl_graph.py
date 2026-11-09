@@ -41,7 +41,10 @@ class HcclGraphEndpoint:
         if peer_world_rank not in ranks:
             raise ValueError("graph peer is outside the process group")
         peer_group_rank = ranks.index(peer_world_rank)
-        if peer_group_rank == dist.get_rank(group):
+        # AFD groups can have a rank domain independent of the native default
+        # world. dist.get_rank(group) translates through that default world;
+        # ProcessGroup.rank() is the actual coordinate of this domain.
+        if peer_group_rank == group.rank():
             raise ValueError("graph exchange requires a different peer")
         # Explicitly register the real torch-npu operators before any capture.
         # This deferred import keeps NPU initialization at the endpoint boundary.

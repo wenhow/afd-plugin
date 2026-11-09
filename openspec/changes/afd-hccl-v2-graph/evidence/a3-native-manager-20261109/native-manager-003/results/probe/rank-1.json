@@ -1,0 +1,17 @@
+{
+  "rank": 1,
+  "role": "attention",
+  "device": "npu:2",
+  "scope": "native base manager and HCCL phase/cache component",
+  "checkpoint_weights_loaded": false,
+  "engram_or_native_attention_executed": false,
+  "transactions": [],
+  "native_tp_before": [
+    1.0
+  ],
+  "status": "failed",
+  "error": {
+    "type": "ValueError",
+    "message": "graph exchange requires a different peer"
+  }
+}

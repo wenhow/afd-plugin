@@ -1,0 +1,6 @@
+{"event": "initialized", "pid": 4095470, "role": "attention"}
+{"event": "initialized", "pid": 4095469, "role": "ffn"}
+{"event": "inputs-sent-awaiting-cancel", "pid": 4095470, "role": "attention"}
+{"event": "compute-failed", "pid": 4095469, "role": "ffn"}
+{"event": "closed-native-tp-preserved", "pid": 4095470, "role": "attention"}
+{"event": "closed-native-tp-preserved", "pid": 4095469, "role": "ffn"}
