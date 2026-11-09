@@ -5,21 +5,19 @@
 from __future__ import annotations
 
 from contextlib import nullcontext
+from copy import deepcopy
 from types import SimpleNamespace
 
 import pytest
 
-# The validator parses connector extra config, which imports vLLM.
-pytest.importorskip("vllm")
-
-from afd_plugin.compat.npu import (  # noqa: E402
+from afd_plugin.compat.npu import (
     fail_if_unsupported_npu_afd_features,
     npu_afd_num_ubatches,
 )
-from tests.unit.fakes.vllm_config import (  # noqa: E402
+from tests.unit.fakes.vllm_config import (
     async_moe_config as _async_moe_config,
 )
-from tests.unit.fakes.vllm_config import (  # noqa: E402
+from tests.unit.fakes.vllm_config import (
     npu_vllm_config as _vllm_config,
 )
 
@@ -27,6 +25,58 @@ TWO_UBATCH_DBO = dict(
     enable_dbo=True, use_ubatching=True, num_ubatches=2, ubatch_size=4
 )
 ASYNC_CAM = dict(connector="CAMAsyncAFDConnector", async_dp=True)
+
+
+@pytest.fixture
+def vllm_connector_runtime():
+    # Only connector parsing requires vLLM; early config rejection is CPU safe.
+    pytest.importorskip("vllm")
+
+
+@pytest.mark.parametrize("role", ["attention", "ffn"])
+@pytest.mark.parametrize(
+    "connector", ["CAMP2pAFDConnector", "CAMAsyncAFDConnector", "P2pNcclAFDConnector"]
+)
+@pytest.mark.parametrize(
+    "model_type,architecture",
+    [
+        ("deepseek_v41", None),
+        ("deepseek_v41", "DeepseekV41ForCausalLM"),
+        ("custom", "DeepseekV41ForCausalLM"),
+        ("custom", "AFDDeepseekV41ForCausalLM"),
+        ("deepseek_v4", "DeepseekV41ForCausalLM"),
+    ],
+)
+def test_npu_validation_rejects_v41_before_connector_initialization(
+    role, connector, model_type, architecture
+):
+    config = _vllm_config(role=role, connector=connector)
+    config.model_config.hf_config.model_type = model_type
+    config.model_config.hf_config.architectures = (
+        [architecture] if architecture else None
+    )
+    before = deepcopy(config)
+    with pytest.raises(RuntimeError, match="DeepSeek V4.1 NPU AFD is not available"):
+        fail_if_unsupported_npu_afd_features(config)
+    assert config == before
+
+
+@pytest.mark.parametrize(
+    "model_type,architecture",
+    [
+        ("deepseek_v4", None),
+        ("custom", "DeepseekV4ForCausalLM"),
+        ("custom", "AFDDeepseekV4ForCausalLM"),
+    ],
+)
+def test_npu_validation_rejects_v4_without_token_id_transport(model_type, architecture):
+    config = _vllm_config(connector="P2pNcclAFDConnector")
+    config.model_config.hf_config.model_type = model_type
+    config.model_config.hf_config.architectures = (
+        [architecture] if architecture else None
+    )
+    with pytest.raises(RuntimeError, match="DSV4 NPU AFD supports only"):
+        fail_if_unsupported_npu_afd_features(config)
 
 
 def _config_with(*, model=None, max_num_batched_tokens=None, **kwargs):
@@ -177,6 +227,7 @@ def _mla_dbo(cudagraph_mode, **model_fields):
         ),
     ],
 )
+@pytest.mark.usefixtures("vllm_connector_runtime")
 def test_npu_feature_validation(config, error):
     with (
         pytest.raises((RuntimeError, ValueError), match=error)
@@ -204,6 +255,7 @@ def test_npu_afd_num_ubatches_reads_two_ubatch_dbo():
         ("0.01_5625", 4096, True),
     ],
 )
+@pytest.mark.usefixtures("vllm_connector_runtime")
 def test_npu_async_feature_validation_checks_receive_capacity(
     monkeypatch,
     role,
@@ -262,6 +314,7 @@ def test_npu_async_feature_validation_checks_receive_capacity(
         ({}, {}, "deepseek_v2", False, "DeepSeek-V2/V3 MLA"),
     ],
 )
+@pytest.mark.usefixtures("vllm_connector_runtime")
 def test_npu_async_mrv2_feature_boundaries(
     extra_config, additional_config, model_type, use_mla, error
 ):
@@ -285,6 +338,7 @@ def test_npu_async_mrv2_feature_boundaries(
 )
 @pytest.mark.parametrize("tp_size,use_sp", [(1, False), (2, False), (2, True)])
 @pytest.mark.parametrize("local_ubatching", [False, True])
+@pytest.mark.usefixtures("vllm_connector_runtime")
 def test_npu_async_mrv2_features_allow_model_layouts(
     model_type, use_mla, tp_size, use_sp, local_ubatching
 ):

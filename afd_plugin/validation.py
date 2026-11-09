@@ -195,6 +195,13 @@ def validate_npu_model_runner_v2_config(
     afd_config = parse_afd_config(vllm_config, expected_role=expected_role)
     if device_type != "npu":
         raise RuntimeError("AFD NPU ModelRunnerV2 requires NPU")
+    if afd_config.connector == "P2pHcclAFDConnector":
+        # NPU-only admission is deferred so this common validator stays usable
+        # on CPU hosts. The model feature guard remains independently closed.
+        from afd_plugin.connectors.npu.hccl_config import validate_hccl_runtime
+
+        validate_hccl_runtime(vllm_config, afd_config, role_rank=0)
+        return
     if afd_config.connector == AFD_ASYNC_CONNECTOR:
         if not afd_config.async_dp or not afd_config.compute_gate_on_attention:
             raise RuntimeError(

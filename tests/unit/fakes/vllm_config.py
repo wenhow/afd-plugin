@@ -38,6 +38,9 @@ def npu_parallel_config(**overrides):
         "data_parallel_size": 1,
         "data_parallel_rank": 0,
         "enable_dbo": False,
+        "enable_eplb": False,
+        "enable_elastic_ep": False,
+        "enable_fault_tolerance": False,
         "use_ubatching": False,
         "num_ubatches": 1,
         "ubatch_size": 0,
@@ -63,6 +66,9 @@ def npu_vllm_config(
     use_v2_model_runner=True,
     cudagraph_mode="FULL",
     speculative_config=None,
+    model_type="deepseek_v2",
+    architectures=None,
+    engram_config=None,
     **parallel_overrides,
 ):
     async_dp = bool(parallel_overrides.pop("async_dp", False))
@@ -71,6 +77,7 @@ def npu_vllm_config(
     )
     num_attention_ranks = int(parallel_overrides.pop("num_attention_ranks", 1))
     num_ffn_ranks = int(parallel_overrides.pop("num_ffn_ranks", 1))
+    text_config = SimpleNamespace(model_type=model_type, architectures=architectures)
     return SimpleNamespace(
         use_v2_model_runner=use_v2_model_runner,
         additional_config={
@@ -87,7 +94,8 @@ def npu_vllm_config(
         parallel_config=npu_parallel_config(**parallel_overrides),
         model_config=SimpleNamespace(
             enforce_eager=True,
-            hf_text_config=SimpleNamespace(model_type="deepseek_v2"),
+            hf_config=text_config,
+            hf_text_config=text_config,
             use_mla=use_mla,
         ),
         compilation_config=SimpleNamespace(
@@ -100,8 +108,47 @@ def npu_vllm_config(
             fast_moe_cold_start=False,
         ),
         speculative_config=speculative_config,
+        engram_config=engram_config,
         scheduler_config=SimpleNamespace(max_num_batched_tokens=16),
     )
+
+
+def hccl_vllm_config(
+    *,
+    dtype,
+    compilation_mode,
+    cudagraph_mode,
+    role="attention",
+    extra_config=None,
+    tensor_parallel_size=1,
+):
+    """CPU tensors and an exact first-path HCCL configuration, without a model."""
+    config = npu_vllm_config(
+        role=role,
+        connector="P2pHcclAFDConnector",
+        model_type="deepseek_v41",
+        architectures=["DeepseekV41ForCausalLM"],
+        cudagraph_mode="NONE",
+        extra_config=extra_config,
+        enable_expert_parallel=False,
+        tensor_parallel_size=tensor_parallel_size,
+        num_attention_ranks=tensor_parallel_size,
+        num_ffn_ranks=tensor_parallel_size,
+    )
+    config.model_config.dtype = dtype
+    config.model_config.is_multimodal_model = False
+    config.model_config.multimodal_config = None
+    config.model_config.is_encoder_decoder = False
+    config.model_config.hf_config.hidden_size = 16
+    config.model_config.hf_config.vocab_size = 1024
+    config.model_config.hf_config.num_hidden_layers = 2
+    config.compilation_config.mode = compilation_mode
+    config.compilation_config.cudagraph_mode = cudagraph_mode
+    config.compilation_config.use_inductor_graph_partition = False
+    config.compilation_config.pass_config = SimpleNamespace(enable_sp=False)
+    config.kv_transfer_config = None
+    config.lora_config = None
+    return config
 
 
 def async_moe_config(

@@ -2,7 +2,7 @@
 # SPDX-FileCopyrightText: Copyright contributors to the AFD plugin project
 """Patch vLLM-Ascend platform config normalization for AFD-owned DBO.
 
-Upstream source: ``vllm_ascend/platform.py`` at commit ``8d4409d6256d8a6729140ddcc0d1889e3f96cdd6``.
+Upstream source: ``vllm_ascend/platform.py`` at commit ``7e37e29a7803d6897a7113088e2b771f83205bc0``.
 """
 
 from __future__ import annotations

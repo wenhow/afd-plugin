@@ -1,0 +1,208 @@
+{
+  "created": "2026-11-09",
+  "kind": "capacity_estimate_not_runtime_acceptance",
+  "hardware": {
+    "model": "Ascend950DT",
+    "physical_cards": 8,
+    "memory_value_per_card_reported": 98304,
+    "memory_unit_user_text": "MB",
+    "interpreted_unit": "MiB as normally reported by npu-smi; actual free memory not supplied",
+    "interpreted_capacity_GiB_per_card": 96,
+    "interpreted_total_capacity_GiB": 768,
+    "source": "user message 2026-11-09; device name confirmed by 2026-11-07 component report",
+    "device_name_from_component_report": "Ascend950DT_9582",
+    "free_memory_verified": false
+  },
+  "checkpoint": {
+    "path_a5": "/home/models/DeepSeek-V4.1-Flash",
+    "config_sha256": "8be45ce0476004a3f529fd896115a4a2e800a129ad2d3ec05b16050f52e21879",
+    "config_matches_a5_component_report": true,
+    "expected_index_sha256": "74b0686a3d2891980d5e303251b075a3bccae2c2ff650747db2620a649b98fa8",
+    "index_hash_verified_on_a5": false,
+    "same_header_budget_assumed": true,
+    "header_budget_source": "a3-weight-budget-v2.json",
+    "header_budget_source_sha256": "9a6b3cb5d69304b952b6513f357a6eb9cc74d4af6497c69bcda1711d4b8bd24b"
+  },
+  "source_contracts": {
+    "vllm/models/deepseek_v41/common/engram.py": {
+      "commit": "ced6857afa0ea7b2e3f0846a62e1394e90f15607",
+      "sha256": "be4efe504e362d3cc5aa0241234b547f865c148aff3b2a99e263b8c1c6e58fdd"
+    },
+    "vllm_ascend/models/deepseek_v41/model.py": {
+      "commit": "7e37e29a7803d6897a7113088e2b771f83205bc0",
+      "sha256": "989aec6db1e344dca76159dcbef0d5876874facedaa36b47e993146d5b8a2b9f"
+    },
+    "vllm_ascend/models/deepseek_v41/engram/embedding.py": {
+      "commit": "7e37e29a7803d6897a7113088e2b771f83205bc0",
+      "sha256": "a7741ed16522be4fe607e062e1c988c4e2435af7d258fe7db99f672d4508c4c9"
+    },
+    "vllm_ascend/device/hardware_profile.py": {
+      "commit": "7e37e29a7803d6897a7113088e2b771f83205bc0",
+      "sha256": "efc6d0f3856be400c62b20c6a39229ccc1a2771ec4351a03328ec535824691f5"
+    },
+    "vllm_ascend/platform.py": {
+      "commit": "7e37e29a7803d6897a7113088e2b771f83205bc0",
+      "sha256": "570c09172233e91ca3d7adf757dba83b7bbbec1a110a5bd07a52d81caf2afca9"
+    },
+    "vllm_ascend/patch/platform/patch_engram_config.py": {
+      "commit": "7e37e29a7803d6897a7113088e2b771f83205bc0",
+      "sha256": "93ab3bfb3a7516e142d6ee3b6c536f68d789372f68cb2fb4c464fc9334e427e9"
+    }
+  },
+  "storage": {
+    "native_a5_engram": "FP8 codes and uint8 bit-preserving E8M0 scales, 264 bytes per row",
+    "engram_bytes": 202758032400,
+    "a_non_table_checkpoint_encoded_bytes": 8272379328,
+    "f_experts_checkpoint_encoded_bytes": 290194790400,
+    "f_gate_replicated_checkpoint_bytes_per_rank": 157409280,
+    "f_extra_fp32_gate_cache_bytes_per_rank": 314572800,
+    "attention_rope_candidate_bytes_per_rank": 21474836480,
+    "rope_evidence": "a5-20261107-manual-001/dsv41-target-003/construction-wrapper/parameter-manifest.json",
+    "attention_other_parameters": "optimistic checkpoint encoded bytes divided by TP, actual replicated/layout allocations unmeasured"
+  },
+  "tp_estimates": {
+    "2": {
+      "engram_heads_per_table_per_rank": 12,
+      "engram_total_rows_by_rank": [
+        384008756,
+        384014094
+      ],
+      "engram_native_fp8_e8m0_bytes_by_rank": [
+        101378311584,
+        101379720816
+      ],
+      "attention_estimated_GiB_by_rank": [
+        118.26803696155548,
+        118.26934941112995
+      ],
+      "ffn_estimated_GiB_per_rank": 135.57204723358154,
+      "native_all_modules_estimated_GiB_by_rank": [
+        253.84008419513702,
+        253.8413966447115
+      ]
+    },
+    "4": {
+      "engram_heads_per_table_per_rank": 6,
+      "engram_total_rows_by_rank": [
+        192003618,
+        192005138,
+        192006462,
+        192007632
+      ],
+      "engram_native_fp8_e8m0_bytes_by_rank": [
+        50688955152,
+        50689356432,
+        50689705968,
+        50690014848
+      ],
+      "attention_estimated_GiB_by_rank": [
+        69.13383162021637,
+        69.13420534133911,
+        69.13453087210655,
+        69.1348185390234
+      ],
+      "ffn_estimated_GiB_per_rank": 68.00580739974976,
+      "native_all_modules_estimated_GiB_by_rank": [
+        137.13963901996613,
+        137.14001274108887,
+        137.1403382718563,
+        137.14062593877316
+      ]
+    },
+    "8": {
+      "engram_heads_per_table_per_rank": 3,
+      "engram_total_rows_by_rank": [
+        96001680,
+        96001938,
+        96002408,
+        96002730,
+        96003072,
+        96003390,
+        96003668,
+        96003964
+      ],
+      "engram_native_fp8_e8m0_bytes_by_rank": [
+        25344443520,
+        25344511632,
+        25344635712,
+        25344720720,
+        25344811008,
+        25344894960,
+        25344968352,
+        25345046496
+      ],
+      "attention_estimated_GiB_by_rank": [
+        44.566884092986584,
+        44.566947527229786,
+        44.567063085734844,
+        44.56714225560427,
+        44.567226342856884,
+        44.56730452924967,
+        44.567372880876064,
+        44.567445658147335
+      ],
+      "ffn_estimated_GiB_per_rank": 34.22268748283386,
+      "native_all_modules_estimated_GiB_by_rank": [
+        78.78957157582045,
+        78.78963501006365,
+        78.7897505685687,
+        78.78982973843813,
+        78.78991382569075,
+        78.78999201208353,
+        78.79006036370993,
+        78.7901331409812
+      ]
+    }
+  },
+  "proposed_cells": {
+    "native_control": {
+      "total_cards": 8,
+      "tp": 8,
+      "devices": "0..7 subject to actual visibility and topology",
+      "engram_cpu_offload": false,
+      "memory_utilization_candidate": 0.9,
+      "memory_utilization_budget_GiB": 86.4,
+      "minimum_estimated_remaining_GiB_to_budget": 7.609866859018808,
+      "full_model_executed": false
+    },
+    "afd_candidate": {
+      "total_cards": 8,
+      "attention_tp": 4,
+      "ffn_tp": 4,
+      "attention_devices": [
+        0,
+        1,
+        2,
+        3
+      ],
+      "ffn_devices": [
+        4,
+        5,
+        6,
+        7
+      ],
+      "device_layout": "candidate only; verify physical/device mapping before use",
+      "engram_cpu_offload": false,
+      "full_model_executed": false,
+      "guard_open": false
+    },
+    "native_tp4_same_placement": {
+      "estimated_GiB_max": 137.14062593877316,
+      "exceeds_96_GiB": true,
+      "selected": false
+    }
+  },
+  "comparison_boundary": "Native TP8 versus AFD A4/F4 TP4 changes native TP size. Record it; a parity discrepancy may involve TP numerics and a performance difference is not attributable solely to AFD. A same-TP control requires a separate feasible, matched placement cell.",
+  "unmeasured": [
+    "actual per-card free HBM and available device mapping",
+    "A5 checkpoint index identity and encoded layouts",
+    "replicated A parameters and NPU layout/padding",
+    "native FP4/GEMM/router and MoE workspace",
+    "weight loading/transformation peaks and host RAM",
+    "KV/shared-cache/index/Engram history and outputs",
+    "HCCL/connector/runtime buffers and process overhead"
+  ],
+  "minimum_runnable_topology_established": false,
+  "full_checkpoint_accepted": false,
+  "next_action": "Native TP8 text/eager/V2/DSpark-off control with on-device Engram; preserve any native failure and skip AFD until the control passes"
+}

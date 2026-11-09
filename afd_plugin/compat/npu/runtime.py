@@ -99,6 +99,11 @@ def apply_afd_ascend_patches_if_needed() -> None:
         raise RuntimeError(
             "AFD NPU MLA graph patch requires the vLLM-Ascend MLA resolver",
         )
+    from afd_plugin.compat.patches.npu.model_loader import (
+        apply_afd_model_loader_patch,
+    )
+
+    apply_afd_model_loader_patch()
     _PATCHES_APPLIED = True
 
 

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import sys
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 from types import ModuleType, SimpleNamespace
 
 import pytest
@@ -80,7 +80,10 @@ def mrv2_forward_context(monkeypatch):
 
     modules: dict[str, dict] = {
         "vllm": {},
-        "vllm.config": {"CUDAGraphMode": SimpleNamespace(NONE="none")},
+        "vllm.config": {
+            "CUDAGraphMode": SimpleNamespace(NONE="none"),
+            "set_current_vllm_config": lambda _config: nullcontext(),
+        },
         "vllm.forward_context": {
             "get_forward_context": lambda: context,
             "set_forward_context": set_forward_context,
@@ -130,13 +133,60 @@ def test_ascend_forward_context_uses_native_mrv2_layout(
 
 
 @pytest.fixture
+def native_vllm_config_context(monkeypatch):
+    pytest.importorskip("torch")
+    pytest.importorskip("vllm")
+    pytest.importorskip("vllm_ascend")
+    from vllm import forward_context
+    from vllm.config import get_current_vllm_config, set_current_vllm_config
+
+    # Native config binding is real. Replace only device/DP context creation;
+    # its platform hook requires initialized communication groups on Ascend.
+    context = SimpleNamespace(additional_kwargs={})
+    monkeypatch.setattr(forward_context, "get_forward_context", lambda: context)
+    monkeypatch.setattr(
+        forward_context, "set_forward_context", lambda *_args, **_kwargs: nullcontext()
+    )
+    return get_current_vllm_config, set_current_vllm_config
+
+
+@pytest.mark.parametrize("fail_forward", [False, True])
+def test_ascend_forward_context_binds_config_and_restores_outer_scope(
+    native_vllm_config_context, fail_forward
+):
+    get_config, config_scope = native_vllm_config_context
+    outer_config, ffn_config = SimpleNamespace(), SimpleNamespace()
+
+    with config_scope(outer_config):
+        expected = (
+            pytest.raises(RuntimeError, match="FFN failed")
+            if fail_forward
+            else nullcontext()
+        )
+        with (
+            expected,
+            ascend_runtime.ascend_forward_context(
+                vllm_config=ffn_config, afd_metadata=SimpleNamespace()
+            ),
+        ):
+            assert get_config() is ffn_config
+            if fail_forward:
+                raise RuntimeError("FFN failed")
+        assert get_config() is outer_config
+
+
+@pytest.fixture
 def isolate_ascend_config_installer(monkeypatch):
-    # AscendConfig installation has dedicated lifecycle tests; these tests
-    # exercise the DBO platform and MLA patches with minimal Ascend modules.
+    # Config/loader installation have dedicated tests; these tests exercise
+    # the DBO platform and MLA patches with minimal Ascend modules.
     module_name = "afd_plugin.compat.patches.npu.ascend_config"
     config_patch = ModuleType(module_name)
     config_patch.__dict__["apply_afd_ascend_config_patch"] = lambda: None
     monkeypatch.setitem(sys.modules, module_name, config_patch)
+    loader_name = "afd_plugin.compat.patches.npu.model_loader"
+    loader_patch = ModuleType(loader_name)
+    loader_patch.__dict__["apply_afd_model_loader_patch"] = lambda: None
+    monkeypatch.setitem(sys.modules, loader_name, loader_patch)
 
 
 @pytest.mark.usefixtures("isolate_ascend_config_installer")

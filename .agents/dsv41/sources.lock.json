@@ -1,0 +1,300 @@
+{
+  "schema_version": 1,
+  "created": "2026-11-06",
+  "workspace": "D:/openSource/afd-plugin-dsv41-flash-v030",
+  "development_branch": "feat/dsv41-flash-hccl-v030",
+  "repositories": {
+    "afd_plugin": {
+      "path": "D:/openSource/afd-plugin-dsv41-flash-v030",
+      "url": "https://github.com/wenhow/afd-plugin.git",
+      "ref": "release/v0.30.0rc2",
+      "commit": "39017a137d7809bd0ab7cda4a86697e2a6b7a522",
+      "read_only": false
+    },
+    "vllm": {
+      "path": "D:/openSource/vllm",
+      "url": "https://github.com/vllm-project/vllm.git",
+      "ref": "v0.30.0",
+      "commit": "ced6857afa0ea7b2e3f0846a62e1394e90f15607",
+      "read_only": true
+    },
+    "vllm_ascend": {
+      "path": "D:/openSource/vllm-ascend",
+      "url": "https://github.com/vllm-project/vllm-ascend.git",
+      "ref": "rfc/vllm_cann",
+      "commit": "7e37e29a7803d6897a7113088e2b771f83205bc0",
+      "read_only": true
+    },
+    "hccl_donor": {
+      "path": "D:/openSource/afd-plugin/afd-plugin-phase1-delivery",
+      "url": "https://github.com/wenhow/afd-plugin.git",
+      "ref": "feat/dsv4-afd",
+      "commit": "4ddd69a391dfb5b3e362c7601399e538a31de702",
+      "read_only": true
+    }
+  },
+  "previous_ascend_reference": "8d4409d6256d8a6729140ddcc0d1889e3f96cdd6",
+  "first_path": {
+    "runner": "V2",
+    "input": "text",
+    "execution": "eager",
+    "microbatches": 1,
+    "connector": "P2pHcclAFDConnector",
+    "gate": "ffn",
+    "dspark": false,
+    "card_count": "determine from measured memory budget"
+  },
+  "deferred": [
+    "Graph/U2/DBO",
+    "PD",
+    "Window/CAM optimization",
+    "vision",
+    "additional parallel combinations"
+  ],
+  "blockers": [
+    {
+      "id": "B1",
+      "summary": "Disjoint FastAPI requirements in the locked sources",
+      "status": "accepted_existing_container",
+      "blocks": [],
+      "runtime_policy": "Use the deployed container FastAPI 0.123.10 per explicit user instruction on 2026-11-06; retain source requirements unchanged and assess runtime behavior through tests.",
+      "evidence": "openspec/changes/afd-v030-rfc-runtime/evidence/container-environment-policy.json"
+    },
+    {
+      "id": "B2",
+      "summary": "The authorized A3 rejects the checkpoint DynamicMxQuant path with both CANN 9.0.1 and the isolated official 9.2.0 installation",
+      "status": "confirmed_on_a3_a5_base_api_passed",
+      "blocks": ["Full-checkpoint execution on the tested A3 environments"],
+      "runtime_policy": "Keep the original checkpoint and native quantization semantics. CANN 9.2.0 did not remove the A3 blocker. The user's A5 Ascend950DT_9582 report passes the exact base API; native FP4 MoE and full-checkpoint acceptance remain pending independently.",
+      "evidence": "openspec/changes/afd-v41-hccl-text-eager/evidence/cann-920-validation.md",
+      "a5_component_evidence": "openspec/changes/afd-v41-hccl-text-eager/evidence/a5-20261107-manual-001/README.md"
+    },
+    {
+      "id": "B3",
+      "summary": "The current A3 venv lacks the matching vllm_ascend compiled extension",
+      "status": "confirmed_component_blocker",
+      "blocks": ["C2 A3 fused RMSNorm and custom router acceptance"],
+      "runtime_policy": "Keep A3 fallback evidence separate. A5 native wheel RMSNorm passed 18 cases without the optional _C_ascend hash top-k registration; the complete native router and FP4 MoE path remain unaccepted. Retain independent FP32 transport.",
+      "evidence": "openspec/changes/afd-v41-hccl-text-eager/evidence/precision-validation.md",
+      "a5_component_evidence": "openspec/changes/afd-v41-hccl-text-eager/evidence/a5-20261107-manual-001/README.md"
+    }
+  ],
+  "sources": [
+    {
+      "id": "A01",
+      "repo": "afd_plugin",
+      "commit": "39017a137d7809bd0ab7cda4a86697e2a6b7a522",
+      "path": "afd_plugin/__init__.py",
+      "focus": "模型注册与 NPU 插件加载顺序",
+      "url": "https://github.com/wenhow/afd-plugin/blob/39017a137d7809bd0ab7cda4a86697e2a6b7a522/afd_plugin/__init__.py"
+    },
+    {
+      "id": "A02",
+      "repo": "afd_plugin",
+      "commit": "39017a137d7809bd0ab7cda4a86697e2a6b7a522",
+      "path": "afd_plugin/compat/npu/feature_validation.py",
+      "focus": "_is_dsv4_target；精确 V4.1/HCCL 能力校验",
+      "url": "https://github.com/wenhow/afd-plugin/blob/39017a137d7809bd0ab7cda4a86697e2a6b7a522/afd_plugin/compat/npu/feature_validation.py"
+    },
+    {
+      "id": "A03",
+      "repo": "afd_plugin",
+      "commit": "39017a137d7809bd0ab7cda4a86697e2a6b7a522",
+      "path": "afd_plugin/connectors/factory.py",
+      "focus": "AFDConnectorFactory 注册与创建",
+      "url": "https://github.com/wenhow/afd-plugin/blob/39017a137d7809bd0ab7cda4a86697e2a6b7a522/afd_plugin/connectors/factory.py"
+    },
+    {
+      "id": "A04",
+      "repo": "afd_plugin",
+      "commit": "39017a137d7809bd0ab7cda4a86697e2a6b7a522",
+      "path": "afd_plugin/v1/worker/attention_metadata.py",
+      "focus": "AFDMetadataProviderMixin；target/draft context 控制消息",
+      "url": "https://github.com/wenhow/afd-plugin/blob/39017a137d7809bd0ab7cda4a86697e2a6b7a522/afd_plugin/v1/worker/attention_metadata.py"
+    },
+    {
+      "id": "A05",
+      "repo": "afd_plugin",
+      "commit": "39017a137d7809bd0ab7cda4a86697e2a6b7a522",
+      "path": "afd_plugin/v1/worker/npu/ffn_model_runner.py",
+      "focus": "AFDNPUFFNModelRunner；层序、payload 和退出",
+      "url": "https://github.com/wenhow/afd-plugin/blob/39017a137d7809bd0ab7cda4a86697e2a6b7a522/afd_plugin/v1/worker/npu/ffn_model_runner.py"
+    },
+    {
+      "id": "A06",
+      "repo": "afd_plugin",
+      "commit": "39017a137d7809bd0ab7cda4a86697e2a6b7a522",
+      "path": "afd_plugin/connectors/metadata.py",
+      "focus": "AFDControlPayload、AFDA2FTransferPayload、AFDTransferMetadata",
+      "url": "https://github.com/wenhow/afd-plugin/blob/39017a137d7809bd0ab7cda4a86697e2a6b7a522/afd_plugin/connectors/metadata.py"
+    },
+    {
+      "id": "A07",
+      "repo": "afd_plugin",
+      "commit": "39017a137d7809bd0ab7cda4a86697e2a6b7a522",
+      "path": "afd_plugin/v1/worker/npu/ffn_worker.py",
+      "focus": "F 角色初始化、runner 选择与 shutdown",
+      "url": "https://github.com/wenhow/afd-plugin/blob/39017a137d7809bd0ab7cda4a86697e2a6b7a522/afd_plugin/v1/worker/npu/ffn_worker.py"
+    },
+    {
+      "id": "A08",
+      "repo": "afd_plugin",
+      "commit": "39017a137d7809bd0ab7cda4a86697e2a6b7a522",
+      "path": "afd_plugin/model_executor/models/npu/deepseek_v4.py",
+      "focus": "角色构造、RemoteMoE、完整权重命名空间过滤",
+      "url": "https://github.com/wenhow/afd-plugin/blob/39017a137d7809bd0ab7cda4a86697e2a6b7a522/afd_plugin/model_executor/models/npu/deepseek_v4.py"
+    },
+    {
+      "id": "A09",
+      "repo": "afd_plugin",
+      "commit": "39017a137d7809bd0ab7cda4a86697e2a6b7a522",
+      "path": "afd_plugin/connectors/base.py",
+      "focus": "AFDConnectorBase 与 AFDControlPlane 契约",
+      "url": "https://github.com/wenhow/afd-plugin/blob/39017a137d7809bd0ab7cda4a86697e2a6b7a522/afd_plugin/connectors/base.py"
+    },
+    {
+      "id": "A10",
+      "repo": "afd_plugin",
+      "commit": "39017a137d7809bd0ab7cda4a86697e2a6b7a522",
+      "path": "afd_plugin/v1/worker/npu/attention_model_runner_v2.py",
+      "focus": "V2 runner/ModelState 生命周期",
+      "url": "https://github.com/wenhow/afd-plugin/blob/39017a137d7809bd0ab7cda4a86697e2a6b7a522/afd_plugin/v1/worker/npu/attention_model_runner_v2.py"
+    },
+    {
+      "id": "A11",
+      "repo": "afd_plugin",
+      "commit": "39017a137d7809bd0ab7cda4a86697e2a6b7a522",
+      "path": "docs/design/module/index.md",
+      "focus": "当前 v0.30/Ascend 8d4409d6 版本证据",
+      "url": "https://github.com/wenhow/afd-plugin/blob/39017a137d7809bd0ab7cda4a86697e2a6b7a522/docs/design/module/index.md"
+    },
+    {
+      "id": "A12",
+      "repo": "afd_plugin",
+      "commit": "39017a137d7809bd0ab7cda4a86697e2a6b7a522",
+      "path": "docs/design/module/connector_contracts.md",
+      "focus": "connector 协议与现有 validation_paths",
+      "url": "https://github.com/wenhow/afd-plugin/blob/39017a137d7809bd0ab7cda4a86697e2a6b7a522/docs/design/module/connector_contracts.md"
+    },
+    {
+      "id": "A13",
+      "repo": "afd_plugin",
+      "commit": "39017a137d7809bd0ab7cda4a86697e2a6b7a522",
+      "path": "docs/design/module/model_integration.md",
+      "focus": "角色模型与模型测试归属",
+      "url": "https://github.com/wenhow/afd-plugin/blob/39017a137d7809bd0ab7cda4a86697e2a6b7a522/docs/design/module/model_integration.md"
+    },
+    {
+      "id": "A14",
+      "repo": "afd_plugin",
+      "commit": "39017a137d7809bd0ab7cda4a86697e2a6b7a522",
+      "path": "docs/design/module/ffn_runtime.md",
+      "focus": "F 服务循环与测试归属",
+      "url": "https://github.com/wenhow/afd-plugin/blob/39017a137d7809bd0ab7cda4a86697e2a6b7a522/docs/design/module/ffn_runtime.md"
+    },
+    {
+      "id": "U01",
+      "repo": "vllm_ascend",
+      "commit": "7e37e29a7803d6897a7113088e2b771f83205bc0",
+      "path": "vllm_ascend/models/deepseek_v41/vl_model.py",
+      "focus": "AscendDeepseekV41ForCausalLM；raw tokens、language_model_cls、ModelState",
+      "url": "https://github.com/vllm-project/vllm-ascend/blob/7e37e29a7803d6897a7113088e2b771f83205bc0/vllm_ascend/models/deepseek_v41/vl_model.py"
+    },
+    {
+      "id": "U02",
+      "repo": "vllm_ascend",
+      "commit": "7e37e29a7803d6897a7113088e2b771f83205bc0",
+      "path": "vllm_ascend/models/deepseek_v41/model.py",
+      "focus": "LLM/model/decoder/MoE；HC pre_mix、aux capture、role construction",
+      "url": "https://github.com/vllm-project/vllm-ascend/blob/7e37e29a7803d6897a7113088e2b771f83205bc0/vllm_ascend/models/deepseek_v41/model.py"
+    },
+    {
+      "id": "U03",
+      "repo": "vllm_ascend",
+      "commit": "7e37e29a7803d6897a7113088e2b771f83205bc0",
+      "path": "vllm_ascend/models/deepseek_v41/engram/model_state.py",
+      "focus": "Engram 请求历史和 V2 ModelState",
+      "url": "https://github.com/vllm-project/vllm-ascend/blob/7e37e29a7803d6897a7113088e2b771f83205bc0/vllm_ascend/models/deepseek_v41/engram/model_state.py"
+    },
+    {
+      "id": "U04",
+      "repo": "vllm_ascend",
+      "commit": "7e37e29a7803d6897a7113088e2b771f83205bc0",
+      "path": "vllm_ascend/models/deepseek_v41/dspark.py",
+      "focus": "完整 DSpark draft 构造与 forward",
+      "url": "https://github.com/vllm-project/vllm-ascend/blob/7e37e29a7803d6897a7113088e2b771f83205bc0/vllm_ascend/models/deepseek_v41/dspark.py"
+    },
+    {
+      "id": "U05",
+      "repo": "vllm_ascend",
+      "commit": "7e37e29a7803d6897a7113088e2b771f83205bc0",
+      "path": "vllm_ascend/distributed/parallel_state.py",
+      "focus": "init_ascend_model_parallel 与 Engram 分组",
+      "url": "https://github.com/vllm-project/vllm-ascend/blob/7e37e29a7803d6897a7113088e2b771f83205bc0/vllm_ascend/distributed/parallel_state.py"
+    },
+    {
+      "id": "U06",
+      "repo": "vllm",
+      "commit": "ced6857afa0ea7b2e3f0846a62e1394e90f15607",
+      "path": "vllm/model_executor/model_loader/base_loader.py",
+      "focus": "原生 load_model/model_class 契约，待方法级审查",
+      "url": "https://github.com/vllm-project/vllm/blob/ced6857afa0ea7b2e3f0846a62e1394e90f15607/vllm/model_executor/model_loader/base_loader.py"
+    },
+    {
+      "id": "U07",
+      "repo": "vllm_ascend",
+      "commit": "7e37e29a7803d6897a7113088e2b771f83205bc0",
+      "path": "requirements.txt",
+      "focus": "fastapi<0.124.0",
+      "url": "https://github.com/vllm-project/vllm-ascend/blob/7e37e29a7803d6897a7113088e2b771f83205bc0/requirements.txt"
+    },
+    {
+      "id": "U08",
+      "repo": "vllm_ascend",
+      "commit": "7e37e29a7803d6897a7113088e2b771f83205bc0",
+      "path": "vllm_ascend/patch/platform/patch_speculative_config.py",
+      "focus": "DeepseekV41DSparkModel 架构归一化",
+      "url": "https://github.com/vllm-project/vllm-ascend/blob/7e37e29a7803d6897a7113088e2b771f83205bc0/vllm_ascend/patch/platform/patch_speculative_config.py"
+    },
+    {
+      "id": "U09",
+      "repo": "vllm",
+      "commit": "ced6857afa0ea7b2e3f0846a62e1394e90f15607",
+      "path": "requirements/common.txt",
+      "focus": "fastapi[standard]>=0.133.0,<0.137.0",
+      "url": "https://github.com/vllm-project/vllm/blob/ced6857afa0ea7b2e3f0846a62e1394e90f15607/requirements/common.txt"
+    },
+    {
+      "id": "U10",
+      "repo": "vllm_ascend",
+      "commit": "7e37e29a7803d6897a7113088e2b771f83205bc0",
+      "path": "vllm_ascend/device/device_op.py",
+      "focus": "逐设备追踪 rmsnorm 的实际实现，不能从基础类推断精度",
+      "url": "https://github.com/vllm-project/vllm-ascend/blob/7e37e29a7803d6897a7113088e2b771f83205bc0/vllm_ascend/device/device_op.py"
+    },
+    {
+      "id": "U11",
+      "repo": "vllm",
+      "commit": "ced6857afa0ea7b2e3f0846a62e1394e90f15607",
+      "path": "vllm/config/speculative.py",
+      "focus": "DSpark 与 MTP 配置及 proposal/verification 语义",
+      "url": "https://github.com/vllm-project/vllm/blob/ced6857afa0ea7b2e3f0846a62e1394e90f15607/vllm/config/speculative.py"
+    },
+    {
+      "id": "U12",
+      "repo": "vllm_ascend",
+      "commit": "7e37e29a7803d6897a7113088e2b771f83205bc0",
+      "path": "vllm_ascend/models/deepseek_v41/cache_config.py",
+      "focus": "共享 KV 与 source/consumer cache 规划",
+      "url": "https://github.com/vllm-project/vllm-ascend/blob/7e37e29a7803d6897a7113088e2b771f83205bc0/vllm_ascend/models/deepseek_v41/cache_config.py"
+    },
+    {
+      "id": "D01",
+      "repo": "hccl_donor",
+      "commit": "4ddd69a391dfb5b3e362c7601399e538a31de702",
+      "path": "afd_plugin/connectors/npu/p2p_hccl.py",
+      "focus": "只提取标准 HCCL eager target 协议；排除旧 MTP/Graph/U2 框架",
+      "url": "https://github.com/wenhow/afd-plugin/blob/4ddd69a391dfb5b3e362c7601399e538a31de702/afd_plugin/connectors/npu/p2p_hccl.py"
+    }
+  ]
+}

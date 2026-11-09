@@ -34,6 +34,7 @@ from afd_plugin.model_executor.models import (  # noqa: E402
 )
 from afd_plugin.v1.worker.npu import attention_model_runner_v2 as npu_v2  # noqa: E402
 from afd_plugin.v1.worker.npu import ubatch_runner as npu_ubatch  # noqa: E402
+from tests.unit.fakes.hccl import make_hccl_connector_pair  # noqa: E402
 
 Runner = npu_v2.AFDNPUAttentionModelRunnerV2
 
@@ -53,6 +54,9 @@ def _runner(*, async_dp=False):
         },
         parallel_config=SimpleNamespace(enable_dbo=False, use_ubatching=False),
     )
+    runner.compilation_config = runner.vllm_config.compilation_config
+    runner.input_buffers = SimpleNamespace(dummy_num_tokens=None)
+    runner.speculator = None
     runner.afd_config = SimpleNamespace(
         async_dp=async_dp, num_attention_ranks=2, num_ffn_ranks=2
     )
@@ -87,6 +91,88 @@ def test_kv_control_context_does_not_publish_afd_metadata():
     context.additional_kwargs, context.ubatch_slices = {}, None
     runner.install_afd_metadata_on_forward_context(context)
     assert context.additional_kwargs == {}
+
+
+@pytest.fixture
+def hccl_execution(monkeypatch):
+    attention, ffn = make_hccl_connector_pair(monkeypatch)
+    runner = _runner()
+    runner.connector, runner.vllm_config = attention, attention.vllm_config
+    runner.afd_config = attention.afd_config
+    runner._afd_hccl_execution, runner._afd_transaction_counter = None, 0
+    forward_module = afd_context.forward_context_module
+    monkeypatch.setattr(npu_v2, "step_afd_npu_profiler", lambda _: None)
+    monkeypatch.setattr(
+        forward_module,
+        "create_forward_context",
+        lambda: SimpleNamespace(
+            batch_descriptor=SimpleNamespace(num_tokens=3),
+            additional_kwargs={},
+            attn_metadata=None,
+        ),
+    )
+    yield runner, ffn
+    attention.close()
+    ffn.close()
+
+
+@pytest.mark.parametrize(
+    "dummy_run,is_profile,mode,valid_tokens",
+    [
+        (False, False, "target", 2),
+        (True, False, "dummy", 0),
+        (True, True, "profile", 0),
+    ],
+)
+def test_hccl_execute_publishes_native_padded_plan_and_valid_ids_extent(
+    hccl_execution, monkeypatch, dummy_run, is_profile, mode, valid_tokens
+):
+    runner, ffn = hccl_execution
+
+    def native_execute(self, *args, **kwargs):
+        context = afd_context.forward_context_module.create_forward_context()
+        # A repeated provider visit must not publish another peer transaction.
+        self.install_afd_metadata_on_forward_context(context)
+        return context.additional_kwargs["afd_metadata"]
+
+    monkeypatch.setattr(NPUModelRunner, "execute_model", native_execute)
+    metadata = runner.execute_model(
+        SimpleNamespace(total_num_scheduled_tokens=2),
+        dummy_run=dummy_run,
+        is_profile=is_profile,
+    )
+    plan = ffn.receive_forward_plan()
+    assert (plan.mode, plan.valid_tokens, plan.padded_tokens) == (mode, valid_tokens, 3)
+    assert plan.layer_indices == (0, 1)
+    assert plan.transaction_id == metadata.transaction_id
+    assert metadata.tokens_lens == [3]
+    assert metadata.tokens_unpadded_lens == [valid_tokens]
+
+
+def test_hccl_pre_forward_failure_does_not_leave_stale_execution_scope(
+    hccl_execution, monkeypatch
+):
+    runner, ffn = hccl_execution
+
+    def fail_before_context(self, *args, **kwargs):
+        raise ValueError("native input preparation failed")
+
+    monkeypatch.setattr(NPUModelRunner, "execute_model", fail_before_context)
+    with pytest.raises(ValueError, match="native input preparation failed"):
+        runner.execute_model(SimpleNamespace(total_num_scheduled_tokens=2))
+
+    def native_execute(self, *args, **kwargs):
+        return afd_context.forward_context_module.create_forward_context()
+
+    monkeypatch.setattr(NPUModelRunner, "execute_model", native_execute)
+    context = runner.execute_model(
+        SimpleNamespace(total_num_scheduled_tokens=2), dummy_run=True
+    )
+    plan = ffn.receive_forward_plan()
+    assert (plan.mode, plan.valid_tokens) == ("dummy", 0)
+    assert (
+        plan.transaction_id == context.additional_kwargs["afd_metadata"].transaction_id
+    )
 
 
 @pytest.mark.parametrize("failure", [None, "profiler", "abort", "native"])

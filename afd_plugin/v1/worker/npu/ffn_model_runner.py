@@ -4,7 +4,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 import torch
 from vllm.compilation.monitor import set_cudagraph_capturing_enabled
@@ -31,6 +31,8 @@ from afd_plugin.connectors import (
     AFDForwardContextMetadata,
     AFDTransferContext,
 )
+from afd_plugin.connectors.npu.hccl_protocol import HcclForwardPlan
+from afd_plugin.connectors.npu.p2p_hccl import P2pHcclAFDConnector
 from afd_plugin.v1.worker.attention_metadata import (
     _resolve_world_ranks,
 )
@@ -49,12 +51,15 @@ if TYPE_CHECKING:
     from vllm.v1.outputs import AsyncModelRunnerOutput, ModelRunnerOutput
 
     from afd_plugin.connectors import AFDConnectorBase
+    from afd_plugin.model_executor.models.npu.deepseek_v41 import (
+        AFDDeepseekV41FFNForCausalLM,
+    )
 
 logger = init_logger(__name__)
 
 
 class AFDNPUFFNModelRunner:
-    """Synchronous CAMP2P FFN runner, independent of MRV1."""
+    """Synchronous FFN execution for CAMP2P and typed eager HCCL steps."""
 
     afd_expected_role = "ffn"
 
@@ -85,7 +90,7 @@ class AFDNPUFFNModelRunner:
                 rank, int(device.index), vllm_config, afd_config
             )
         self.connector = connector
-        self.num_layers = int(self.model_config.hf_config.num_hidden_layers)
+        self.num_layers = int(self.model_config.hf_text_config.num_hidden_layers)
         self.use_aclgraph = _use_npu_aclgraph(vllm_config)
         self._acl_graphs: dict[tuple, dict[str, Any]] = {}
         self.graph_pool = (
@@ -145,6 +150,56 @@ class AFDNPUFFNModelRunner:
 
     def initialize_afd_connector(self) -> None:
         self.connector.init_afd_connector()
+
+    def execute_hccl_step(self, plan: HcclForwardPlan) -> None:
+        """Execute the accepted U1 plan without CAMP2P token/layout inference.
+
+        The worker owns receive/STOP. Device or compute failures escape to that
+        worker and terminate its session; a failed plan is never retried here.
+        """
+        connector = self.connector
+        if not isinstance(connector, P2pHcclAFDConnector):
+            raise TypeError("execute_hccl_step requires P2pHcclAFDConnector")
+        # Empty plans have already completed their control handshake. They must
+        # bypass both native context construction and all per-layer computation.
+        if plan.padded_tokens == 0:
+            return
+        if self.model is None:
+            raise RuntimeError("NPU FFN model has not been loaded")
+        if connector.active_forward_plan != plan:
+            raise RuntimeError("HCCL plan must be accepted before execution")
+        model = cast("AFDDeepseekV41FFNForCausalLM", self.model)
+        metadata = AFDForwardContextMetadata(
+            tokens_start_loc=[0],
+            requests_start_loc=[0],
+            stage_idx=0,
+            connector=connector,
+            tokens_lens=[plan.padded_tokens],
+            num_stages=1,
+            transaction_id=plan.transaction_id,
+            tokens_unpadded_lens=[plan.valid_tokens],
+        )
+        for layer_idx in plan.layer_indices:
+            payload = connector.recv_attn_output(layer_idx=layer_idx)
+            if payload.input_ids is None or payload.hidden_states_fp32 is None:
+                raise RuntimeError("HCCL FFN requires explicit IDs and FP32 input")
+            with ascend_forward_context(
+                vllm_config=self.vllm_config,
+                afd_metadata=metadata,
+                model_instance=self.model,
+                num_tokens=plan.padded_tokens,
+                num_tokens_across_dp=torch.tensor([plan.padded_tokens]),
+                in_profile_run=plan.mode == "profile",
+                input_ids=payload.input_ids,
+            ) as forward_context:
+                _set_moe_layer_index(forward_context, layer_idx)
+                output = model.compute_ffn_output(
+                    hidden_states=payload.hidden_states,
+                    layer_idx=layer_idx,
+                    input_ids=payload.input_ids,
+                    hidden_states_fp32=payload.hidden_states_fp32,
+                )
+                connector.send_ffn_output(output, payload.context)
 
     def get_kv_cache_spec(self) -> dict[str, KVCacheSpec]:
         return {}

@@ -37,7 +37,7 @@ def ascend_forward_context(
     before running the FFN compute.
     """
 
-    from vllm.config import CUDAGraphMode
+    from vllm.config import CUDAGraphMode, set_current_vllm_config
     from vllm.forward_context import get_forward_context
 
     if aclgraph_runtime_mode is None:
@@ -46,9 +46,10 @@ def ascend_forward_context(
     from vllm.forward_context import set_forward_context
     from vllm_ascend.ascend_forward_context import override_mrv2_in_profile_run
 
-    # Ascend MRV2 reads its state from additional_kwargs. FFN supplies exactly
-    # this native context layout, including the thread-local profile marker.
+    # Match native set_ascend_forward_context's current-config lifetime while
+    # retaining the V2 platform hook for additional_kwargs and profile state.
     with (
+        set_current_vllm_config(vllm_config),
         override_mrv2_in_profile_run(in_profile_run),
         set_forward_context(
             None,

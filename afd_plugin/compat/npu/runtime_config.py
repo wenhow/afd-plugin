@@ -4,6 +4,7 @@
 
 from __future__ import annotations
 
+from copy import copy
 from typing import TYPE_CHECKING
 
 from afd_plugin.config import (
@@ -19,6 +20,30 @@ FLASHINFER_ALL2ALLV_BACKEND = "flashinfer_all2allv"
 DEEPSEEK_V2_MODEL_TYPES = frozenset(
     ("deepseek", "deepseek_v2", "deepseek_v3", "deepseek_v32", "glm_moe_dsa")
 )
+
+
+def is_deepseek_v41_model(vllm_config: VllmConfig) -> bool:
+    """Match the native or AFD V4.1 identity without matching V4 prefixes."""
+    hf_config = vllm_config.model_config.hf_config
+    return hf_config.model_type == "deepseek_v41" or any(
+        architecture.removeprefix("AFD") == "DeepseekV41ForCausalLM"
+        for architecture in (hf_config.architectures or ())
+    )
+
+
+def get_npu_ffn_config(vllm_config: VllmConfig) -> VllmConfig:
+    """Detach V4.1's F Engram binding before native worker construction.
+
+    A shallow copy preserves the native ModelConfig identity and caches without
+    rerunning VllmConfig validation. Other configuration children remain shared;
+    this view only removes F's ownership of the caller's Engram configuration.
+    """
+    if not is_deepseek_v41_model(vllm_config):
+        return vllm_config
+    parse_afd_config(vllm_config, expected_role="ffn")
+    ffn_config = copy(vllm_config)
+    ffn_config.engram_config = None
+    return ffn_config
 
 
 def configure_async_cam_dbo(vllm_config: VllmConfig) -> None:
@@ -106,6 +131,8 @@ def fix_all2all_backend_for_afd(vllm_config: VllmConfig) -> None:
 __all__ = [
     "configure_async_cam_dbo",
     "fix_all2all_backend_for_afd",
+    "get_npu_ffn_config",
+    "is_deepseek_v41_model",
     "npu_afd_num_ubatches",
     "npu_model_uses_sequence_parallel_moe",
     "npu_model_uses_sharded_pp_tensors",

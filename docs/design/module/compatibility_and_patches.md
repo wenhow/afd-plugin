@@ -10,6 +10,7 @@ primary_code_paths:
   - "afd_plugin/compat/vllm.py"
   - "afd_plugin/compat/npu/__init__.py"
   - "afd_plugin/compat/npu/feature_validation.py"
+  - "afd_plugin/compat/npu/forward_context.py"
   - "afd_plugin/compat/npu/runtime.py"
   - "afd_plugin/compat/npu/runtime_config.py"
   - "afd_plugin/compat/patches/**/*.py"
@@ -42,6 +43,21 @@ last_reviewed: 2026-10-13
 ---
 
 # Compatibility and patches
+
+The NPU V4.1 loader hook in
+[`model_loader.py`](../../../afd_plugin/compat/patches/npu/model_loader.py)
+copies the pinned `BaseModelLoader.create_model` seam and supplies the FFN role
+class to native `initialize_model`. It preserves native ModelConfig/registry
+identity and the native load/post-load/eval lifecycle. Its API regressions live
+in [`test_model_loader.py`](../../../tests/unit/compat/patches/npu/test_model_loader.py);
+signature alignment remains in the shared patch signature table. Full V4.1
+runtime entry is still guarded.
+
+The connector-driven FFN forward scope also binds native current VllmConfig,
+matching Ascend's configuration lifetime while retaining the real V2 platform
+hook. Normal and exceptional exits restore the caller's configuration; this
+scope owns no device buffers or communication state. The public config API
+regression is in the existing compatibility runtime tests.
 
 ## Purpose and boundary
 

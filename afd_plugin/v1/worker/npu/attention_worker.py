@@ -4,8 +4,7 @@
 
 from __future__ import annotations
 
-from typing import Any
-
+from vllm.config import VllmConfig
 from vllm.v1.worker.workspace import init_workspace_manager
 from vllm_ascend.worker.worker import NPUWorker
 
@@ -32,9 +31,31 @@ class AFDNPUAttentionWorker(NPUWorker):
 
     afd_expected_role = "attention"
 
-    def __init__(self, *args: Any, **kwargs: Any) -> None:
+    # Upstream: vllm_ascend/worker/worker.py, NPUWorker.__init__, 7e37e29a.
+    # Reason: install AFD config/loader hooks before native worker derivation.
+    # Functionality: preserve the native config, including Attention's Engram.
+    # Signature: matches upstream; no added parameters. Delegate the large
+    # hardware/ops/profiler constructor to retain its native state ownership.
+    def __init__(
+        self,
+        vllm_config: VllmConfig,
+        local_rank: int,
+        rank: int,
+        distributed_init_method: str,
+        is_driver_worker: bool = False,
+        **kwargs,
+    ):
+        # ### PATCH START: AFD runtime hooks
         apply_afd_ascend_patches_if_needed()
-        super().__init__(*args, **kwargs)
+        # ### PATCH END: AFD runtime hooks
+        super().__init__(
+            vllm_config=vllm_config,
+            local_rank=local_rank,
+            rank=rank,
+            distributed_init_method=distributed_init_method,
+            is_driver_worker=is_driver_worker,
+            **kwargs,
+        )
 
     def init_device(self) -> None:
         assert_compatible_afd_stack(

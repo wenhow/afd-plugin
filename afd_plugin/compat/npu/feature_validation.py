@@ -7,6 +7,7 @@ from __future__ import annotations
 import os
 from typing import TYPE_CHECKING
 
+from afd_plugin.compat.npu.runtime_config import is_deepseek_v41_model
 from afd_plugin.config import (
     AFD_ASYNC_CONNECTOR,
     CAMP2P_CONNECTOR,
@@ -31,6 +32,12 @@ def fail_if_unsupported_npu_afd_features(
     """Fail fast for NPU AFD settings that are not currently supported."""
 
     afd_config = afd_config or parse_afd_config(vllm_config)
+    if is_deepseek_v41_model(vllm_config):
+        raise RuntimeError(
+            "DeepSeek V4.1 NPU AFD is not available yet; "
+            "full-checkpoint quantization, text eager and state lifecycle "
+            "acceptance are pending",
+        )
     layered_gmm_requested = async_cam_layered_gmm_enabled()
     if layered_gmm_requested and (
         afd_config.role != "ffn" or afd_config.connector != AFD_ASYNC_CONNECTOR
@@ -42,15 +49,15 @@ def fail_if_unsupported_npu_afd_features(
     is_dsv4 = _is_dsv4_target(vllm_config)
     if layered_gmm_requested and not is_dsv4:
         raise RuntimeError("AFD_ASYNC_CAM_LAYERED_GMM supports only DeepSeek V4")
+    if is_dsv4:
+        _fail_if_unsupported_dsv4_connector(afd_config)
+
     from afd_plugin.connectors.factory import AFDConnectorFactory
 
     extra_info = AFDConnectorFactory.parse_connector_extra_info(
         afd_config.connector,
         vllm_config,
     )
-
-    if is_dsv4:
-        _fail_if_unsupported_dsv4_connector(afd_config)
 
     if afd_config.connector == AFD_ASYNC_CONNECTOR:
         _fail_if_unsupported_npu_afd_async_features(
@@ -109,16 +116,13 @@ def fail_if_unsupported_npu_afd_features(
 
 def _is_dsv4_target(vllm_config: VllmConfig) -> bool:
     """Return whether the target model is DeepSeek V4."""
-    model_config = vllm_config.model_config
-    hf_config = getattr(model_config, "hf_config", None)
-    if hf_config is None:
-        hf_config = getattr(model_config, "hf_text_config", None)
-    if hf_config is None:
-        return False
-    if getattr(hf_config, "model_type", None) == "deepseek_v4":
+    hf_config = vllm_config.model_config.hf_config
+    if hf_config.model_type == "deepseek_v4":
         return True
-    architectures = getattr(hf_config, "architectures", ()) or ()
-    return any("DeepseekV4" in str(architecture) for architecture in architectures)
+    return any(
+        architecture.removeprefix("AFD") == "DeepseekV4ForCausalLM"
+        for architecture in (hf_config.architectures or ())
+    )
 
 
 def _fail_if_unsupported_dsv4_async_features(

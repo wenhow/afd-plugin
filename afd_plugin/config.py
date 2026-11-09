@@ -20,6 +20,8 @@ if TYPE_CHECKING:
 AFD_ADDITIONAL_CONFIG_KEY: Final[str] = "afd"
 AFD_ASYNC_CONNECTOR: Final[str] = "CAMAsyncAFDConnector"
 CAMP2P_CONNECTOR: Final[str] = "CAMP2pAFDConnector"
+HCCL_P2P_CONNECTOR: Final[str] = "P2pHcclAFDConnector"
+MAX_TCP_PORT: Final[int] = 65535
 DEEPEP_M2N_CONNECTOR: Final[str] = "DeepEPM2NAFDConnector"
 DEEPEP_M2N_CONNECTORS: Final[tuple[str, ...]] = (DEEPEP_M2N_CONNECTOR,)
 AFDRole = Literal["attention", "ffn"]
@@ -29,6 +31,7 @@ SUPPORTED_AFD_CONNECTORS: Final[tuple[str, ...]] = (
     "P2pNcclAFDConnector",
     DEEPEP_M2N_CONNECTOR,
     CAMP2P_CONNECTOR,
+    HCCL_P2P_CONNECTOR,
     AFD_ASYNC_CONNECTOR,
 )
 
@@ -339,9 +342,29 @@ def validate_afd_config(
         from afd_plugin.distributed import validate_p2p_topology
 
         validate_p2p_topology(config)
+    if config.connector == HCCL_P2P_CONNECTOR:
+        if (
+            type(config.num_attention_ranks) is not int
+            or type(config.num_ffn_ranks) is not int
+            or config.num_attention_ranks <= 0
+            or config.num_attention_ranks != config.num_ffn_ranks
+        ):
+            raise ValueError(
+                "P2pHcclAFDConnector requires equal positive A/F rank counts"
+            )
+        if (
+            type(config.port) is not int
+            or config.port <= 0
+            or config.port + config.num_attention_ranks - 1 > MAX_TCP_PORT
+        ):
+            raise ValueError(
+                "P2pHcclAFDConnector requires its full port range in 1..65535"
+            )
+        if config.compute_gate_on_attention:
+            raise ValueError("P2pHcclAFDConnector requires the gate on FFN")
     if not config.host:
         raise ValueError("AFD host must be non-empty")
-    if not 0 < config.port < 65536:
+    if not 0 < config.port <= MAX_TCP_PORT:
         raise ValueError(f"AFD port must be in 1..65535, got {config.port}")
     if config.num_attention_ranks <= 0:
         raise ValueError(
@@ -360,6 +383,7 @@ __all__ = [
     "AFD_ADDITIONAL_CONFIG_KEY",
     "AFDRole",
     "CAMP2P_CONNECTOR",
+    "HCCL_P2P_CONNECTOR",
     "SUPPORTED_AFD_CONNECTORS",
     "SUPPORTED_AFD_ROLES",
     "connector_extra_config_from_mapping",

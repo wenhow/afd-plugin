@@ -341,6 +341,7 @@ def ffn_owners(modules, monkeypatch):
     for name in (
         "vllm.compilation.monitor",
         "vllm.config",
+        "vllm.config.compilation",
         "vllm.forward_context",
         "vllm.platforms",
         "afd_plugin.v1.worker.attention_metadata",
@@ -463,6 +464,7 @@ def test_separate_owners_construct_and_load_without_cross_graph_pool(
     config = npu_vllm_config(role="ffn", connector=connector_name)
     config.model_config.enforce_eager = False
     config.model_config.hf_config = SimpleNamespace(num_hidden_layers=43)
+    config.model_config.hf_text_config = config.model_config.hf_config
     config.scheduler_config.max_num_seqs = 6
     config.load_config = object()
     if speculative_tokens is not None:

@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import gc
 import queue
+import sys
 import time
 from collections import deque
 from collections.abc import Callable
@@ -31,7 +32,7 @@ from afd_plugin.compat.vllm import (
 from afd_plugin.compat.vllm import (
     is_target_vllm_compatible as _is_target_vllm_compatible,
 )
-from afd_plugin.config import AFDConfig, parse_optional_afd_config
+from afd_plugin.config import HCCL_P2P_CONNECTOR, AFDConfig, parse_optional_afd_config
 
 if TYPE_CHECKING:
     from vllm.config import VllmConfig
@@ -212,19 +213,37 @@ def __init__(
 # Patch functionality: stops the connector worker loop and shuts down the model
 # executor for AFD FFN engines while preserving upstream shutdown for non-AFD
 # engines.
+# HCCL cleanup failures preserve an active ordinary engine failure. Failed
+# executor shutdown skips subsequent global group destruction until process exit.
 # Signature: matches upstream; no added parameters.
 def shutdown(self):
     # ### PATCH START: AFD FFN EngineCore shutdown
     # Stop the connector-driven worker loop before shutting down the executor;
     # scheduler/KV state may not exist for FFN daemon engines.
     if _is_afd_ffn_engine(self):
-        _stop_ffn_worker_loop(self)
-        model_executor = getattr(self, "model_executor", None)
-        if model_executor is not None:
-            model_executor.shutdown()
-        with suppress(Exception):
-            gc.unfreeze()
-        core_module.cleanup_dist_env_and_memory()
+        active_error = sys.exc_info()[1]
+        afd_config = _get_afd_config(self.vllm_config)
+        try:
+            _stop_ffn_worker_loop(self)
+            model_executor = getattr(self, "model_executor", None)
+            if model_executor is not None:
+                model_executor.shutdown()
+            with suppress(Exception):
+                gc.unfreeze()
+            core_module.cleanup_dist_env_and_memory()
+        except Exception:
+            if (
+                afd_config is None
+                or afd_config.connector != HCCL_P2P_CONNECTOR
+                or not isinstance(active_error, Exception)
+            ):
+                raise
+            # Native run_engine_core calls shutdown from finally. Preserve its
+            # active terminal failure; a failed worker shutdown must not lead
+            # to destroying groups that its receive thread may still use.
+            core_module.logger.exception(
+                "HCCL FFN cleanup failed; preserving the active engine failure"
+            )
         return
     # ### PATCH END: AFD FFN EngineCore shutdown
 
@@ -597,6 +616,7 @@ def _initialize_ffn_engine_core(
         )
 
     self.model_executor = executor_class(vllm_config)
+    self._pooler_config_logged = False
     if executor_fail_callback is not None:
         self.model_executor.register_failure_callback(executor_fail_callback)
 
@@ -648,7 +668,12 @@ def _prepare_late_loaded_ffn_engine_core(
 
 
 def _run_ffn_busy_loop(self, core_module: Any) -> None:
+    afd_config = _get_afd_config(self.vllm_config)
+    uses_hccl = afd_config is not None and afd_config.connector == HCCL_P2P_CONNECTOR
     started = False
+    peer_stopped = False
+    if uses_hccl:
+        self.process_input_queue_block = False
     try:
         self.model_executor.collective_rpc("start_ffn_server_loop")
         started = True
@@ -657,8 +682,32 @@ def _run_ffn_busy_loop(self, core_module: Any) -> None:
         core_module.logger.info(
             "AFD FFN EngineCore started; workers run connector loop."
         )
-        while _is_running(self, core_module):
-            self.model_executor.collective_rpc("raise_ffn_loop_error_if_any")
+        while True:
+            if uses_hccl:
+                if not self._handle_shutdown():
+                    break
+                # Keep native management RPCs and executor failure messages
+                # live while the worker thread owns connector computation.
+                self._process_input_queue()
+                # HCCL STOP ends the service thread without raising an error.
+                # Every F rank must finish its paired STOP before core exit;
+                # missing/malformed replies must never look like clean STOP.
+                statuses = self.model_executor.collective_rpc("poll_hccl_ffn_service")
+                if len(statuses) != afd_config.num_ffn_ranks or any(
+                    type(status) is not bool for status in statuses
+                ):
+                    raise RuntimeError(
+                        "HCCL FFN status RPC must return one boolean per FFN rank "
+                        f"(expected {afd_config.num_ffn_ranks})"
+                    )
+                if not any(statuses):
+                    self.shutdown_state = core_module.EngineShutdownState.SHUTTING_DOWN
+                    peer_stopped = True
+                    break
+            else:
+                if not _is_running(self, core_module):
+                    break
+                self.model_executor.collective_rpc("raise_ffn_loop_error_if_any")
             time.sleep(0.5)
     except KeyboardInterrupt:
         core_module.logger.info(
@@ -669,18 +718,20 @@ def _run_ffn_busy_loop(self, core_module: Any) -> None:
         raise
     finally:
         if started:
-            _stop_ffn_worker_loop(self)
+            _stop_ffn_worker_loop(self, raise_errors=uses_hccl and peer_stopped)
 
     raise SystemExit
 
 
-def _stop_ffn_worker_loop(self) -> None:
+def _stop_ffn_worker_loop(self, *, raise_errors: bool = False) -> None:
     model_executor = getattr(self, "model_executor", None)
     if model_executor is None:
         return
     try:
         model_executor.collective_rpc("stop_ffn_server_loop")
     except Exception:
+        if raise_errors:
+            raise
         core_module.logger.debug(
             "AFD FFN worker loop stop failed or was already stopped",
             exc_info=True,

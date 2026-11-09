@@ -185,6 +185,83 @@ def _require_npu_runtime():
     pytest.importorskip("torch_npu", reason="NPU runtime tests require torch-npu")
 
 
+@pytest.fixture
+def npu_worker_constructor(monkeypatch):
+    _require_npu_runtime()
+    from afd_plugin.v1.worker.npu import attention_worker, ffn_worker
+
+    def native_init(worker, vllm_config, *args, **kwargs):
+        worker.vllm_config = vllm_config
+        # Model the pinned Ascend derive step's observable config writeback.
+        if vllm_config.engram_config is not None:
+            vllm_config.engram_config.dp_shared_memory = True
+
+    monkeypatch.setattr(ffn_worker.NPUWorker, "__init__", native_init)
+    for module in (attention_worker, ffn_worker):
+        monkeypatch.setattr(module, "apply_afd_ascend_patches_if_needed", lambda: None)
+    return {
+        "attention": attention_worker.AFDNPUAttentionWorker,
+        "ffn": ffn_worker.AFDNPUFFNWorker,
+    }
+
+
+@pytest.mark.parametrize("keyword_config", [False, True])
+def test_ffn_worker_isolates_engram_before_native_construction(
+    npu_worker_constructor, keyword_config
+):
+    worker_class = npu_worker_constructor["ffn"]
+    source = _vllm_config(
+        role="ffn",
+        model_type="deepseek_v41",
+        architectures=["DeepseekV41ForCausalLM"],
+        engram_config=SimpleNamespace(dp_shared_memory=False),
+    )
+    if keyword_config:
+        worker = worker_class(
+            vllm_config=source, local_rank=0, rank=0, distributed_init_method="unused"
+        )
+    else:
+        worker = worker_class(source, 0, 0, "unused")
+
+    assert worker.vllm_config.engram_config is None
+    assert source.engram_config.dp_shared_memory is False
+    assert worker.vllm_config.model_config is source.model_config
+
+
+def test_ffn_worker_preserves_existing_model_configuration(npu_worker_constructor):
+    source = _vllm_config(
+        role="ffn",
+        engram_config=SimpleNamespace(dp_shared_memory=False),
+    )
+
+    worker = npu_worker_constructor["ffn"](source, 0, 0, "unused")
+
+    assert worker.vllm_config is source
+    assert source.engram_config.dp_shared_memory is True
+
+
+@pytest.mark.parametrize("keyword_config", [False, True])
+def test_attention_worker_preserves_engram_for_native_construction(
+    npu_worker_constructor, keyword_config
+):
+    worker_class = npu_worker_constructor["attention"]
+    source = _vllm_config(
+        role="attention",
+        model_type="deepseek_v41",
+        architectures=["DeepseekV41ForCausalLM"],
+        engram_config=SimpleNamespace(dp_shared_memory=False),
+    )
+    if keyword_config:
+        worker = worker_class(
+            vllm_config=source, local_rank=0, rank=0, distributed_init_method="unused"
+        )
+    else:
+        worker = worker_class(source, 0, 0, "unused")
+
+    assert worker.vllm_config is source
+    assert source.engram_config.dp_shared_memory is True
+
+
 def _new_attention_runner():
     _require_npu_runtime()
     from afd_plugin.v1.worker.npu.attention_model_runner_v2 import (
@@ -1447,7 +1524,7 @@ def test_npu_ffn_connector_uses_model_device_index_for_dp_worker(monkeypatch):
     monkeypatch.setattr(ffn_model_runner, "create_afd_npu_profiler", lambda _role: None)
     monkeypatch.setattr(ffn_model_runner, "_use_npu_aclgraph", lambda _config: False)
     config = _vllm_config(role="ffn")
-    config.model_config.hf_config = SimpleNamespace(num_hidden_layers=43)
+    config.model_config.hf_text_config.num_hidden_layers = 43
 
     runner = ffn_model_runner.AFDNPUFFNModelRunner(
         config, SimpleNamespace(index=3, type="npu")

@@ -16,7 +16,6 @@ from vllm.forward_context import ForwardContext
 from vllm.sequence import IntermediateTensors
 from vllm.v1.core.sched.output import SchedulerOutput
 from vllm.v1.kv_cache_interface import KVCacheConfig
-from vllm.v1.outputs import ModelRunnerOutput
 from vllm.v1.worker.dp_utils import skip_dp_coordination
 from vllm.v1.worker.gpu import cudagraph_utils as v2_cudagraph_utils
 from vllm.v1.worker.gpu import model_runner as v2_model_runner
@@ -42,6 +41,8 @@ from afd_plugin.connectors import (
     AFDConnectorFactory,
     AFDForwardContextMetadata,
 )
+from afd_plugin.connectors.npu.hccl_protocol import HcclForwardPlan
+from afd_plugin.connectors.npu.p2p_hccl import P2pHcclAFDConnector
 from afd_plugin.model_executor.models.forward_context import use_afd_metadata_provider
 from afd_plugin.v1.worker.attention_metadata import (
     AFDMetadataProviderMixin,
@@ -246,7 +247,11 @@ class AFDNPUAttentionModelRunnerV2(AFDMetadataProviderMixin, NPUModelRunnerV2):
             # The connector rendezvous is deferred to the end of ``load_model()``
             # so Attention and FFN weight loading overlap, matching the V1
             # Attention runner lifecycle.
-            if connector.control_plane is None and not self.afd_config.async_dp:
+            if (
+                connector.control_plane is None
+                and not self.afd_config.async_dp
+                and not isinstance(connector, P2pHcclAFDConnector)
+            ):
                 raise RuntimeError(
                     "AFD ModelRunnerV2 requires a control-plane-driven connector",
                 )
@@ -257,6 +262,7 @@ class AFDNPUAttentionModelRunnerV2(AFDMetadataProviderMixin, NPUModelRunnerV2):
             self._afd_pending_metadata: AFDForwardContextMetadata | None = None
             self._afd_suppress_metadata_send = False
             self._afd_transaction_counter = 0
+            self._afd_hccl_execution: tuple[str, int] | None = None
             self.prof = create_afd_npu_profiler("attention")
         except BaseException:
             try:
@@ -294,7 +300,38 @@ class AFDNPUAttentionModelRunnerV2(AFDMetadataProviderMixin, NPUModelRunnerV2):
             and self.vllm_config.kv_transfer_config is not None
         ):
             return
+        if isinstance(self.connector, P2pHcclAFDConnector):
+            self._install_hccl_metadata(forward_context, self.connector)
+            return
         super().install_afd_metadata_on_forward_context(forward_context)
+
+    def _install_hccl_metadata(
+        self,
+        forward_context: ForwardContext,
+        connector: P2pHcclAFDConnector,
+    ) -> None:
+        """Publish one typed plan at the native model-forward context boundary."""
+        if self._afd_hccl_execution is None:
+            raise RuntimeError("HCCL forward context requires an execute_model scope")
+        if forward_context.additional_kwargs is None:
+            forward_context.additional_kwargs = {}
+        if "afd_metadata" in forward_context.additional_kwargs:
+            return
+        mode, valid_tokens = self._afd_hccl_execution
+        padded_tokens = self._afd_num_tokens_for_context(forward_context)
+        metadata = self.build_afd_metadata(None, valid_tokens)
+        metadata.tokens_lens = [padded_tokens]
+        assert metadata.transaction_id is not None
+        plan = HcclForwardPlan(
+            transaction_id=metadata.transaction_id,
+            layer_indices=connector.target_layer_indices,
+            valid_tokens=valid_tokens,
+            padded_tokens=padded_tokens,
+            mode=mode,
+        )
+        connector.begin_forward_plan(plan)
+        forward_context.additional_kwargs["afd_metadata"] = metadata
+        self._afd_pending_metadata = metadata
 
     @staticmethod
     def parse_config(vllm_config: VllmConfig) -> AFDConfig:
@@ -303,6 +340,10 @@ class AFDNPUAttentionModelRunnerV2(AFDMetadataProviderMixin, NPUModelRunnerV2):
     # Patch reason: native V2 load_model has no AFD connector lifecycle.
     # Patch functionality: preserve native model loading, then rendezvous the
     # AFD connector after both worker roles have loaded their weights.
+    # Upstream: vllm_ascend/worker/v2/model_runner.py, 7e37e29a, load_model.
+    # Signature matches upstream; no added parameters. Delegate the large
+    # load/ModelState lifecycle so Engram remains owned by the native runner.
+    # Remove when upstream exposes a connector callback after model loading.
     def load_model(
         self,
         load_dummy_weights: bool = False,
@@ -310,12 +351,16 @@ class AFDNPUAttentionModelRunnerV2(AFDMetadataProviderMixin, NPUModelRunnerV2):
         **kwargs,
     ) -> None:
         super().load_model(load_dummy_weights, *args, **kwargs)
+        # ### PATCH START: AFD connector rendezvous
         if not self.connector.is_initialized:
             self.connector.init_afd_connector()
+        # ### PATCH END: AFD connector rendezvous
 
     # Native MRV2 imports its factory by value; scope that exact binding while
     # preserving Ascend's KV initialization (too large to copy). Eager DBO only.
-    # Signature matches Ascend 8d4409d6; restore the alias even on failure.
+    # Signature matches Ascend 7e37e29a; restore the alias even on failure.
+    # Delegate native Engram/shared-KV/cache-plan ownership unchanged. Remove
+    # the scoped factory override when upstream accepts an ubatch factory.
     def initialize_kv_cache(
         self,
         kv_cache_config: KVCacheConfig,
@@ -396,11 +441,11 @@ class AFDNPUAttentionModelRunnerV2(AFDMetadataProviderMixin, NPUModelRunnerV2):
     # AFD must install its sidecar at that exact context-construction seam.
     # Patch functionality: delegate all request/input/Attention/KV/sampling/
     # output work to native V2 while temporarily installing AFD metadata.
-    # Signature: matches vLLM v0.30.0 GPUModelRunner.execute_model, including
-    # the dummy-state parameters forwarded through Ascend NPUModelRunnerV2.
-    # Upstream source: vllm/v1/worker/gpu/model_runner.py,
-    # GPUModelRunner.execute_model; commit
-    # ced6857afa0ea7b2e3f0846a62e1394e90f15607.
+    # Signature: matches Ascend 7e37e29a NPUModelRunner.execute_model, including
+    # its missing return annotation and the forwarded dummy-state parameters.
+    # Upstream source: vllm_ascend/worker/v2/model_runner.py,
+    # NPUModelRunner.execute_model; commit
+    # 7e37e29a7803d6897a7113088e2b771f83205bc0.
     # Delegation exception: the upstream method is intentionally not copied;
     # only this narrow provider/profiler wrapper is AFD-specific.
     # Async CAM uses the v0.30 native DP opt-out for requests and profile/dummy
@@ -417,7 +462,7 @@ class AFDNPUAttentionModelRunnerV2(AFDMetadataProviderMixin, NPUModelRunnerV2):
         is_profile: bool = False,
         context_len: int = 0,
         valid_dummy_state_slots: bool = False,
-    ) -> ModelRunnerOutput | IntermediateTensors | None:
+    ):
         # ### PATCH START: scope AFD metadata provider/replay and profiler step.
         step_afd_npu_profiler(self.prof)
         use_fullgraph_replay_hook = (
@@ -433,6 +478,14 @@ class AFDNPUAttentionModelRunnerV2(AFDMetadataProviderMixin, NPUModelRunnerV2):
         previous_is_profile = self._afd_is_profile
         self._afd_is_profile = bool(is_profile)
         self._afd_is_graph_replaying = False
+        is_hccl = isinstance(self.connector, P2pHcclAFDConnector)
+        if is_hccl:
+            previous_hccl_execution = self._afd_hccl_execution
+            self._afd_hccl_execution = (
+                "profile" if is_profile else "dummy" if dummy_run else "target",
+                0 if dummy_run else int(scheduler_output.total_num_scheduled_tokens),
+            )
+            self._afd_pending_metadata = None
 
         replay_scope = (
             _use_afd_fullgraph_replay_hook(
@@ -476,6 +529,8 @@ class AFDNPUAttentionModelRunnerV2(AFDMetadataProviderMixin, NPUModelRunnerV2):
             self._afd_is_graph_capturing = previous_is_graph_capturing
             self._afd_is_graph_replaying = previous_is_graph_replaying
             self._afd_is_profile = previous_is_profile
+            if is_hccl:
+                self._afd_hccl_execution = previous_hccl_execution
         # ### PATCH END: scope AFD metadata provider/replay and profiler step.
 
     # Patch reason: native V2 shutdown does not know about AFD's profiler,
@@ -492,6 +547,13 @@ class AFDNPUAttentionModelRunnerV2(AFDMetadataProviderMixin, NPUModelRunnerV2):
     # to a shared composition/factory owner; it never copies native cleanup.
     def shutdown(self) -> None:
         # ### PATCH START: guarantee profiler/native/connector cleanup.
+        if (
+            isinstance(self.connector, P2pHcclAFDConnector)
+            and self.connector.is_initialized
+        ):
+            # Complete peer STOP/ACK before native model/stream cleanup. A
+            # failed or active session must escape to process supervision.
+            self.connector.request_stop()
         try:
             stop_afd_npu_profiler(self.prof)
         finally:

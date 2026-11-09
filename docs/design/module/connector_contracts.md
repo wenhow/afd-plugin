@@ -66,6 +66,7 @@ depend on role worker implementations.
 | CUDA DeepEP M2N | [`gpu/deepep_m2n/`](../../../afd_plugin/connectors/gpu/deepep_m2n/), `AFDRoutedExpertsConnector` in [`base.py`](../../../afd_plugin/connectors/base.py) | [`test_deepep_m2n_connector.py`](../../../tests/unit/connectors/test_deepep_m2n_connector.py), [GPU device tests](../../../tests/gpu/README.md), [Qwen3 MoE E2E](../../../tests/e2e/models/qwen3_moe/test_qwen3_moe.py) |
 | Ascend CAMP2P | [`npu/camp2p.py`](../../../afd_plugin/connectors/npu/camp2p.py) | [`test_camp2p_connector.py`](../../../tests/unit/connectors/test_camp2p_connector.py), [DeepSeek-V2-Lite E2E](../../../tests/e2e/models/deepseek_v2_lite/test_deepseek_v2_lite.py) |
 | Ascend CAM async | [`npu/async_cam.py`](../../../afd_plugin/connectors/npu/async_cam.py) | [`test_async_cam_connector.py`](../../../tests/unit/connectors/test_async_cam_connector.py), [`test_async_cam_npu.py`](../../../tests/e2e/models/deepseek_v2_lite/test_async_cam_npu.py) |
+| Eager HCCL TP pairs (V4.1 model entry guarded) | [`npu/p2p_hccl.py`](../../../afd_plugin/connectors/npu/p2p_hccl.py), [`npu/hccl_config.py`](../../../afd_plugin/connectors/npu/hccl_config.py) | [`test_p2p_hccl.py`](../../../tests/unit/connectors/npu/test_p2p_hccl.py), [A5 component validation guide](../../npu/DSV41_V030_HCCL_WORKFLOW_ZH.md) |
 | Process-group construction | [`afd_process_group.py`](../../../afd_plugin/distributed/afd_process_group.py) | Connector initialization tests plus platform E2E paths |
 
 ## Factory and construction

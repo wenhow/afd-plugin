@@ -4,11 +4,14 @@
 """One table owns upstream signature checks for scoped runtime patches."""
 
 import inspect
+from unittest.mock import patch
 
 import pytest
 
 
-@pytest.mark.parametrize("hook", ["capture-inputs", "camp2p-dispatch"])
+@pytest.mark.parametrize(
+    "hook", ["capture-inputs", "camp2p-dispatch", "npu-model-loader"]
+)
 def test_scoped_patch_preserves_upstream_signature(hook):
     pytest.importorskip("torch")
     pytest.importorskip("vllm")
@@ -21,7 +24,7 @@ def test_scoped_patch_preserves_upstream_signature(hook):
         symbol = "prepare_inputs_to_capture"
         tracker = adapter._AFDCaptureEventTracker([])
         scope = adapter._use_afd_capture_input_preparation(None, tracker)
-    else:
+    elif hook == "camp2p-dispatch":
         pytest.importorskip("torch_npu")
         pytest.importorskip("vllm_ascend")
         from vllm.v1.worker.gpu import model_runner as target
@@ -30,6 +33,16 @@ def test_scoped_patch_preserves_upstream_signature(hook):
 
         symbol = "dispatch_cg_and_sync_dp"
         scope = adapter._use_camp2p_dp_padding(4, 2)
+    else:
+        from torch import nn  # noqa: F401
+        from vllm.config import ModelConfig, VllmConfig  # noqa: F401
+        from vllm.model_executor.model_loader.base_loader import BaseModelLoader
+
+        from afd_plugin.compat.patches.npu import model_loader as adapter
+
+        target = BaseModelLoader
+        symbol = "create_model"
+        scope = patch.object(target, symbol, adapter.create_model)
     original = getattr(target, symbol)
     with scope:
         patched = getattr(target, symbol)

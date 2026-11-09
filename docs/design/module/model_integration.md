@@ -70,6 +70,19 @@ make a backend-specific worker class the shared model API.
 
 ## Model registration
 
+The V4.1 NPU role construction components live in
+[`npu/deepseek_v41.py`](../../../afd_plugin/model_executor/models/npu/deepseek_v41.py),
+with CPU API seams in
+[`test_deepseek_v41.py`](../../../tests/unit/model_executor/models/npu/test_deepseek_v41.py).
+A retains native Attention/HC/Engram/shared-KV forward and replaces only MoE
+construction. F constructs complete native MoE modules and retains native weight
+loading. The remote boundary carries raw token IDs and native FP32 router input.
+The NPU loader selects either role without changing native architecture/registry
+identity, and rejects generic FP8 for quantized V4.1 checkpoints. Runtime entry
+remains guarded pending full-checkpoint quantization, state lifecycle and text
+acceptance. See the [delivery and validation scope](../../npu/DSV41_V030_HCCL_WORKFLOW_ZH.md)
+for reduced construction and TP2 component results and the A5 acceptance guide.
+
 `register_afd()` leaves vLLM's native architecture lookups unchanged and
 registers lazy AFD wrapper paths under `AFD`-prefixed aliases.
 

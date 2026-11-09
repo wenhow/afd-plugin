@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import logging
 import threading
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, cast
 
 import torch
 from vllm.config import VllmConfig
@@ -24,9 +24,11 @@ from afd_plugin.compat.npu import (
     fix_all2all_backend_for_afd,
     npu_afd_num_ubatches,
 )
+from afd_plugin.compat.npu.runtime_config import get_npu_ffn_config
 from afd_plugin.config import AFD_ASYNC_CONNECTOR, parse_afd_config
 from afd_plugin.connectors import AFDConnectorFactory
 from afd_plugin.connectors.npu.async_cam import CAMAsyncAFDConnector
+from afd_plugin.connectors.npu.p2p_hccl import P2pHcclAFDConnector
 from afd_plugin.model_executor.models.model_utils import get_afd_model_config
 from afd_plugin.v1.worker.npu.async_ffn_model_runner import AsyncNPUFFNModelRunner
 from afd_plugin.v1.worker.npu.ffn_model_runner import AFDNPUFFNModelRunner
@@ -69,12 +71,40 @@ class AFDNPUFFNWorker(NPUWorker):
 
     afd_expected_role = "ffn"
 
-    def __init__(self, *args: Any, **kwargs: Any) -> None:
+    # Upstream: vllm_ascend/worker/worker.py, NPUWorker.__init__,
+    # 7e37e29a7803d6897a7113088e2b771f83205bc0.
+    # Reason: native Ascend derives Engram settings before binding worker config.
+    # Functionality: detach the V4.1 F Engram binding before any parent code.
+    # Signature matches upstream, including no return annotation; no added args.
+    # Delegation exception: the large native constructor owns ops registration,
+    # config derivation, logging and cache/sleep setup. Keep that lifecycle in
+    # super(); this subclass adds only the role view and existing daemon state.
+    # Remove the role view when upstream exposes an FFN-only Engram owner.
+    def __init__(
+        self,
+        vllm_config: VllmConfig,
+        local_rank: int,
+        rank: int,
+        distributed_init_method: str,
+        is_driver_worker: bool = False,
+        **kwargs,
+    ):
         apply_afd_ascend_patches_if_needed()
-        super().__init__(*args, **kwargs)
+        # ### PATCH START: F Engram ownership
+        vllm_config = get_npu_ffn_config(vllm_config)
+        # ### PATCH END: F Engram ownership
+        super().__init__(
+            vllm_config=vllm_config,
+            local_rank=local_rank,
+            rank=rank,
+            distributed_init_method=distributed_init_method,
+            is_driver_worker=is_driver_worker,
+            **kwargs,
+        )
         self._ffn_thread: threading.Thread | None = None
         self._ffn_shutdown_event: threading.Event | None = None
         self._ffn_loop_error: BaseException | None = None
+        self._hccl_stop_received = False
         self._cpu_binding_attempted = False
 
     def init_device(self) -> None:
@@ -137,6 +167,7 @@ class AFDNPUFFNWorker(NPUWorker):
         self._bind_cpus_once()
         self._ffn_shutdown_event = threading.Event()
         self._ffn_loop_error = None
+        self._hccl_stop_received = False
 
         def ffn_worker_loop() -> None:
             try:
@@ -144,7 +175,8 @@ class AFDNPUFFNWorker(NPUWorker):
             except Exception as exc:
                 shutdown_event = self._ffn_shutdown_event
                 if (
-                    not self._requires_async_drain()
+                    not isinstance(self.model_runner.connector, P2pHcclAFDConnector)
+                    and not self._requires_async_drain()
                     and shutdown_event is not None
                     and shutdown_event.is_set()
                 ):
@@ -194,6 +226,16 @@ class AFDNPUFFNWorker(NPUWorker):
 
         torch.npu.set_device(self.device)
         while not event.is_set():
+            if isinstance(self.model_runner.connector, P2pHcclAFDConnector):
+                plan = self.model_runner.connector.receive_forward_plan()
+                if plan is None:
+                    self._hccl_stop_received = True
+                    return
+                self.model_runner.execute_hccl_step(plan)
+                # Observe deferred device failures in the serving thread; no
+                # failed transaction may proceed to another FORWARD receive.
+                torch.npu.synchronize()
+                continue
             if isinstance(self.model_runner, AsyncNPUFFNModelRunner):
                 if not self.model_runner.execute_connector_driven_step():
                     return
@@ -230,12 +272,46 @@ class AFDNPUFFNWorker(NPUWorker):
     def raise_ffn_loop_error_if_any(self) -> None:
         error = self._ffn_loop_error
         if error is not None:
-            if not self._requires_async_drain():
+            if not self._requires_async_drain() and not isinstance(
+                self.model_runner.connector, P2pHcclAFDConnector
+            ):
                 self._ffn_loop_error = None
             raise RuntimeError("AFD NPU FFN worker loop failed") from error
 
+    def poll_hccl_ffn_service(self) -> bool:
+        """RPC status: False only after peer STOP; failures remain terminal."""
+        if not isinstance(self.model_runner.connector, P2pHcclAFDConnector):
+            raise TypeError("HCCL service polling requires P2pHcclAFDConnector")
+        self.raise_ffn_loop_error_if_any()
+        if self._hccl_stop_received:
+            return False
+        thread = self._ffn_thread
+        if thread is None:
+            raise RuntimeError("HCCL FFN service has not been started")
+        if not thread.is_alive():
+            raise RuntimeError("HCCL FFN service exited without peer STOP")
+        return True
+
     def stop_ffn_server_loop(self) -> None:
         event = self._ffn_shutdown_event
+        if isinstance(self.model_runner.connector, P2pHcclAFDConnector):
+            # A owns STOP. Join the receiver after its STOP_ACK; destroying a
+            # group under a blocking receive is not a normal shutdown protocol.
+            thread = self._ffn_thread
+            if thread is not None:
+                thread.join(timeout=FFN_SHUTDOWN_TIMEOUT_SECONDS)
+                if thread.is_alive():
+                    raise RuntimeError(
+                        "HCCL FFN is awaiting peer STOP or device completion; "
+                        "retain resources and terminate the failed worker process"
+                    )
+            self.raise_ffn_loop_error_if_any()
+            self.model_runner.connector.close()
+            if event is not None:
+                event.set()
+            self._ffn_thread = None
+            self._ffn_shutdown_event = None
+            return
         if self._requires_async_drain():
             if event is not None:
                 event.set()

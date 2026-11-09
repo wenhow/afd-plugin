@@ -6,17 +6,29 @@ from __future__ import annotations
 
 import importlib
 import logging
+import queue
 import sys
 import types
-from enum import IntEnum
+from collections import deque
+from dataclasses import replace
+from enum import Enum, IntEnum
 from types import SimpleNamespace
 
 import pytest
+
+from afd_plugin.config import HCCL_P2P_CONNECTOR
 
 
 class _EngineShutdownState(IntEnum):
     RUNNING = 0
     REQUESTED = 1
+    SHUTTING_DOWN = 2
+
+
+class _EngineCoreRequestType(Enum):
+    UTILITY = b"\x03"
+    EXECUTOR_FAILED = b"\x04"
+    WAKEUP = b"\x05"
 
 
 def _engine_core_outputs(**kwargs):
@@ -60,11 +72,40 @@ def _install_fake_vllm_core(monkeypatch: pytest.MonkeyPatch):
         def step_with_batch_queue(self):
             return None
 
+        def get_supported_tasks(self):
+            return self.model_executor.supported_tasks
+
     class EngineCoreProc(EngineCore):
         last_counts: tuple[int, int]
 
         def run_busy_loop(self):
             self.original_run_busy_loop_called = True
+
+        def has_work(self):
+            return (
+                self.engines_running
+                or self.scheduler.has_requests()
+                or bool(self.batch_queue)
+            )
+
+        def _handle_shutdown(self):
+            if self.shutdown_state == _EngineShutdownState.RUNNING:
+                return True
+            if self.shutdown_state == _EngineShutdownState.REQUESTED:
+                self.shutdown_state = _EngineShutdownState.SHUTTING_DOWN
+            return self.has_work()
+
+        def _process_input_queue(self):
+            # The fake exposes the management request/response seam only.
+            # Device requests and native socket/serialization paths stay out.
+            while not self.input_queue.empty():
+                request_type, payload = self.input_queue.get_nowait()
+                if request_type is _EngineCoreRequestType.EXECUTOR_FAILED:
+                    raise RuntimeError("Executor failed.")
+                if request_type is _EngineCoreRequestType.UTILITY:
+                    call_id, method = payload
+                    result = getattr(self, method)()
+                    self.output_queue.put_nowait((call_id, result))
 
         def _maybe_publish_request_counts(self):
             if not getattr(self, "publish_dp_lb_stats", False):
@@ -563,6 +604,248 @@ def test_engine_core_patch_runs_and_stops_ffn_loop(monkeypatch):
     assert engine.model_executor.calls == [
         "start_ffn_server_loop",
         "raise_ffn_loop_error_if_any",
+        "stop_ffn_server_loop",
+    ]
+
+
+@pytest.fixture
+def hccl_engine(monkeypatch):
+    core_module = _install_fake_vllm_core(monkeypatch)
+    patch_module = _load_patch_module()
+    monkeypatch.setattr(patch_module.time, "sleep", lambda _seconds: None)
+
+    class Executor:
+        supported_tasks = ("generate",)
+
+        def __init__(self, vllm_config):
+            self.messages = []
+            self.service_replies = deque()
+            self.stop_error = None
+            self.shutdown_error = None
+
+        def collective_rpc(self, method):
+            self.messages.append(method)
+            if method == "start_ffn_server_loop":
+                return None
+            if method == "stop_ffn_server_loop":
+                if self.stop_error is not None:
+                    raise self.stop_error
+                return None
+            if not self.service_replies:
+                raise AssertionError("FFN engine polled after the service stopped")
+            reply = self.service_replies.popleft()
+            if isinstance(reply, Exception):
+                raise reply
+            return reply
+
+        def shutdown(self):
+            if self.shutdown_error is not None:
+                raise self.shutdown_error
+
+    config = _config("ffn")
+    config.additional_config["afd"]["connector"] = HCCL_P2P_CONNECTOR
+    engine = core_module.EngineCoreProc(config, Executor, log_stats=False)
+    engine.shutdown_state = _EngineShutdownState.RUNNING
+    engine.engines_running = False
+    engine.input_queue = queue.Queue()
+    engine.output_queue = queue.Queue()
+    engine.process_input_queue_block = True
+    return engine
+
+
+@pytest.fixture
+def hccl_distributed_resources(monkeypatch, hccl_engine):
+    resources = SimpleNamespace(is_initialized=True)
+
+    def cleanup_dist_env_and_memory():
+        resources.is_initialized = False
+
+    monkeypatch.setattr(
+        sys.modules["vllm.v1.engine.core"],
+        "cleanup_dist_env_and_memory",
+        cleanup_dist_env_and_memory,
+        raising=False,
+    )
+    return resources
+
+
+@pytest.mark.parametrize("replies", [([False],), ([True], [False])])
+def test_hccl_engine_exits_cleanly_when_the_peer_stops(hccl_engine, replies):
+    hccl_engine.model_executor.service_replies.extend(replies)
+
+    with pytest.raises(SystemExit) as exited:
+        hccl_engine.run_busy_loop()
+
+    assert exited.value.code in (None, 0)
+    assert hccl_engine.shutdown_state == _EngineShutdownState.SHUTTING_DOWN
+    assert hccl_engine.model_executor.messages == [
+        "start_ffn_server_loop",
+        *["poll_hccl_ffn_service" for _ in replies],
+        "stop_ffn_server_loop",
+    ]
+
+
+@pytest.mark.parametrize("rank_count", [2, 8])
+def test_hccl_engine_waits_for_every_tp_pair_to_stop(hccl_engine, rank_count):
+    hccl_engine.vllm_config.afd_config = replace(
+        hccl_engine.vllm_config.afd_config,
+        num_attention_ranks=rank_count,
+        num_ffn_ranks=rank_count,
+    )
+    hccl_engine.model_executor.service_replies.extend(
+        ([False] + [True] * (rank_count - 1), [False] * rank_count)
+    )
+    with pytest.raises(SystemExit) as exited:
+        hccl_engine.run_busy_loop()
+    assert exited.value.code in (None, 0)
+    assert hccl_engine.model_executor.messages == [
+        "start_ffn_server_loop",
+        "poll_hccl_ffn_service",
+        "poll_hccl_ffn_service",
+        "stop_ffn_server_loop",
+    ]
+
+
+def test_hccl_engine_answers_management_utility_requests(hccl_engine):
+    hccl_engine.input_queue.put_nowait(
+        (
+            _EngineCoreRequestType.UTILITY,
+            ("supported-task-query", "get_supported_tasks"),
+        )
+    )
+    hccl_engine.model_executor.service_replies.append([False])
+
+    with pytest.raises(SystemExit):
+        hccl_engine.run_busy_loop()
+
+    assert hccl_engine.output_queue.get_nowait() == (
+        "supported-task-query",
+        ("generate",),
+    )
+
+
+def test_hccl_engine_propagates_executor_failure_from_input(hccl_engine):
+    hccl_engine.input_queue.put_nowait((_EngineCoreRequestType.EXECUTOR_FAILED, b""))
+    hccl_engine.model_executor.service_replies.append([False])
+
+    with pytest.raises(RuntimeError, match="Executor failed"):
+        hccl_engine.run_busy_loop()
+
+
+def test_hccl_engine_completes_requested_shutdown_through_native_state(hccl_engine):
+    hccl_engine.shutdown_state = _EngineShutdownState.REQUESTED
+
+    with pytest.raises(SystemExit) as exited:
+        hccl_engine.run_busy_loop()
+
+    assert exited.value.code in (None, 0)
+    assert hccl_engine.shutdown_state == _EngineShutdownState.SHUTTING_DOWN
+
+
+def test_hccl_engine_shutdown_preserves_primary_failure_and_resources(
+    hccl_engine, hccl_distributed_resources
+):
+    native_error = ValueError("native FFN compute failed")
+    primary_error = RuntimeError("AFD NPU FFN worker loop failed")
+    primary_error.__cause__ = native_error
+    hccl_engine.model_executor.service_replies.append(primary_error)
+    hccl_engine.model_executor.shutdown_error = RuntimeError(
+        "FFN receive still pending"
+    )
+
+    with pytest.raises(RuntimeError, match="worker loop failed") as failure:
+        try:
+            hccl_engine.run_busy_loop()
+        finally:
+            hccl_engine.shutdown()
+
+    assert failure.value is primary_error
+    assert failure.value.__cause__ is native_error
+    assert hccl_distributed_resources.is_initialized
+
+
+@pytest.mark.parametrize("clean_exit", [False, True])
+def test_hccl_engine_shutdown_reports_cleanup_failure(
+    hccl_engine, hccl_distributed_resources, clean_exit
+):
+    cleanup_error = RuntimeError("FFN receive still pending")
+    hccl_engine.model_executor.shutdown_error = cleanup_error
+    hccl_engine.model_executor.service_replies.append([False])
+
+    with pytest.raises(RuntimeError, match="receive still pending") as failure:
+        try:
+            if clean_exit:
+                hccl_engine.run_busy_loop()
+        finally:
+            hccl_engine.shutdown()
+
+    assert failure.value is cleanup_error
+    assert hccl_distributed_resources.is_initialized
+
+
+def test_hccl_engine_shutdown_releases_resources_after_executor_stops(
+    hccl_engine, hccl_distributed_resources
+):
+    hccl_engine.shutdown()
+
+    assert not hccl_distributed_resources.is_initialized
+
+
+@pytest.mark.parametrize(
+    "rank_count,reply",
+    [(1, []), (1, [None]), (1, [True, False]), (2, [False]), (2, [False, 0])],
+)
+def test_hccl_engine_requires_one_boolean_per_configured_rank(
+    hccl_engine, rank_count, reply
+):
+    hccl_engine.vllm_config.afd_config = replace(
+        hccl_engine.vllm_config.afd_config,
+        num_attention_ranks=rank_count,
+        num_ffn_ranks=rank_count,
+    )
+    hccl_engine.model_executor.service_replies.append(reply)
+
+    with pytest.raises(RuntimeError, match="one boolean"):
+        hccl_engine.run_busy_loop()
+
+    assert hccl_engine.model_executor.messages == [
+        "start_ffn_server_loop",
+        "poll_hccl_ffn_service",
+        "stop_ffn_server_loop",
+    ]
+
+
+def test_hccl_engine_preserves_worker_error_when_stop_rpc_also_fails(hccl_engine):
+    native_error = ValueError("native FFN compute failed")
+    worker_error = RuntimeError("AFD NPU FFN worker loop failed")
+    worker_error.__cause__ = native_error
+    hccl_engine.model_executor.service_replies.append(worker_error)
+    hccl_engine.model_executor.stop_error = RuntimeError("failed worker cannot stop")
+
+    with pytest.raises(RuntimeError, match="worker loop failed") as failure:
+        hccl_engine.run_busy_loop()
+
+    assert failure.value is worker_error
+    assert failure.value.__cause__ is native_error
+    assert hccl_engine.model_executor.messages == [
+        "start_ffn_server_loop",
+        "poll_hccl_ffn_service",
+        "stop_ffn_server_loop",
+    ]
+
+
+def test_hccl_engine_reports_cleanup_failure_after_peer_stop(hccl_engine):
+    cleanup_error = RuntimeError("HCCL worker cleanup failed after peer STOP")
+    hccl_engine.model_executor.service_replies.append([False])
+    hccl_engine.model_executor.stop_error = cleanup_error
+
+    with pytest.raises(RuntimeError, match="cleanup failed after peer STOP") as failure:
+        hccl_engine.run_busy_loop()
+
+    assert failure.value is cleanup_error
+    assert hccl_engine.model_executor.messages == [
+        "start_ffn_server_loop",
+        "poll_hccl_ffn_service",
         "stop_ffn_server_loop",
     ]
 

@@ -25,6 +25,7 @@ depends_on:
   - "execution_platforms.md"
   - "compatibility_and_patches.md"
 validation_paths:
+  - "tests/unit/v1/worker/npu/**"
   - "tests/unit/v1/worker/test_ffn_metadata.py"
   - "tests/unit/v1/worker/test_ffn_model_runner.py"
   - "tests/unit/v1/worker/test_ffn_routed_experts_model_runner.py"
