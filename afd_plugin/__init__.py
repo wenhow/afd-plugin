@@ -140,6 +140,19 @@ _MODEL_REGISTRATIONS = MappingProxyType(
 )
 
 
+def register_dsv41_mxfp8_scale_patch() -> None:
+    """Enable only the scale fix when explicitly requested by an NPU run."""
+    if os.environ.get("AFD_DSV41_MXFP8_SCALE_PATCH") != "1":
+        return
+    # Lazy import keeps default plugin discovery safe on GPU/CPU-only hosts.
+    from afd_plugin.compat.patches.npu.mxfp8 import apply_dsv41_mxfp8_scale_patch
+
+    apply_dsv41_mxfp8_scale_patch()
+    logging.getLogger("vllm.afd_dsv41_mxfp8").info(
+        "Enabled DS MXFP8 odd scale-pair packing correction"
+    )
+
+
 def register_afd() -> None:
     """Entry point for ``vllm.general_plugins``.
 

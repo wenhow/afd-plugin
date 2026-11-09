@@ -1,0 +1,58 @@
+Mon Nov  9 09:48:04 UTC 2026
+Python 3.11.10
+Name: torch
+Version: 2.10.0
+Summary: Tensors and Dynamic neural networks in Python with strong GPU acceleration
+Home-page: 
+Author: 
+Author-email: PyTorch Team <packages@pytorch.org>
+License: BSD-3-Clause
+Location: /usr/local/python3.11.10/lib/python3.11/site-packages
+Requires: filelock, fsspec, jinja2, networkx, sympy, typing-extensions
+Required-by: accelerate, ais_bench_benchmark, cann_ops_nn, cann_ops_transformer, cannbot-arena-net, cannbot-arena-net-ops, compressed-tensors, flash-linear-attention-npu-a5, torch_npu, torchaudio, torchvision, vllm_ascend, xgrammar
+---
+Name: torch_npu
+Version: 2.10.0.post4
+Summary: NPU bridge for PyTorch
+Home-page: https://gitcode.com/ascend/pytorch
+Author: 
+Author-email: 
+License: BSD License
+Location: /usr/local/python3.11.10/lib/python3.11/site-packages
+Requires: torch
+Required-by: cann_ops_nn, cann_ops_transformer, flash-linear-attention-npu-a5, vllm_ascend
+---
+Name: vllm
+Version: 0.30.0+empty
+Summary: A high-throughput and memory-efficient inference and serving engine for LLMs
+Home-page: 
+Author: vLLM Team
+Author-email: 
+License: 
+Location: /usr/local/python3.11.10/lib/python3.11/site-packages
+Requires: aiohttp, anthropic, blake3, cachetools, cbor2, cloudpickle, compressed-tensors, depyf, einops, fastapi, filelock, huggingface_hub, ijson, jsonschema, lark, llguidance, lm-format-enforcer, mcp, mistral_common, model-hosting-container-standards, msgspec, ninja, numpy, openai, openai-harmony, opencv-python-headless, opentelemetry-api, opentelemetry-exporter-otlp, opentelemetry-sdk, opentelemetry-semantic-conventions-ai, outlines_core, partial-json-parser, pillow, prometheus-fastapi-instrumentator, prometheus_client, protobuf, psutil, py-cpuinfo, pybase64, pydantic, python-json-logger, pyyaml, pyzmq, regex, requests, safetensors, sentencepiece, setproctitle, starlette, tiktoken, tokenizers, tqdm, transformers, typing_extensions, watchfiles, xgrammar
+Required-by: 
+---
+Name: vllm_ascend
+Version: 0.19.1rc2.dev637+g2db8549c5
+Summary: vLLM Ascend backend plugin
+Home-page: https://github.com/vllm-project/vllm-ascend
+Author: vLLM-Ascend team
+Author-email: 
+License: Apache 2.0
+Location: /usr/local/python3.11.10/lib/python3.11/site-packages
+Editable project location: /opt/vllm-ascend
+Requires: arctic-inference, cmake, compressed_tensors, decorator, einops, fastapi, fastokens, memcache_hybrid, memfabric_hybrid, msgpack, numba, numpy, packaging, pandas, pandas-stubs, pip, psutil, pybind11, pyyaml, quart, regex, scipy, setuptools, setuptools-scm, torch, torch-npu, torchaudio, torchvision, transformers, triton-ascend, wheel, xgrammar
+Required-by: 
+---
+Name: fastapi
+Version: 0.123.10
+Summary: FastAPI framework, high performance, easy to learn, fast to code, ready for production
+Home-page: 
+Author: 
+Author-email: =?utf-8?q?Sebasti=C3=A1n_Ram=C3=ADrez?= <tiangolo@gmail.com>
+License: 
+Location: /usr/local/python3.11.10/lib/python3.11/site-packages
+Requires: annotated-doc, pydantic, starlette, typing-extensions
+Required-by: model-hosting-container-standards, vllm, vllm_ascend
+2db8549c548731611baeb169fa1ef13aa55fc6aa

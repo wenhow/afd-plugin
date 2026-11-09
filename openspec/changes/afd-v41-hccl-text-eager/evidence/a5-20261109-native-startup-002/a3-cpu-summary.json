@@ -1,0 +1,28 @@
+{
+  "scope": "CPU seams with actual installed dependencies",
+  "success": true,
+  "cpu": {
+    "scope": "quant",
+    "command": [
+      "/mnt/workspace/code/.venvs/afd-v030-dsv41-c0/bin/python",
+      "-B",
+      "-m",
+      "pytest",
+      "-o",
+      "addopts=",
+      "-q",
+      "-rs",
+      "--tb=short",
+      "-p",
+      "no:cacheprovider",
+      "--junitxml=/mnt/workspace/tmp/afd-c0-20261104.hVgsIf/c4-stage-state-20261109-s67kahh9/results/cpu-quant.xml",
+      "tests/unit/compat/patches/npu/test_mxfp8.py",
+      "tests/unit/compat/patches/test_signatures.py",
+      "tests/unit/package/test_package.py"
+    ],
+    "returncode": 0
+  },
+  "remote": "/mnt/workspace/tmp/afd-c0-20261104.hVgsIf/c4-stage-state-20261109-s67kahh9",
+  "source_files_match": true,
+  "device_probe_started": false
+}

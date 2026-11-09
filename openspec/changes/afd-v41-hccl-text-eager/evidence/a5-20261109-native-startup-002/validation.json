@@ -1,0 +1,43 @@
+{
+  "a3_cpu": {
+    "passed": 50,
+    "warnings": 14,
+    "device_probe_started": false,
+    "scope": "CPU post-load tensor values, patch signatures and package registration with installed dependencies"
+  },
+  "local_cpu": {
+    "passed": 11,
+    "skipped": 20,
+    "reason": "local CPU host lacks torch/vllm"
+  },
+  "files": {
+    "afd_plugin/compat/patches/npu/mxfp8.py": {
+      "sha256": "84bc8d09a487de8ea831a5960174e8092343d212eb0aa5bd8308c2a4e704609a",
+      "a3_snapshot_sha256": "84bc8d09a487de8ea831a5960174e8092343d212eb0aa5bd8308c2a4e704609a"
+    },
+    "tests/unit/compat/patches/npu/test_mxfp8.py": {
+      "sha256": "2d86c1900e51fbadb60e81d1eaf3054be18b25416ec5aa8cf13de9cc6aea4871",
+      "a3_snapshot_sha256": "2d86c1900e51fbadb60e81d1eaf3054be18b25416ec5aa8cf13de9cc6aea4871"
+    },
+    "tests/unit/fakes/mxfp8.py": {
+      "sha256": "71748996901fd5a0176843b05494e407daf865068495c428773cf0e799fb2e15",
+      "a3_snapshot_sha256": "71748996901fd5a0176843b05494e407daf865068495c428773cf0e799fb2e15"
+    },
+    "tests/unit/compat/patches/test_signatures.py": {
+      "sha256": "e432e73e9f2609f6baffe6ef2b4701de54bf3e655baa7877b41afb8f10e78b04",
+      "a3_snapshot_sha256": "e432e73e9f2609f6baffe6ef2b4701de54bf3e655baa7877b41afb8f10e78b04"
+    },
+    "tests/unit/package/test_package.py": {
+      "sha256": "d98bb09b408a9352a6d90a16ab4bf7a5fcbdae4c8a0f9b85ef119307da740724",
+      "a3_snapshot_sha256": "d98bb09b408a9352a6d90a16ab4bf7a5fcbdae4c8a0f9b85ef119307da740724"
+    }
+  },
+  "independent_review": "diagnosis-review.md",
+  "static_checks": [
+    "Ruff check/format",
+    "Python 3.11 AST",
+    "local harness guard/check, upstreams unchanged"
+  ],
+  "a5_mxfp8_device_probe": "pending user execution",
+  "full_model": "not accepted"
+}

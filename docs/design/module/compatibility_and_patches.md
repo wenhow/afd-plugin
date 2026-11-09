@@ -53,6 +53,19 @@ in [`test_model_loader.py`](../../../tests/unit/compat/patches/npu/test_model_lo
 signature alignment remains in the shared patch signature table. Full V4.1
 runtime entry is still guarded.
 
+The explicit `afd_dsv41_mxfp8` general-plugin entry point installs only the
+DS MXFP8 odd scale-pair packing correction, and only when
+`AFD_DSV41_MXFP8_SCALE_PATCH=1`. It does not register AFD models or workers.
+The copied post-load function at pinned Ascend `7e37e29a` pads the unused byte
+of a final scale pair, preserving logical K, valid scale bytes and weights.
+For K=288 the packed scale is `(5, N, 2)`, consistent with the base linear
+implementation. CPU tensor tests live in
+`tests/unit/compat/patches/npu/test_mxfp8.py`; signature alignment uses the
+existing shared table. `tests/npu/dsv41_mxfp8_linear_probe.py` runs real A5 MX
+quantization/matmul, including the last valid K group. This component probe and
+the full native checkpoint remain separate acceptance steps. Remove this
+compatibility patch when the pinned DS linear implementation handles odd pairs.
+
 The connector-driven FFN forward scope also binds native current VllmConfig,
 matching Ascend's configuration lifetime while retaining the real V2 platform
 hook. Normal and exceptional exits restore the caller's configuration; this

@@ -1,0 +1,23 @@
+{
+  "archive": "238c6abfd7a845eb9ed400ea68e7d275.gz",
+  "archive_sha256": "0f5b84a8a7ae858f22e72d2f41a87dc4be0b834d78509def887520dfea4317b0",
+  "exit_code": 1,
+  "runtime_ascend_sha": "2db8549c548731611baeb169fa1ef13aa55fc6aa",
+  "locked_ascend_sha": "7e37e29a7803d6897a7113088e2b771f83205bc0",
+  "first_root_error": "shape '[5120, 4, 2]' is invalid for input of size 46080",
+  "phase": "native model post-load quantization before service ready",
+  "engram_cli_parsed": true,
+  "checkpoint_shards_present": 48,
+  "layer_identity": "shared_experts.down_proj inferred from K2304/TP8=288 and N5120; prefix not emitted by traceback",
+  "same_postload_at_both_ascend_commits": true,
+  "a5_patched_operator_probe": "pending user execution",
+  "full_model_acceptance": "not passed",
+  "archive_members": {
+    "server-exit-code.txt": 2,
+    "environment.txt": 3132,
+    "checkpoint-identity.json": 540,
+    "native-server.log": 101981,
+    "npu-after.log": 5733,
+    "npu-before.log": 5733
+  }
+}

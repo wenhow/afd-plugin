@@ -10,7 +10,7 @@ import pytest
 
 
 @pytest.mark.parametrize(
-    "hook", ["capture-inputs", "camp2p-dispatch", "npu-model-loader"]
+    "hook", ["capture-inputs", "camp2p-dispatch", "npu-model-loader", "ds-mxfp8"]
 )
 def test_scoped_patch_preserves_upstream_signature(hook):
     pytest.importorskip("torch")
@@ -33,6 +33,18 @@ def test_scoped_patch_preserves_upstream_signature(hook):
 
         symbol = "dispatch_cg_and_sync_dp"
         scope = adapter._use_camp2p_dp_padding(4, 2)
+    elif hook == "ds-mxfp8":
+        pytest.importorskip("torch_npu")
+        pytest.importorskip("vllm_ascend")
+        from vllm_ascend.quantization.methods.w8a8.w8a8_mxfp8 import (
+            AscendW8A8MXFP8DSDynamicLinearMethod,
+        )
+
+        from afd_plugin.compat.patches.npu import mxfp8 as adapter
+
+        target = AscendW8A8MXFP8DSDynamicLinearMethod
+        symbol = "process_weights_after_loading"
+        scope = patch.object(target, symbol, adapter.process_weights_after_loading)
     else:
         from torch import nn  # noqa: F401
         from vllm.config import ModelConfig, VllmConfig  # noqa: F401

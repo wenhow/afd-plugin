@@ -47,6 +47,7 @@ Documentation = "https://github.com/vllm-project/afd-plugin#readme"
 
 [project.entry-points."vllm.general_plugins"]
 afd = "afd_plugin:register_afd"
+afd_dsv41_mxfp8 = "afd_plugin:register_dsv41_mxfp8_scale_patch"
 
 [dependency-groups]
 dev = [

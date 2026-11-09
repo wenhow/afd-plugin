@@ -1,0 +1,30 @@
+444: (Worker_TP0 pid=12604) ERROR 11-09 17:50:51 [multiproc_executor.py:944] WorkerProc failed to start.
+445: (Worker_TP0 pid=12604) ERROR 11-09 17:50:51 [multiproc_executor.py:944] Traceback (most recent call last):
+446: (Worker_TP0 pid=12604) ERROR 11-09 17:50:51 [multiproc_executor.py:944]   File "/usr/local/python3.11.10/lib/python3.11/site-packages/vllm/v1/executor/multiproc_executor.py", line 911, in worker_main
+447: (Worker_TP0 pid=12604) ERROR 11-09 17:50:51 [multiproc_executor.py:944]     worker = WorkerProc(*args, **kwargs)
+448: (Worker_TP0 pid=12604) ERROR 11-09 17:50:51 [multiproc_executor.py:944]              ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+449: (Worker_TP0 pid=12604) ERROR 11-09 17:50:51 [multiproc_executor.py:944]   File "/usr/local/python3.11.10/lib/python3.11/site-packages/vllm/tracing/otel.py", line 178, in sync_wrapper
+450: (Worker_TP0 pid=12604) ERROR 11-09 17:50:51 [multiproc_executor.py:944]     return func(*args, **kwargs)
+451: (Worker_TP0 pid=12604) ERROR 11-09 17:50:51 [multiproc_executor.py:944]            ^^^^^^^^^^^^^^^^^^^^^
+452: (Worker_TP0 pid=12604) ERROR 11-09 17:50:51 [multiproc_executor.py:944]   File "/usr/local/python3.11.10/lib/python3.11/site-packages/vllm/v1/executor/multiproc_executor.py", line 680, in __init__
+453: (Worker_TP0 pid=12604) ERROR 11-09 17:50:51 [multiproc_executor.py:944]     self.worker.load_model()
+454: (Worker_TP0 pid=12604) ERROR 11-09 17:50:51 [multiproc_executor.py:944]   File "/opt/vllm-ascend/vllm_ascend/worker/worker.py", line 848, in load_model
+455: (Worker_TP0 pid=12604) ERROR 11-09 17:50:51 [multiproc_executor.py:944]     self.model_runner.load_model()
+456: (Worker_TP0 pid=12604) ERROR 11-09 17:50:51 [multiproc_executor.py:944]   File "/opt/vllm-ascend/vllm_ascend/worker/v2/model_runner.py", line 271, in load_model
+457: (Worker_TP0 pid=12604) ERROR 11-09 17:50:51 [multiproc_executor.py:944]     super().load_model(load_dummy_weights, *args, **kwargs)
+458: (Worker_TP0 pid=12604) ERROR 11-09 17:50:51 [multiproc_executor.py:944]   File "/usr/local/python3.11.10/lib/python3.11/site-packages/vllm/v1/worker/gpu/model_runner.py", line 400, in load_model
+459: (Worker_TP0 pid=12604) ERROR 11-09 17:50:51 [multiproc_executor.py:944]     self.model = model_loader.load_model(
+460: (Worker_TP0 pid=12604) ERROR 11-09 17:50:51 [multiproc_executor.py:944]                  ^^^^^^^^^^^^^^^^^^^^^^^^
+461: (Worker_TP0 pid=12604) ERROR 11-09 17:50:51 [multiproc_executor.py:944]   File "/usr/local/python3.11.10/lib/python3.11/site-packages/vllm/tracing/otel.py", line 178, in sync_wrapper
+462: (Worker_TP0 pid=12604) ERROR 11-09 17:50:51 [multiproc_executor.py:944]     return func(*args, **kwargs)
+463: (Worker_TP0 pid=12604) ERROR 11-09 17:50:51 [multiproc_executor.py:944]            ^^^^^^^^^^^^^^^^^^^^^
+464: (Worker_TP0 pid=12604) ERROR 11-09 17:50:51 [multiproc_executor.py:944]   File "/usr/local/python3.11.10/lib/python3.11/site-packages/vllm/model_executor/model_loader/base_loader.py", line 91, in load_model
+465: (Worker_TP0 pid=12604) ERROR 11-09 17:50:51 [multiproc_executor.py:944]     process_weights_after_loading(model, model_config, target_device)
+466: (Worker_TP0 pid=12604) ERROR 11-09 17:50:51 [multiproc_executor.py:944]   File "/usr/local/python3.11.10/lib/python3.11/site-packages/vllm/model_executor/model_loader/utils.py", line 134, in process_weights_after_loading
+467: (Worker_TP0 pid=12604) ERROR 11-09 17:50:51 [multiproc_executor.py:944]     quant_method.process_weights_after_loading(module)
+468: (Worker_TP0 pid=12604) ERROR 11-09 17:50:51 [multiproc_executor.py:944]   File "/opt/vllm-ascend/vllm_ascend/quantization/method_adapters.py", line 195, in process_weights_after_loading
+469: (Worker_TP0 pid=12604) ERROR 11-09 17:50:51 [multiproc_executor.py:944]     self.quant_method.process_weights_after_loading(layer)
+470: (Worker_TP0 pid=12604) ERROR 11-09 17:50:51 [multiproc_executor.py:944]   File "/opt/vllm-ascend/vllm_ascend/quantization/methods/w8a8/w8a8_mxfp8.py", line 661, in process_weights_after_loading
+471: (Worker_TP0 pid=12604) ERROR 11-09 17:50:51 [multiproc_executor.py:944]     layer.weight_scale.data = layer.weight_scale.data.reshape(n_dim, k_dim // 2, 2)
+472: (Worker_TP0 pid=12604) ERROR 11-09 17:50:51 [multiproc_executor.py:944]                               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+473: (Worker_TP0 pid=12604) ERROR 11-09 17:50:51 [multiproc_executor.py:944] RuntimeError: shape '[5120, 4, 2]' is invalid for input of size 46080
