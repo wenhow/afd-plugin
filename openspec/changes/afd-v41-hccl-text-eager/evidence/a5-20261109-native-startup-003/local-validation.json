@@ -1,0 +1,96 @@
+{
+  "scope": "local checks only; A5 FP4 probe and complete startup pending",
+  "cpu_scale_tests": {
+    "command": [
+      "D:\\Programs\\python314\\python.exe",
+      "-B",
+      "-c",
+      "import sys; sys.path.append('D:\\\\openSource\\\\afd-plugin-dsv41-flash-v030\\\\.venv\\\\Lib\\\\site-packages'); import pytest; raise SystemExit(pytest.main(['-o','addopts=','-p','no:cacheprovider','-q','tests/unit/compat/patches/npu/test_mxfp_scales.py']))"
+    ],
+    "exit_code": 0,
+    "scope": "real CPU tensor bytes only; no NPU ops"
+  },
+  "cpu_scale_result": "10 passed",
+  "package_and_collection": {
+    "command": [
+      "D:\\openSource\\afd-plugin-dsv41-flash-v030\\.venv\\Scripts\\python.exe",
+      "-B",
+      "-m",
+      "pytest",
+      "-o",
+      "addopts=",
+      "-p",
+      "no:cacheprovider",
+      "-q",
+      "tests/unit/package/test_package.py",
+      "tests/unit/compat/patches/test_signatures.py",
+      "tests/unit/compat/patches/npu/test_mxfp4.py",
+      "tests/unit/compat/patches/npu/test_mxfp8.py",
+      "tests/unit/compat/patches/npu/test_mxfp_scales.py"
+    ],
+    "exit_code": 0,
+    "scope": "CPU-only collection/package; runtime imports skipped when unavailable"
+  },
+  "package_and_collection_result": "11 passed, 24 skipped; no torch/vLLM/Ascend in this venv",
+  "exact_reported_scale_cpu_reproduction": {
+    "scope": "Exact reported tensor shape on real CPU torch; no NZ/GMM device emulation",
+    "torch": "2.14.1+cu126",
+    "original_shape": [
+      384,
+      5120,
+      9
+    ],
+    "original_error": "shape '[384, 5120, 4, 2]' is invalid for input of size 17694720",
+    "patched_shape": [
+      384,
+      5,
+      5120,
+      2
+    ],
+    "all_valid_bytes_preserved": true,
+    "unused_byte_zero": true,
+    "passed": true
+  },
+  "lint": {
+    "ruff_check": "passed",
+    "ruff_format_check": "8 files passed",
+    "git_diff_check": "passed"
+  },
+  "upstream_signatures": "2/2 AST signatures matched locked source; dynamic checks skipped locally",
+  "probe_cpu_help": "passed; no NPU operator executed",
+  "npu_acceptance": "not run by this agent; user A5 execution required",
+  "harness_check": {
+    "command": "python -B .agents/dsv41/harness.py check",
+    "exit_code": 0,
+    "scope": "local plan checks only; not official CLI or NPU qualification"
+  },
+  "upstream_guard": {
+    "command": "python -B .agents/dsv41/harness.py guard",
+    "exit_code": 0,
+    "unchanged": [
+      "vllm",
+      "vllm_ascend",
+      "hccl_donor"
+    ]
+  },
+  "manual_patch_validation": {
+    "base_afd_sha": "9b8a41e6169a3e29e3203190be69cdaa10b41077",
+    "scope": "Local manual patch verification before Git delivery; this artifact is not required for branch updates",
+    "patch_sha256": "3e4056c25d16f189c3342ba879f88284b2db8c70da9691fb9df1869ebf3a6241",
+    "patch_bytes": 20825,
+    "files": {
+      "afd_plugin/__init__.py": "08f2beab47ce4ffb33fffc95b7d662ed043fa29d63a63cfb211d44c24b721d5b",
+      "afd_plugin/compat/patches/npu/mxfp4.py": "7ed5b842d22ee06ead3257e11e32f4f79c1ddd7df45ab63bb8335baa7ddc2e9b",
+      "afd_plugin/compat/patches/npu/mxfp_scales.py": "4292ce7d242d175628bc6a534553d5a773887678464c87ff484f09e1ef328a82",
+      "tests/npu/dsv41_mxfp4_moe_probe.py": "aa336b84110c7ce5899709732ead49716dd0ae34f00185cad54575949a9982f1",
+      "tests/unit/compat/patches/test_signatures.py": "ccabc24b33a23dcc7bcff673847febe72dc332f12e72eb9d10ef31d93200027a",
+      "tests/unit/compat/patches/npu/test_mxfp4.py": "b3c2dd23cd808941dafbde2be37efb5e28308afd7ef66877b414ab6377d5fa64",
+      "tests/unit/compat/patches/npu/test_mxfp8.py": "384c62ebcb38e8f124b625c59d45bdcfe4f7c75efb326c57666eda7591189ecd",
+      "tests/unit/compat/patches/npu/test_mxfp_scales.py": "0b831d27edd3c53359412c0e8d0c69d256d73ffb7d0c58c53f60581e5b282b2b",
+      "tests/unit/fakes/mxfp4.py": "4b8b9cbda9018193deadc89119581d1525ba6df9056a2269fa2d48e3ec0e7c4e"
+    },
+    "apply_check_on_original_base": "passed",
+    "applied_content_comparison": "9/9 matched",
+    "reverse_apply_check": "passed"
+  }
+}

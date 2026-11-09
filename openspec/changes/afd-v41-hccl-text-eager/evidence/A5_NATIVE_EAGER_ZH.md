@@ -4,8 +4,9 @@
 本页按 NPU 工具通常的 MiB 口径解释为每卡 96 GiB，总计 768 GiB；
 实际可用显存仍以运行前 `npu-smi info` 为准。
 此前的 MXFP base、原生 wheel norm、缩小构造和 TP2 组件已经通过。
-**完整 checkpoint 控制组已执行两次启动：首次参数解析失败，第二次加载后在
-MXFP8 scale 打包失败；服务和首请求尚未通过。模型支持和 AFD 总 guard 均未放开。**
+**完整 checkpoint 控制组已回传三次启动：首次参数解析失败，第二次加载后在
+MXFP8 Linear scale 打包失败；第三次 Linear 探针 6 项通过，但 routed MoE 的
+MXFP4 scale 打包失败。服务和首请求尚未通过，模型支持和 AFD 总 guard 均未放开。**
 
 ## 容量候选
 
@@ -141,7 +142,59 @@ printf 'probe exit=%s\n' "$afd_probe_status"
 它不加载模型、checkpoint 或 Engram，不创建通信组。
 只有退出码 0、`passed=true` 且 6 个 case 全部通过，才继续启动；
 否则先回传 `mxfp8-linear-probe.json` 和 `.log`，不重复加载整模型。
-这一步尚待用户在 A5 执行，CPU 打包测试不能代替该算子验证。
+第三次回传中该探针的 6 项均已通过；这不覆盖下面新发现的 MoE FP4 路径。
+
+## 第三次启动：MXFP4 MoE scale 与下一步
+
+回传包 `30a05b12216e4d89beed7b256fdd65b3.gz` 中，48/48 分片已读取，
+首个 worker 于 20:08:09 在 routed MoE 的 post-load 退出：
+
+```text
+w4a8_mxfp4.py:608 process_weights_after_loading
+RuntimeError: shape '[384, 5120, 4, 2]' is invalid for input of size 17694720
+```
+
+`17694720 = 384 × 5120 × 9`。W2 的逻辑 K=288，有 9 个 32-wide scale；
+代码按 `9 // 2` 取整而尝试装入 8 列，导致 reshape 失败。
+修正后的 scale 为 `(384, 5, 5120, 2)`，最后一对只补一个未使用的 byte。
+这与 [官方 GMM MX scale 的 ceil(K/64) 配对布局](https://github.com/Ascend/op-plugin/blob/master/docs/zh/custom_APIs/torch_npu/torch_npu-npu_grouped_matmul.md)
+一致，目标 wheel 是否接受该 FP4/NZ 形状仍须单独执行探针。
+完整根 traceback、环境及 hash 见 [第三次诊断](a5-20261109-native-startup-003/diagnosis.json)。
+
+修复位于 afd-plugin 的 `mxfp4.py`，现有 `afd_dsv41_mxfp8` 入口和
+`AFD_DSV41_MXFP8_SCALE_PATCH=1` 同时启用 Linear/MoE 两项修正。
+它保留原生 FP4 权重、NZ 转换、逻辑维度与 TP/Engram；不修改 vLLM-Ascend。
+W13/W2 和 EPLB 单 expert scale 使用相同打包，EPLB 的设备行为仍未验收。
+
+在 A5 回传中使用的 afd-plugin 源码目录，从当前开发分支更新：
+已有相关本地改动或分叉时保留现场，不使用 reset/clean 强行覆盖。
+
+```bash
+git branch --show-current
+git pull --ff-only origin feat/dsv41-flash-hccl-v030
+git rev-parse HEAD
+```
+
+入口元数据没有变化，无需重新安装依赖。按前文新建结果目录并完成 checkpoint/设备检查后，
+在同一终端先跑单卡 MoE 探针；已通过的 Linear 探针结果继续保留：
+
+```bash
+export VLLM_PLUGINS=ascend,ascend_model,ascend_model_loader,ascend_kv_connector,ascend_service_profiling
+export ASCEND_RT_VISIBLE_DEVICES=0
+"$afd_python" -B tests/npu/dsv41_mxfp4_moe_probe.py --device 0 \
+  --output "$afd_native_run/mxfp4-moe-probe.json" \
+  > "$afd_native_run/mxfp4-moe-probe.log" 2>&1
+afd_probe_status=$?
+cat "$afd_native_run/mxfp4-moe-probe.json"
+printf 'MoE probe exit=%s\n' "$afd_probe_status"
+```
+
+该探针使用 2 个 synthetic experts，真实执行原生 DS post-load/NZ 转换及 FP4 GMM，
+覆盖 W13/W2、intermediate=256/288/320 和两种 MX 动态量化算法，共 12 项。
+每个 expert 分别检查全 K 与最后一个有效 group 的输出，对照 CPU 数值。
+只有退出码 0、`passed=true` 且 12 项均通过才继续下面 TP8 启动；
+否则回传 `mxfp4-moe-probe.json` 和 `.log`，先诊断组件异常。
+探针不覆盖 routing、SwiGLU、TP 通信、Engram 或完整模型推理。
 
 ## 启动原生 TP8（显式量化修正）
 
@@ -238,6 +291,7 @@ JSON
 ## 回传最小结果
 
 优先回传 `mxfp8-linear-probe.json`、`mxfp8-linear-probe.log`、
+`mxfp4-moe-probe.json`、`mxfp4-moe-probe.log`、
 `checkpoint-identity.json`、`environment.txt`、`request.json`、`response.json`、
 `server-exit-code.txt` 和 `npu-before/ready/after.log`；没有生成的文件按实际失败阶段说明。
 启动失败时最关键的是 `native-server.log` 中最先出现的 worker 根 traceback，

@@ -10,9 +10,17 @@ import pytest
 
 
 @pytest.mark.parametrize(
-    "hook", ["capture-inputs", "camp2p-dispatch", "npu-model-loader", "ds-mxfp8"]
+    "hook",
+    [
+        "capture-inputs",
+        "camp2p-dispatch",
+        "npu-model-loader",
+        "ds-mxfp8",
+        "ds-mxfp4",
+        "ds-mxfp4-expert-scale",
+    ],
 )
-def test_scoped_patch_preserves_upstream_signature(hook):
+def test_scoped_patch_preserves_upstream_signature(hook):  # long-test: shared table
     pytest.importorskip("torch")
     pytest.importorskip("vllm")
     if hook == "capture-inputs":
@@ -45,6 +53,23 @@ def test_scoped_patch_preserves_upstream_signature(hook):
         target = AscendW8A8MXFP8DSDynamicLinearMethod
         symbol = "process_weights_after_loading"
         scope = patch.object(target, symbol, adapter.process_weights_after_loading)
+    elif hook in ("ds-mxfp4", "ds-mxfp4-expert-scale"):
+        pytest.importorskip("torch_npu")
+        pytest.importorskip("vllm_ascend")
+        from vllm_ascend.quantization.methods.w4a8.w4a8_mxfp4 import (
+            AscendW4A8MXFPDSDynamicFusedMoEMethod,
+        )
+
+        from afd_plugin.compat.patches.npu import mxfp4 as adapter
+
+        target = AscendW4A8MXFPDSDynamicFusedMoEMethod
+        if hook == "ds-mxfp4":
+            symbol = "process_weights_after_loading"
+            replacement = adapter.process_weights_after_loading
+        else:
+            symbol = "_process_scale_2d"
+            replacement = staticmethod(adapter._process_scale_2d)
+        scope = patch.object(target, symbol, replacement)
     else:
         from torch import nn  # noqa: F401
         from vllm.config import ModelConfig, VllmConfig  # noqa: F401

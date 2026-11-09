@@ -1,0 +1,19 @@
+{
+  "scope": "Exact reported tensor shape on real CPU torch; no NZ/GMM device emulation",
+  "torch": "2.14.1+cu126",
+  "original_shape": [
+    384,
+    5120,
+    9
+  ],
+  "original_error": "shape '[384, 5120, 4, 2]' is invalid for input of size 17694720",
+  "patched_shape": [
+    384,
+    5,
+    5120,
+    2
+  ],
+  "all_valid_bytes_preserved": true,
+  "unused_byte_zero": true,
+  "passed": true
+}

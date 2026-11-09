@@ -53,8 +53,8 @@ in [`test_model_loader.py`](../../../tests/unit/compat/patches/npu/test_model_lo
 signature alignment remains in the shared patch signature table. Full V4.1
 runtime entry is still guarded.
 
-The explicit `afd_dsv41_mxfp8` general-plugin entry point installs only the
-DS MXFP8 odd scale-pair packing correction, and only when
+The explicit `afd_dsv41_mxfp8` general-plugin entry point installs the
+DS MXFP8 Linear and MXFP4 MoE odd scale-pair packing corrections only when
 `AFD_DSV41_MXFP8_SCALE_PATCH=1`. It does not register AFD models or workers.
 The copied post-load function at pinned Ascend `7e37e29a` pads the unused byte
 of a final scale pair, preserving logical K, valid scale bytes and weights.
@@ -65,6 +65,21 @@ existing shared table. `tests/npu/dsv41_mxfp8_linear_probe.py` runs real A5 MX
 quantization/matmul, including the last valid K group. This component probe and
 the full native checkpoint remain separate acceptance steps. Remove this
 compatibility patch when the pinned DS linear implementation handles odd pairs.
+
+The same opt-in entry point copies the pinned DS MXFP4 MoE post-load function
+and its expert-list scale method in `compat/patches/npu/mxfp4.py`. Both use
+`mxfp_scales.py` to retain every E8M0 byte and pad an unused final pair slot.
+For TP8 W2 with K=288, `(384, 5120, 9)` becomes `(384, 5, 5120, 2)`;
+native weights, NZ conversion and EPLB list construction are preserved.
+`test_mxfp_scales.py` checks real CPU tensor bytes; `test_mxfp4.py` checks
+post-load tensor outputs with a fake NZ boundary and does not qualify devices.
+The shared signature table owns alignment for both copied MoE methods.
+`tests/npu/dsv41_mxfp4_moe_probe.py` exercises real DS post-load and W13/W2
+GMM, including the last valid K group. Routing, SwiGLU, EPLB device behavior
+and full-checkpoint execution require separate acceptance. Remove the MoE
+patch when the pinned DS MoE methods support odd pairs. See the
+[patch review](../../../openspec/changes/afd-v41-hccl-text-eager/evidence/mxfp4-scale-patch-review.md)
+for source identity, loading costs and validation limits.
 
 The connector-driven FFN forward scope also binds native current VllmConfig,
 matching Ascend's configuration lifetime while retaining the real V2 platform

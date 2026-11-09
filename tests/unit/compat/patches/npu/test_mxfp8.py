@@ -9,6 +9,9 @@ pytest.importorskip("torch_npu")
 pytest.importorskip("vllm")
 pytest.importorskip("vllm_ascend")
 
+from vllm_ascend.quantization.methods.w4a8.w4a8_mxfp4 import (  # noqa: E402
+    AscendW4A8MXFPDSDynamicFusedMoEMethod,
+)
 from vllm_ascend.quantization.methods.w8a8.w8a8_mxfp8 import (  # noqa: E402
     AscendW8A8MXFP8DSDynamicLinearMethod,
 )
@@ -65,6 +68,11 @@ def test_repeated_plugin_registration_preserves_odd_scale_packing(monkeypatch):
     monkeypatch.setattr(
         target, "process_weights_after_loading", target.process_weights_after_loading
     )
+    moe = AscendW4A8MXFPDSDynamicFusedMoEMethod
+    monkeypatch.setattr(
+        moe, "process_weights_after_loading", moe.process_weights_after_loading
+    )
+    monkeypatch.setattr(moe, "_process_scale_2d", staticmethod(moe._process_scale_2d))
     monkeypatch.setenv("AFD_DSV41_MXFP8_SCALE_PATCH", "1")
     register_dsv41_mxfp8_scale_patch()
     register_dsv41_mxfp8_scale_patch()

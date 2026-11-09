@@ -1,0 +1,78 @@
+{
+  "scope": "User-supplied A5 startup failure; no complete model or AFD acceptance",
+  "archive_name": "30a05b12216e4d89beed7b256fdd65b3.gz",
+  "archive_sha256": "5da9eb41f198b1c80377bec924564cef8fcf45c541e3240b36ac1e7687653285",
+  "run_directory": "dsv41-native-tp8.GzC0bW",
+  "raw_sha256": {
+    "server-exit-code.txt": "4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865",
+    "environment.txt": "558102845687eb50fa3b2d47220d631634eec8fd9fbe0d9796a3616d79dc31d9",
+    "mxfp8-linear-probe.log": "99be1748620bef016310af93e1662f257ee02918dc54ee346a5cd282b25c0d74",
+    "checkpoint-identity.json": "24a726d675104f49f6b614f6963b9553e18a98699050082198c0b33140d83496",
+    "native-server.log": "28d7a0a5309949861f3a93afa52d635c82d2c349dad449b196f5c06b6de8a36d",
+    "mxfp8-linear-probe.json": "2ed861037b69ff4223044dfed743d3267bea354232bf51b67755af26b42db483",
+    "npu-after.log": "be11c701b054a2fd76eaf27d359bec1e3cba1a611c2f2797b5940ec5590ffe5a",
+    "npu-before.log": "e16b07dc8635cb0b99dec420a71138c79b99bebecee43a6c0d66f0c6c3af8434"
+  },
+  "server_exit_code": 1,
+  "engram_cli_resolved": {
+    "cpu_offload": false,
+    "embedding_across_dp": false,
+    "dp_shared_memory": false
+  },
+  "checkpoint_config_and_index_match": true,
+  "checkpoint_shard_count": 48,
+  "mxfp8_linear_probe": {
+    "passed": true,
+    "case_count": 6,
+    "scope": "DS linear post-load and dynamic MX quant/matmul only"
+  },
+  "first_worker_error": {
+    "log_line": 452,
+    "traceback_lines": [
+      453,
+      481
+    ],
+    "file": "vllm_ascend/quantization/methods/w4a8/w4a8_mxfp4.py",
+    "file_line": 608,
+    "symbol": "AscendW4A8MXFPDSDynamicFusedMoEMethod.process_weights_after_loading",
+    "tensor": "w2_weight_scale",
+    "loaded_shape": [
+      384,
+      5120,
+      9
+    ],
+    "invalid_reshape": [
+      384,
+      5120,
+      4,
+      2
+    ],
+    "error": "RuntimeError: shape '[384, 5120, 4, 2]' is invalid for input of size 17694720",
+    "expected_packed_shape": [
+      384,
+      5,
+      5120,
+      2
+    ]
+  },
+  "versions": {
+    "afd_head": "9b8a41e6169a3e29e3203190be69cdaa10b41077",
+    "ascend_reported_head": "2db8549c548731611baeb169fa1ef13aa55fc6aa",
+    "ascend_locked_head": "7e37e29a7803d6897a7113088e2b771f83205bc0",
+    "affected_upstream_file_identical": true,
+    "affected_upstream_sha256": "3185d3c7194b95357c57c345b7b1e1041a3039d7cb3089d398a7d63a09fc96a5",
+    "vllm_package": "0.30.0+empty",
+    "vllm_installed_revision_verified": false,
+    "torch": "2.10.0",
+    "torch_npu": "2.10.0.post4",
+    "fastapi": "0.123.10"
+  },
+  "local_patch_signature_ast_check": "2/2 matched locked upstream including missing annotations",
+  "remaining": [
+    "A5 MXFP4 MoE probe",
+    "full-model post-load completion",
+    "memory profiling and KV allocation",
+    "first request and output correctness",
+    "AFD full-checkpoint comparison"
+  ]
+}
