@@ -1,0 +1,40 @@
+{
+  "date": "2026-11-10",
+  "archive": "b0a1f0ab6acf4ebc993ca3cc9342f698.gz",
+  "archive_sha256": "92539d77d8046ed231272653c8d648ac7df13390be6ad43ee876f01b10dfefb4",
+  "afd_head": "36f52994217f4caeb4ae20d5b4783892da4b555d",
+  "ascend_head": "4ec6dc7722ec4f7f8005a86570238ac4377c5d43",
+  "topology": {
+    "dp": 8,
+    "tp": 1,
+    "ep": 8
+  },
+  "engram": {
+    "cpu_offload": true,
+    "dp_shared_memory": true
+  },
+  "shm_capacity_gib": 512,
+  "quantization_compat_plugin_enabled": false,
+  "loaded_ranks": 8,
+  "reported_model_loading_gib_per_rank": 44.29,
+  "reported_kv_cache_memory_gib_per_rank": [
+    34.11,
+    34.12
+  ],
+  "api_startup_complete": true,
+  "health_http_status": 200,
+  "completion_http_status": 500,
+  "server_exit_code": 1,
+  "first_worker_error": {
+    "timestamp": "2026-11-10 15:25:52 Asia/Shanghai",
+    "rank": "DP0_EP0",
+    "entry": "execute_dummy_batch -> V2 forward -> dsa_v41 -> compressor.pool_projected -> cann_ops_transformer compressor_v2",
+    "message": "aclnnCompressorV2 or aclnnCompressorV2GetWorkspaceSize not in libopapi.so, or libopapi.so, or libopapi_transformer.sonot found.",
+    "native_server_log_line": 1554
+  },
+  "assessment": "Service initialized; first request triggers native Attention CompressorV2 ACLNN resolution failure. Library location/version/dependency cause is not yet established.",
+  "remaining": [
+    "Inspect actual opapi libraries, exported symbols and loader errors before any package change",
+    "Successful completion and native/AFD acceptance remain pending"
+  ]
+}

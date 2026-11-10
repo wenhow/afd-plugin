@@ -1,0 +1,10 @@
+{
+  "scope": "CPU-only stub shell execution and syntax; no real CANN library lookup, NPU or inference",
+  "bash_syntax": "passed",
+  "embedded_python_compile": "passed",
+  "stub_console_lines": 1,
+  "stub_exit_code": 0,
+  "stub_archive_created": true,
+  "upstreams_unchanged": true,
+  "a5_collector_execution": "pending"
+}

@@ -3,8 +3,37 @@
 更新：2026-11-10。用户确认 950DT、8 卡、每卡显示 98304 MB；
 按 NPU 工具的 MiB 口径为每卡 96 GiB，实际可用显存以运行前采集为准。
 **本轮改用 DP8/TP1/EP8 + Engram CPU offload/DP shared memory，
-保留 eager、DSpark off 和小请求限制。服务启动、profile 和首请求均待 A5 验证；
-不解除 AFD 模型 guard，不将既有 TP8 组件结果记作此基线通过。**
+保留 eager、DSpark off 和小请求限制。最新回传已完成 8 rank 加载和服务启动，
+`/health` 返回 200；首请求在原生 Attention 的 CompressorV2 动态库解析失败，返回 500。
+不解除 AFD 模型 guard，完整原生推理与 AFD 对照仍未通过。**
+
+## 当前下一步：检查 CompressorV2 算子库
+
+回传 `b0a1f0ab6acf4ebc993ca3cc9342f698.gz` 已确认 `/dev/shm=512G`、
+DP8/TP1/EP8、Engram CPU offload/shared memory 和默认关闭的 TP8 兼容补丁。
+8 个 rank 均报告加载占用 44.29 GiB，KV 预算约 34.11–34.12 GiB/rank；
+这是各阶段报告量，不是实测峰值。首请求时最早的 DP0 worker 在 `execute_dummy_batch`
+进入 V4.1 Attention 压缩器后，`cann_ops_transformer` 无法解析
+`aclnnCompressorV2` / `aclnnCompressorV2GetWorkspaceSize`。
+因此 HTTP 500 是 worker 失败的后果，不是请求 JSON 校验错误，也不是此前的 2 GiB shm 限制。
+详见 [本轮诊断](a5-20261110-native-ep8-request-001/diagnosis.json)。
+
+Python wrapper 已导入不代表 ACLNN 动态库包含接口。当前仍需区分库缺失、版本缺少符号、
+依赖库加载失败和搜索路径未生效，不据此盲目重装 Python 包或修改模型实现。
+先在同一容器、同一 CANN shell 和 afd-plugin 目录执行只读检查：
+
+```bash
+git pull --ff-only origin feat/dsv41-flash-hccl-v030
+bash tools/diagnostics/collect_dsv41_a5_opapi.sh
+```
+
+控制台仅打印 `results/dsv41-opapi.XXXXXX`，同时生成同名 `.tar.gz`，回传此压缩包。
+工具保存指定 CANN 环境变量、包版本、CANN 库文件、绝对路径/裸库名的加载错误、
+两个 CompressorV2 符号及实际已映射的 opapi 路径。
+它不导入 torch、不使用 NPU、不加载 checkpoint、不执行算子、不安装包或改上游。
+若已有库包含符号但裸库名加载失败，后续仅对确认的匹配目录修正环境；
+若库不含接口，再按实际版本补齐匹配的 ops-transformer 二进制和 kernel 包。
+检查成功仅表示采集完成；在环境问题定位前不重复加载整模型。
 
 ## 本轮配置与官方参考
 
