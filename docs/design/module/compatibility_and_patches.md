@@ -16,6 +16,8 @@ primary_code_paths:
   - "afd_plugin/compat/npu/stream.py"
   - "afd_plugin/compat/npu/profiler_api.py"
   - "afd_plugin/compat/npu/profiler_control.py"
+  - "afd_plugin/compat/npu/kv_layout.py"
+  - "afd_plugin/compat/npu/kv_layout_native.py"
   - "afd_plugin/compat/patches/**/*.py"
 related_code_paths:
   - "afd_plugin/__init__.py"
@@ -87,6 +89,22 @@ socket and EngineCore-loop CPU seams live in
 [`test_profiler_control.py`](../../../tests/unit/compat/npu/test_profiler_control.py)
 and [`test_engine_core.py`](../../../tests/unit/compat/patches/test_engine_core.py).
 They do not establish full-model runtime reachability or device traces.
+
+The independent V4.1 KV layout diagnostic in
+[`kv_layout_native.py`](../../../afd_plugin/compat/npu/kv_layout_native.py)
+collects actual native `KVCacheConfig`/specs and materialized tensor metadata.
+It preserves shared-page component order, byte strides, dtype, page offsets,
+physical-page alias topology and group transfer flags without exporting addresses or
+reading tensor contents. The stdlib
+[`kv_layout.py`](../../../afd_plugin/compat/npu/kv_layout.py) compares immutable
+snapshots, validates every request's ordered source/destination block IDs and
+provides a read-only CLI. Different local capacities are legal; each snapshot
+and request map must still fit its own storage and block pool. Its two mirrored
+tests fall under `tests/unit/compat/**`; native-type CPU tests gate runtime
+dependencies before importing the collector. This tool does not attach to
+native registration, exchange remote attestation, change PD guards or prove a
+transfer. The [operator guide](../../npu/DSV41_KV_LAYOUT_VALIDATION_ZH.md) states
+the controlled snapshot and live-object collection boundaries.
 
 The NPU V4.1 loader hook in
 [`model_loader.py`](../../../afd_plugin/compat/patches/npu/model_loader.py)

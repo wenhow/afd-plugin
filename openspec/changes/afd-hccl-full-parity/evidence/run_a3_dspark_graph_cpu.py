@@ -1,4 +1,8 @@
-"""Freeze DSpark target Graph CPU seams in the existing A3 venv; no device."""
+"""Freeze C7 CPU seams in the existing A3 venv; no device.
+
+Defaults retain the DSpark Graph scope. Other C7 seams must provide their own
+installed-source identity, evidence directory and complete module targets.
+"""
 
 from __future__ import annotations
 
@@ -29,6 +33,8 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--label", required=True)
     parser.add_argument("--targets", nargs="+", default=TARGETS)
+    parser.add_argument("--source-identity", default=SOURCE_IDENTITY)
+    parser.add_argument("--evidence-dir", default=EVIDENCE_DIRECTORY)
     args = parser.parse_args()
     root = Path(__file__).resolve().parents[4]
     spec = importlib.util.spec_from_file_location(
@@ -36,13 +42,13 @@ def main():
     )
     harness = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(harness)
-    harness.SOURCE_IDENTITY = SOURCE_IDENTITY
+    harness.SOURCE_IDENTITY = args.source_identity
     sys.argv = [
         str(root / CPU_HARNESS),
         "--label",
         args.label,
         "--evidence-dir",
-        EVIDENCE_DIRECTORY,
+        args.evidence_dir,
         "--targets",
         *args.targets,
     ]
