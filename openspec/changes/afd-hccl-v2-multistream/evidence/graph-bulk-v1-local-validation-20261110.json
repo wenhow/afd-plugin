@@ -1,0 +1,38 @@
+{
+  "scope": "Graph bulk_v1 host contracts; no NPU execution",
+  "head": "c279c4f6f95445b9e764d2487829af39b3a757a3",
+  "source_files": {
+    "afd_plugin/distributed/hccl_plan.py": "68fbfa4b5ce38c8dfdd6ad3cebe8dc797f71a7b634d68b876375eaa56bdaec7d",
+    "afd_plugin/connectors/npu/hccl_graph_stage.py": "4504702c1c8c36083c280e71d2628941ae50ae08373b49af0d049f096c750498",
+    "afd_plugin/connectors/npu/hccl_graph_pipeline.py": "af043a551fdb40fbdb665bd78112b9100a6c6b84ba8c831fee8939d858149405",
+    "afd_plugin/model_executor/models/npu/deepseek_v41_graph.py": "09065402433f51cef2378ad984b29f2d0cec2b48f4961fb7bbca4315ee8f9347",
+    "afd_plugin/v1/worker/npu/hccl_v41_ffn_graph.py": "c28ecf032bd1614feb3d776b263dfbcab16bf801f9bc8f7addb822de946c8dc3",
+    "afd_plugin/v1/worker/npu/hccl_v41_graph_coordinator.py": "043408c12148438586cb6cd5b48b5a28cf9dfccb97752c9ca537ee335fbcaf82",
+    "afd_plugin/v1/worker/npu/hccl_v41_graph_service.py": "7329b52b39fb6a4b9ba1d6efc2f66b6fc938fa2d99e42b0bacd01e1a6b6e2ec2",
+    "tests/unit/distributed/test_hccl_plan.py": "d1cd50b8c0f96edd1e021179214940c641a19a41008a82de30c30f1c4d3e6df7",
+    "tests/unit/connectors/npu/test_hccl_graph_stage.py": "8e70491c53fe72f35d999090ad810dea10457d5d29f6b5ecc1b3532e954614e4",
+    "tests/unit/connectors/npu/test_hccl_graph_pipeline.py": "2831fa6bb48e25db506638dae25a1685fd299e2f1634bb90208129983b78ba29",
+    "tests/unit/model_executor/models/npu/test_deepseek_v41_graph.py": "fa7eb6db3e1acbe5f676fdc195af75d486df6c20ec70bb2be461cb9ef2594bb3",
+    "tests/unit/v1/worker/npu/test_hccl_v41_ffn_graph.py": "83e4d653d7e3e48ee8fb1844f0bf62589b75cbf06376a9f0102dc3678d963256",
+    "tests/unit/v1/worker/npu/test_hccl_v41_graph_coordinator.py": "2886ff4de466f1b8cd440c734bfc71ab7ed7d2c756281efa6b4da4a338416b92",
+    "tests/unit/v1/worker/npu/test_hccl_v41_graph_service.py": "1cc3f9abe49ba04e71cb8a3d44f8739fae53f2e0bbd0cdf420a7f45b9a579828",
+    "tests/unit/fakes/hccl_graph_stage.py": "26a3a1987b5f84e104eac196a86c0d1b77f7f6fecad74762242b55c9a8095eaa",
+    "tests/unit/fakes/hccl_graph_pipeline.py": "1f11f7a336b1991d33d373616c2b0276db59039a0f14b5ea3e1f27ec94149171",
+    "tests/unit/fakes/deepseek_v41_graph.py": "0e3b89cda2812493b152e26bffd55c338993fee453748d3493bc29de32211504",
+    "tests/unit/fakes/hccl_v41_ffn_graph.py": "b15a1860c640520fc0f7bbd5ed1df6d7a71913cc36a2dc193fcb29a00e3c54f7",
+    "tests/unit/fakes/hccl_v41_graph_coordinator.py": "aceae14dc4c3176b9e64875debd157d66dc58c5810eb17767fad25e1285b5657",
+    "tests/unit/fakes/hccl_v41_graph_service.py": "46a69df9570fd0163d8e445e30c5c48f1c95b60ffa7dc76b774a64a24fbca901"
+  },
+  "python311_ast": {
+    "files": 20,
+    "success": true
+  },
+  "ruff": {
+    "exit_code": 0
+  },
+  "pure_codec": {
+    "passed": 147
+  },
+  "actual_dependency_cpu": "pending",
+  "device": "not started"
+}

@@ -1,0 +1,200 @@
+{
+  "scope": "CPU module seams with actual installed dependencies; no device probe",
+  "remote": "/mnt/workspace/tmp/afd-c0-20261104.hVgsIf/c5-control-cpu-20261109-5p1pbyl8",
+  "command": [
+    "/mnt/workspace/code/.venvs/afd-v030-dsv41-c0/bin/python",
+    "-B",
+    "-m",
+    "pytest",
+    "-o",
+    "addopts=",
+    "-q",
+    "-rs",
+    "--tb=short",
+    "-p",
+    "no:cacheprovider",
+    "-m",
+    "not npu and not gpu",
+    "--junitxml=/mnt/workspace/tmp/afd-c0-20261104.hVgsIf/c5-control-cpu-20261109-5p1pbyl8/results/cpu.xml",
+    "tests/unit/compat/npu/test_profiler.py",
+    "tests/unit/v1/worker/npu/test_attention_worker.py",
+    "tests/unit/v1/worker/npu/test_attention_model_runner_v2.py",
+    "tests/unit/v1/worker/test_npu_model_runner_v2.py",
+    "tests/unit/v1/worker/test_npu_runtime.py",
+    "tests/unit/v1/worker/npu/test_hccl_v41_execution.py",
+    "tests/unit/compat/patches/test_signatures.py"
+  ],
+  "returncode": 1,
+  "source_files_match": true,
+  "snapshot_exclusions": [],
+  "device_probe_started": false,
+  "success": false
+}
+...............................EEEFFFFEEEEEFFF...FFFFF.................. [ 22%]
+........................................................................ [ 45%]
+........................................................................ [ 67%]
+........................................................................ [ 90%]
+...............................                                          [100%]
+==================================== ERRORS ====================================
+_ ERROR at setup of test_successful_native_execute_is_one_step_including_legal_none[None] _
+tests/unit/v1/worker/npu/test_attention_worker.py:31: in attention_case
+    return make_profiled_attention_case(AFDNPUAttentionWorker)
+tests/unit/fakes/profiler.py:196: in make_profiled_attention_case
+    case.owner.bind_hccl_v41_graph_eager(case.eager, case.session)
+afd_plugin/v1/worker/npu/attention_model_runner_v2.py:436: in bind_hccl_v41_graph_eager
+    raise RuntimeError("graph eager binding requires its idle pre-KV owners")
+E   RuntimeError: graph eager binding requires its idle pre-KV owners
+_ ERROR at setup of test_successful_native_execute_is_one_step_including_legal_none[native-result] _
+tests/unit/v1/worker/npu/test_attention_worker.py:31: in attention_case
+    return make_profiled_attention_case(AFDNPUAttentionWorker)
+tests/unit/fakes/profiler.py:196: in make_profiled_attention_case
+    case.owner.bind_hccl_v41_graph_eager(case.eager, case.session)
+afd_plugin/v1/worker/npu/attention_model_runner_v2.py:436: in bind_hccl_v41_graph_eager
+    raise RuntimeError("graph eager binding requires its idle pre-KV owners")
+E   RuntimeError: graph eager binding requires its idle pre-KV owners
+_ ERROR at setup of test_idle_profile_request_is_pending_until_the_next_execute _
+tests/unit/v1/worker/npu/test_attention_worker.py:31: in attention_case
+    return make_profiled_attention_case(AFDNPUAttentionWorker)
+tests/unit/fakes/profiler.py:196: in make_profiled_attention_case
+    case.owner.bind_hccl_v41_graph_eager(case.eager, case.session)
+afd_plugin/v1/worker/npu/attention_model_runner_v2.py:436: in bind_hccl_v41_graph_eager
+    raise RuntimeError("graph eager binding requires its idle pre-KV owners")
+E   RuntimeError: graph eager binding requires its idle pre-KV owners
+_ ERROR at setup of test_shutdown_preserves_stop_cache_export_native_group_order _
+tests/unit/v1/worker/npu/test_attention_worker.py:31: in attention_case
+    return make_profiled_attention_case(AFDNPUAttentionWorker)
+tests/unit/fakes/profiler.py:196: in make_profiled_attention_case
+    case.owner.bind_hccl_v41_graph_eager(case.eager, case.session)
+afd_plugin/v1/worker/npu/attention_model_runner_v2.py:436: in bind_hccl_v41_graph_eager
+    raise RuntimeError("graph eager binding requires its idle pre-KV owners")
+E   RuntimeError: graph eager binding requires its idle pre-KV owners
+_ ERROR at setup of test_role_and_native_profiler_conflict_is_an_explicit_management_error _
+tests/unit/v1/worker/npu/test_attention_worker.py:31: in attention_case
+    return make_profiled_attention_case(AFDNPUAttentionWorker)
+tests/unit/fakes/profiler.py:196: in make_profiled_attention_case
+    case.owner.bind_hccl_v41_graph_eager(case.eager, case.session)
+afd_plugin/v1/worker/npu/attention_model_runner_v2.py:436: in bind_hccl_v41_graph_eager
+    raise RuntimeError("graph eager binding requires its idle pre-KV owners")
+E   RuntimeError: graph eager binding requires its idle pre-KV owners
+__ ERROR at setup of test_disabled_role_profiler_preserves_native_rpc_result ___
+tests/unit/v1/worker/npu/test_attention_worker.py:31: in attention_case
+    return make_profiled_attention_case(AFDNPUAttentionWorker)
+tests/unit/fakes/profiler.py:196: in make_profiled_attention_case
+    case.owner.bind_hccl_v41_graph_eager(case.eager, case.session)
+afd_plugin/v1/worker/npu/attention_model_runner_v2.py:436: in bind_hccl_v41_graph_eager
+    raise RuntimeError("graph eager binding requires its idle pre-KV owners")
+E   RuntimeError: graph eager binding requires its idle pre-KV owners
+_ ERROR at setup of test_disabled_role_preserves_native_shutdown_including_partial_worker[False] _
+tests/unit/v1/worker/npu/test_attention_worker.py:31: in attention_case
+    return make_profiled_attention_case(AFDNPUAttentionWorker)
+tests/unit/fakes/profiler.py:196: in make_profiled_attention_case
+    case.owner.bind_hccl_v41_graph_eager(case.eager, case.session)
+afd_plugin/v1/worker/npu/attention_model_runner_v2.py:436: in bind_hccl_v41_graph_eager
+    raise RuntimeError("graph eager binding requires its idle pre-KV owners")
+E   RuntimeError: graph eager binding requires its idle pre-KV owners
+_ ERROR at setup of test_disabled_role_preserves_native_shutdown_including_partial_worker[True] _
+tests/unit/v1/worker/npu/test_attention_worker.py:31: in attention_case
+    return make_profiled_attention_case(AFDNPUAttentionWorker)
+tests/unit/fakes/profiler.py:196: in make_profiled_attention_case
+    case.owner.bind_hccl_v41_graph_eager(case.eager, case.session)
+afd_plugin/v1/worker/npu/attention_model_runner_v2.py:436: in bind_hccl_v41_graph_eager
+    raise RuntimeError("graph eager binding requires its idle pre-KV owners")
+E   RuntimeError: graph eager binding requires its idle pre-KV owners
+=================================== FAILURES ===================================
+___ test_execute_failure_preserves_native_error_and_exports_on_owner[False] ____
+tests/unit/v1/worker/npu/test_attention_worker.py:77: in test_execute_failure_preserves_native_error_and_exports_on_owner
+    case = make_profiled_attention_case(
+tests/unit/fakes/profiler.py:196: in make_profiled_attention_case
+    case.owner.bind_hccl_v41_graph_eager(case.eager, case.session)
+afd_plugin/v1/worker/npu/attention_model_runner_v2.py:436: in bind_hccl_v41_graph_eager
+    raise RuntimeError("graph eager binding requires its idle pre-KV owners")
+E   RuntimeError: graph eager binding requires its idle pre-KV owners
+____ test_execute_failure_preserves_native_error_and_exports_on_owner[True] ____
+tests/unit/v1/worker/npu/test_attention_worker.py:77: in test_execute_failure_preserves_native_error_and_exports_on_owner
+    case = make_profiled_attention_case(
+tests/unit/fakes/profiler.py:196: in make_profiled_attention_case
+    case.owner.bind_hccl_v41_graph_eager(case.eager, case.session)
+afd_plugin/v1/worker/npu/attention_model_runner_v2.py:436: in bind_hccl_v41_graph_eager
+    raise RuntimeError("graph eager binding requires its idle pre-KV owners")
+E   RuntimeError: graph eager binding requires its idle pre-KV owners
+_ test_profiler_shutdown_failure_retains_native_storage_and_groups[foreign-thread] _
+tests/unit/v1/worker/npu/test_attention_worker.py:96: in test_profiler_shutdown_failure_retains_native_storage_and_groups
+    case = make_profiled_attention_case(
+tests/unit/fakes/profiler.py:196: in make_profiled_attention_case
+    case.owner.bind_hccl_v41_graph_eager(case.eager, case.session)
+afd_plugin/v1/worker/npu/attention_model_runner_v2.py:436: in bind_hccl_v41_graph_eager
+    raise RuntimeError("graph eager binding requires its idle pre-KV owners")
+E   RuntimeError: graph eager binding requires its idle pre-KV owners
+_ test_profiler_shutdown_failure_retains_native_storage_and_groups[export-failure] _
+tests/unit/v1/worker/npu/test_attention_worker.py:96: in test_profiler_shutdown_failure_retains_native_storage_and_groups
+    case = make_profiled_attention_case(
+tests/unit/fakes/profiler.py:196: in make_profiled_attention_case
+    case.owner.bind_hccl_v41_graph_eager(case.eager, case.session)
+afd_plugin/v1/worker/npu/attention_model_runner_v2.py:436: in bind_hccl_v41_graph_eager
+    raise RuntimeError("graph eager binding requires its idle pre-KV owners")
+E   RuntimeError: graph eager binding requires its idle pre-KV owners
+_______ test_native_zero_return_uses_the_current_graph_lifecycle[False] ________
+tests/unit/v1/worker/npu/test_attention_model_runner_v2.py:43: in test_native_zero_return_uses_the_current_graph_lifecycle
+    case.owner.bind_hccl_v41_graph_eager(case.eager, case.session)
+afd_plugin/v1/worker/npu/attention_model_runner_v2.py:436: in bind_hccl_v41_graph_eager
+    raise RuntimeError("graph eager binding requires its idle pre-KV owners")
+E   RuntimeError: graph eager binding requires its idle pre-KV owners
+________ test_native_zero_return_uses_the_current_graph_lifecycle[True] ________
+tests/unit/v1/worker/npu/test_attention_model_runner_v2.py:43: in test_native_zero_return_uses_the_current_graph_lifecycle
+    case.owner.bind_hccl_v41_graph_eager(case.eager, case.session)
+afd_plugin/v1/worker/npu/attention_model_runner_v2.py:436: in bind_hccl_v41_graph_eager
+    raise RuntimeError("graph eager binding requires its idle pre-KV owners")
+E   RuntimeError: graph eager binding requires its idle pre-KV owners
+________ test_unbound_graph_lifecycle_fails_before_native_work[execute] ________
+tests/unit/v1/worker/npu/test_attention_model_runner_v2.py:77: in test_unbound_graph_lifecycle_fails_before_native_work
+    case.owner.execute_model(SimpleNamespace(total_num_scheduled_tokens=4))
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/torch/utils/_contextlib.py:124: in decorate_context
+    return func(*args, **kwargs)
+afd_plugin/v1/worker/npu/attention_model_runner_v2.py:685: in execute_model
+    return super().execute_model(
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/torch/utils/_contextlib.py:124: in decorate_context
+    return func(*args, **kwargs)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/vllm_ascend/worker/v2/model_runner.py:497: in execute_model
+    profiling_config = self.ascend_config.scheduler_config.profiling_chunk_config
+E   AttributeError: 'AFDNPUAttentionModelRunnerV2' object has no attribute 'ascend_config'
+_________ test_graph_binding_cannot_replace_an_already_bound_lifecycle _________
+tests/unit/v1/worker/npu/test_attention_model_runner_v2.py:94: in test_graph_binding_cannot_replace_an_already_bound_lifecycle
+    case.owner.bind_hccl_v41_graph_eager(case.eager, case.session)
+afd_plugin/v1/worker/npu/attention_model_runner_v2.py:436: in bind_hccl_v41_graph_eager
+    raise RuntimeError("graph eager binding requires its idle pre-KV owners")
+E   RuntimeError: graph eager binding requires its idle pre-KV owners
+_________ test_real_kv_coordinator_rejects_a_different_pre_kv_session __________
+tests/unit/v1/worker/npu/test_attention_model_runner_v2.py:102: in test_real_kv_coordinator_rejects_a_different_pre_kv_session
+    case.owner.bind_hccl_v41_graph_eager(case.eager, case.session)
+afd_plugin/v1/worker/npu/attention_model_runner_v2.py:436: in bind_hccl_v41_graph_eager
+    raise RuntimeError("graph eager binding requires its idle pre-KV owners")
+E   RuntimeError: graph eager binding requires its idle pre-KV owners
+_____ test_shutdown_retains_native_owners_until_graph_reset_succeeds[None] _____
+tests/unit/v1/worker/npu/test_attention_model_runner_v2.py:115: in test_shutdown_retains_native_owners_until_graph_reset_succeeds
+    case.owner.bind_hccl_v41_graph_eager(case.eager, case.session)
+afd_plugin/v1/worker/npu/attention_model_runner_v2.py:436: in bind_hccl_v41_graph_eager
+    raise RuntimeError("graph eager binding requires its idle pre-KV owners")
+E   RuntimeError: graph eager binding requires its idle pre-KV owners
+____ test_shutdown_retains_native_owners_until_graph_reset_succeeds[cache] _____
+tests/unit/v1/worker/npu/test_attention_model_runner_v2.py:115: in test_shutdown_retains_native_owners_until_graph_reset_succeeds
+    case.owner.bind_hccl_v41_graph_eager(case.eager, case.session)
+afd_plugin/v1/worker/npu/attention_model_runner_v2.py:436: in bind_hccl_v41_graph_eager
+    raise RuntimeError("graph eager binding requires its idle pre-KV owners")
+E   RuntimeError: graph eager binding requires its idle pre-KV owners
+____ test_shutdown_retains_native_owners_until_graph_reset_succeeds[native] ____
+tests/unit/v1/worker/npu/test_attention_model_runner_v2.py:115: in test_shutdown_retains_native_owners_until_graph_reset_succeeds
+    case.owner.bind_hccl_v41_graph_eager(case.eager, case.session)
+afd_plugin/v1/worker/npu/attention_model_runner_v2.py:436: in bind_hccl_v41_graph_eager
+    raise RuntimeError("graph eager binding requires its idle pre-KV owners")
+E   RuntimeError: graph eager binding requires its idle pre-KV owners
+=============================== warnings summary ===============================
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/torch/jit/_script.py:362: 14 warnings
+  /mnt/workspace/code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/torch/jit/_script.py:362: DeprecationWarning: `torch.jit.script_method` is deprecated. Please switch to `torch.compile` or `torch.export`.
+    warnings.warn(
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+- generated xml file: /mnt/workspace/tmp/afd-c0-20261104.hVgsIf/c5-control-cpu-20261109-5p1pbyl8/results/cpu.xml -
+12 failed, 299 passed, 14 warnings, 8 errors in 3.27s
+
+
+Warning: Permanently added '[127.0.0.1]:43078' (ED25519) to the list of known hosts.

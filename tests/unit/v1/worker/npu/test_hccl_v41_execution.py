@@ -21,6 +21,14 @@ from vllm.v1.worker.gpu import model_runner as native_model_runner
 from vllm.v1.worker.gpu.spec_decode.dflash.speculator import DFlashSpeculator
 from vllm_ascend.worker.v2.model_runner import NPUModelRunner
 
+from afd_plugin.connectors.npu.hccl_diagnostics import (
+    HcclDiagnosticExecution,
+    HcclStageDiagnostics,
+)
+from afd_plugin.connectors.npu.hccl_overlap import (
+    HcclOverlapSettings,
+    select_hccl_overlap,
+)
 from afd_plugin.connectors.npu.hccl_staged import HcclStagedAFDConnector
 from afd_plugin.connectors.npu.p2p_hccl import P2pHcclAFDConnector
 from afd_plugin.distributed.hccl_graph import HcclGraphDecision
@@ -32,9 +40,14 @@ from afd_plugin.model_executor.models.npu.deepseek_v41 import (
 from afd_plugin.v1.worker.npu import attention_model_runner_v2 as attention
 from afd_plugin.v1.worker.npu import hccl_v41_execution as execution
 from afd_plugin.v1.worker.npu import hccl_v41_ubatch_runner as ubatch
+from afd_plugin.v1.worker.npu.hccl_v41_diagnostics import HcclV41DiagnosticBinding
 from tests.unit.fakes.deepseek_v41 import ParentEngramState, make_staged_model
 from tests.unit.fakes.hccl import StagedAttentionPeer
-from tests.unit.fakes.hccl_eager_model import make_eager_model_case
+from tests.unit.fakes.hccl_diagnostics import StageDiagnosticRecorder
+from tests.unit.fakes.hccl_eager_model import (
+    make_eager_model_case,
+    make_empty_ticket_execution_case,
+)
 from tests.unit.fakes.input_batch import (
     make_ascend_batch,
     make_ascend_speculative_batch,
@@ -111,7 +124,6 @@ def native_case(monkeypatch):
     monkeypatch.setattr(
         ubatch.current_platform, "set_additional_forward_context", lambda *a, **k: {}
     )
-    monkeypatch.setattr(attention, "step_afd_npu_profiler", lambda _: None)
 
     # One upstream execution collaborator seam. Real Ascend input slicing,
     # forward-context construction, nn.Module pre-hook and AFD entry run below.
@@ -514,7 +526,9 @@ def test_normal_runner_constructor_binds_selected_staged_adapter(
     )
     monkeypatch.setattr(attention, "create_npu_runtime_connector", lambda *a: connector)
     monkeypatch.setattr(attention, "_resolve_world_ranks", lambda: (0, 1))
-    monkeypatch.setattr(attention, "create_afd_npu_profiler", lambda _: None)
+    monkeypatch.setattr(
+        attention, "create_deferred_afd_npu_profiler", lambda _role, **_: None
+    )
 
     def native_init(self, vllm_config, device):
         self.vllm_config, self.device, self.ubatch_runner = vllm_config, device, None
@@ -525,3 +539,140 @@ def test_normal_runner_constructor_binds_selected_staged_adapter(
     )
     assert runner.connector is connector and runner.hccl_v41_transport is peer
     assert not connector.is_initialized
+
+
+@pytest.mark.parametrize("u2", [False, True])
+def test_native_serial_diagnostics_preserve_output_and_single_parent_producer(
+    native_case, u2
+):
+    reference = native_case(with_ubatches=u2)
+    reference.owner.select_u2 = u2
+    expected, expected_aux = reference.owner.execute_model(
+        SimpleNamespace(total_num_scheduled_tokens=5)
+    )
+    case = native_case(with_ubatches=u2)
+    case.owner.select_u2 = u2
+    records = []
+    case.owner.bind_hccl_v41_diagnostics(
+        HcclV41DiagnosticBinding(
+            case.peer,
+            HcclOverlapSettings(stage_diagnostics=True),
+            emit=records.append,
+        )
+    )
+
+    output, auxiliary = case.owner.execute_model(
+        SimpleNamespace(total_num_scheduled_tokens=5)
+    )
+
+    torch.testing.assert_close(output, expected, rtol=0, atol=0)
+    for actual, baseline in zip(auxiliary, expected_aux, strict=True):
+        torch.testing.assert_close(actual, baseline, rtol=0, atol=0)
+    assert len(auxiliary) == 2 and case.state.consumed
+    assert case.peer.completed and len(case.peer.forwards) == 1
+    assert [record["event"] for record in records].count("configuration") == 1
+    assert records[0]["actual.mode"] == "serial"
+    assert records[0]["num_stages"] == (2 if u2 else 1)
+    assert {record["transaction_id"] for record in records} == {
+        case.peer.forwards[0].transaction_id
+    }
+
+
+@pytest.mark.parametrize("invalid", ["transaction", "world_rank", "actual_mode"])
+def test_foreign_progress_is_rejected_before_native_producer(monkeypatch, invalid):
+    setup = make_eager_model_case(monkeypatch, execution)
+    plan = setup.peer.plan
+    state = ParentEngramState({})
+    progress = HcclStageDiagnostics(
+        select_hccl_overlap(
+            HcclOverlapSettings(),
+            role="attention",
+            phase="eager",
+            num_stages=len(plan.stages),
+        ),
+        setup.peer.world_rank + (invalid == "world_rank"),
+        setup.peer.role_rank,
+    ).bind_execution(
+        layer_indices=plan.layer_indices,
+        actual_execution=HcclDiagnosticExecution("serial", "parent"),
+        transaction_id="foreign" if invalid == "transaction" else plan.transaction_id,
+    )
+
+    with pytest.raises(
+        ValueError, match="exact accepted parent|actual executor streams"
+    ):
+        execution.execute_hccl_v41_stages(
+            setup.case.wrapper,
+            state,
+            {},
+            (),
+            (),
+            setup.peer,
+            eager_pipeline=setup.pipeline,
+            compute_stream=setup.runtime.compute,
+            progress=progress,
+        )
+
+    assert not state.consumed and setup.peer.messages == []
+    assert not setup.pipeline.failed and not setup.peer.terminal
+
+
+@pytest.mark.parametrize("u2", [False, True])
+def test_configuration_sink_failure_stops_native_parent_before_producer(
+    native_case, u2
+):
+    case = native_case(with_ubatches=u2)
+    case.owner.select_u2 = u2
+    recorder = StageDiagnosticRecorder()
+    recorder.fail_event = "configuration"
+    case.owner.bind_hccl_v41_diagnostics(
+        HcclV41DiagnosticBinding(
+            case.peer,
+            HcclOverlapSettings(stage_diagnostics=True),
+            emit=recorder.emit,
+        )
+    )
+
+    with pytest.raises(RuntimeError, match="requested diagnostic sink failed"):
+        case.owner.execute_model(SimpleNamespace(total_num_scheduled_tokens=5))
+
+    assert recorder.events == ["configuration"]
+    assert not case.state.consumed and case.peer.terminal
+    assert case.peer.messages == []
+
+
+def test_finished_ticket_diagnostic_failure_preserves_original_sink_exception(
+    monkeypatch,
+):
+    setup = make_empty_ticket_execution_case(monkeypatch, execution)
+    case = setup.case
+    setup.diagnostic.recorder.fail_event = "parent_finish_returned"
+    state = ParentEngramState(
+        {
+            key: value
+            for key, value in case.parent_inputs.items()
+            if key.startswith("engram_")
+        }
+    )
+    parent = SimpleNamespace(cudagraph_runtime_mode=CUDAGraphMode.NONE, ubatch_idx=-1)
+    state.parent_context = parent
+
+    with (
+        override_forward_context(parent),
+        pytest.raises(RuntimeError, match="requested diagnostic sink failed"),
+    ):
+        execution.execute_hccl_v41_stages(
+            case.wrapper,
+            state,
+            case.parent_inputs,
+            case.contexts,
+            case.slices,
+            setup.peer,
+            eager_pipeline=setup.pipeline,
+            compute_stream=setup.runtime.compute,
+            progress=setup.diagnostic.progress,
+        )
+
+    assert setup.pipeline.finished and not setup.pipeline.failed
+    assert setup.peer.plan is None and setup.peer.eager_pipeline is None
+    assert setup.diagnostic.recorder.events[-1] == "parent_finish_returned"

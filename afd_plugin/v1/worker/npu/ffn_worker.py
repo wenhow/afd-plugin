@@ -51,6 +51,7 @@ if TYPE_CHECKING:
     from vllm.v1.outputs import AsyncModelRunnerOutput, ModelRunnerOutput
 
     from afd_plugin.connectors.npu.hccl_staged_transport import HcclStagedTransport
+from afd_plugin.v1.worker.npu.hccl_v41_diagnostics import HcclV41DiagnosticBinding
 from afd_plugin.v1.worker.npu.hccl_v41_eager import HcclV41EagerSession
 
 logger = logging.getLogger(__name__)
@@ -199,6 +200,16 @@ class AFDNPUFFNWorker(NPUWorker):
         ):
             raise RuntimeError("bind eager FFN streams before resident service startup")
         self.model_runner.bind_hccl_v41_eager_session(session)
+
+    def bind_hccl_v41_diagnostics(self, binding: HcclV41DiagnosticBinding) -> None:
+        """Install rank diagnostics before the service thread can receive."""
+        if (
+            self._ffn_thread is not None
+            or binding.transport is not self._hccl_v41_transport
+            or not isinstance(self.model_runner, AFDNPUFFNModelRunner)
+        ):
+            raise RuntimeError("bind FFN diagnostics before resident service startup")
+        self.model_runner.bind_hccl_v41_diagnostics(binding)
 
     def compile_or_warm_up_model(self) -> CompilationTimes:
         return CompilationTimes(language_model=0.0, encoder=0.0)

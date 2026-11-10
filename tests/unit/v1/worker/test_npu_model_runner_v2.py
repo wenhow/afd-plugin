@@ -72,7 +72,7 @@ def _runner(*, async_dp=False):
     runner.connector = SimpleNamespace(extra_info=SimpleNamespace())
     runner.cudagraph_manager = None
     runner.ubatch_runner = None
-    runner.prof = object()
+    runner.prof = None
     runner._afd_pending_metadata = object()
     runner._afd_suppress_metadata_send = True
     runner._is_warmup = True
@@ -115,7 +115,6 @@ def hccl_execution(monkeypatch, hccl_wire):
     runner.afd_config = attention.afd_config
     runner._afd_hccl_execution, runner._afd_transaction_counter = None, 0
     forward_module = afd_context.forward_context_module
-    monkeypatch.setattr(npu_v2, "step_afd_npu_profiler", lambda _: None)
     monkeypatch.setattr(
         forward_module,
         "create_forward_context",
@@ -370,8 +369,6 @@ def test_execute_forwards_dummy_profile_and_context_then_restores(
 ):
     runner = _runner(async_dp=async_dp)
     original_state = _state(runner)
-    step_calls: list[object] = []
-    monkeypatch.setattr(npu_v2, "step_afd_npu_profiler", step_calls.append)
     context = SimpleNamespace(additional_kwargs={})
     forward_module = afd_context.forward_context_module
     monkeypatch.setattr(forward_module, "create_forward_context", lambda: context)
@@ -425,7 +422,6 @@ def test_execute_forwards_dummy_profile_and_context_then_restores(
         )
     ]
     assert not should_skip_dp_coordination()
-    assert step_calls == [runner.prof]
     assert _state(runner) == original_state
     assert forward_module.create_forward_context is original_factory
 
@@ -562,7 +558,6 @@ def test_native_dummy_run_reaches_afd_execute_with_context_state(monkeypatch, as
     runner.kv_connector = SimpleNamespace(set_disabled=lambda disabled: None)
     runner.maybe_dummy_run_with_lora = lambda *args, **kwargs: nullcontext()
     monkeypatch.setattr(native_ascend_v2, "lmhead_tp_enable", lambda: False)
-    monkeypatch.setattr(npu_v2, "step_afd_npu_profiler", lambda _prof: None)
     calls = []
 
     def native_execute(self, scheduler_output, intermediate_tensors=None, **kwargs):
@@ -599,7 +594,6 @@ def test_async_execute_uses_native_local_dp_dispatch(monkeypatch, num_tokens, dp
     runner.afd_config.num_ffn_ranks = 1
     original_dispatch = native_v2.dispatch_cg_and_sync_dp
 
-    monkeypatch.setattr(npu_v2, "step_afd_npu_profiler", lambda _prof: None)
     monkeypatch.setattr(
         dp_utils, "get_dp_group", lambda: SimpleNamespace(cpu_group=None)
     )
@@ -675,7 +669,6 @@ def test_camp2p_dispatch_pads_many_to_one_before_native_inputs(
 
         manager = SimpleNamespace(dispatch=dispatch, run_fullgraph=run_fullgraph)
         runner.cudagraph_manager = manager
-    monkeypatch.setattr(npu_v2, "step_afd_npu_profiler", lambda _prof: None)
     monkeypatch.setattr(
         dp_utils, "get_dp_group", lambda: SimpleNamespace(cpu_group=None)
     )
@@ -736,7 +729,6 @@ def test_camp2p_padding_preserves_graph_descriptor_and_restores_dispatch(
 ):
     runner = _runner()
     runner.afd_config.num_ffn_ranks = 1
-    monkeypatch.setattr(npu_v2, "step_afd_npu_profiler", lambda _prof: None)
     counts = [8, 8] if mode == CUDAGraphMode.FULL else [3, 7]
     desc = cudagraph_utils.BatchExecutionDescriptor(
         mode, counts[0], 3, uniform_token_count=1, max_query_len=1, num_active_loras=2

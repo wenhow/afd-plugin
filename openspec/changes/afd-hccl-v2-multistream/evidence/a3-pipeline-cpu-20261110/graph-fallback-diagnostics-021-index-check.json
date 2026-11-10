@@ -1,0 +1,52 @@
+{
+  "scope": "Local raw-integrity and independent CPU outcome verification; no device execution",
+  "raw_integrity": {
+    "component-001": true,
+    "consumers-002": true,
+    "native-consumers-003": true,
+    "parent-stream-004": true,
+    "five-axis-005": true,
+    "diagnostics-006": true,
+    "diagnostic-service-007": true,
+    "eager-attention-008": true,
+    "eager-transport-009": true,
+    "eager-owner-010": true,
+    "eager-session-011": true,
+    "eager-ffn-013": true,
+    "worker-followup-014": true,
+    "binding-guards-015": true,
+    "parent-identity-016": true,
+    "diagnostics-family-018b": true,
+    "diagnostic-boundaries-020": true,
+    "graph-fallback-diagnostics-021": true
+  },
+  "all_match": true,
+  "independent_cpu_attempts": 18,
+  "raw_artifacts": 180,
+  "latest": "graph-fallback-diagnostics-021",
+  "latest_counts": {
+    "passed": 212,
+    "failure": 2,
+    "error": 26,
+    "skipped": 0,
+    "total": 240
+  },
+  "latest_module_outcomes": {
+    "tests.unit.v1.worker.npu.test_hccl_v41_execution": {
+      "passed": 8,
+      "error": 26,
+      "failure": 2
+    },
+    "tests.unit.v1.worker.npu.test_hccl_v41_graph_coordinator": {
+      "passed": 81
+    },
+    "tests.unit.v1.worker.npu.test_hccl_v41_graph_eager": {
+      "passed": 49
+    },
+    "tests.unit.v1.worker.npu.test_hccl_v41_ubatch_runner": {
+      "passed": 74
+    }
+  },
+  "source_pins_all_match": true,
+  "device_probe_started": false
+}

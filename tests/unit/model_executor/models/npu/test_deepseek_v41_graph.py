@@ -38,6 +38,41 @@ def make_body(case, *, pipeline=None):
 
 @pytest.mark.parametrize("split", [(5,), (2, 3), (0, 3), (3, 0)])
 @pytest.mark.parametrize("engram", [False, True])
+def test_bulk_graph_parent_preserves_native_hc_engram_aux_and_all_send_frontier(
+    monkeypatch, split, engram
+):
+    case = make_graph_model_case(split, engram=engram, exchange_order="bulk_v1")
+    expected = case.model(**case.parent_inputs)
+    expected_mtp = case.mtp_rows.clone()
+    attach_graph_pipeline(monkeypatch, pipeline_module, case)
+    actual = DeepseekV41GraphParent(make_body(case, pipeline=case.pipeline))(
+        case.graph_inputs
+    )
+    torch.testing.assert_close(actual, expected, rtol=0, atol=0)
+    torch.testing.assert_close(case.mtp_rows, expected_mtp, rtol=0, atol=0)
+    positive = [stage for stage, rows in enumerate(split) if rows]
+    one_layer = [("send", stage) for stage in positive for _ in range(3)] + [
+        ("receive", stage) for stage in positive
+    ]
+    assert [
+        event[1:3] for event in case.runtime.trace if event[0] == "wire"
+    ] == one_layer * 2
+    assert case.joined == ([True] if engram else [])
+    assert {event[-1] for event in case.runtime.trace if event[0] == "wire"} == {
+        "parent"
+    }
+
+
+def test_bulk_graph_u2_requires_a_pipeline_before_parent_production():
+    case = make_graph_model_case(exchange_order="bulk_v1")
+    with pytest.raises(ValueError, match="actual compute pipeline"):
+        make_body(case)
+    assert case.producer_parents == []
+    assert all(endpoint.messages == [] for endpoint in case.endpoints)
+
+
+@pytest.mark.parametrize("split", [(5,), (2, 3), (0, 3), (3, 0)])
+@pytest.mark.parametrize("engram", [False, True])
 def test_static_tensor_stages_preserve_native_hc_aux_and_parent_mtp(split, engram):
     case = make_graph_model_case(split, engram=engram)
     expected = case.model(**case.parent_inputs)

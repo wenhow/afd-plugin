@@ -148,3 +148,91 @@ the JUnit contains the passing `ffn-profile` case against locked native
 `NPUWorker.profile`. That distinct 134-case CPU run passed without any
 failure/error/skip and started no device probe. The reviewer read the identity,
 summary, and exact case rather than inferring alignment from source text.
+
+## Attention owner follow-up (2026-11-10)
+
+This increment moves Attention's explicit role-env profiler from constructor
+creation/start to `create_deferred_afd_npu_profiler("attention", role_rank=rank)`.
+It deliberately stops recording constructor/load initialization. The original
+raw factory remains available to unrelated callers. Enabled role-env plus a
+native `--profiler-config` is rejected, including on ranks excluded by the
+role-env rank selection. Disabled role-env still delegates native `profile`
+and worker shutdown.
+
+Pinned Ascend `7e37e29a7803d6897a7113088e2b771f83205bc0`,
+`vllm_ascend/worker/worker.py`, owns `NPUWorker.profile` at line 1223,
+`execute_model` at 757 (native profiler step at 788), and `shutdown` at 365.
+The native profiler is a separate worker field. Native shutdown releases its
+KV and weight-transfer owners before calling runner shutdown; simply moving
+role-env export inside runner shutdown would therefore release resources too
+early on a failed export.
+
+The plugin now exposes `AFDNPUAttentionModelRunnerV2.prepare_shutdown()`:
+check the execution thread before mutating peer state, perform the existing
+STOP/ACK, reset its explicit Graph cache, then stop/export the deferred
+profiler. Only complete success records instance preparation state. Repeating
+successful preparation is idempotent while still checking the thread owner.
+The role-env `AFDNPUAttentionWorker.shutdown()` calls it before delegating to
+the entire native shutdown. Runner shutdown calls the same preparation and
+then keeps the existing native/model/group cleanup. Failed STOP, cache reset,
+export or foreign-thread cleanup does not fall through a `finally` into native
+KV/model/group release. Partial construction (no runner or a None runner)
+retains native shutdown delegation. No native KV cleanup implementation is
+copied or replaced.
+
+Pinned vLLM `ced6857afa0ea7b2e3f0846a62e1394e90f15607`,
+`vllm/v1/executor/multiproc_executor.py`, calls worker methods synchronously
+from `worker_busy_loop`/`_execute_worker_rpc` (1029–1059); worker-main cleanup
+at 976 calls shutdown on that thread. Its output thread at 1012 only handles
+outputs. `UniProcExecutor.collective_rpc` instead invokes the driver worker
+directly, so arbitrary callers are not assumed to share an execution thread.
+The session's runtime owner check remains mandatory. Python profiler source
+does not establish torch-npu C++ thread-local implementation details; no such
+claim is needed for this stricter plugin ownership contract.
+
+Attention execute wraps its unchanged native/AFD body in
+`afd_npu_profiler_execute`: apply pending requests before native execute,
+advance the profiler only after successful return, and keep the session open
+between calls. A legal None return and KV-only maintenance count as an
+**execute-step** when profiling is active; this does not prove a model parent
+ran. F's existing step boundary remains one successfully completed serving
+parent, and STOP does not count. The A status adds `step_unit="execute"` to
+make that distinction explicit. Execution exceptions export on the same owner;
+if export also fails, the original execution exception propagates while the
+profiler retains its sticky error/backend. Idle management requests remain
+pending until an execute boundary or shutdown and do not add wire traffic.
+
+The A `profile` override has the exact native signature; shutdown and execute
+signatures also match. Both new worker overrides document the delegation
+exception and removal condition. The single signature table adds
+`attention-profile` and `attention-shutdown`; no second table was created.
+Control/status are worker/executor RPC methods. This increment does not add
+an HTTP router, external F management endpoint or a standalone engine handle.
+
+Frozen source and local validation are in
+`attention-profiler-local-validation-20261110.json`: 11 source/test paths,
+Python 3.11 AST and Ruff checks passed; the stdlib profiler module passed 31
+cases locally. The new worker mirror uses CPU protocol collaborators around
+the actual plugin runner/worker and locked native shutdown, with no simulated
+NPU timeline. Source architecture/signature acceptance is recorded separately
+in `attention-profiler-independent-review-20261110.json`. A new immutable A3
+actual-dependency CPU snapshot is separate from the earlier F-only evidence.
+No profiler trace, full-model inference or performance acceptance is implied.
+
+Enabled mode adds a small context/lock boundary per execute and moves profiler
+start/stop/export latency onto its execution owner. Disabled mode imports no
+torch-npu profiler backend and creates no profiler, extra thread or wire
+message. Remove these wrappers when native Worker supports a runner-owned
+profiler and a pre-resource-release callback.
+
+The actual A3 follow-up is now recorded in
+`a3-profiler-cpu-20261110/attention-profiler-022` (299 passed, 12 failed,
+8 setup errors) and `attention-profiler-023` (23 passed). The first run's five
+complete passing modules include all 36 native execution cases and both new
+worker signature rows. Its remaining failures were the two Attention mirrors'
+shared builder returning an already-selected old graph owner rather than an
+unbound replacement. The subsequent fixture-only correction ran both affected
+modules in full and passed. All three production hashes are unchanged, all ten
+installed upstream source pins matched in each run, and neither run started
+a device probe. The README/index preserve this directed history; they do not
+claim an aggregate clean run or a device timeline.

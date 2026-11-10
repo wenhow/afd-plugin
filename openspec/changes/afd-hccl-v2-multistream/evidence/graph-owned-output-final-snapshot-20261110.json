@@ -1,0 +1,75 @@
+{
+  "head": "5aebfc5e954d20da18bff754a2008c44bd7e31bc",
+  "source_files": {
+    "afd_plugin/connectors/npu/hccl_graph_stage.py": "8c79cebfa7eac4d206d4a3e8e53b1a1bfa70cf5a447faa34bf791aaef45b11e9",
+    "afd_plugin/v1/worker/npu/hccl_v41_ffn_graph.py": "0660618d0d2497d67b5f3f46b5fdfe0e52356dd716a7ad367e9dce5369ea5ea8",
+    "tests/unit/fakes/hccl_v41_ffn_graph.py": "ee937f60673657db3242a06f16756a74af0bd000df5b55a4ae0cb26354a4bd34",
+    "tests/unit/connectors/npu/test_hccl_graph_stage.py": "d916d7252f4fcd958f419caab1f298f16afdd1944fe64f5662e04f13ec91540a",
+    "tests/unit/v1/worker/npu/test_hccl_v41_ffn_graph.py": "c25a5d6a6a171354abee56002c28e35c089297530b2e84511023875ca627312a",
+    "tests/npu/hccl_graph_manager_probe.py": "1dfb07020ae5c2f3007e4d29d3cbe14942f833581a56a4a41be3a4fba68dfe20",
+    "openspec/changes/afd-hccl-v2-graph/evidence/a3-native-manager-20261109/run_a3_graph_manager.py": "7f2ca8487d7ae2bdc0271deb7af0ad4859a16a5e011ac90eb7893fb7a8743006"
+  },
+  "static_checks": "Ruff and Python 3.11 AST passed; scoped diff-check passed",
+  "cpu_label": "graph-owned-output-024",
+  "cpu_modules": {
+    "tests.unit.connectors.npu.test_hccl_graph_stage": {
+      "tests": 41,
+      "passed": 41,
+      "failures": 0,
+      "errors": 0,
+      "skips": 0
+    },
+    "tests.unit.v1.worker.npu.test_hccl_v41_ffn_graph": {
+      "tests": 73,
+      "passed": 73,
+      "failures": 0,
+      "errors": 0,
+      "skips": 0
+    }
+  },
+  "cpu_manifest_sha256": "f202a57e34186cf5e071e9478f29af019e4ca6de76aadab1b7436a9db2782be2",
+  "device_label": "bulk-owned-output-002",
+  "device_status": "passed; 31 source pins match, eight idle boards before/after, no timeout or owned-PID kill",
+  "device_manifest_sha256": "17b6cb1d0c5c92d60679ccb89e62da357aaeb90f08180d99d6a82929614a50cd",
+  "device_summary_sha256": "203fe37ae2985b897f692467495cfd1e420c87353380fa9d0f966b716ff78ac7",
+  "device_rank_results": [
+    {
+      "rank": 0,
+      "role": "ffn",
+      "device": "npu:0",
+      "phases": {
+        "warmup": 4,
+        "capture": 4,
+        "replay": 12,
+        "eager": 6
+      },
+      "status": "passed",
+      "native_tp_before": [
+        1.0
+      ],
+      "native_tp_after_close": [
+        1.0
+      ],
+      "bulk_pipeline_resources": 4
+    },
+    {
+      "rank": 1,
+      "role": "attention",
+      "device": "npu:2",
+      "phases": {
+        "warmup": 4,
+        "capture": 4,
+        "replay": 12,
+        "eager": 6
+      },
+      "status": "passed",
+      "native_tp_before": [
+        1.0
+      ],
+      "native_tp_after_close": [
+        1.0
+      ],
+      "bulk_pipeline_resources": 4
+    }
+  ]
+}

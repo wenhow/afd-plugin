@@ -35,6 +35,9 @@ def make_graph_runner_case(*, fail_close=False):
     case.eager = HcclV41GraphEager(
         case.owner, case.control, next_transaction_id=case.next_transaction_id
     )
+    # This builder owns explicit binder tests, so its replacement control/eager
+    # starts unbound even when the lower-level execution builder preselects one.
+    case.owner.hccl_v41_graph_eager = None
     connector = object.__new__(HcclStagedAFDConnector)
     connector.transport = case.transport
     connector._pending_context = connector._pending_tensor_spec = None

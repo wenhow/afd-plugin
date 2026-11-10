@@ -4,6 +4,7 @@
 
 import gc
 import weakref
+from dataclasses import replace
 
 import pytest
 
@@ -21,6 +22,7 @@ from tests.unit.fakes.hccl_eager_pipeline import (
     EagerHostGroup,
     eager_payload,
     make_eager_pair,
+    make_eager_progress,
     open_eager_pair,
     run_eager_layer,
 )
@@ -393,3 +395,130 @@ def test_backend_gate_does_not_authorize_other_native_tp_sizes(monkeypatch):
     with pytest.raises(ValueError, match="paired native TP1/TP2"):
         case.attention.warmup_eager_pipeline(parent_stream=case.runtime.parent)
     assert case.backend.trace == []
+
+
+@pytest.mark.parametrize("role", ["attention", "ffn"])
+def test_ticket_diagnostics_describe_actual_post_loan_reuse_and_finish(case, role):
+    attention, ffn = open_eager_pair(case)
+    owner = attention if role == "attention" else ffn
+    diagnostics = make_eager_progress(owner, case.runtime.compute)
+    owner.bind_progress(diagnostics.progress, compute_stream=case.runtime.compute)
+    for layer in case.plan.layer_indices:
+        run_eager_layer(case, attention, ffn, layer)
+    attention.finish()
+    ffn.finish()
+    records = diagnostics.recorder.records
+    assert records[0]["event"] == "configuration"
+    assert records[-1]["event"] == "parent_finish_returned"
+    stage_zero = [
+        r["event"] for r in records if r.get("layer") == 0 and r.get("stage") == 0
+    ]
+    expected = [
+        "send_post_begin",
+        "send_post_returned",
+        "recv_post_begin",
+        "recv_post_returned",
+        "loan_wait_begin",
+        "loan_wait_returned",
+        "stage_reuse_wait_begin",
+        "stage_reuse_wait_returned",
+    ]
+    if role == "ffn":
+        expected = expected[2:6] + expected[:2] + expected[6:]
+    assert stage_zero == expected
+    assert all(r["actual.mode"] == "eager-streamed" for r in records)
+    assert all(r["actual.ffn_compute_sync"] is False for r in records)
+    assert all(r["transaction_id"] == case.plan.transaction_id for r in records)
+    assert "device_sync" not in diagnostics.recorder.events
+
+
+@pytest.mark.parametrize("boundary", ["transaction", "rank", "actual_streams"])
+def test_foreign_ticket_progress_is_rejected_before_any_payload(case, boundary):
+    attention, _ = open_eager_pair(case)
+    diagnostics = make_eager_progress(attention, case.runtime.compute)
+    run = diagnostics.progress
+    if boundary == "transaction":
+        run = replace(run, transaction_id="foreign")
+    elif boundary == "rank":
+        run = replace(run, diagnostics=replace(run.diagnostics, world_rank=3))
+    else:
+        run = replace(
+            run,
+            actual_execution=replace(
+                run.actual_execution, stream_aliases=(True, True, True)
+            ),
+        )
+    before = list(case.backend.trace)
+    with pytest.raises(ValueError, match="parent|executor streams"):
+        attention.bind_progress(run, compute_stream=case.runtime.compute)
+    assert case.backend.trace == before
+    assert not attention.failed and attention.occupied_stages == ()
+    attention.bind_progress(diagnostics.progress, compute_stream=case.runtime.compute)
+
+
+@pytest.mark.parametrize("role", ["attention", "ffn"])
+@pytest.mark.parametrize(
+    "event",
+    [
+        "send_post_returned",
+        "recv_post_returned",
+        "loan_wait_begin",
+        "stage_reuse_wait_returned",
+        "parent_finish_begin",
+        "parent_finish_returned",
+    ],
+)
+def test_sink_failure_preserves_live_owner_and_never_fails_a_retired_one(
+    case, role, event
+):
+    attention, ffn = open_eager_pair(case)
+    owner = attention if role == "attention" else ffn
+    diagnostics = make_eager_progress(owner, case.runtime.compute)
+    owner.bind_progress(diagnostics.progress, compute_stream=case.runtime.compute)
+    diagnostics.recorder.fail_event = event
+    with pytest.raises(RuntimeError, match="diagnostic sink failed"):
+        for layer in case.plan.layer_indices:
+            run_eager_layer(case, attention, ffn, layer)
+        owner.finish()
+    retired = event == "parent_finish_returned"
+    assert owner.finished is retired and owner.failed is not retired
+    assert owner.transport.terminal is not retired
+    assert (owner.transport.eager_pipeline is owner) is not retired
+    assert diagnostics.recorder.events[-1] == event
+
+
+def test_disabled_ticket_diagnostics_add_no_observable_stream_operations(monkeypatch):
+    traces = []
+    for enabled in (False, True):
+        case = make_eager_pair(monkeypatch, owner_module, transport_module)
+        attention, ffn = open_eager_pair(case)
+        if enabled:
+            diagnostics = make_eager_progress(
+                attention, case.runtime.compute, enabled=False
+            )
+            attention.bind_progress(
+                diagnostics.progress, compute_stream=case.runtime.compute
+            )
+        for layer in case.plan.layer_indices:
+            run_eager_layer(case, attention, ffn, layer)
+        attention.finish()
+        ffn.finish()
+        traces.append(list(case.runtime.trace))
+    assert traces[0] == traces[1]
+    assert diagnostics.recorder.records == diagnostics.recorder.events == []
+
+
+@pytest.mark.parametrize("role", ["attention", "ffn"])
+def test_progress_cannot_be_attached_after_the_first_payload_post(case, role):
+    attention, ffn = open_eager_pair(case)
+    owner = attention if role == "attention" else ffn
+    if role == "attention":
+        owner.post_attention(
+            0, 0, *eager_payload(2), producer_stream=case.runtime.parent
+        )
+    else:
+        owner.post_ffn_receive(0, 0)
+    diagnostics = make_eager_progress(owner, case.runtime.compute)
+    with pytest.raises(ValueError, match="before payload posting"):
+        owner.bind_progress(diagnostics.progress, compute_stream=case.runtime.compute)
+    assert not owner.failed and owner.occupied_stages == (0,)

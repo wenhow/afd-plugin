@@ -28,7 +28,6 @@ from tests.unit.fakes.attention_model_runner_v2 import (
 
 @pytest.fixture
 def runner_case(monkeypatch):
-    monkeypatch.setattr(runner_module, "step_afd_npu_profiler", lambda _: None)
     monkeypatch.setattr(runner_module, "stop_afd_npu_profiler", lambda _: None)
     monkeypatch.setattr(
         coordinator_module, "_get_graph_update_backend", lambda _: AscendSFABackend

@@ -13,6 +13,7 @@ from __future__ import annotations
 from contextlib import nullcontext
 from typing import TYPE_CHECKING
 
+import torch
 from vllm.config import CUDAGraphMode, ParallelConfig
 from vllm.forward_context import ForwardContext, override_forward_context
 
@@ -80,6 +81,8 @@ class HcclV41FFNGraph:
         self.model, self.contexts, self.bank = model, contexts, bank
         if pipeline is not None and pipeline.bank is not bank:
             raise ValueError("FFN graph pipeline must own the retained stage bank")
+        if bank.exchange_order == "bulk_v1" and pipeline is None:
+            raise ValueError("bulk_v1 Graph U2 requires an actual compute pipeline")
         self.pipeline = pipeline
         self.diagnostics = None
         if diagnostics is not None:
@@ -109,6 +112,7 @@ class HcclV41FFNGraph:
         bank, pipeline, progress = self.bank, self.pipeline, self.diagnostics
         with pipeline.run() if pipeline is not None else nullcontext():
             for layer_idx in bank.layer_indices:
+                outputs: list[tuple[int, torch.Tensor]] = []
                 for stage_idx, (rows, context) in enumerate(
                     zip(bank.stage_rows, self.contexts, strict=True)
                 ):
@@ -147,17 +151,29 @@ class HcclV41FFNGraph:
                                 hidden_states_fp32=buffers.hidden_states_fp32,
                                 already_sequence_parallel=False,
                             )
+                            if bank.exchange_order == "bulk_v1":
+                                # A native Tensor can borrow a reusable MoE
+                                # workspace. Consume it before another call,
+                                # then publish only the fixed stage bank.
+                                if output.device.type == "npu":
+                                    output.record_stream(torch.npu.current_stream())
+                                output = bank.prepare_output(stage_idx, output)
+                        if pipeline is not None and bank.exchange_order == "bulk_v1":
+                            pipeline.retain_compute_outputs(
+                                layer_idx, stage_idx, tensors=(output,)
+                            )
                         if progress is not None:
                             progress.record("compute_returned", layer_idx, stage_idx)
-                            progress.record("send_begin", layer_idx, stage_idx)
-                        with (
-                            pipeline.ffn_send(layer_idx, stage_idx, tensors=(output,))
-                            if pipeline is not None
-                            else nullcontext()
-                        ):
-                            bank.send_output(stage_idx, output)
-                        if progress is not None:
-                            progress.record("send_returned", layer_idx, stage_idx)
+                        if bank.exchange_order == "bulk_v1":
+                            # Keep every native output until both receives and
+                            # their side computes have been enqueued. Parent
+                            # HCCL can then receive S1 while compute S0 runs.
+                            outputs.append((stage_idx, output))
+                        else:
+                            self._send_output(layer_idx, stage_idx, output)
+                for stage_idx, output in outputs:
+                    with override_forward_context(self.contexts[stage_idx]):
+                        self._send_output(layer_idx, stage_idx, output)
                 if pipeline is not None and not pipeline.policy.ffn_cross_layer:
                     if progress is not None:
                         progress.record("layer_send_wait_begin", layer_idx, 0)
@@ -172,3 +188,19 @@ class HcclV41FFNGraph:
                     progress.record(
                         "final_send_wait_returned", bank.layer_indices[-1], 0
                     )
+
+    def _send_output(
+        self, layer_idx: int, stage_idx: int, output: torch.Tensor
+    ) -> None:
+        """The shared serial/bulk parent send frontier and host diagnostics."""
+        pipeline, progress = self.pipeline, self.diagnostics
+        if progress is not None:
+            progress.record("send_begin", layer_idx, stage_idx)
+        with (
+            pipeline.ffn_send(layer_idx, stage_idx, tensors=(output,))
+            if pipeline is not None
+            else nullcontext()
+        ):
+            self.bank.send_output(stage_idx, output)
+        if progress is not None:
+            progress.record("send_returned", layer_idx, stage_idx)

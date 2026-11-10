@@ -46,3 +46,39 @@ retains the independently executed Graph/eager consumer attempts, including
 Graph worker setup errors in 013 with their separate follow-ups. Counts from
 those attempts are not added to this 99-case run. Full-model and A5 acceptance
 remain separate manual validation work.
+
+## A execute owner and strict shutdown follow-up
+
+`attention-profiler-022` ran seven complete modules with actual installed
+dependencies: **299 passed, 12 failed, 8 setup errors**, no skips. Both the
+shared fixture and the complete failure history are retained. Passing modules
+were profiler 31, legacy NPU A runner 156, NPU runtime 55, native execution 36
+and the complete single signature table 18; three cases in the newer A runner
+mirror also passed. This closes the preceding execution module's stale
+profiler-symbol fixtures without rerunning unrelated modules.
+
+All 20 failed/error cases came from the two newer Attention mirrors. A lower
+level C6 builder had started preselecting its own eager owner, while their
+shared runner builder creates a replacement control/eager for explicit binder
+tests. It failed to reset that owner to unbound. The real binder correctly
+rejected this already-bound object; one intended-unbound case instead entered
+native execute without its native execution setup. The fix is solely in
+`tests/unit/fakes/attention_model_runner_v2.py`
+(`ac4ad83cff30608869502c3ac7df4adb90c1d5e57c767cedb62a10f09e93734d`).
+Production admission and binder checks were preserved.
+
+`attention-profiler-023` then ran both affected mirrors in full: **23 passed**
+(worker 12, A runner 11), no failures/errors/skips. Its three profiler/runner/
+worker production hashes are identical to 022. This is a directed closure,
+not a new all-green 319-case run. Both runs matched all ten upstream pins,
+started no device probe, and changed no installed package or upstream source.
+
+The [022 identity](attention-profiler-022/identity.json) fixes manifest
+`9011ef40b51f54e3c4aad620dced6f414ce768748e4499987b90122ca28b3f9a`;
+the [023 identity](attention-profiler-023/identity.json) fixes
+`92d725d7575f60d8f1ce10d24d25b144ad2704f86d3c794a0fe244295d2c6bbc`.
+Each directory retains raw JUnit, stdout/stderr, versions, source checks and
+the exact selected command. The JSON index contains each run's outcomes and
+raw artifact hashes separately. These CPU checks qualify request/status,
+execute-step semantics, thread ownership and STOP/cache/export/native KV/
+model/group cleanup order; actual profiler traces remain separate.

@@ -1,0 +1,704 @@
+{
+  "rank": 1,
+  "role": "attention",
+  "device": "npu:2",
+  "scope": "native base manager and HCCL phase/cache component",
+  "checkpoint_weights_loaded": false,
+  "engram_or_native_attention_executed": false,
+  "transactions": [
+    {
+      "id": "capture-1",
+      "phase": "warmup",
+      "key": "e5347fe97597cc9eb8f24162af790c653f20ca569c85264ab758f2f38e2198e5"
+    },
+    {
+      "id": "capture-2",
+      "phase": "capture",
+      "key": "e5347fe97597cc9eb8f24162af790c653f20ca569c85264ab758f2f38e2198e5"
+    },
+    {
+      "id": "capture-3",
+      "phase": "warmup",
+      "key": "9c765bb87c311dafb9d10151213143e7cd86a7fcd6b24c01e4d45e0556d4305f"
+    },
+    {
+      "id": "capture-4",
+      "phase": "capture",
+      "key": "9c765bb87c311dafb9d10151213143e7cd86a7fcd6b24c01e4d45e0556d4305f"
+    },
+    {
+      "id": "capture-5",
+      "phase": "warmup",
+      "key": "5651035d435596fefc68b2aae0f80a16675c9243d39afa310eb87ad67990bfd9"
+    },
+    {
+      "id": "capture-6",
+      "phase": "capture",
+      "key": "5651035d435596fefc68b2aae0f80a16675c9243d39afa310eb87ad67990bfd9"
+    },
+    {
+      "id": "capture-7",
+      "phase": "warmup",
+      "key": "88359666a93d218989ed1a68654af2b6be08400596df3aa05781aaac0588a4bb"
+    },
+    {
+      "id": "capture-8",
+      "phase": "capture",
+      "key": "88359666a93d218989ed1a68654af2b6be08400596df3aa05781aaac0588a4bb"
+    },
+    {
+      "id": "replay-0-0",
+      "phase": "replay",
+      "reason": "requested",
+      "native_input_batch_geometry_verified": true,
+      "key": "e5347fe97597cc9eb8f24162af790c653f20ca569c85264ab758f2f38e2198e5",
+      "controlled_valid_tokens": 8,
+      "valid_tokens_by_stage": [
+        8
+      ],
+      "padded_tokens_by_stage": [
+        8
+      ]
+    },
+    {
+      "id": "replay-0-1",
+      "phase": "replay",
+      "reason": "requested",
+      "native_input_batch_geometry_verified": true,
+      "key": "e5347fe97597cc9eb8f24162af790c653f20ca569c85264ab758f2f38e2198e5",
+      "controlled_valid_tokens": 1,
+      "valid_tokens_by_stage": [
+        1
+      ],
+      "padded_tokens_by_stage": [
+        8
+      ]
+    },
+    {
+      "id": "replay-0-2",
+      "phase": "replay",
+      "reason": "requested",
+      "native_input_batch_geometry_verified": true,
+      "key": "e5347fe97597cc9eb8f24162af790c653f20ca569c85264ab758f2f38e2198e5",
+      "controlled_valid_tokens": 7,
+      "valid_tokens_by_stage": [
+        7
+      ],
+      "padded_tokens_by_stage": [
+        8
+      ]
+    },
+    {
+      "id": "replay-1-0",
+      "phase": "replay",
+      "reason": "requested",
+      "native_input_batch_geometry_verified": true,
+      "key": "9c765bb87c311dafb9d10151213143e7cd86a7fcd6b24c01e4d45e0556d4305f",
+      "controlled_valid_tokens": 8,
+      "valid_tokens_by_stage": [
+        4,
+        4
+      ],
+      "padded_tokens_by_stage": [
+        4,
+        4
+      ]
+    },
+    {
+      "id": "replay-1-1",
+      "phase": "replay",
+      "reason": "requested",
+      "native_input_batch_geometry_verified": true,
+      "key": "9c765bb87c311dafb9d10151213143e7cd86a7fcd6b24c01e4d45e0556d4305f",
+      "controlled_valid_tokens": 1,
+      "valid_tokens_by_stage": [
+        1,
+        0
+      ],
+      "padded_tokens_by_stage": [
+        4,
+        4
+      ]
+    },
+    {
+      "id": "replay-1-2",
+      "phase": "replay",
+      "reason": "requested",
+      "native_input_batch_geometry_verified": true,
+      "key": "9c765bb87c311dafb9d10151213143e7cd86a7fcd6b24c01e4d45e0556d4305f",
+      "controlled_valid_tokens": 7,
+      "valid_tokens_by_stage": [
+        4,
+        3
+      ],
+      "padded_tokens_by_stage": [
+        4,
+        4
+      ]
+    },
+    {
+      "id": "replay-2-0",
+      "phase": "replay",
+      "reason": "requested",
+      "native_input_batch_geometry_verified": true,
+      "key": "5651035d435596fefc68b2aae0f80a16675c9243d39afa310eb87ad67990bfd9",
+      "controlled_valid_tokens": 4,
+      "valid_tokens_by_stage": [
+        4
+      ],
+      "padded_tokens_by_stage": [
+        4
+      ]
+    },
+    {
+      "id": "replay-2-1",
+      "phase": "replay",
+      "reason": "requested",
+      "native_input_batch_geometry_verified": true,
+      "key": "5651035d435596fefc68b2aae0f80a16675c9243d39afa310eb87ad67990bfd9",
+      "controlled_valid_tokens": 1,
+      "valid_tokens_by_stage": [
+        1
+      ],
+      "padded_tokens_by_stage": [
+        4
+      ]
+    },
+    {
+      "id": "replay-2-2",
+      "phase": "replay",
+      "reason": "requested",
+      "native_input_batch_geometry_verified": true,
+      "key": "5651035d435596fefc68b2aae0f80a16675c9243d39afa310eb87ad67990bfd9",
+      "controlled_valid_tokens": 3,
+      "valid_tokens_by_stage": [
+        3
+      ],
+      "padded_tokens_by_stage": [
+        4
+      ]
+    },
+    {
+      "id": "replay-3-0",
+      "phase": "replay",
+      "reason": "requested",
+      "native_input_batch_geometry_verified": true,
+      "key": "88359666a93d218989ed1a68654af2b6be08400596df3aa05781aaac0588a4bb",
+      "controlled_valid_tokens": 4,
+      "valid_tokens_by_stage": [
+        2,
+        2
+      ],
+      "padded_tokens_by_stage": [
+        2,
+        2
+      ]
+    },
+    {
+      "id": "replay-3-1",
+      "phase": "replay",
+      "reason": "requested",
+      "native_input_batch_geometry_verified": true,
+      "key": "88359666a93d218989ed1a68654af2b6be08400596df3aa05781aaac0588a4bb",
+      "controlled_valid_tokens": 1,
+      "valid_tokens_by_stage": [
+        1,
+        0
+      ],
+      "padded_tokens_by_stage": [
+        2,
+        2
+      ]
+    },
+    {
+      "id": "replay-3-2",
+      "phase": "replay",
+      "reason": "requested",
+      "native_input_batch_geometry_verified": true,
+      "key": "88359666a93d218989ed1a68654af2b6be08400596df3aa05781aaac0588a4bb",
+      "controlled_valid_tokens": 3,
+      "valid_tokens_by_stage": [
+        2,
+        1
+      ],
+      "padded_tokens_by_stage": [
+        2,
+        2
+      ]
+    },
+    {
+      "id": "replay-4-0-ffn-generation-miss",
+      "phase": "eager",
+      "reason": "cache_miss",
+      "native_input_batch_geometry_verified": true,
+      "key": null,
+      "controlled_valid_tokens": 4,
+      "valid_tokens_by_stage": [
+        2,
+        2
+      ],
+      "padded_tokens_by_stage": [
+        2,
+        2
+      ]
+    },
+    {
+      "id": "replay-4-1-ffn-generation-miss",
+      "phase": "eager",
+      "reason": "cache_miss",
+      "native_input_batch_geometry_verified": true,
+      "key": null,
+      "controlled_valid_tokens": 4,
+      "valid_tokens_by_stage": [
+        2,
+        2
+      ],
+      "padded_tokens_by_stage": [
+        2,
+        2
+      ]
+    },
+    {
+      "id": "replay-4-2-ffn-generation-miss",
+      "phase": "eager",
+      "reason": "cache_miss",
+      "native_input_batch_geometry_verified": true,
+      "key": null,
+      "controlled_valid_tokens": 4,
+      "valid_tokens_by_stage": [
+        2,
+        2
+      ],
+      "padded_tokens_by_stage": [
+        2,
+        2
+      ]
+    },
+    {
+      "id": "replay-5-0",
+      "phase": "eager",
+      "reason": "cache_miss",
+      "native_input_batch_geometry_verified": true,
+      "key": null,
+      "controlled_valid_tokens": 2,
+      "valid_tokens_by_stage": [
+        1,
+        1
+      ],
+      "padded_tokens_by_stage": [
+        1,
+        1
+      ]
+    },
+    {
+      "id": "replay-5-1",
+      "phase": "eager",
+      "reason": "cache_miss",
+      "native_input_batch_geometry_verified": true,
+      "key": null,
+      "controlled_valid_tokens": 2,
+      "valid_tokens_by_stage": [
+        1,
+        1
+      ],
+      "padded_tokens_by_stage": [
+        1,
+        1
+      ]
+    },
+    {
+      "id": "replay-5-2",
+      "phase": "eager",
+      "reason": "cache_miss",
+      "native_input_batch_geometry_verified": true,
+      "key": null,
+      "controlled_valid_tokens": 2,
+      "valid_tokens_by_stage": [
+        1,
+        1
+      ],
+      "padded_tokens_by_stage": [
+        1,
+        1
+      ]
+    }
+  ],
+  "stage_bank": true,
+  "compute_pipeline": false,
+  "pipeline_hybrid": null,
+  "exchange_order": "bulk_v1",
+  "graph_axes": {
+    "graph_compute": 1,
+    "graph_hybrid": 1,
+    "attention_three": 1,
+    "ffn_recv": 1,
+    "ffn_cross": 1
+  },
+  "overlap_settings": {
+    "AFD_HCCL_EAGER_U2_STREAM_OVERLAP": false,
+    "AFD_HCCL_GRAPH_U2_COMPUTE_OVERLAP": true,
+    "AFD_HCCL_GRAPH_U2_HYBRID_DAG": true,
+    "AFD_HCCL_GRAPH_U2_ATTENTION_THREE_STREAM": true,
+    "AFD_HCCL_GRAPH_U2_FFN_RECV_STREAM": true,
+    "AFD_HCCL_GRAPH_U2_FFN_CROSS_LAYER": true,
+    "AFD_HCCL_STAGE_DIAGNOSTICS": false,
+    "AFD_HCCL_FFN_COMPUTE_SYNC_DIAGNOSTICS": false
+  },
+  "graph_selections": [
+    {
+      "key": "e5347fe97597cc9eb8f24162af790c653f20ca569c85264ab758f2f38e2198e5",
+      "phase": "warmup",
+      "pipeline_allocated": false,
+      "selection": {
+        "role": "attention",
+        "phase": "graph_warmup",
+        "num_stages": 1,
+        "configured.AFD_HCCL_EAGER_U2_STREAM_OVERLAP": false,
+        "configured.AFD_HCCL_GRAPH_U2_COMPUTE_OVERLAP": true,
+        "configured.AFD_HCCL_GRAPH_U2_HYBRID_DAG": true,
+        "configured.AFD_HCCL_GRAPH_U2_ATTENTION_THREE_STREAM": true,
+        "configured.AFD_HCCL_GRAPH_U2_FFN_RECV_STREAM": true,
+        "configured.AFD_HCCL_GRAPH_U2_FFN_CROSS_LAYER": true,
+        "configured.AFD_HCCL_STAGE_DIAGNOSTICS": false,
+        "configured.AFD_HCCL_FFN_COMPUTE_SYNC_DIAGNOSTICS": false,
+        "effective.AFD_HCCL_EAGER_U2_STREAM_OVERLAP": false,
+        "effective.AFD_HCCL_GRAPH_U2_COMPUTE_OVERLAP": false,
+        "effective.AFD_HCCL_GRAPH_U2_HYBRID_DAG": false,
+        "effective.AFD_HCCL_GRAPH_U2_ATTENTION_THREE_STREAM": false,
+        "effective.AFD_HCCL_GRAPH_U2_FFN_RECV_STREAM": false,
+        "effective.AFD_HCCL_GRAPH_U2_FFN_CROSS_LAYER": false,
+        "effective.AFD_HCCL_STAGE_DIAGNOSTICS": false,
+        "effective.AFD_HCCL_FFN_COMPUTE_SYNC_DIAGNOSTICS": false,
+        "logical.compute_stream": "parent",
+        "logical.send_stream": "parent",
+        "logical.recv_stream": "parent",
+        "physical.compute_stream": "parent",
+        "physical.send_stream": "parent",
+        "physical.recv_stream": "parent",
+        "parent_transport_override": true
+      }
+    },
+    {
+      "key": "e5347fe97597cc9eb8f24162af790c653f20ca569c85264ab758f2f38e2198e5",
+      "phase": "capture",
+      "pipeline_allocated": false,
+      "selection": {
+        "role": "attention",
+        "phase": "graph_capture",
+        "num_stages": 1,
+        "configured.AFD_HCCL_EAGER_U2_STREAM_OVERLAP": false,
+        "configured.AFD_HCCL_GRAPH_U2_COMPUTE_OVERLAP": true,
+        "configured.AFD_HCCL_GRAPH_U2_HYBRID_DAG": true,
+        "configured.AFD_HCCL_GRAPH_U2_ATTENTION_THREE_STREAM": true,
+        "configured.AFD_HCCL_GRAPH_U2_FFN_RECV_STREAM": true,
+        "configured.AFD_HCCL_GRAPH_U2_FFN_CROSS_LAYER": true,
+        "configured.AFD_HCCL_STAGE_DIAGNOSTICS": false,
+        "configured.AFD_HCCL_FFN_COMPUTE_SYNC_DIAGNOSTICS": false,
+        "effective.AFD_HCCL_EAGER_U2_STREAM_OVERLAP": false,
+        "effective.AFD_HCCL_GRAPH_U2_COMPUTE_OVERLAP": false,
+        "effective.AFD_HCCL_GRAPH_U2_HYBRID_DAG": false,
+        "effective.AFD_HCCL_GRAPH_U2_ATTENTION_THREE_STREAM": false,
+        "effective.AFD_HCCL_GRAPH_U2_FFN_RECV_STREAM": false,
+        "effective.AFD_HCCL_GRAPH_U2_FFN_CROSS_LAYER": false,
+        "effective.AFD_HCCL_STAGE_DIAGNOSTICS": false,
+        "effective.AFD_HCCL_FFN_COMPUTE_SYNC_DIAGNOSTICS": false,
+        "logical.compute_stream": "parent",
+        "logical.send_stream": "parent",
+        "logical.recv_stream": "parent",
+        "physical.compute_stream": "parent",
+        "physical.send_stream": "parent",
+        "physical.recv_stream": "parent",
+        "parent_transport_override": true
+      }
+    },
+    {
+      "key": "9c765bb87c311dafb9d10151213143e7cd86a7fcd6b24c01e4d45e0556d4305f",
+      "phase": "warmup",
+      "pipeline_allocated": true,
+      "selection": {
+        "role": "attention",
+        "phase": "graph_warmup",
+        "num_stages": 2,
+        "configured.AFD_HCCL_EAGER_U2_STREAM_OVERLAP": false,
+        "configured.AFD_HCCL_GRAPH_U2_COMPUTE_OVERLAP": true,
+        "configured.AFD_HCCL_GRAPH_U2_HYBRID_DAG": true,
+        "configured.AFD_HCCL_GRAPH_U2_ATTENTION_THREE_STREAM": true,
+        "configured.AFD_HCCL_GRAPH_U2_FFN_RECV_STREAM": true,
+        "configured.AFD_HCCL_GRAPH_U2_FFN_CROSS_LAYER": true,
+        "configured.AFD_HCCL_STAGE_DIAGNOSTICS": false,
+        "configured.AFD_HCCL_FFN_COMPUTE_SYNC_DIAGNOSTICS": false,
+        "effective.AFD_HCCL_EAGER_U2_STREAM_OVERLAP": false,
+        "effective.AFD_HCCL_GRAPH_U2_COMPUTE_OVERLAP": true,
+        "effective.AFD_HCCL_GRAPH_U2_HYBRID_DAG": true,
+        "effective.AFD_HCCL_GRAPH_U2_ATTENTION_THREE_STREAM": true,
+        "effective.AFD_HCCL_GRAPH_U2_FFN_RECV_STREAM": false,
+        "effective.AFD_HCCL_GRAPH_U2_FFN_CROSS_LAYER": false,
+        "effective.AFD_HCCL_STAGE_DIAGNOSTICS": false,
+        "effective.AFD_HCCL_FFN_COMPUTE_SYNC_DIAGNOSTICS": false,
+        "logical.compute_stream": "compute",
+        "logical.send_stream": "send",
+        "logical.recv_stream": "recv",
+        "physical.compute_stream": "compute",
+        "physical.send_stream": "parent",
+        "physical.recv_stream": "parent",
+        "parent_transport_override": true
+      }
+    },
+    {
+      "key": "9c765bb87c311dafb9d10151213143e7cd86a7fcd6b24c01e4d45e0556d4305f",
+      "phase": "capture",
+      "pipeline_allocated": true,
+      "selection": {
+        "role": "attention",
+        "phase": "graph_capture",
+        "num_stages": 2,
+        "configured.AFD_HCCL_EAGER_U2_STREAM_OVERLAP": false,
+        "configured.AFD_HCCL_GRAPH_U2_COMPUTE_OVERLAP": true,
+        "configured.AFD_HCCL_GRAPH_U2_HYBRID_DAG": true,
+        "configured.AFD_HCCL_GRAPH_U2_ATTENTION_THREE_STREAM": true,
+        "configured.AFD_HCCL_GRAPH_U2_FFN_RECV_STREAM": true,
+        "configured.AFD_HCCL_GRAPH_U2_FFN_CROSS_LAYER": true,
+        "configured.AFD_HCCL_STAGE_DIAGNOSTICS": false,
+        "configured.AFD_HCCL_FFN_COMPUTE_SYNC_DIAGNOSTICS": false,
+        "effective.AFD_HCCL_EAGER_U2_STREAM_OVERLAP": false,
+        "effective.AFD_HCCL_GRAPH_U2_COMPUTE_OVERLAP": true,
+        "effective.AFD_HCCL_GRAPH_U2_HYBRID_DAG": true,
+        "effective.AFD_HCCL_GRAPH_U2_ATTENTION_THREE_STREAM": true,
+        "effective.AFD_HCCL_GRAPH_U2_FFN_RECV_STREAM": false,
+        "effective.AFD_HCCL_GRAPH_U2_FFN_CROSS_LAYER": false,
+        "effective.AFD_HCCL_STAGE_DIAGNOSTICS": false,
+        "effective.AFD_HCCL_FFN_COMPUTE_SYNC_DIAGNOSTICS": false,
+        "logical.compute_stream": "compute",
+        "logical.send_stream": "send",
+        "logical.recv_stream": "recv",
+        "physical.compute_stream": "compute",
+        "physical.send_stream": "parent",
+        "physical.recv_stream": "parent",
+        "parent_transport_override": true
+      }
+    },
+    {
+      "key": "5651035d435596fefc68b2aae0f80a16675c9243d39afa310eb87ad67990bfd9",
+      "phase": "warmup",
+      "pipeline_allocated": false,
+      "selection": {
+        "role": "attention",
+        "phase": "graph_warmup",
+        "num_stages": 1,
+        "configured.AFD_HCCL_EAGER_U2_STREAM_OVERLAP": false,
+        "configured.AFD_HCCL_GRAPH_U2_COMPUTE_OVERLAP": true,
+        "configured.AFD_HCCL_GRAPH_U2_HYBRID_DAG": true,
+        "configured.AFD_HCCL_GRAPH_U2_ATTENTION_THREE_STREAM": true,
+        "configured.AFD_HCCL_GRAPH_U2_FFN_RECV_STREAM": true,
+        "configured.AFD_HCCL_GRAPH_U2_FFN_CROSS_LAYER": true,
+        "configured.AFD_HCCL_STAGE_DIAGNOSTICS": false,
+        "configured.AFD_HCCL_FFN_COMPUTE_SYNC_DIAGNOSTICS": false,
+        "effective.AFD_HCCL_EAGER_U2_STREAM_OVERLAP": false,
+        "effective.AFD_HCCL_GRAPH_U2_COMPUTE_OVERLAP": false,
+        "effective.AFD_HCCL_GRAPH_U2_HYBRID_DAG": false,
+        "effective.AFD_HCCL_GRAPH_U2_ATTENTION_THREE_STREAM": false,
+        "effective.AFD_HCCL_GRAPH_U2_FFN_RECV_STREAM": false,
+        "effective.AFD_HCCL_GRAPH_U2_FFN_CROSS_LAYER": false,
+        "effective.AFD_HCCL_STAGE_DIAGNOSTICS": false,
+        "effective.AFD_HCCL_FFN_COMPUTE_SYNC_DIAGNOSTICS": false,
+        "logical.compute_stream": "parent",
+        "logical.send_stream": "parent",
+        "logical.recv_stream": "parent",
+        "physical.compute_stream": "parent",
+        "physical.send_stream": "parent",
+        "physical.recv_stream": "parent",
+        "parent_transport_override": true
+      }
+    },
+    {
+      "key": "5651035d435596fefc68b2aae0f80a16675c9243d39afa310eb87ad67990bfd9",
+      "phase": "capture",
+      "pipeline_allocated": false,
+      "selection": {
+        "role": "attention",
+        "phase": "graph_capture",
+        "num_stages": 1,
+        "configured.AFD_HCCL_EAGER_U2_STREAM_OVERLAP": false,
+        "configured.AFD_HCCL_GRAPH_U2_COMPUTE_OVERLAP": true,
+        "configured.AFD_HCCL_GRAPH_U2_HYBRID_DAG": true,
+        "configured.AFD_HCCL_GRAPH_U2_ATTENTION_THREE_STREAM": true,
+        "configured.AFD_HCCL_GRAPH_U2_FFN_RECV_STREAM": true,
+        "configured.AFD_HCCL_GRAPH_U2_FFN_CROSS_LAYER": true,
+        "configured.AFD_HCCL_STAGE_DIAGNOSTICS": false,
+        "configured.AFD_HCCL_FFN_COMPUTE_SYNC_DIAGNOSTICS": false,
+        "effective.AFD_HCCL_EAGER_U2_STREAM_OVERLAP": false,
+        "effective.AFD_HCCL_GRAPH_U2_COMPUTE_OVERLAP": false,
+        "effective.AFD_HCCL_GRAPH_U2_HYBRID_DAG": false,
+        "effective.AFD_HCCL_GRAPH_U2_ATTENTION_THREE_STREAM": false,
+        "effective.AFD_HCCL_GRAPH_U2_FFN_RECV_STREAM": false,
+        "effective.AFD_HCCL_GRAPH_U2_FFN_CROSS_LAYER": false,
+        "effective.AFD_HCCL_STAGE_DIAGNOSTICS": false,
+        "effective.AFD_HCCL_FFN_COMPUTE_SYNC_DIAGNOSTICS": false,
+        "logical.compute_stream": "parent",
+        "logical.send_stream": "parent",
+        "logical.recv_stream": "parent",
+        "physical.compute_stream": "parent",
+        "physical.send_stream": "parent",
+        "physical.recv_stream": "parent",
+        "parent_transport_override": true
+      }
+    },
+    {
+      "key": "88359666a93d218989ed1a68654af2b6be08400596df3aa05781aaac0588a4bb",
+      "phase": "warmup",
+      "pipeline_allocated": true,
+      "selection": {
+        "role": "attention",
+        "phase": "graph_warmup",
+        "num_stages": 2,
+        "configured.AFD_HCCL_EAGER_U2_STREAM_OVERLAP": false,
+        "configured.AFD_HCCL_GRAPH_U2_COMPUTE_OVERLAP": true,
+        "configured.AFD_HCCL_GRAPH_U2_HYBRID_DAG": true,
+        "configured.AFD_HCCL_GRAPH_U2_ATTENTION_THREE_STREAM": true,
+        "configured.AFD_HCCL_GRAPH_U2_FFN_RECV_STREAM": true,
+        "configured.AFD_HCCL_GRAPH_U2_FFN_CROSS_LAYER": true,
+        "configured.AFD_HCCL_STAGE_DIAGNOSTICS": false,
+        "configured.AFD_HCCL_FFN_COMPUTE_SYNC_DIAGNOSTICS": false,
+        "effective.AFD_HCCL_EAGER_U2_STREAM_OVERLAP": false,
+        "effective.AFD_HCCL_GRAPH_U2_COMPUTE_OVERLAP": true,
+        "effective.AFD_HCCL_GRAPH_U2_HYBRID_DAG": true,
+        "effective.AFD_HCCL_GRAPH_U2_ATTENTION_THREE_STREAM": true,
+        "effective.AFD_HCCL_GRAPH_U2_FFN_RECV_STREAM": false,
+        "effective.AFD_HCCL_GRAPH_U2_FFN_CROSS_LAYER": false,
+        "effective.AFD_HCCL_STAGE_DIAGNOSTICS": false,
+        "effective.AFD_HCCL_FFN_COMPUTE_SYNC_DIAGNOSTICS": false,
+        "logical.compute_stream": "compute",
+        "logical.send_stream": "send",
+        "logical.recv_stream": "recv",
+        "physical.compute_stream": "compute",
+        "physical.send_stream": "parent",
+        "physical.recv_stream": "parent",
+        "parent_transport_override": true
+      }
+    },
+    {
+      "key": "88359666a93d218989ed1a68654af2b6be08400596df3aa05781aaac0588a4bb",
+      "phase": "capture",
+      "pipeline_allocated": true,
+      "selection": {
+        "role": "attention",
+        "phase": "graph_capture",
+        "num_stages": 2,
+        "configured.AFD_HCCL_EAGER_U2_STREAM_OVERLAP": false,
+        "configured.AFD_HCCL_GRAPH_U2_COMPUTE_OVERLAP": true,
+        "configured.AFD_HCCL_GRAPH_U2_HYBRID_DAG": true,
+        "configured.AFD_HCCL_GRAPH_U2_ATTENTION_THREE_STREAM": true,
+        "configured.AFD_HCCL_GRAPH_U2_FFN_RECV_STREAM": true,
+        "configured.AFD_HCCL_GRAPH_U2_FFN_CROSS_LAYER": true,
+        "configured.AFD_HCCL_STAGE_DIAGNOSTICS": false,
+        "configured.AFD_HCCL_FFN_COMPUTE_SYNC_DIAGNOSTICS": false,
+        "effective.AFD_HCCL_EAGER_U2_STREAM_OVERLAP": false,
+        "effective.AFD_HCCL_GRAPH_U2_COMPUTE_OVERLAP": true,
+        "effective.AFD_HCCL_GRAPH_U2_HYBRID_DAG": true,
+        "effective.AFD_HCCL_GRAPH_U2_ATTENTION_THREE_STREAM": true,
+        "effective.AFD_HCCL_GRAPH_U2_FFN_RECV_STREAM": false,
+        "effective.AFD_HCCL_GRAPH_U2_FFN_CROSS_LAYER": false,
+        "effective.AFD_HCCL_STAGE_DIAGNOSTICS": false,
+        "effective.AFD_HCCL_FFN_COMPUTE_SYNC_DIAGNOSTICS": false,
+        "logical.compute_stream": "compute",
+        "logical.send_stream": "send",
+        "logical.recv_stream": "recv",
+        "physical.compute_stream": "compute",
+        "physical.send_stream": "parent",
+        "physical.recv_stream": "parent",
+        "parent_transport_override": true
+      }
+    }
+  ],
+  "bank_storage": [
+    {
+      "key": "e5347fe97597cc9eb8f24162af790c653f20ca569c85264ab758f2f38e2198e5",
+      "bytes": 1100
+    },
+    {
+      "key": "e5347fe97597cc9eb8f24162af790c653f20ca569c85264ab758f2f38e2198e5",
+      "bytes": 1100
+    },
+    {
+      "key": "9c765bb87c311dafb9d10151213143e7cd86a7fcd6b24c01e4d45e0556d4305f",
+      "bytes": 1104
+    },
+    {
+      "key": "9c765bb87c311dafb9d10151213143e7cd86a7fcd6b24c01e4d45e0556d4305f",
+      "bytes": 1104
+    },
+    {
+      "key": "5651035d435596fefc68b2aae0f80a16675c9243d39afa310eb87ad67990bfd9",
+      "bytes": 552
+    },
+    {
+      "key": "5651035d435596fefc68b2aae0f80a16675c9243d39afa310eb87ad67990bfd9",
+      "bytes": 552
+    },
+    {
+      "key": "88359666a93d218989ed1a68654af2b6be08400596df3aa05781aaac0588a4bb",
+      "bytes": 556
+    },
+    {
+      "key": "88359666a93d218989ed1a68654af2b6be08400596df3aa05781aaac0588a4bb",
+      "bytes": 556
+    }
+  ],
+  "pipeline_storage": [
+    {
+      "key": "9c765bb87c311dafb9d10151213143e7cd86a7fcd6b24c01e4d45e0556d4305f",
+      "phase": "warmup",
+      "hybrid": true,
+      "attention_three_stream": true,
+      "ffn_recv_stream": true,
+      "ffn_cross_layer": true,
+      "compute_stream": 187651766146384,
+      "positive_steps": 4,
+      "tail_event_pairs": 2,
+      "exchange_order": "bulk_v1"
+    },
+    {
+      "key": "9c765bb87c311dafb9d10151213143e7cd86a7fcd6b24c01e4d45e0556d4305f",
+      "phase": "capture",
+      "hybrid": true,
+      "attention_three_stream": true,
+      "ffn_recv_stream": true,
+      "ffn_cross_layer": true,
+      "compute_stream": 187651766179344,
+      "positive_steps": 4,
+      "tail_event_pairs": 2,
+      "exchange_order": "bulk_v1"
+    },
+    {
+      "key": "88359666a93d218989ed1a68654af2b6be08400596df3aa05781aaac0588a4bb",
+      "phase": "warmup",
+      "hybrid": true,
+      "attention_three_stream": true,
+      "ffn_recv_stream": true,
+      "ffn_cross_layer": true,
+      "compute_stream": 187651766195824,
+      "positive_steps": 4,
+      "tail_event_pairs": 2,
+      "exchange_order": "bulk_v1"
+    },
+    {
+      "key": "88359666a93d218989ed1a68654af2b6be08400596df3aa05781aaac0588a4bb",
+      "phase": "capture",
+      "hybrid": true,
+      "attention_three_stream": true,
+      "ffn_recv_stream": true,
+      "ffn_cross_layer": true,
+      "compute_stream": 187651766212304,
+      "positive_steps": 4,
+      "tail_event_pairs": 2,
+      "exchange_order": "bulk_v1"
+    }
+  ],
+  "native_tp_before": [
+    1.0
+  ],
+  "native_tp_after_close": [
+    1.0
+  ],
+  "status": "passed"
+}

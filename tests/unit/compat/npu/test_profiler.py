@@ -12,6 +12,7 @@ import pytest
 
 from afd_plugin.compat.npu.profiler import (
     afd_npu_profiler_config,
+    afd_npu_profiler_execute,
     afd_npu_profiler_owner,
     create_afd_npu_profiler,
     create_deferred_afd_npu_profiler,
@@ -168,22 +169,24 @@ def test_deferred_profiler_is_disabled_without_loading_backend(monkeypatch):
 
 
 @pytest.mark.parametrize("rank,selected", [(0, True), (1, False)])
+@pytest.mark.parametrize("role", ["attention", "ffn"])
 def test_deferred_profiler_freezes_rank_settings_and_trace_name(
-    monkeypatch, rank, selected
+    monkeypatch, rank, selected, role
 ):
     backend = FakeTorchNPUProfiler()
-    monkeypatch.setenv("AFD_NPU_FFN_PROFILER_ENABLE", "1")
-    session = create_deferred_afd_npu_profiler("ffn", role_rank=rank)
+    prefix = f"AFD_NPU_{role.upper()}_PROFILER"
+    monkeypatch.setenv(f"{prefix}_ENABLE", "1")
+    session = create_deferred_afd_npu_profiler(role, role_rank=rank)
     assert session.status()["pending"]
     assert not backend.created_profiler.started
     monkeypatch.setitem(sys.modules, "torch_npu", SimpleNamespace(profiler=backend))
-    monkeypatch.setenv("AFD_NPU_FFN_PROFILER_RANKS", "all")
+    monkeypatch.setenv(f"{prefix}_RANKS", "all")
     session.before_step()
     assert session.status()["selected"] is selected
     assert session.status()["applied"] is selected
     assert backend.created_profiler.started is selected
     if selected:
-        assert backend.worker_name == f"ffn_rank{rank}"
+        assert backend.worker_name == f"{role}_rank{rank}"
     session.finish()
 
 
@@ -280,3 +283,27 @@ def test_exited_profiler_owner_cannot_accept_a_new_start():
     case.session.stop()
     with pytest.raises(RuntimeError, match="owner has exited"):
         case.session.start()
+
+
+def test_attention_execute_counts_success_without_closing_its_session():
+    case = make_profiler_session_case()
+    with afd_npu_profiler_execute(case.session):
+        assert case.session.status()["applied"]
+        assert case.session.status()["steps"] == 0
+    assert case.session.status()["steps"] == 1
+    assert not case.session.status()["closed"]
+    case.session.finish()
+
+
+@pytest.mark.parametrize("export_failure", [False, True])
+def test_attention_execute_preserves_failure_and_never_counts_it(export_failure):
+    case = make_profiler_session_case(failure="stop" if export_failure else None)
+    with (
+        pytest.raises(ValueError, match="original Attention execute"),
+        afd_npu_profiler_execute(case.session),
+    ):
+        raise ValueError("original Attention execute")
+    status = case.session.status()
+    assert status["steps"] == 0
+    assert status["closed"] is not export_failure
+    assert status["failed"] is export_failure

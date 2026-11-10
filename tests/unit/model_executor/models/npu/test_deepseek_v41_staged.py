@@ -25,9 +25,14 @@ from afd_plugin.model_executor.models.npu.deepseek_v41_staged import (  # noqa: 
     DeepseekV41EngramInputs,
     run_deepseek_v41_stages,
 )
-from tests.unit.fakes.deepseek_v41 import contract_ffn, make_staged_case  # noqa: E402
+from tests.unit.fakes.deepseek_v41 import (  # noqa: E402
+    contract_ffn,
+    make_staged_case,
+    make_staged_progress,
+)
 from tests.unit.fakes.hccl import StagedModelPeer  # noqa: E402
 from tests.unit.fakes.hccl_eager_model import make_eager_model_case  # noqa: E402
+from tests.unit.fakes.hccl_eager_pipeline import make_eager_progress  # noqa: E402
 
 
 @pytest.fixture
@@ -288,3 +293,149 @@ def test_engram_slice_rejects_invalid_parent_coordinates(tokens):
 
     with pytest.raises(ValueError, match="Engram stage"):
         parent.slice(tokens)
+
+
+@pytest.mark.parametrize("split", [(5,), (2, 3)])
+def test_serial_attention_diagnostics_keep_native_outputs_and_parent_streams(split):
+    case = make_staged_case(split)
+    peer = StagedModelPeer(case.plan)
+    diagnostics = make_staged_progress(peer)
+    expected = case.model(**case.parent_inputs)
+    result = run_deepseek_v41_stages(
+        case.model,
+        case.stages,
+        case.contexts,
+        case.slices,
+        peer,
+        progress=diagnostics.progress,
+    )
+    torch.testing.assert_close(result, expected, rtol=0, atol=0)
+    stage_zero = [
+        r["event"]
+        for r in diagnostics.recorder.records
+        if r.get("layer") == 0 and r.get("stage") == 0
+    ]
+    assert stage_zero == [
+        "prepare_begin",
+        "prepare_returned",
+        "compute_begin",
+        "compute_returned",
+        "send_begin",
+        "send_returned",
+        "recv_begin",
+        "recv_returned",
+        "continuation_begin",
+        "continuation_returned",
+    ]
+    assert diagnostics.recorder.events[-2:] == ["collapse_begin", "collapse_returned"]
+    assert all(r["actual.mode"] == "serial" for r in diagnostics.recorder.records)
+    assert all(
+        r["actual.ffn_compute_sync"] is False for r in diagnostics.recorder.records
+    )
+    assert "device_sync" not in diagnostics.recorder.events
+
+
+@pytest.mark.parametrize("streamed", [False, True])
+@pytest.mark.parametrize("boundary", ["transaction", "rank", "actual_streams"])
+def test_foreign_attention_progress_rejects_before_embedding_or_payload(
+    monkeypatch, streamed, boundary
+):
+    setup = make_eager_model_case(monkeypatch, module)
+    case, peer = setup.case, setup.peer
+    embeddings = []
+    case.model.embed_tokens.register_forward_hook(
+        lambda *args: embeddings.append("embedded")
+    )
+    diagnostics = (
+        make_eager_progress(setup.pipeline, setup.runtime.compute)
+        if streamed
+        else make_staged_progress(peer)
+    )
+    progress = diagnostics.progress
+    if boundary == "transaction":
+        progress = replace(progress, transaction_id="foreign")
+    elif boundary == "rank":
+        progress = replace(
+            progress, diagnostics=replace(progress.diagnostics, world_rank=7)
+        )
+    else:
+        progress = replace(
+            progress,
+            actual_execution=replace(
+                progress.actual_execution,
+                send_stream="send" if streamed else "parent",
+                mode="eager-streamed",
+                stream_aliases=None,
+            ),
+        )
+    with pytest.raises(ValueError, match="parent|executor streams"):
+        run_deepseek_v41_stages(
+            case.model,
+            case.stages,
+            case.contexts,
+            case.slices,
+            peer,
+            pipeline=setup.pipeline if streamed else None,
+            compute_stream=setup.runtime.compute if streamed else None,
+            progress=progress,
+        )
+    assert peer.messages == setup.pipeline.messages == []
+    assert embeddings == []
+    assert not setup.pipeline.failed
+
+
+def test_streamed_attention_continuation_uses_issuing_layer_coordinates(monkeypatch):
+    setup = make_eager_model_case(monkeypatch, module)
+    case = setup.case
+    diagnostics = make_eager_progress(setup.pipeline, setup.runtime.compute)
+    result = run_deepseek_v41_stages(
+        case.model,
+        case.stages,
+        case.contexts,
+        case.slices,
+        setup.peer,
+        pipeline=setup.pipeline,
+        compute_stream=setup.runtime.compute,
+        progress=diagnostics.progress,
+    )
+    expected = case.model(**case.parent_inputs)
+    torch.testing.assert_close(result, expected, rtol=0, atol=0)
+    continuations = [
+        (r["layer"], r["stage"])
+        for r in diagnostics.recorder.records
+        if r["event"] == "continuation_begin"
+    ]
+    assert continuations == [(0, 0), (0, 1), (1, 0), (1, 1)]
+    assert all(
+        r["actual.mode"] == "eager-streamed" for r in diagnostics.recorder.records
+    )
+    assert "device_sync" not in diagnostics.recorder.events
+
+
+@pytest.mark.parametrize(
+    "event",
+    ["prepare_begin", "compute_returned", "continuation_begin", "collapse_returned"],
+)
+def test_attention_sink_failure_retains_live_owner_and_restores_bindings(
+    monkeypatch, event
+):
+    setup = make_eager_model_case(monkeypatch, module)
+    case = setup.case
+    original = case.model.shared_attention_state
+    diagnostics = make_eager_progress(setup.pipeline, setup.runtime.compute)
+    diagnostics.recorder.fail_event = event
+    with pytest.raises(RuntimeError, match="diagnostic sink failed"):
+        run_deepseek_v41_stages(
+            case.model,
+            case.stages,
+            case.contexts,
+            case.slices,
+            setup.peer,
+            pipeline=setup.pipeline,
+            compute_stream=setup.runtime.compute,
+            progress=diagnostics.progress,
+        )
+    assert setup.pipeline.failed and setup.peer.terminal
+    assert not setup.pipeline.finished
+    assert setup.runtime.current == setup.runtime.parent
+    assert case.model.shared_attention_state is original

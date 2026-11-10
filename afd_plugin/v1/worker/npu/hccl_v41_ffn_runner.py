@@ -16,7 +16,11 @@ import torch
 
 from afd_plugin.compat.npu import ascend_forward_context
 from afd_plugin.connectors.metadata import AFDForwardContextMetadata
-from afd_plugin.connectors.npu.hccl_diagnostics import HcclStageDiagnostics
+from afd_plugin.connectors.npu.hccl_diagnostics import (
+    HcclDiagnosticExecution,
+    HcclStageDiagnosticRun,
+    HcclStageDiagnostics,
+)
 from afd_plugin.connectors.npu.hccl_staged_transport import HcclStagedTransport
 from afd_plugin.v1.worker.ffn_metadata import _set_moe_layer_index
 
@@ -32,6 +36,7 @@ def execute_hccl_v41_parent(
     transport: HcclStagedTransport,
     *,
     diagnostics: HcclStageDiagnostics | None = None,
+    progress: HcclStageDiagnosticRun | None = None,
 ) -> None:
     """Run all accepted layer/stage aggregates and complete one parent.
 
@@ -40,6 +45,21 @@ def execute_hccl_v41_parent(
     prefix: padding may separate the individual Attention peer slices.
     Complete native MoE owns its routing, shared experts and TP reduction.
     """
+    plan = transport.plan
+    if progress is not None:
+        if diagnostics is not None or plan is None:
+            raise ValueError("FFN diagnostics require one accepted parent progress")
+        progress.validate_parent(
+            role="ffn",
+            world_rank=transport.world_rank,
+            role_rank=transport.role_rank,
+            num_stages=len(plan.stages),
+            layer_indices=plan.layer_indices,
+            transaction_id=plan.transaction_id,
+        )
+        progress.validate_execution(
+            HcclDiagnosticExecution(mode="serial", compute_stream="parent")
+        )
     try:
         if (
             transport.role != "ffn"
@@ -68,7 +88,6 @@ def execute_hccl_v41_parent(
             raise ValueError("V4.1 staged FFN role size must match its native TP world")
         if parallel.rank != transport.role_rank:
             raise ValueError("V4.1 staged FFN native rank does not match role_rank")
-        progress = None
         if diagnostics is not None:
             if (
                 diagnostics.selection.role != "ffn"

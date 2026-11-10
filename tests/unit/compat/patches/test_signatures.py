@@ -23,6 +23,8 @@ import pytest
         "hccl-graph-replay",
         "hccl-u1-prepare",
         "ffn-profile",
+        "attention-profile",
+        "attention-shutdown",
         "npu-model-loader",
         "ds-mxfp8",
         "ds-mxfp4",
@@ -149,16 +151,24 @@ def test_scoped_patch_preserves_upstream_signature(hook):  # long-test: shared t
         target = UBatchRunner
         symbol = "begin_capturable_run"
         scope = patch.object(target, symbol, HcclV41UBatchRunner.begin_capturable_run)
-    elif hook == "ffn-profile":
+    elif hook in ("ffn-profile", "attention-profile", "attention-shutdown"):
         pytest.importorskip("torch_npu")
         pytest.importorskip("vllm_ascend")
         from vllm_ascend.worker.worker import NPUWorker
 
+        from afd_plugin.v1.worker.npu.attention_worker import AFDNPUAttentionWorker
         from afd_plugin.v1.worker.npu.ffn_worker import AFDNPUFFNWorker
 
         target = NPUWorker
-        symbol = "profile"
-        scope = patch.object(target, symbol, AFDNPUFFNWorker.profile)
+        symbol = "shutdown" if hook == "attention-shutdown" else "profile"
+        profile = (
+            AFDNPUFFNWorker.profile
+            if hook == "ffn-profile"
+            else AFDNPUAttentionWorker.shutdown
+            if hook == "attention-shutdown"
+            else AFDNPUAttentionWorker.profile
+        )
+        scope = patch.object(target, symbol, profile)
     elif hook == "ds-mxfp8":
         pytest.importorskip("torch_npu")
         pytest.importorskip("vllm_ascend")

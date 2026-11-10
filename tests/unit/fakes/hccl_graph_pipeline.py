@@ -73,12 +73,14 @@ def make_pipeline_case(
     hybrid=None,
     policy=None,
     selection=None,
+    exchange_order="stage_serial",
 ):
     runtime = HostStreamRecorder(torch.device("cpu"))
     bank = make_graph_stage_bank(
         role=role,
         rows=rows,
         endpoint_factory=lambda stage: PipelineEndpoint(runtime, stage, role),
+        exchange_order=exchange_order,
     )
     return attach_pipeline(
         monkeypatch,
@@ -164,10 +166,19 @@ def run_attention_arithmetic(case):
             for stage in hidden:
                 x, router, ids = prepared[stage]
                 bank.exchanges[stage].endpoint.incoming.append(x * 2)
-                with pipeline.attention_exchange(
-                    layer, stage, tensors=(x, router, ids)
-                ):
-                    returned[stage] = bank.attention_exchange(stage, x, router, ids)
+                with (
+                    pipeline.attention_send
+                    if bank.exchange_order == "bulk_v1"
+                    else pipeline.attention_exchange
+                )(layer, stage, tensors=(x, router, ids)):
+                    if bank.exchange_order == "bulk_v1":
+                        bank.attention_send(stage, x, router, ids)
+                    else:
+                        returned[stage] = bank.attention_exchange(stage, x, router, ids)
+            if bank.exchange_order == "bulk_v1":
+                for stage in hidden:
+                    with pipeline.attention_receive(layer, stage):
+                        returned[stage] = bank.attention_receive(stage)
         for stage in hidden:
             with pipeline.final_compute(stage, inputs=(hidden[stage], returned[stage])):
                 hidden[stage] = hidden[stage] + returned[stage]
@@ -203,9 +214,19 @@ def run_ffn_layer(case, layer):
             ),
         ):
             output = inputs.hidden_states + inputs.hidden_states_fp32.to(torch.bfloat16)
-        with pipeline.ffn_send(layer, stage, tensors=(output,)):
-            bank.send_output(stage, output)
+        pipeline.retain_compute_outputs(layer, stage, tensors=(output,))
+        if bank.exchange_order == "stage_serial":
+            with pipeline.ffn_send(layer, stage, tensors=(output,)):
+                bank.send_output(stage, output)
         outputs.append(output)
+    if bank.exchange_order == "bulk_v1":
+        for stage, output in zip(
+            (stage for stage, rows in enumerate(bank.stage_rows) if rows),
+            outputs,
+            strict=True,
+        ):
+            with pipeline.ffn_send(layer, stage, tensors=(output,)):
+                bank.send_output(stage, output)
     return tuple(outputs)
 
 

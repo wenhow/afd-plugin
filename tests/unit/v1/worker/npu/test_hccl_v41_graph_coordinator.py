@@ -270,8 +270,15 @@ def test_native_capture_reports_configured_and_actual_rank_schedule(
     )
     assert case.coordinator.preflight_capture()
     case.coordinator.capture_native()
-    assert [record["phase"] for record in records] == ["graph_warmup", "graph_capture"]
-    for record in records:
+    assert [record["phase"] for record in records] == [
+        "eager",
+        "graph_warmup",
+        "graph_capture",
+    ]
+    assert records[0]["actual.mode"] == "serial"
+    assert records[0]["num_stages"] == 1 and records[0]["is_warmup"]
+    assert records[0]["actual.ffn_compute_sync"] is False
+    for record in records[1:]:
         assert record["event"] == "configuration"
         assert record["role"] == "attention"
         assert record["world_rank"] == case.transport.world_rank
@@ -341,6 +348,34 @@ def test_capture_preflight_uses_an_honest_miss_and_retires_only_zero_rows(
     assert plan.stages[0].attention_padded_tokens == (0,)
     assert case.transport.plan is None and case.transport.graph_reservation is None
     assert case.cache.is_empty and not case.transport.terminal
+
+
+@pytest.mark.parametrize("stages,compute", [(1, False), (2, False), (2, True)])
+def test_bulk_preflight_agrees_pipeline_support_before_any_native_factory(
+    coordinator_case, stages, compute
+):
+    case = coordinator_case(
+        stages=stages,
+        exchange_order="bulk_v1",
+        overlap_settings=HcclOverlapSettings(graph_u2_compute_overlap=compute),
+    )
+    assert case.coordinator.preflight_capture() is compute
+    decision = sent(case, "GRAPH_DECISION")[0].graph_decision
+    assert decision.reason == ("cache_miss" if compute else "unsupported")
+    assert case.cache.is_empty and not case.transport.terminal
+    assert case.transport.plan is None
+
+
+def test_graph_coordinator_rejects_changed_session_wire_order_before_query(
+    coordinator_case,
+):
+    case = coordinator_case(pipeline_policy=HcclGraphPipelinePolicy())
+    case.transport.negotiated_capabilities = replace(
+        case.transport.negotiated_capabilities, graph_exchange_order="bulk_v1"
+    )
+    with pytest.raises(ValueError, match="storage"):
+        case.coordinator.preflight_capture()
+    assert sent(case, "GRAPH_QUERY") == []
 
 
 @pytest.mark.parametrize("unsupported", ["local-producer", "remote-peer"])
@@ -731,6 +766,60 @@ def test_zero_native_execution_retires_an_honest_empty_parent(
     assert plan.stages[0].attention_padded_tokens == (0,)
     assert case.transport.plan is None and case.transport.graph_reservation is None
     assert not case.transport.terminal
+
+
+@pytest.mark.parametrize("native_dispatch", [False, True])
+def test_zero_graph_fallback_records_accepted_rank_configuration(
+    coordinator_case, native_dispatch
+):
+    records = []
+    case = coordinator_case(
+        overlap_settings=HcclOverlapSettings(stage_diagnostics=True),
+        diagnostic_sink=records.append,
+    )
+    set_runtime_rows(case, 0)
+
+    with case.coordinator.execution_scope(
+        mode="target", valid_tokens=0, dummy_run=False
+    ):
+        if native_dispatch:
+            assert dispatch_runtime(case).cg_mode == CUDAGraphMode.NONE
+
+    plan = sent(case, "FORWARD")[-1].plan
+    assert len(records) == 1 and records[0]["event"] == "configuration"
+    assert records[0]["transaction_id"] == plan.transaction_id
+    assert records[0]["world_rank"] == case.transport.world_rank
+    assert records[0]["actual.mode"] == "serial"
+    assert records[0]["actual.ffn_compute_sync"] is False
+    assert case.transport.plan is None and not case.transport.terminal
+
+
+@pytest.mark.parametrize("same_settings", [False, True])
+def test_real_kv_coordinator_retains_pre_kv_diagnostic_settings(
+    coordinator_case, same_settings
+):
+    settings = HcclOverlapSettings(stage_diagnostics=True)
+    case = coordinator_case()
+    case.owner.hccl_v41_graph_eager = SimpleNamespace(overlap_settings=settings)
+
+    if same_settings:
+        HcclV41GraphCoordinator(
+            case.owner,
+            case.control,
+            case.session,
+            next_transaction_id=case.next_transaction_id,
+            overlap_settings=settings,
+        )
+    else:
+        with pytest.raises(ValueError, match="retain the pre-KV settings"):
+            HcclV41GraphCoordinator(
+                case.owner,
+                case.control,
+                case.session,
+                next_transaction_id=case.next_transaction_id,
+            )
+
+    assert case.transport.transcript == []
 
 
 def test_nonempty_native_return_without_dispatch_cannot_retire_an_empty_parent(

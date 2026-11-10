@@ -1,5 +1,92 @@
 # C6 pipeline component: actual-dependency CPU evidence
 
+The separate
+[`graph-fallback-diagnostics-021`](graph-fallback-diagnostics-021/results/summary.json)
+retains **212 passed, 2 failed and 26 setup errors**, zero skips. The complete
+Graph eager/pre-KV module passed 49 cases, coordinator passed 81 and UBatch
+passed 74. Execution passed eight cases; its two failures and 26 setup errors
+all reference the retired `create_afd_npu_profiler` or `step_afd_npu_profiler`
+fixture patch names after the H14 explicit-session rename. The original failed
+run is preserved; the H14 owner will repair and independently rerun only the
+complete Execution module. This is not an all-green four-module result.
+All ten upstream pins and uploaded sources matched; no device probe started.
+Its [JUnit](graph-fallback-diagnostics-021/results/cpu.xml),
+[identity](graph-fallback-diagnostics-021/identity.json),
+[stdout](graph-fallback-diagnostics-021/results/cpu.stdout.log) and
+[independent review](../stage-diagnostics-graph-fallback-review-20261110.md)
+retain the exact source and failure scope. The
+[021 integrity check](graph-fallback-diagnostics-021-index-check.json)
+rehashes eighteen independent CPU attempts and 180 raw artifacts without
+combining their test counts.
+
+The later independent
+[`diagnostic-boundaries-020`](diagnostic-boundaries-020/results/summary.json)
+passed **247 cases**, zero failures, errors or skips: A execution 36, rank
+binding 32, UBatch 74, F model entry 17, F serial runner 59 and F worker 29.
+It verifies the outer executor preserves a sink exception after real ticket
+COMPLETE, rejects configuration sink failures before U1/U2 model producers,
+and rejects both orders of incompatible Graph/diagnostic binding. All ten
+installed source pins matched; no device probe was started. Its
+[JUnit](diagnostic-boundaries-020/results/cpu.xml),
+[identity](diagnostic-boundaries-020/identity.json) and all original raw files
+remain separate from 018b. The [latest integrity check](diagnostic-boundaries-020-index-check.json)
+covers seventeen independent CPU attempts and 170 raw hashes.
+
+The latest independent diagnostic family run is
+[`diagnostics-family-018b`](diagnostics-family-018b/results/summary.json):
+**512 passed, zero failures, errors or skips** across eleven selected modules.
+All ten installed upstream source pins match. It used the existing venv,
+including FastAPI 0.123.10, and started no device probe. The complete command,
+actual HEAD and frozen working-tree hashes are in its
+[identity](diagnostics-family-018b/identity.json); the manifest digest is
+`3254497cb19e97cdb842af769aa239ca23ed83fe1a6d5723815480237334dced`.
+Later runtime changes are compared separately in the index and are not
+qualified by this historical run.
+
+| 018b selected module | Passed |
+| --- | ---: |
+| connector diagnostic helper | 56 |
+| eager ticket owner | 70 |
+| A native stage model seam | 51 |
+| F eager model consumer seam | 49 |
+| rank diagnostic binding | 32 |
+| A execution | 33 |
+| UBatch runner | 74 |
+| F serial runner | 59 |
+| native NPU runtime seam | 55 |
+| async FFN runtime seam | 4 |
+| FFN worker | 29 |
+
+This run verifies immutable actual serial/Graph/eager execution descriptions,
+real stream alias reporting at the owner seam, exact rank/transaction/layer
+progress ownership, all-rank configuration and host post/loan/reuse/finish
+records. It preserves native model/context CPU outputs and the live serial
+FFN U1-only synchronization rule. Sink failures retain the exact live owner;
+a sink error after COMPLETE preserves its original error without failing a
+retired owner. Default-disabled diagnostics add no observable stream operations
+in the CPU seam. These checks do not execute device HCCL, native MoE/Engram
+operators, graph replay logging, device overlap or performance measurements.
+
+The initial local [`diagnostics-family-018` launch](diagnostics-family-018/local-launch-failure.json)
+could not read the existing SSH configuration within the child sandbox. It
+created no remote directory, uploaded no snapshot and ran no tests. The
+authorized sandbox escalation ran 018b under a new label. Both outcomes remain
+separate, and the launch failure is not counted as a pytest failure or pass.
+
+Raw 018b artifacts are [JUnit](diagnostics-family-018b/results/cpu.xml),
+[stdout](diagnostics-family-018b/results/cpu.stdout.log),
+[stderr](diagnostics-family-018b/results/cpu.stderr.log),
+[source checks](diagnostics-family-018b/results/source-check.json),
+[versions](diagnostics-family-018b/results/versions.json),
+[environment](diagnostics-family-018b/results/effective-env.json),
+[delivery](diagnostics-family-018b/delivery.json) and
+[remote transcript](diagnostics-family-018b/remote-run.log).
+The [index integrity check](diagnostics-family-018b-index-check.json) verifies
+the raw hashes of all sixteen independent indexed CPU attempts. It does not
+sum their counts into one test result. The
+[implementation contract](../stage-diagnostics-family-implementation-20261110.md)
+describes the new API and its execution boundaries.
+
 `component-001` completed with **31 passed**, no failures, errors or skips
 (`pytest` 1.06 s; JUnit 1.065 s). The existing A3 environment supplied the real
 installed dependencies. The test uses CPU bank arithmetic and host event/stream

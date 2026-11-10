@@ -1,0 +1,43 @@
+{
+  "scope": "local readonly raw integrity and independent CPU outcome verification; no device execution",
+  "raw_integrity": {
+    "component-001": true,
+    "consumers-002": true,
+    "native-consumers-003": true,
+    "parent-stream-004": true,
+    "five-axis-005": true,
+    "diagnostics-006": true,
+    "diagnostic-service-007": true,
+    "eager-attention-008": true,
+    "eager-transport-009": true,
+    "eager-owner-010": true,
+    "eager-session-011": true,
+    "eager-ffn-013": true,
+    "worker-followup-014": true,
+    "binding-guards-015": true,
+    "parent-identity-016": true,
+    "diagnostics-family-018b": true,
+    "diagnostic-boundaries-020": true
+  },
+  "all_match": true,
+  "independent_cpu_attempts": 17,
+  "raw_artifacts": 170,
+  "latest": "diagnostic-boundaries-020",
+  "latest_counts": {
+    "passed": 247,
+    "failure": 0,
+    "error": 0,
+    "skipped": 0,
+    "total": 247
+  },
+  "latest_module_cases": {
+    "tests.unit.v1.worker.npu.test_ffn_model_runner": 17,
+    "tests.unit.v1.worker.npu.test_ffn_worker": 29,
+    "tests.unit.v1.worker.npu.test_hccl_v41_diagnostics": 32,
+    "tests.unit.v1.worker.npu.test_hccl_v41_execution": 36,
+    "tests.unit.v1.worker.npu.test_hccl_v41_ffn_runner": 59,
+    "tests.unit.v1.worker.npu.test_hccl_v41_ubatch_runner": 74
+  },
+  "source_pins_all_match": true,
+  "device_probe_started": false
+}

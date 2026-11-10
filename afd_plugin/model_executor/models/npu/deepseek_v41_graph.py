@@ -75,6 +75,8 @@ class DeepseekV41GraphStages:
             raise ValueError("V4.1 graph stages require one complete static layout")
         if pipeline is not None and pipeline.bank is not bank:
             raise ValueError("V4.1 graph pipeline must retain this exact stage bank")
+        if bank.exchange_order == "bulk_v1" and pipeline is None:
+            raise ValueError("bulk_v1 Graph U2 requires an actual compute pipeline")
         # This validates contiguous bounds and creates stable parent-buffer
         # views before any graph body or producer is entered.
         bindings = DeepseekV41StageAttentionStates(model, token_slices)
@@ -299,19 +301,55 @@ class DeepseekV41GraphStages:
                             assert inputs is not None
                             x, x_fp32, execution.continuation = inputs
                             prepared[index] = (x, x_fp32, stage.input_ids)
+                        if self.bank.exchange_order == "bulk_v1":
+                            pipeline.retain_compute_outputs(
+                                layer.layer_idx,
+                                index,
+                                tensors=(x, x_fp32)
+                                + self._stage_tensors(
+                                    stage, execution, layer.layer_idx
+                                ),
+                            )
                 # Queue every stage's wire before any next-layer compute. In
                 # hybrid mode the recorded DAG still waits only its own receive.
                 for index, tensors in prepared.items():
                     with (
                         override_forward_context(self.contexts[index]),
-                        pipeline.attention_exchange(
-                            layer.layer_idx, index, tensors=tensors
+                        (
+                            pipeline.attention_send
+                            if self.bank.exchange_order == "bulk_v1"
+                            else pipeline.attention_exchange
+                        )(
+                            layer.layer_idx,
+                            index,
+                            tensors=tensors
+                            + (
+                                self._stage_tensors(
+                                    stages[index], executions[index], layer.layer_idx
+                                )
+                                if self.bank.exchange_order == "bulk_v1"
+                                else ()
+                            ),
                         ),
                     ):
                         x, x_fp32, ids = tensors
-                        executions[index].ffn_output = self.bank.attention_exchange(
-                            index, x.contiguous(), x_fp32.contiguous(), ids
-                        )
+                        if self.bank.exchange_order == "bulk_v1":
+                            self.bank.attention_send(
+                                index, x.contiguous(), x_fp32.contiguous(), ids
+                            )
+                        else:
+                            executions[index].ffn_output = self.bank.attention_exchange(
+                                index, x.contiguous(), x_fp32.contiguous(), ids
+                            )
+                if self.bank.exchange_order == "bulk_v1":
+                    for index in prepared:
+                        with (
+                            override_forward_context(self.contexts[index]),
+                            pipeline.attention_receive(layer.layer_idx, index),
+                        ):
+                            executions[index].ffn_output = self.bank.attention_receive(
+                                index
+                            )
             for index, (stage, context, execution) in enumerate(
                 zip(stages, self.contexts, executions, strict=True)
             ):

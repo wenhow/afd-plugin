@@ -45,6 +45,7 @@ from afd_plugin.v1.worker.cuda_graph import (
     graph_run_mode,
 )
 from afd_plugin.v1.worker.ffn_metadata import _set_moe_layer_index
+from afd_plugin.v1.worker.npu.hccl_v41_diagnostics import HcclV41DiagnosticBinding
 from afd_plugin.v1.worker.npu.hccl_v41_eager import HcclV41EagerSession
 from afd_plugin.v1.worker.npu.hccl_v41_ffn_eager import execute_hccl_v41_eager_parent
 from afd_plugin.v1.worker.npu.hccl_v41_ffn_runner import execute_hccl_v41_parent
@@ -111,6 +112,7 @@ class AFDNPUFFNModelRunner:
         self._is_shutdown = False
         self.hccl_v41_graph_service: HcclV41GraphService | None = None
         self.hccl_v41_eager_session: HcclV41EagerSession | None = None
+        self.hccl_v41_diagnostics: HcclV41DiagnosticBinding | None = None
 
     @staticmethod
     def parse_config(vllm_config: VllmConfig) -> AFDConfig:
@@ -175,6 +177,11 @@ class AFDNPUFFNModelRunner:
         if self.hccl_v41_graph_service is not None:
             raise RuntimeError("FFN graph service is already bound")
         if (
+            self.hccl_v41_eager_session is not None
+            or self.hccl_v41_diagnostics is not None
+        ):
+            raise RuntimeError("FFN graph service conflicts with an existing binding")
+        if (
             service.runner is not self
             or transport.role != "ffn"
             or not transport.initialized
@@ -211,6 +218,11 @@ class AFDNPUFFNModelRunner:
         """
         if transport.role != "ffn":
             raise ValueError("V4.1 service requires an FFN transport")
+        diagnostics = self.hccl_v41_diagnostics
+        if diagnostics is not None and diagnostics.transport is not transport:
+            raise ValueError("FFN diagnostics require their bound transport")
+        pipeline = None
+        accepted_plan = None
         try:
             if transport.negotiated_capabilities.graph_execution_version == 1:
                 service = self.hccl_v41_graph_service
@@ -224,16 +236,43 @@ class AFDNPUFFNModelRunner:
                 raise ValueError("FFN eager execution requires its bound session")
             if transport.receive_forward() is None:
                 return False
+            accepted_plan = transport.plan
             pipeline = None if session is None else session.open_parent()
+            progress = (
+                None
+                if diagnostics is None
+                else diagnostics.bind_parent(
+                    eager_pipeline=pipeline,
+                    compute_stream=None if pipeline is None else session.compute_stream,
+                )
+            )
+            diagnostic_args = {"progress": progress} if progress is not None else {}
             if pipeline is None:
-                execute_hccl_v41_parent(self, transport)
+                execute_hccl_v41_parent(self, transport, **diagnostic_args)
             else:
                 execute_hccl_v41_eager_parent(
-                    self, transport, pipeline, compute_stream=session.compute_stream
+                    self,
+                    transport,
+                    pipeline,
+                    compute_stream=session.compute_stream,
+                    **diagnostic_args,
                 )
             return True
         except BaseException:
-            transport.terminal = True
+            if (
+                pipeline is not None
+                and not pipeline.finished
+                and not pipeline.failed
+                and transport.eager_pipeline is pipeline
+                and transport.plan is accepted_plan
+            ):
+                pipeline.fail()
+            if (
+                accepted_plan is None
+                or transport.plan is None
+                or transport.plan is accepted_plan
+            ):
+                transport.terminal = True
             raise
 
     def bind_hccl_v41_eager_session(self, session: HcclV41EagerSession) -> None:
@@ -251,7 +290,28 @@ class AFDNPUFFNModelRunner:
         ):
             raise RuntimeError("bind one idle eager FFN session before service startup")
         validate_staged_hccl_binding(self.vllm_config, transport, self.device)
+        if self.hccl_v41_diagnostics is not None:
+            self.hccl_v41_diagnostics.require_settings(session.settings)
         self.hccl_v41_eager_session = session
+
+    def bind_hccl_v41_diagnostics(self, binding: HcclV41DiagnosticBinding) -> None:
+        """Bind one rank's diagnostics before the resident receiver starts."""
+        transport = binding.transport
+        if (
+            self.hccl_v41_diagnostics is not None
+            or self.hccl_v41_graph_service is not None
+            or transport.role != "ffn"
+            or (
+                isinstance(self.connector, HcclStagedAFDConnector)
+                and self.connector.transport is not transport
+            )
+        ):
+            raise ValueError("FFN diagnostics require their exact eager transport")
+        binding.require_idle(transport)
+        validate_staged_hccl_binding(self.vllm_config, transport, self.device)
+        if self.hccl_v41_eager_session is not None:
+            binding.require_settings(self.hccl_v41_eager_session.settings)
+        self.hccl_v41_diagnostics = binding
 
     def execute_hccl_step(self, plan: HcclForwardPlan) -> None:
         """Execute the accepted U1 plan without CAMP2P token/layout inference.

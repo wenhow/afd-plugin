@@ -68,6 +68,7 @@ from afd_plugin.model_executor.models.forward_context import use_afd_metadata_pr
 from afd_plugin.model_executor.models.npu.deepseek_v41 import (
     HCCL_V41_PARENT_FORWARD_KEY,
 )
+from afd_plugin.v1.worker.npu.hccl_v41_diagnostics import HcclV41DiagnosticBinding
 from afd_plugin.v1.worker.npu.hccl_v41_execution import HcclV41Execution
 from afd_plugin.v1.worker.npu.hccl_v41_graph import (
     eager_hccl_v41_geometry,
@@ -132,6 +133,13 @@ class HcclV41GraphCoordinator:
     ) -> None:
         if pipeline_policy is not None and overlap_settings is not None:
             raise ValueError("choose graph pipeline policy or overlap settings")
+        eager = owner.hccl_v41_graph_eager
+        if (
+            eager is not None
+            and eager.overlap_settings is not None
+            and eager.overlap_settings != overlap_settings
+        ):
+            raise ValueError("Graph diagnostics must retain the pre-KV settings")
         manager = owner.cudagraph_manager
         transport = control.transport
         capabilities = transport.negotiated_capabilities
@@ -201,12 +209,22 @@ class HcclV41GraphCoordinator:
         self.capture_prefix = manager._max_full_descs_to_capture
         self.control, self.session = control, session
         self.transport = transport
+        self._capabilities = capabilities
         self.next_transaction_id = next_transaction_id
         # Scheduling is a capture constant. Changing it requires a fresh
         # session/cache; a generation miss does not permit same-key recapture.
         self._pipeline_policy = pipeline_policy
         self._overlap_settings = overlap_settings
         self._diagnostic_sink = diagnostic_sink
+        self._eager_diagnostics = (
+            None
+            if overlap_settings is None
+            else HcclV41DiagnosticBinding(
+                transport,
+                overlap_settings,
+                emit=diagnostic_sink,
+            )
+        )
         self.current_execution: HcclV41GraphExecution | None = None
         self._u1_context: ForwardContext | None = None
         self._preflight_done = self._capture_enabled = self._capture_started = False
@@ -239,6 +257,7 @@ class HcclV41GraphCoordinator:
         groups = tuple(tuple(group) for group in owner.attn_groups)
         if (
             owner.cudagraph_manager is not manager
+            or self.transport.negotiated_capabilities != self._capabilities
             or owner.hccl_v41_transport is not self.transport
             or manager.model_runner is not owner
             or manager.ubatch_runner is not self.ubatch_runner
@@ -307,6 +326,17 @@ class HcclV41GraphCoordinator:
             supported = bool(self.coverage.geometries) and (
                 not native.has_engram or native.can_capture_engram_producer()
             )
+            if self._capabilities.graph_exchange_order == "bulk_v1":
+                # FFN sees the complete sequence digest, not every descriptor.
+                # Require U2 compute eligibility for the whole bulk session,
+                # even if a native U1 bucket precedes its first U2 bucket.
+                supported = supported and (
+                    self.pipeline_policy is not None
+                    or (
+                        self.overlap_settings is not None
+                        and self.overlap_settings.graph_u2_compute_overlap
+                    )
+                )
             keys = tuple(
                 self.control.key_for(geometry) for geometry in self.coverage.geometries
             )
@@ -364,6 +394,8 @@ class HcclV41GraphCoordinator:
                 raise ValueError(
                     "capture eligibility requires an empty accepted parent"
                 )
+            if self._eager_diagnostics is not None:
+                self._eager_diagnostics.bind_parent()
             self.transport.finish_forward()
             self._preflight_done = True
             self._capture_enabled = bool(keys) and decision.reason == "cache_miss"
@@ -477,6 +509,16 @@ class HcclV41GraphCoordinator:
             geometry.descriptor for geometry in self.coverage.geometries
         ):
             raise ValueError("native factory descriptor is outside validated coverage")
+        if (
+            self._capabilities.graph_exchange_order == "bulk_v1"
+            and descriptor.num_ubatches == 2
+            and self.pipeline_policy is None
+            and (
+                self.overlap_settings is None
+                or not self.overlap_settings.graph_u2_compute_overlap
+            )
+        ):
+            raise ValueError("bulk_v1 Graph U2 requires an actual compute pipeline")
         reservation = self.control.reserve_capture(
             descriptor, warmup=warmup, transaction_id=self._transaction_id()
         )
@@ -634,6 +676,7 @@ class HcclV41GraphCoordinator:
         )
         if (
             captured.bank is not resources.bank
+            or resources.bank.capabilities != self._capabilities
             or resources.overlap_settings != self.overlap_settings
             or pipeline is not resources.pipeline
             or (pipeline is None) != (policy is None)
@@ -756,6 +799,7 @@ class HcclV41GraphCoordinator:
                     mode=mode,
                     valid_tokens=valid_tokens,
                     dummy_run=dummy_run,
+                    diagnostics=self._eager_diagnostics,
                 )
                 preparation.enter_context(eager.scope(manage_dispatch=False))
             else:
@@ -828,6 +872,8 @@ class HcclV41GraphCoordinator:
                         raise RuntimeError(
                             "native graph session stopped before empty acceptance"
                         )
+                    if self._eager_diagnostics is not None:
+                        self._eager_diagnostics.bind_parent()
                     self.transport.finish_forward()
                 if (
                     self.current_execution is not None

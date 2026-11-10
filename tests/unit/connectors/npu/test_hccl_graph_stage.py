@@ -18,6 +18,36 @@ from tests.unit.fakes.hccl_graph_stage import (
 )
 
 
+@pytest.mark.parametrize("rows", [(2,), (2, 3)])
+def test_bulk_bank_uses_split_packets_only_for_u2_and_preserves_storage(rows):
+    bank = make_graph_stage_bank(rows=rows, exchange_order="bulk_v1")
+    assert bank.exchange_order == ("bulk_v1" if len(rows) == 2 else "stage_serial")
+    inputs = tuple(
+        torch.full((count, 4), index + 1, dtype=torch.bfloat16)
+        for index, count in enumerate(rows)
+    )
+    for stage, hidden in enumerate(inputs):
+        bank.exchanges[stage].endpoint.incoming.append(hidden * 3)
+        bank.attention_send(
+            stage,
+            hidden,
+            hidden.float() + 0.00031,
+            torch.arange(rows[stage], dtype=torch.int32),
+        )
+    for stage, hidden in enumerate(inputs):
+        output = bank.attention_receive(stage)
+        assert output is bank.buffers(stage).output
+        torch.testing.assert_close(output, hidden * 3)
+    if len(rows) == 2:
+        with pytest.raises(RuntimeError, match="all stage sends"):
+            bank.attention_exchange(
+                0,
+                inputs[0],
+                inputs[0].float(),
+                torch.arange(rows[0], dtype=torch.int32),
+            )
+
+
 @pytest.mark.parametrize("valid", [0, 2, 3])
 def test_attention_preserves_router_fp32_and_masks_only_wire_padding_ids(valid):
     bank = make_graph_stage_bank(rows=(3,), valid=(valid,))
@@ -104,6 +134,55 @@ def test_ffn_masks_native_output_after_receive_without_mutating_native_result(va
         ("receive", (3,)),
         ("send", (3, 4)),
     ]
+
+
+def test_prepared_stage_output_survives_native_workspace_reuse_before_send():
+    bank = make_graph_stage_bank(role="ffn", rows=(3, 2), valid=(2, 0))
+    workspace = torch.full((3, 4), 7, dtype=torch.bfloat16)
+    first = bank.prepare_output(0, workspace)
+    workspace.fill_(11)
+    second = bank.prepare_output(1, workspace[:2])
+    assert first is bank.buffers(0).output
+    assert second is bank.buffers(1).output
+    torch.testing.assert_close(first, torch.full((3, 4), 7, dtype=torch.bfloat16))
+    assert all(exchange.endpoint.messages == [] for exchange in bank.exchanges)
+    bank.send_output(0, first)
+    bank.send_output(1, second)
+    expected = torch.full_like(first, 7)
+    expected[2:] = 0
+    torch.testing.assert_close(bank.exchanges[0].endpoint.messages[-1][2], expected)
+    torch.testing.assert_close(
+        bank.exchanges[1].endpoint.messages[-1][2], torch.zeros_like(second)
+    )
+
+
+@pytest.mark.parametrize("defect", ["shape", "dtype", "layout", "device"])
+@pytest.mark.parametrize("operation", ["prepare_output", "send_output"])
+def test_ffn_rejects_bad_native_output_before_copy_or_wire(defect, operation):
+    bank = make_graph_stage_bank(role="ffn", rows=(3,), valid=(2,))
+    output = torch.ones((3, 4), dtype=torch.bfloat16)
+    if defect == "shape":
+        output = output[:1]
+    elif defect == "dtype":
+        output = output.float()
+    elif defect == "layout":
+        output = output.repeat_interleave(2, dim=1)[:, ::2]
+    else:
+        output = torch.empty_like(output, device="meta")
+    execute = bank.prepare_output if operation == "prepare_output" else bank.send_output
+    with pytest.raises(ValueError, match="static BF16 shape/device/layout"):
+        execute(0, output)
+    assert bank.exchanges[0].endpoint.messages == []
+    torch.testing.assert_close(
+        bank.buffers(0).output, torch.zeros((3, 4), dtype=torch.bfloat16)
+    )
+
+
+def test_attention_cannot_prepare_ffn_output_storage():
+    bank = make_graph_stage_bank(rows=(3,))
+    with pytest.raises(RuntimeError, match="requires FFN role"):
+        bank.prepare_output(0, torch.ones((3, 4), dtype=torch.bfloat16))
+    assert bank.exchanges[0].endpoint.messages == []
 
 
 @pytest.mark.parametrize("role", ["attention", "ffn"])

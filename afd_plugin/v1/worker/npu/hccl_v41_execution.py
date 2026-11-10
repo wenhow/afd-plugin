@@ -24,6 +24,10 @@ from vllm_ascend.models.deepseek_v41.engram.model_state import EngramModelState
 from afd_plugin.compat.npu.stream import use_npu_current_stream
 from afd_plugin.compat.patches.npu.mrv2_ubatching import use_async_cam_dbo_dispatch
 from afd_plugin.connectors.npu.hccl_config import validate_staged_hccl_binding
+from afd_plugin.connectors.npu.hccl_diagnostics import (
+    HcclDiagnosticExecution,
+    HcclStageDiagnosticRun,
+)
 from afd_plugin.connectors.npu.hccl_eager_pipeline import HcclEagerPipeline
 from afd_plugin.connectors.npu.hccl_staged_transport import HcclStagedTransport
 from afd_plugin.distributed.hccl_plan import HcclLocalForward
@@ -42,6 +46,7 @@ if TYPE_CHECKING:
     from afd_plugin.v1.worker.npu.attention_model_runner_v2 import (
         AFDNPUAttentionModelRunnerV2,
     )
+    from afd_plugin.v1.worker.npu.hccl_v41_diagnostics import HcclV41DiagnosticBinding
 
 
 def validate_hccl_v41_binding(
@@ -69,12 +74,17 @@ class HcclV41Execution:
         mode: str,
         valid_tokens: int,
         dummy_run: bool,
+        diagnostics: HcclV41DiagnosticBinding | None = None,
     ) -> None:
         self.owner, self.transport = owner, transport
         self.mode, self.valid_tokens, self.dummy_run = mode, valid_tokens, dummy_run
         self.prepared: UBatchState | None = None
         self.local: HcclLocalForward | None = None
         self.parent_context: ForwardContext | None = None
+        self.diagnostics = diagnostics
+        self.progress: HcclStageDiagnosticRun | None = None
+        if diagnostics is not None and diagnostics.transport is not transport:
+            raise ValueError("native diagnostics require the execution transport")
 
     def install_context(self, context: ForwardContext) -> None:
         # KV maintenance has no model call. Child contexts are constructed by
@@ -108,6 +118,8 @@ class HcclV41Execution:
         if plan is None:
             raise RuntimeError("staged session stopped before native forward")
         if self.prepared is None:
+            if self.diagnostics is not None:
+                self.progress = self.diagnostics.bind_parent()
             if context.additional_kwargs is None:
                 context.additional_kwargs = {}
             context.additional_kwargs[HCCL_V41_PARENT_FORWARD_KEY] = self
@@ -134,6 +146,7 @@ class HcclV41Execution:
             (slice(0, model_inputs["positions"].shape[0]),),
             self.transport,
             engram_prepared=True,
+            progress=self.progress,
         )
 
     @contextmanager
@@ -151,6 +164,13 @@ class HcclV41Execution:
         self.owner.model_state._cg_mode = CUDAGraphMode.NONE
         original_prepare = runner.prepare if runner is not None else None
         had_override = runner is not None and "prepare" in vars(runner)
+        original_diagnostics = (
+            runner.diagnostic_binding
+            if runner is not None and self.diagnostics is not None
+            else None
+        )
+        if original_diagnostics is not None:
+            original_diagnostics.require_settings(self.diagnostics.settings)
 
         # Upstream UBatchRunner.prepare @ ced6857a. Reason: capture authoritative
         # native child counts before parent preparation. Functionality: retain
@@ -193,6 +213,8 @@ class HcclV41Execution:
         try:
             if runner is not None:
                 runner.prepare = MethodType(prepare, runner)
+                if self.diagnostics is not None:
+                    runner.diagnostic_binding = self.diagnostics
             # This existing scope applies native thresholds locally at DP1;
             # its implementation is independent of connector selection.
             with (
@@ -207,6 +229,8 @@ class HcclV41Execution:
             raise
         finally:
             if runner is not None:
+                if self.diagnostics is not None:
+                    runner.diagnostic_binding = original_diagnostics
                 if had_override:
                     runner.prepare = original_prepare
                 else:
@@ -224,12 +248,15 @@ def execute_hccl_v41_stages(
     engram_prepared: bool = False,
     eager_pipeline: HcclEagerPipeline | None = None,
     compute_stream: torch.npu.Stream | None = None,
+    progress: HcclStageDiagnosticRun | None = None,
 ) -> torch.Tensor | tuple[torch.Tensor, list[torch.Tensor]]:
     """Execute one accepted parent; retire its native producer in Ascend only.
 
     U1's native model pre-hook has already merged produced kwargs. U2 bypasses
     __call__ and consumes the producer here once in its native parent context.
     """
+    if (eager_pipeline is None) != (compute_stream is None):
+        raise ValueError("eager execution requires both its owner and compute stream")
     if eager_pipeline is not None and (
         eager_pipeline.transport is not transport
         or eager_pipeline.plan is not transport.plan
@@ -244,6 +271,24 @@ def execute_hccl_v41_stages(
         != eager_pipeline.parent_stream
     ):
         raise ValueError("eager parent must enter on its actual owning stream")
+    if progress is not None:
+        plan = transport.plan
+        if plan is None:
+            raise ValueError("Attention diagnostics require an accepted parent")
+        progress.validate_parent(
+            role="attention",
+            world_rank=transport.world_rank,
+            role_rank=transport.role_rank,
+            num_stages=len(plan.stages),
+            layer_indices=plan.layer_indices,
+            transaction_id=plan.transaction_id,
+        )
+        if eager_pipeline is None:
+            progress.validate_execution(
+                HcclDiagnosticExecution(mode="serial", compute_stream="parent")
+            )
+        else:
+            eager_pipeline.bind_progress(progress, compute_stream=compute_stream)
     with (
         use_npu_current_stream(eager_pipeline.parent_stream)
         if eager_pipeline is not None
@@ -259,6 +304,7 @@ def execute_hccl_v41_stages(
             engram_prepared=engram_prepared,
             eager_pipeline=eager_pipeline,
             compute_stream=compute_stream,
+            progress=progress,
         )
 
 
@@ -273,7 +319,9 @@ def _execute_hccl_v41_parent(
     engram_prepared: bool,
     eager_pipeline: HcclEagerPipeline | None,
     compute_stream: torch.npu.Stream | None,
+    progress: HcclStageDiagnosticRun | None,
 ) -> torch.Tensor | tuple[torch.Tensor, list[torch.Tensor]]:
+    accepted_plan = transport.plan
     try:
         parent_context = get_forward_context()
         if (
@@ -335,6 +383,7 @@ def _execute_hccl_v41_parent(
             contexts,
             slices,
             transport,
+            **({"progress": progress} if progress is not None else {}),
             **schedule,
         )
         if eager_pipeline is None:
@@ -346,7 +395,14 @@ def _execute_hccl_v41_parent(
         # A peer can already be waiting on payload/COMPLETE. Mark this
         # endpoint terminal without blocking on an unsolicited error send;
         # backend timeout/process supervision owns failed peer unwinding.
-        transport.terminal = True
-        if eager_pipeline is not None:
+        if transport.plan is None or transport.plan is accepted_plan:
+            transport.terminal = True
+        if (
+            eager_pipeline is not None
+            and not eager_pipeline.finished
+            and not eager_pipeline.failed
+            and transport.eager_pipeline is eager_pipeline
+            and transport.plan is accepted_plan
+        ):
             eager_pipeline.fail()
         raise

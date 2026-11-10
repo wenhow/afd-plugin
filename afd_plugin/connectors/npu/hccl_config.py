@@ -18,6 +18,7 @@ from vllm.config.compilation import CUDAGraphMode
 
 from afd_plugin.compat.npu.runtime_config import (
     is_deepseek_v41_model,
+    validate_deepseek_v41_pd,
     validate_deepseek_v41_speculation,
 )
 from afd_plugin.config import HCCL_P2P_CONNECTOR, AFDConfig, parse_afd_config
@@ -266,7 +267,11 @@ def _validate_hccl_runtime(
             raise ValueError("P2pHcclAFDConnector requires speculation off on FFN")
         validate_deepseek_v41_speculation(vllm_config)
     if vllm_config.kv_transfer_config is not None:
-        raise ValueError("P2pHcclAFDConnector does not support KV transfer/PD")
+        if graph:
+            raise ValueError("graph HCCL does not support KV transfer/PD")
+        if afd_config.role != "attention":
+            raise ValueError("P2pHcclAFDConnector requires KV transfer/PD off on FFN")
+        validate_deepseek_v41_pd(vllm_config)
     if vllm_config.lora_config is not None:
         raise ValueError("P2pHcclAFDConnector does not support LoRA")
 

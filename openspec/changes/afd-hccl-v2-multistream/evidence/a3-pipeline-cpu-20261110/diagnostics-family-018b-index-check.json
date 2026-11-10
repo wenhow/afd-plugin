@@ -1,0 +1,41 @@
+{
+  "scope": "local readonly integrity check of independent immutable CPU evidence; no execution",
+  "run_raw_integrity": {
+    "component-001": true,
+    "consumers-002": true,
+    "native-consumers-003": true,
+    "parent-stream-004": true,
+    "five-axis-005": true,
+    "diagnostics-006": true,
+    "diagnostic-service-007": true,
+    "eager-attention-008": true,
+    "eager-transport-009": true,
+    "eager-owner-010": true,
+    "eager-session-011": true,
+    "eager-ffn-013": true,
+    "worker-followup-014": true,
+    "binding-guards-015": true,
+    "parent-identity-016": true,
+    "diagnostics-family-018b": true
+  },
+  "all_raw_integrity_match": true,
+  "run_count": 16,
+  "raw_artifact_count": 160,
+  "latest_run": "diagnostics-family-018b",
+  "latest_counts": {
+    "passed": 512,
+    "failure": 0,
+    "error": 0,
+    "skipped": 0,
+    "total": 512
+  },
+  "launch_only_record": "diagnostics-family-018/local-launch-failure.json",
+  "diagnostic_runtime_snapshot_sha256": {
+    "afd_plugin/connectors/npu/hccl_eager_pipeline.py": "19db743a77cfdf7b2db27fb90077a7291f826797576dfd8ff4989084c7beebd2",
+    "afd_plugin/connectors/npu/hccl_diagnostics.py": "45f34d9ddbe821c2d142ad34063da48d8d009ae8e4fa4149bf95e8fd453f6549",
+    "afd_plugin/model_executor/models/npu/deepseek_v41_staged.py": "2f0d669c6f936ea6eebe80b8c6ae8d2bd8c784182d6e17e5cf854d9ab2d683fd",
+    "afd_plugin/v1/worker/npu/hccl_v41_diagnostics.py": "749994fc17b163286b17c9b6cfde57744a9fa1b5a2cfd7c531229dc23faf074a",
+    "afd_plugin/v1/worker/npu/hccl_v41_ffn_eager.py": "b7f69b595593763dba4444651a1865b36775ce0d37577a62747a2765978b1c27"
+  },
+  "device_probe_started": false
+}

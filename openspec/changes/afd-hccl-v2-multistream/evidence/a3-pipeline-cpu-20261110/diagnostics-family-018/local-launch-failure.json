@@ -1,0 +1,11 @@
+{
+  "scope": "local harness launch only; no SSH snapshot or pytest started",
+  "harness_returncode": 1,
+  "ssh_returncode": 255,
+  "first_failure": "subprocess.CalledProcessError before remote tempfile creation",
+  "readonly_followup_stderr": "Cannot open user config file C:/Users/zq/.atomgitdevenv/.ssh/config: Permission denied",
+  "device_probe_started": false,
+  "snapshot_uploaded": false,
+  "reason": "child filesystem sandbox does not permit reading the existing SSH configuration",
+  "retry_label": "diagnostics-family-018b"
+}

@@ -183,3 +183,19 @@ def make_profiled_restart_case(worker_module, runner_module, monkeypatch):
 
     case.runner.initialize_afd_connector = initialize_connector
     return case
+
+
+def make_profiled_attention_case(worker_class, *, failure=None):
+    # Keep native model/transport builders lazy for the stdlib profiler suite.
+    from tests.unit.fakes.attention_model_runner_v2 import make_graph_runner_case
+
+    case = make_graph_runner_case()
+    case.profile = make_profiler_session_case(failure=failure)
+    case.events = case.profile.events
+    case.owner.prof = case.profile.session
+    case.owner.bind_hccl_v41_graph_eager(case.eager, case.session)
+    case.worker = object.__new__(worker_class)
+    case.worker.model_runner = case.owner
+    case.worker.profiler_config = None
+    case.worker.profiler = None
+    return case

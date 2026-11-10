@@ -70,6 +70,7 @@ def npu_vllm_config(
     model_type="deepseek_v2",
     architectures=None,
     engram_config=None,
+    kv_transfer_config=None,
     **parallel_overrides,
 ):
     async_dp = bool(parallel_overrides.pop("async_dp", False))
@@ -110,6 +111,8 @@ def npu_vllm_config(
         ),
         speculative_config=speculative_config,
         engram_config=engram_config,
+        kv_transfer_config=kv_transfer_config,
+        cache_config=SimpleNamespace(enable_prefix_caching=False),
         scheduler_config=SimpleNamespace(max_num_batched_tokens=16),
     )
 
@@ -163,6 +166,19 @@ def hccl_vllm_config(
             vars(native.model_config.hf_text_config)
         )
     return config
+
+
+def pd_kv_transfer_config(*, tp_size=1, connector="MooncakeHybridConnector"):
+    """Native KVTransferConfig fields only; no transfer engine or remote proof."""
+    return SimpleNamespace(
+        kv_connector=connector,
+        kv_connector_module_path=None,
+        kv_role="kv_consumer",
+        kv_connector_extra_config={
+            "prefill": {"tp_size": tp_size, "dp_size": 1},
+            "decode": {"tp_size": tp_size, "dp_size": 1},
+        },
+    )
 
 
 @dataclass

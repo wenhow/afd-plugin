@@ -1,0 +1,7 @@
+{
+  "PYTHONPATH": "/mnt/workspace/tmp/afd-c0-20261104.hVgsIf/c5-native-manager-20261109-emu9_buc/snapshot:/mnt/workspace/code/.ascend/cann-9.0.1/cann-9.0.1/python/site-packages:/mnt/workspace/code/.ascend/cann-9.0.1/cann-9.0.1/opp/built-in/op_impl/ai_core/tbe:",
+  "LD_LIBRARY_PATH": "/mnt/workspace/code/.ascend/cann-9.0.1/cann-9.0.1/nnal/atb/latest/atb/cxx_abi_1/lib:/mnt/workspace/code/.ascend/cann-9.0.1/cann-9.0.1/nnal/atb/latest/atb/cxx_abi_1/examples:/mnt/workspace/code/.ascend/cann-9.0.1/cann-9.0.1/nnal/atb/latest/atb/cxx_abi_1/tests/atbopstest:/opt/buildtools/python-3.12.9/lib:/usr/local/Ascend/driver/lib64/driver:/usr/local/Ascend/driver/lib64/common:/mnt/workspace/code/.ascend/cann-9.0.1/cann-9.0.1/lib64:/mnt/workspace/code/.ascend/cann-9.0.1/cann-9.0.1/lib64/plugin/opskernel:/mnt/workspace/code/.ascend/cann-9.0.1/cann-9.0.1/lib64/plugin/nnengine:/mnt/workspace/code/.ascend/cann-9.0.1/cann-9.0.1/opp/built-in/op_impl/ai_core/tbe/op_tiling/lib/linux/aarch64:/usr/local/Ascend/driver/lib64:/usr/local/Ascend/driver/lib64/common:/usr/local/Ascend/driver/lib64/driver",
+  "ASCEND_HOME_PATH": "/mnt/workspace/code/.ascend/cann-9.0.1/cann-9.0.1",
+  "ATB_HOME_PATH": "/mnt/workspace/code/.ascend/cann-9.0.1/cann-9.0.1/nnal/atb/latest/atb/cxx_abi_1",
+  "VLLM_PLUGINS": "ascend,ascend_model,ascend_model_loader,ascend_kv_connector,ascend_service_profiling"
+}

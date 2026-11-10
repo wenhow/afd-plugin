@@ -156,6 +156,7 @@ class HcclGraphComputePipeline:
             bank.stage_rows,
             bank.device,
             bank.key,
+            bank.capabilities,
         )
         self._parent: torch.npu.Stream | None = None
         self._active = self._failed = self._joined = self._recorded = False
@@ -217,6 +218,7 @@ class HcclGraphComputePipeline:
             "physical.send_stream": "parent",
             "physical.recv_stream": "parent",
             "parent_transport_override": True,
+            "exchange_order": self.bank.exchange_order,
         }
 
     @staticmethod
@@ -305,6 +307,7 @@ class HcclGraphComputePipeline:
             bank.stage_rows,
             bank.device,
             bank.key,
+            bank.capabilities,
         ):
             raise RuntimeError("pipeline bank layout changed")
         parent = torch.npu.current_stream(bank.device)
@@ -313,6 +316,7 @@ class HcclGraphComputePipeline:
         self._parent, self._active, self._joined = parent, True, False
         self._recorded = True
         self._wire_index = self._compute_index = 0
+        self._send_index = self._receive_index = 0
         self._received.clear()
         self._computed.clear()
         self._sent.clear()
@@ -440,6 +444,8 @@ class HcclGraphComputePipeline:
         self, layer_idx: int, stage_idx: int, *, tensors: tuple[torch.Tensor, ...] = ()
     ) -> Iterator[None]:
         """Join the actual producer before BF16/FP32/IDs copies and parent HCCL."""
+        if self.bank.exchange_order != "stage_serial":
+            raise RuntimeError("bulk_v1 requires split Attention send/receive scopes")
         send_stream = self._communication_stream(send=True)
         step = self._require_step(layer_idx, stage_idx)
         self._require_wire_step(step)
@@ -461,12 +467,87 @@ class HcclGraphComputePipeline:
             self._failed = True
             raise
 
+    def retain_compute_outputs(
+        self, layer_idx: int, stage_idx: int, *, tensors: tuple[torch.Tensor, ...]
+    ) -> None:
+        """Keep produced activations through a deferred parent send or failure."""
+        self._require_parent()
+        step = self._require_step(layer_idx, stage_idx)
+        if step not in self._computed:
+            raise RuntimeError("retain outputs after the matching compute frontier")
+        self._retain_on(
+            self._held.get(stage_idx, ()) + tensors, self.compute_stream, stage_idx
+        )
+
+    @contextmanager
+    def attention_send(
+        self, layer_idx: int, stage_idx: int, *, tensors: tuple[torch.Tensor, ...] = ()
+    ) -> Iterator[None]:
+        """Bulk: enqueue all this layer's input packets before any output receive."""
+        parent = self._communication_stream(send=True)
+        step = self._require_step(layer_idx, stage_idx)
+        if (
+            self.bank.exchange_order != "bulk_v1"
+            or self.bank.role != "attention"
+            or self._send_index >= len(self._steps)
+            or self._steps[self._send_index] != step
+            or any((layer_idx, stage) not in self._computed for stage in self._stages)
+        ):
+            raise RuntimeError(
+                "bulk Attention send requires its ordered compute frontier"
+            )
+        events = self.step_events[step]
+        events.compute_done.wait(parent)
+        self._retain_on(tensors, parent, stage_idx)
+        try:
+            yield
+            self._require_parent()
+            events.send_done.record(parent)
+            self._sent.add(step)
+            self._send_index += 1
+        except BaseException:
+            self._failed = True
+            raise
+
+    @contextmanager
+    def attention_receive(self, layer_idx: int, stage_idx: int) -> Iterator[None]:
+        """Bulk: receive only after every positive stage's inputs were enqueued."""
+        parent = self._communication_stream(send=False)
+        step = self._require_step(layer_idx, stage_idx)
+        self._require_wire_step(step)
+        if (
+            self.bank.exchange_order != "bulk_v1"
+            or self.bank.role != "attention"
+            or any((layer_idx, stage) not in self._sent for stage in self._stages)
+        ):
+            raise RuntimeError("bulk Attention receive requires all this layer's sends")
+        try:
+            yield
+            self._require_parent()
+            self.step_events[step].receive_done.record(parent)
+            self._received.add(step)
+            self._wire_index += 1
+        except BaseException:
+            self._failed = True
+            raise
+
     @contextmanager
     def ffn_receive(self, layer_idx: int, stage_idx: int) -> Iterator[None]:
         """Fence the previous use of this stage's bank before receiving again."""
         parent = self._communication_stream(send=False)
         step = self._require_step(layer_idx, stage_idx)
-        self._require_wire_step(step)
+        if self.bank.exchange_order == "bulk_v1":
+            if (
+                self._receive_index >= len(self._steps)
+                or self._steps[self._receive_index] != step
+                or self._wire_index
+                != self.bank.layer_indices.index(layer_idx) * len(self._stages)
+            ):
+                raise RuntimeError(
+                    "bulk FFN receive requires its ordered layer frontier"
+                )
+        else:
+            self._require_wire_step(step)
         if self.bank.role != "ffn" or step in self._received:
             raise RuntimeError("FFN receive requires a fresh ordered step")
         index = self.bank.layer_indices.index(layer_idx)
@@ -488,6 +569,7 @@ class HcclGraphComputePipeline:
             self._require_parent()
             self.step_events[step].receive_done.record(parent)
             self._received.add(step)
+            self._receive_index += 1
         except BaseException:
             self._failed = True
             raise
@@ -502,6 +584,10 @@ class HcclGraphComputePipeline:
         self._require_wire_step(step)
         if self.bank.role != "ffn" or step not in self._computed:
             raise RuntimeError("FFN send requires its completed compute frontier")
+        if self.bank.exchange_order == "bulk_v1" and any(
+            (layer_idx, stage) not in self._computed for stage in self._stages
+        ):
+            raise RuntimeError("bulk FFN send requires every stage receive/compute")
         events = self.step_events[step]
         events.compute_done.wait(parent)
         self._retain_on(tensors, parent, stage_idx)

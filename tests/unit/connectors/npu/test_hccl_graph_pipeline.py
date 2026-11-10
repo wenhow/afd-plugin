@@ -31,6 +31,132 @@ def case(monkeypatch):
     return make_pipeline_case(monkeypatch, module)
 
 
+@pytest.mark.parametrize("role", ["attention", "ffn"])
+@pytest.mark.parametrize("rows", [(2, 3), (0, 3), (3, 0)])
+@pytest.mark.parametrize("hybrid", [False, True])
+def test_bulk_preserves_results_and_parent_wire_order(  # long-test: output/wire.
+    monkeypatch, role, rows, hybrid
+):
+    case = make_pipeline_case(
+        monkeypatch,
+        module,
+        role=role,
+        rows=rows,
+        hybrid=hybrid,
+        exchange_order="bulk_v1",
+    )
+    outputs = (
+        run_attention_arithmetic(case)
+        if role == "attention"
+        else run_ffn_arithmetic(case)
+    )
+    expected_outputs = (
+        tuple(
+            torch.full((count, 4), 9 * (stage + 1) + 10, dtype=torch.bfloat16)
+            for stage, count in enumerate(rows)
+            if count
+        )
+        if role == "attention"
+        else tuple(
+            torch.full((count, 4), layer + stage + 1, dtype=torch.bfloat16)
+            for layer in case.bank.layer_indices
+            for stage, count in enumerate(rows)
+            if count
+        )
+    )
+    for actual, expected_output in zip(outputs, expected_outputs, strict=True):
+        torch.testing.assert_close(actual, expected_output)
+    positive = [stage for stage, rows in enumerate(rows) if rows]
+    wire = [event for event in case.runtime.trace if event[0] == "wire"]
+    inputs, output = ("send", "receive") if role == "attention" else ("receive", "send")
+    expected = [(inputs, stage) for stage in positive for _ in range(3)] + [
+        (output, stage) for stage in positive
+    ]
+    assert [(event[1], event[2]) for event in wire] == expected * 2
+    assert {event[-1] for event in wire} == {"parent"}
+    assert case.pipeline.communication_plan()["exchange_order"] == "bulk_v1"
+    if role == "ffn":
+        trace = case.runtime.trace
+        for layer in case.bank.layer_indices:
+            last_receive = max(
+                index
+                for index, event in enumerate(trace)
+                if event[:2] == ("record", f"L{layer}S{positive[-1]}.receive")
+            )
+            first_send_wait = trace.index(
+                ("wait", f"L{layer}S{positive[0]}.compute", "parent")
+            )
+            assert last_receive < first_send_wait
+
+
+@pytest.mark.parametrize("failure", ["serial", "receive_early", "send_out_of_order"])
+def test_bulk_attention_rejects_partial_or_serial_wire_frontiers(monkeypatch, failure):
+    case = make_pipeline_case(monkeypatch, module, exchange_order="bulk_v1")
+    pipeline = case.pipeline
+    with pytest.raises(RuntimeError), pipeline.run():
+        for stage in range(2):
+            with pipeline.compute(0, stage):
+                pass
+        if failure == "serial":
+            scope = pipeline.attention_exchange(0, 0)
+        elif failure == "receive_early":
+            scope = pipeline.attention_receive(0, 0)
+        else:
+            scope = pipeline.attention_send(0, 1)
+        with scope:
+            case.runtime.trace.append(("unexpected",))
+    assert ("unexpected",) not in case.runtime.trace
+
+
+@pytest.mark.parametrize("cross_layer", [False, True])
+def test_bulk_ffn_keeps_selected_layer_join_frontiers(monkeypatch, cross_layer):
+    case = make_pipeline_case(
+        monkeypatch,
+        module,
+        role="ffn",
+        exchange_order="bulk_v1",
+        policy=module.HcclGraphPipelinePolicy(ffn_cross_layer=cross_layer),
+    )
+    run_ffn_arithmetic(case)
+    trace = case.runtime.trace
+    expected_count = 1 if cross_layer else 2
+    assert trace.count(("wait", "L1S0.send", "parent")) == expected_count
+
+
+def test_bulk_ffn_cannot_send_before_all_stage_receives_and_computes(monkeypatch):
+    case = make_pipeline_case(monkeypatch, module, role="ffn", exchange_order="bulk_v1")
+    with pytest.raises(RuntimeError, match="every stage"), case.pipeline.run():
+        with case.pipeline.ffn_receive(0, 0):
+            pass
+        with case.pipeline.compute(0, 0):
+            pass
+        with case.pipeline.ffn_send(0, 0):
+            case.runtime.trace.append(("unexpected",))
+    assert ("unexpected",) not in case.runtime.trace
+
+
+@pytest.mark.parametrize("rows", [(2, 3), (0, 3), (3, 0)])
+def test_bulk_attention_and_ffn_parent_packets_match_at_every_static_step(
+    monkeypatch, rows
+):
+    attention = make_pipeline_case(
+        monkeypatch, module, rows=rows, exchange_order="bulk_v1"
+    )
+    run_attention_arithmetic(attention)
+    ffn = make_pipeline_case(
+        monkeypatch, module, role="ffn", rows=rows, exchange_order="bulk_v1"
+    )
+    run_ffn_arithmetic(ffn)
+    a_wire = [event[1:3] for event in attention.runtime.trace if event[0] == "wire"]
+    f_wire = [event[1:3] for event in ffn.runtime.trace if event[0] == "wire"]
+    assert len(a_wire) == len(f_wire)
+    for (a_operation, a_stage), (f_operation, f_stage) in zip(
+        a_wire, f_wire, strict=True
+    ):
+        assert a_stage == f_stage
+        assert (a_operation, f_operation) in (("send", "receive"), ("receive", "send"))
+
+
 @pytest.mark.parametrize("hybrid", [False, True])
 @pytest.mark.parametrize("rows", [(2, 3), (0, 3), (3, 0)])
 def test_attention_delayed_continuations_preserve_cpu_outputs(
@@ -350,6 +476,7 @@ def test_attention_logical_plan_resolves_to_parent_exchange_without_changing_out
         "physical.send_stream": "parent",
         "physical.recv_stream": "parent",
         "parent_transport_override": True,
+        "exchange_order": "stage_serial",
     }
     assert case.pipeline.selection == (selection if use_selection else None)
     assert {event[-1] for event in case.runtime.trace if event[0] == "wire"} == {

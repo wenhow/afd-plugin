@@ -1477,8 +1477,8 @@ def test_npu_attention_runner_constructor_does_not_initialize_connector(monkeypa
     )
     monkeypatch.setattr(
         attention_model_runner,
-        "create_afd_npu_profiler",
-        lambda _name: object(),
+        "create_deferred_afd_npu_profiler",
+        lambda _name, **_: None,
     )
     monkeypatch.setattr(
         attention_model_runner.AFDNPUAttentionModelRunnerV2,

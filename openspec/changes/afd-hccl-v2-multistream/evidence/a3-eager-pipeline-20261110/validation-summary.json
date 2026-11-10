@@ -156,6 +156,361 @@
         "results/summary.json": "142be8d5dbaa8bad6db2265ac821f3c032bad838a8962ba1073163fc838ec689",
         "results/upstream-identity.json": "ccce1aa67235ce2f18e6302767e4b640fc6304ce311c80e4d62d573e901b889d"
       }
+    },
+    "diagnostics-tp1-002": {
+      "identity": "openspec/changes/afd-hccl-v2-multistream/evidence/a3-eager-pipeline-20261110/diagnostics-tp1-002/identity.json",
+      "snapshot_manifest_sha256": "b7d1964c67db1c6e5692ab363a1d90eb1480485ba290d4c4b2012e844384d20c",
+      "head_commit": "c279c4f6f95445b9e764d2487829af39b3a757a3",
+      "production": {
+        "afd_plugin/connectors/npu/hccl_eager_pipeline.py": "19db743a77cfdf7b2db27fb90077a7291f826797576dfd8ff4989084c7beebd2",
+        "afd_plugin/connectors/npu/hccl_staged_transport.py": "ae4c38de38cb90d5e511fe0c7d0dbd6fda9fc318292f2d10784d33b3c8d422f1",
+        "afd_plugin/connectors/npu/hccl_diagnostics.py": "45f34d9ddbe821c2d142ad34063da48d8d009ae8e4fa4149bf95e8fd453f6549",
+        "afd_plugin/v1/worker/npu/hccl_v41_diagnostics.py": "749994fc17b163286b17c9b6cfde57744a9fa1b5a2cfd7c531229dc23faf074a",
+        "tests/npu/hccl_eager_pipeline_probe.py": "c8b4b0b2becb3fe11d958666b8e204e8757df09f418a32850bf76b12fd787fc6",
+        "openspec/changes/afd-hccl-v2-multistream/evidence/run_a3_eager_pipeline.py": "e808603c73d5bd5b353db108d9dab63f902fd1dcc860469944efe60c46e1700e"
+      },
+      "source_files_match": true,
+      "upstream_files_checked": 33,
+      "stage_diagnostics": true,
+      "idle_before": 8,
+      "idle_after": 8,
+      "success": true,
+      "exit_codes": {
+        "ffn-0": 0,
+        "attention-0": 0
+      },
+      "killed_owned_pids": [],
+      "timed_out": false,
+      "outer_elapsed_seconds": 29.4845359204337,
+      "rank_summaries": {
+        "ffn-0": {
+          "parents": 6,
+          "positive_layer_stage_checks": 16,
+          "world_rank": 0,
+          "native_tp_before": [
+            1.0
+          ],
+          "native_tp_after_plugin_close": [
+            1.0
+          ],
+          "normal_stop": true,
+          "diagnostic_validation": {
+            "configuration_count": 6,
+            "record_count": 146,
+            "all_rank_identity_exact": true,
+            "all_u2_compute_sync_inactive": true,
+            "actual_stream_aliases_exact": true,
+            "empty_parent_configuration": true,
+            "owner_milestones_present": true
+          },
+          "actual_streams": {
+            "actual.compute_stream": "compute",
+            "actual.send_stream": "send",
+            "actual.recv_stream": "recv",
+            "actual.compute_send_alias": false,
+            "actual.compute_recv_alias": false,
+            "actual.send_recv_alias": false
+          },
+          "event_counts": {
+            "configuration": 6,
+            "recv_post_begin": 16,
+            "recv_post_returned": 16,
+            "loan_wait_begin": 16,
+            "loan_wait_returned": 16,
+            "send_post_begin": 16,
+            "send_post_returned": 16,
+            "stage_reuse_wait_begin": 16,
+            "stage_reuse_wait_returned": 16,
+            "parent_finish_begin": 6,
+            "parent_finish_returned": 6
+          }
+        },
+        "attention-0": {
+          "parents": 6,
+          "positive_layer_stage_checks": 16,
+          "world_rank": 1,
+          "native_tp_before": [
+            1.0
+          ],
+          "native_tp_after_plugin_close": [
+            1.0
+          ],
+          "normal_stop": true,
+          "diagnostic_validation": {
+            "configuration_count": 6,
+            "record_count": 146,
+            "all_rank_identity_exact": true,
+            "all_u2_compute_sync_inactive": true,
+            "actual_stream_aliases_exact": true,
+            "empty_parent_configuration": true,
+            "owner_milestones_present": true
+          },
+          "actual_streams": {
+            "actual.compute_stream": "compute",
+            "actual.send_stream": "send",
+            "actual.recv_stream": "recv",
+            "actual.compute_send_alias": false,
+            "actual.compute_recv_alias": false,
+            "actual.send_recv_alias": false
+          },
+          "event_counts": {
+            "configuration": 6,
+            "send_post_begin": 16,
+            "send_post_returned": 16,
+            "recv_post_begin": 16,
+            "recv_post_returned": 16,
+            "loan_wait_begin": 16,
+            "loan_wait_returned": 16,
+            "stage_reuse_wait_begin": 16,
+            "stage_reuse_wait_returned": 16,
+            "parent_finish_begin": 6,
+            "parent_finish_returned": 6
+          }
+        }
+      },
+      "raw_sha256": {
+        "delivery.json": "32e83c4dcf29b2bd916d609d81bd763a6e647a64d5b6904a4a5602ce57d07fae",
+        "identity.json": "6d8eb4d4e8e5225b8fe024454642137a67f25e6d1133b32fbbf491b2139c4c0b",
+        "remote-run.log": "faabe97c828fc8ecdc20af822fc1df356bc1a14e879bb0bf19601af79128c804",
+        "results/effective-env.json": "0f064f8cb2ea8d889c7864fc123bccf427c66fce398851a240f1266629a62f86",
+        "results/npu-after.log": "5cc83ff5902de694e631fe7ba8a493e74f28f56adeb62b88cc907d4a9b95891b",
+        "results/npu-before.log": "67f6235390e4d2cfedeaf83e1d2eb9a1f9bea4f0c2d4b92124a030ab8605279c",
+        "results/owned-processes.json": "7ff77f074f4e78430141a7bb50b6838ed51efa030352614463207ec668adcf96",
+        "results/probe/attention-0.json": "1413181177ae9337dc4ac4fd9e046186aae2665d144473574753217d9922cc16",
+        "results/probe/attention-0.log": "3e6addeb100a89138e1d5a06bdd34735a1c09a0940dc53b7d4d879b4f7186379",
+        "results/probe/ffn-0.json": "6a1b528a55ca3a4037d415fe220448b39c38ff9e7c483f9bd66e815453685d8c",
+        "results/probe/ffn-0.log": "e7b07d1330f8683957298d5dd916a2afb2377f20f40198e1eb9c788d44d03690",
+        "results/probe/result.json": "8a28b948af85705a497fd4971989c24be9c5123b000925c5c8f8f41cccdef0ca",
+        "results/probe.log": "8a28b948af85705a497fd4971989c24be9c5123b000925c5c8f8f41cccdef0ca",
+        "results/source-check.json": "6398402f60cffcb87fdf4bd7672cfbcea23a9c056619b540256c3b90894d6cda",
+        "results/standalone-no-torch-preflight.json": "5f542e23eb08e7520a088c9862a081ef2517ad0b58ecd3da1acb3c769dcd9afc",
+        "results/summary.json": "5a868aed38ffc794a439cd8410dc0a53cc5cb64a43cd1bf22f172f8ff8958785",
+        "results/upstream-identity.json": "ccce1aa67235ce2f18e6302767e4b640fc6304ce311c80e4d62d573e901b889d"
+      }
+    },
+    "diagnostics-tp2-002": {
+      "identity": "openspec/changes/afd-hccl-v2-multistream/evidence/a3-eager-pipeline-20261110/diagnostics-tp2-002/identity.json",
+      "snapshot_manifest_sha256": "b7d1964c67db1c6e5692ab363a1d90eb1480485ba290d4c4b2012e844384d20c",
+      "head_commit": "c279c4f6f95445b9e764d2487829af39b3a757a3",
+      "production": {
+        "afd_plugin/connectors/npu/hccl_eager_pipeline.py": "19db743a77cfdf7b2db27fb90077a7291f826797576dfd8ff4989084c7beebd2",
+        "afd_plugin/connectors/npu/hccl_staged_transport.py": "ae4c38de38cb90d5e511fe0c7d0dbd6fda9fc318292f2d10784d33b3c8d422f1",
+        "afd_plugin/connectors/npu/hccl_diagnostics.py": "45f34d9ddbe821c2d142ad34063da48d8d009ae8e4fa4149bf95e8fd453f6549",
+        "afd_plugin/v1/worker/npu/hccl_v41_diagnostics.py": "749994fc17b163286b17c9b6cfde57744a9fa1b5a2cfd7c531229dc23faf074a",
+        "tests/npu/hccl_eager_pipeline_probe.py": "c8b4b0b2becb3fe11d958666b8e204e8757df09f418a32850bf76b12fd787fc6",
+        "openspec/changes/afd-hccl-v2-multistream/evidence/run_a3_eager_pipeline.py": "e808603c73d5bd5b353db108d9dab63f902fd1dcc860469944efe60c46e1700e"
+      },
+      "source_files_match": true,
+      "upstream_files_checked": 33,
+      "stage_diagnostics": true,
+      "idle_before": 8,
+      "idle_after": 8,
+      "success": true,
+      "exit_codes": {
+        "ffn-0": 0,
+        "ffn-1": 0,
+        "attention-0": 0,
+        "attention-1": 0
+      },
+      "killed_owned_pids": [],
+      "timed_out": false,
+      "outer_elapsed_seconds": 31.486913420259953,
+      "rank_summaries": {
+        "ffn-0": {
+          "parents": 6,
+          "positive_layer_stage_checks": 16,
+          "world_rank": 0,
+          "native_tp_before": [
+            2.0
+          ],
+          "native_tp_after_plugin_close": [
+            2.0
+          ],
+          "normal_stop": true,
+          "diagnostic_validation": {
+            "configuration_count": 6,
+            "record_count": 146,
+            "all_rank_identity_exact": true,
+            "all_u2_compute_sync_inactive": true,
+            "actual_stream_aliases_exact": true,
+            "empty_parent_configuration": true,
+            "owner_milestones_present": true
+          },
+          "actual_streams": {
+            "actual.compute_stream": "compute",
+            "actual.send_stream": "send",
+            "actual.recv_stream": "recv",
+            "actual.compute_send_alias": false,
+            "actual.compute_recv_alias": false,
+            "actual.send_recv_alias": false
+          },
+          "event_counts": {
+            "configuration": 6,
+            "recv_post_begin": 16,
+            "recv_post_returned": 16,
+            "loan_wait_begin": 16,
+            "loan_wait_returned": 16,
+            "send_post_begin": 16,
+            "send_post_returned": 16,
+            "stage_reuse_wait_begin": 16,
+            "stage_reuse_wait_returned": 16,
+            "parent_finish_begin": 6,
+            "parent_finish_returned": 6
+          }
+        },
+        "ffn-1": {
+          "parents": 6,
+          "positive_layer_stage_checks": 16,
+          "world_rank": 1,
+          "native_tp_before": [
+            2.0
+          ],
+          "native_tp_after_plugin_close": [
+            2.0
+          ],
+          "normal_stop": true,
+          "diagnostic_validation": {
+            "configuration_count": 6,
+            "record_count": 146,
+            "all_rank_identity_exact": true,
+            "all_u2_compute_sync_inactive": true,
+            "actual_stream_aliases_exact": true,
+            "empty_parent_configuration": true,
+            "owner_milestones_present": true
+          },
+          "actual_streams": {
+            "actual.compute_stream": "compute",
+            "actual.send_stream": "send",
+            "actual.recv_stream": "recv",
+            "actual.compute_send_alias": false,
+            "actual.compute_recv_alias": false,
+            "actual.send_recv_alias": false
+          },
+          "event_counts": {
+            "configuration": 6,
+            "recv_post_begin": 16,
+            "recv_post_returned": 16,
+            "loan_wait_begin": 16,
+            "loan_wait_returned": 16,
+            "send_post_begin": 16,
+            "send_post_returned": 16,
+            "stage_reuse_wait_begin": 16,
+            "stage_reuse_wait_returned": 16,
+            "parent_finish_begin": 6,
+            "parent_finish_returned": 6
+          }
+        },
+        "attention-0": {
+          "parents": 6,
+          "positive_layer_stage_checks": 16,
+          "world_rank": 2,
+          "native_tp_before": [
+            2.0
+          ],
+          "native_tp_after_plugin_close": [
+            2.0
+          ],
+          "normal_stop": true,
+          "diagnostic_validation": {
+            "configuration_count": 6,
+            "record_count": 146,
+            "all_rank_identity_exact": true,
+            "all_u2_compute_sync_inactive": true,
+            "actual_stream_aliases_exact": true,
+            "empty_parent_configuration": true,
+            "owner_milestones_present": true
+          },
+          "actual_streams": {
+            "actual.compute_stream": "compute",
+            "actual.send_stream": "send",
+            "actual.recv_stream": "recv",
+            "actual.compute_send_alias": false,
+            "actual.compute_recv_alias": false,
+            "actual.send_recv_alias": false
+          },
+          "event_counts": {
+            "configuration": 6,
+            "send_post_begin": 16,
+            "send_post_returned": 16,
+            "recv_post_begin": 16,
+            "recv_post_returned": 16,
+            "loan_wait_begin": 16,
+            "loan_wait_returned": 16,
+            "stage_reuse_wait_begin": 16,
+            "stage_reuse_wait_returned": 16,
+            "parent_finish_begin": 6,
+            "parent_finish_returned": 6
+          }
+        },
+        "attention-1": {
+          "parents": 6,
+          "positive_layer_stage_checks": 16,
+          "world_rank": 3,
+          "native_tp_before": [
+            2.0
+          ],
+          "native_tp_after_plugin_close": [
+            2.0
+          ],
+          "normal_stop": true,
+          "diagnostic_validation": {
+            "configuration_count": 6,
+            "record_count": 146,
+            "all_rank_identity_exact": true,
+            "all_u2_compute_sync_inactive": true,
+            "actual_stream_aliases_exact": true,
+            "empty_parent_configuration": true,
+            "owner_milestones_present": true
+          },
+          "actual_streams": {
+            "actual.compute_stream": "compute",
+            "actual.send_stream": "send",
+            "actual.recv_stream": "recv",
+            "actual.compute_send_alias": false,
+            "actual.compute_recv_alias": false,
+            "actual.send_recv_alias": false
+          },
+          "event_counts": {
+            "configuration": 6,
+            "send_post_begin": 16,
+            "send_post_returned": 16,
+            "recv_post_begin": 16,
+            "recv_post_returned": 16,
+            "loan_wait_begin": 16,
+            "loan_wait_returned": 16,
+            "stage_reuse_wait_begin": 16,
+            "stage_reuse_wait_returned": 16,
+            "parent_finish_begin": 6,
+            "parent_finish_returned": 6
+          }
+        }
+      },
+      "raw_sha256": {
+        "delivery.json": "b10a6c16237f2de15e9442146fd4a307736d8c3014fafe021d6cd1cdd1727c51",
+        "identity.json": "cad59fc670128b07ef77959448b303741d8514dae6aec5ed6a661f397abb183e",
+        "remote-run.log": "12246286d573a153ea0ba510fe78127fc8a761c6b6423d9fc90556fa363c2c85",
+        "results/effective-env.json": "4e77324173d1105ed9a396fed038a45a6ae1894eba0ceb5d5fe5375d7371fe6d",
+        "results/npu-after.log": "9a56bdbe97f19211bf868b7f246bd1ecf4c9030172c4b9e211ca41ac8e5e5a1c",
+        "results/npu-before.log": "a25748cdf7763525870824626374323bdcf0bf5846e8a0c5a2f868f2eb68a7d8",
+        "results/owned-processes.json": "3ce4b733566d5afdc27234d3448525da03911cff46cff94c0748360d0b5c8eb8",
+        "results/probe/attention-0.json": "78358542552f1c9f264ef5575db30016eb211cfb289c417a230408aca719101c",
+        "results/probe/attention-0.log": "df67298b2d392c9cefc648b626d689207918f18ad48255c762b9873274375383",
+        "results/probe/attention-1.json": "02c80898b5f838616c188fbb0c364489c567b3dc9bf475977659157233f646c4",
+        "results/probe/attention-1.log": "aabf51a65c2a196ff7f95eed15329d4583cc14dccc05b1990c75fd8040819dbc",
+        "results/probe/ffn-0.json": "d1791586ea6d8042b50ef01a96302f57a3092c1c9e8dce994e5e337ebe37d9b2",
+        "results/probe/ffn-0.log": "5ecce41156e05e6adba2896dc1906287a4e2be74c8be0fa69540af97c542c758",
+        "results/probe/ffn-1.json": "b0490b91891a8cf63b0c41a189b3146094a6380553fd0560d298d82339eebfb1",
+        "results/probe/ffn-1.log": "8b3eb2417b3b62dc3a14abb8bbe316e2e0264707a7f4b39ef4fbcb1f3634e65e",
+        "results/probe/result.json": "178080f5e1134ce18d1c492e55812cf8dae25c77f5cc2efe34667871124a6770",
+        "results/probe.log": "178080f5e1134ce18d1c492e55812cf8dae25c77f5cc2efe34667871124a6770",
+        "results/source-check.json": "6398402f60cffcb87fdf4bd7672cfbcea23a9c056619b540256c3b90894d6cda",
+        "results/standalone-no-torch-preflight.json": "5f542e23eb08e7520a088c9862a081ef2517ad0b58ecd3da1acb3c769dcd9afc",
+        "results/summary.json": "e56c1d16a53238172dfa2f23bcd83971dc4b665e886e7c311b3f84d9a8666382",
+        "results/upstream-identity.json": "ccce1aa67235ce2f18e6302767e4b640fc6304ce311c80e4d62d573e901b889d"
+      }
     }
-  }
+  },
+  "diagnostic_session_scope": "Actual matched-warm transport/ticket owner host diagnostics with controlled arithmetic, not native model/MoE, injected sink failure, live-U1 compute-sync, timing or overlap acceptance.",
+  "local_archive_precheck": "diagnostic-archive-precheck-001/identity.json",
+  "source_boundary": "Each run keeps its own whole-tree manifest, including concurrent Graph work; only the selected eager component execution is accepted."
 }

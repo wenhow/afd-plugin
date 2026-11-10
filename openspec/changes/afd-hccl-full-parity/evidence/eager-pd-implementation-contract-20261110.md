@@ -1,8 +1,9 @@
 # C7 eager PD implementation contract, 2026-11-10
 
-Status: source audit and concrete implementation proposal only. No runtime,
-tests, upstream trees, package installations, device jobs, task checkboxes or Git
-state were changed for this proposal. The preceding
+Status: the initial source audit and proposal below preceded implementation.
+The final section records the later, narrowly authorized plugin/configuration
+increment and its separate validation scope. No upstream trees, package
+installations, device jobs or task checkboxes were changed for either step. The preceding
 [DSpark / PD audit](dspark-pd-source-contract-20261110.md) describes the broader
 owner chain; this follow-up checks whether its native SFA candidate is actually
 admissible for V4.1 before changing an AFD guard.
@@ -244,3 +245,78 @@ model qualification covers a wider connector/topology; keep F role isolation.
 | A `vllm_ascend/distributed/kv_transfer/kv_p2p/sfa_pd_rd2h/connector.py` | `ed7722a252ff647ca39c011c9f923889d80402ceab1c781f0e372152a7e7a946` |
 | A `vllm_ascend/distributed/kv_transfer/kv_p2p/sfa_pd_rd2h/dspark_context.py` | `296bd051f967d34a21f310cd64561f71819af96d423ff0edceaaeed68e65f93a` |
 | A `vllm_ascend/distributed/kv_transfer/kv_p2p/mooncake_hybrid_connector.py` | `a6a9c3a870b7d577fb2a39435067fe378646b6ab39bc669140641beba92bdf84` |
+
+## Plugin implementation follow-up
+
+Base HEAD at this increment is `24c8d51df5d43d57dc8b4d3de0833fe592b42aa5`.
+The following working-tree hashes freeze the implementation; they are distinct
+from the proposal's earlier comparison table:
+
+| Path | SHA-256 |
+| --- | --- |
+| `afd_plugin/compat/npu/runtime_config.py` | `9c6083e6b309d8c60eecc90fc4051648fb43737301294c0bb2ce17b702875e45` |
+| `afd_plugin/connectors/npu/hccl_config.py` | `8f947e0f35bd79c9cf520707bdb177c321132896dbfcf7c6025b480c086a9b7d` |
+| `tests/unit/compat/npu/test_runtime_config.py` | `df4890c36d49007f30f53f35c92d98c65cf221742ef1fa0c0afe5e9842d64218` |
+| `tests/unit/connectors/npu/test_hccl_config.py` | `df99b91b36c2a5d8fde9e4ec9302685060356b13e2785d38879ebaa3e01b98d4` |
+| `tests/unit/fakes/vllm_config.py` | `81c51dfb65d7db7a8e57243893509b484763722f9c0e3f1403e5e04c1a599dee` |
+
+`validate_deepseek_v41_pd` now checks the actual native `KVTransferConfig`
+fields. The pinned `vllm.config` publicly exports that class. The validator reads
+the same `kv_connector_extra_config["prefill"/"decode"]` TP/DP/PP entries that
+the pinned Mooncake worker consumes at 1864-1884; no plugin-only layout claim is
+substituted for those native fields. Equal configured layout is local
+eligibility only. Actual P/D model identity, physical register regions, ingress
+history and device readiness remain unqualified.
+
+Only the exact native MooncakeHybrid connector, separate producer/consumer,
+eager/no-Graph, no-speculation, no-prefix-cache, no-sparse-offload and
+PP/DP/PCP/DCP=1 combination is eligible here. The existing HCCL topology,
+activation, compilation and capacity checks still apply. SFA, custom/multi
+connectors, `kv_both`, asymmetric configured TP, DSpark+PD and Graph PD are
+rejected. The global V4.1 model feature guard is unchanged.
+
+For HCCL F construction, the original target is validated before creating the
+private shallow config. F then receives `kv_transfer_config=None`, together with
+the existing Engram/drafter isolation. Native ModelConfig and ParallelConfig
+objects retain identity, and A's original config is unchanged. Other NPU
+connectors retain their existing KV-config behavior. The native A scheduler,
+KV connector, shared-cache registration, Engram/history and request retirement
+are not patched.
+
+The public seam tests cover source preservation, private F ownership, valid
+A/F capability parity with actual native `KVTransferConfig`, and rejection
+before isolation for unsupported fields/layout/speculation. The native-type
+cases run only when torch/vLLM are available; their local dependency skips are
+not evidence that those behaviors executed.
+
+Local execution used `.venv/Scripts/python.exe` (Python 3.14.3) and
+`-m pytest tests/unit/compat/npu/test_runtime_config.py
+tests/unit/connectors/npu/test_hccl_config.py -q -ra`. Exit code was zero;
+stdlib cases passed and torch-dependent cases skipped because torch is absent.
+The original double-quiet terminal result did not print a numeric pass total,
+so none is reconstructed here. Separate collection reported 215 collected
+cases; collection does not demonstrate execution. Ruff check, Ruff format check,
+Python 3.11 AST parsing and `git diff --check` passed for the five frozen files.
+This paragraph is a transcription of local tool results, not a raw stdout file.
+
+Actual-dependency CPU validation subsequently completed in the separate
+immutable [`a3-pd-cpu-20261110/pd-eligibility-017`](a3-pd-cpu-20261110/README.md)
+snapshot: 215 passed, zero failures/errors/skips, exit 0. Only the two config
+mirrors ran; concurrent diagnostic/Graph work was excluded from the claim by
+not collecting its executor/selector modules. The manifest is
+`f19716bfa9931cbce30a25e3a2fc316c56cbc8f65bc6f1898ad55a9a97d41ff8`.
+All five frozen plugin/test/fake hashes match it. The ten baseline native source
+checks passed, and a separate stdlib-only collector verified that the actual
+installed `KVTransferConfig` and Mooncake connector source hashes match the
+locked Git files. This source collector did not import torch or torch-npu.
+
+No NPU/PD/full-model acceptance, KV-only maintenance behavior, network transfer
+correctness or performance is claimed by this implementation record. No donor
+v0.23 PD patch was restored. The initial sandbox SSH-config permission failure
+preceded any upload; the evidence index records that local failure separately
+from the successful A3 test execution.
+
+Cost is bounded startup validation plus the existing private config copy.
+There is no new per-token wire, readback, KV copy or mutable registry. Keep F's
+role isolation permanently; widen or remove these eligibility restrictions only
+with separate native P/D layout/history and runtime qualification.

@@ -15,10 +15,13 @@ pytest.importorskip("torch_npu")
 pytest.importorskip("vllm_ascend")
 
 from vllm.config import CUDAGraphMode
+from vllm.forward_context import get_forward_context, override_forward_context
 
 from afd_plugin.connectors.npu.hccl_graph_cache import HcclGraphCache
+from afd_plugin.v1.worker.npu.hccl_v41_diagnostics import HcclV41DiagnosticBinding
 from afd_plugin.v1.worker.npu.hccl_v41_graph_eager import HcclV41GraphEager
 from tests.unit.fakes.graph_cache import DeviceCompletion, GraphResources, ReplayGraph
+from tests.unit.fakes.hccl_diagnostics import StageDiagnosticRecorder
 from tests.unit.fakes.hccl_v41_graph_coordinator import dispatch_runtime
 from tests.unit.fakes.hccl_v41_graph_eager import (
     make_graph_eager_case,
@@ -231,3 +234,146 @@ def test_native_dispatch_binding_is_restored_after_exception(eager_case):
     descriptor = dispatch_runtime(case, need_eager=True)
     assert descriptor.cg_mode == CUDAGraphMode.NONE
     assert len(case.transport.transcript) == before
+
+
+@pytest.mark.parametrize("stages", [1, 2])
+@pytest.mark.parametrize(
+    "mode,dummy", [("target", False), ("dummy", True), ("profile", True)]
+)
+def test_pre_kv_diagnostics_describe_actual_serial_without_changing_native_output(
+    eager_case, stages, mode, dummy
+):
+    results = []
+    for enabled in (False, True):
+        case = eager_case(stages=stages, stage_diagnostics=enabled)
+        with case.eager.execution_scope(
+            mode=mode, valid_tokens=0 if dummy else 4, dummy_run=dummy
+        ):
+            descriptor, result = run_graph_eager_parent(case, dummy=dummy, tokens=4)
+        results.append(result)
+        assert case.owner.model_state.consumed
+    torch.testing.assert_close(results[1], results[0], rtol=0, atol=0)
+    output, auxiliary = results[1]
+    assert output.shape == (4, 4) and len(auxiliary) == 2
+    configurations = [
+        r for r in case.diagnostics.records if r["event"] == "configuration"
+    ]
+    assert len(configurations) == 1
+    record = configurations[0]
+    plan = next(
+        m.plan
+        for direction, _, _, m in case.transport.transcript
+        if direction == "send" and m.kind == "FORWARD"
+    )
+    actual_stages = 2 if stages == 2 and not dummy else 1
+    assert record["transaction_id"] == plan.transaction_id
+    assert (record["role"], record["world_rank"], record["role_rank"]) == (
+        "attention",
+        case.transport.world_rank,
+        case.transport.role_rank,
+    )
+    assert record["num_stages"] == actual_stages
+    assert record["actual.mode"] == "serial"
+    assert (
+        record["actual.compute_stream"]
+        == record["actual.send_stream"]
+        == record["actual.recv_stream"]
+        == "parent"
+    )
+    assert record["actual.ffn_compute_sync"] is False
+    assert record["logical.compute_stream"] == (
+        "compute" if actual_stages == 2 else "parent"
+    )
+    assert record["in_profile_run"] is (mode == "profile")
+    assert record["is_warmup"] is (mode == "dummy")
+    assert "device_sync" not in case.diagnostics.events
+    assert case.transport.plan is None and case.transport.graph_reservation is None
+
+
+@pytest.mark.parametrize("stages", [1, 2])
+@pytest.mark.parametrize(
+    "mode,dummy", [("target", False), ("dummy", True), ("profile", True)]
+)
+def test_pre_kv_empty_parent_emits_serial_configuration_without_native_producer(
+    eager_case, stages, mode, dummy
+):
+    case = eager_case(stages=stages, stage_diagnostics=True)
+    with case.eager.execution_scope(mode=mode, valid_tokens=0, dummy_run=dummy):
+        pass
+    (record,) = case.diagnostics.records
+    assert record["event"] == "configuration"
+    assert record["actual.mode"] == "serial" and record["num_stages"] == 1
+    assert record["transaction_id"] == "native-0"
+    assert record["actual.ffn_compute_sync"] is False
+    assert record["in_profile_run"] is (mode == "profile")
+    assert record["is_warmup"] is (mode == "dummy")
+    assert not case.owner.model_state.consumed
+    assert case.transport.tensor_peer.messages == []
+    assert case.transport.plan is None and case.transport.graph_reservation is None
+    assert case.cache.is_empty and not case.cache.terminal
+
+
+@pytest.mark.parametrize("stages", [1, 2])
+@pytest.mark.parametrize("dummy", [False, True])
+def test_pre_kv_configuration_sink_failure_precedes_parent_producer(
+    eager_case, stages, dummy
+):
+    case = eager_case(stages=stages, stage_diagnostics=True)
+    case.diagnostics.fail_event = "configuration"
+    with (
+        pytest.raises(RuntimeError, match="diagnostic sink failed"),
+        case.eager.execution_scope(
+            mode="dummy" if dummy else "target",
+            valid_tokens=0 if dummy else 4,
+            dummy_run=dummy,
+        ),
+    ):
+        run_graph_eager_parent(case, dummy=dummy, tokens=4)
+    assert not case.owner.model_state.consumed
+    assert case.transport.tensor_peer.messages == []
+    assert case.transport.terminal and case.cache.terminal
+    assert case.diagnostics.events == ["configuration"]
+
+
+@pytest.mark.parametrize("event", [None, "configuration", "compute_returned"])
+@pytest.mark.parametrize("existing", [False, True])
+def test_pre_kv_diagnostic_scope_restores_context_dispatch_and_ubatch_binding(
+    eager_case, event, existing
+):
+    case = eager_case(stages=2, stage_diagnostics=True)
+    runner = case.owner.ubatch_runner
+    previous_sink = StageDiagnosticRecorder()
+    previous = (
+        HcclV41DiagnosticBinding(
+            case.transport, case.overlap_settings, emit=previous_sink.emit
+        )
+        if existing
+        else None
+    )
+    runner.diagnostic_binding = previous
+    original_prepare = runner.prepare
+    parent = SimpleNamespace(
+        cudagraph_runtime_mode=CUDAGraphMode.NONE, additional_kwargs={}
+    )
+    case.diagnostics.fail_event = event
+    with override_forward_context(parent):
+        if event is None:
+            with case.eager.execution_scope(
+                mode="target", valid_tokens=4, dummy_run=False
+            ):
+                run_graph_eager_parent(case)
+        else:
+            with (
+                pytest.raises(RuntimeError, match="diagnostic sink failed"),
+                case.eager.execution_scope(
+                    mode="target", valid_tokens=4, dummy_run=False
+                ),
+            ):
+                run_graph_eager_parent(case)
+        assert get_forward_context() is parent
+    assert runner.diagnostic_binding is previous and runner.prepare == original_prepare
+    assert previous_sink.records == []
+    before = list(case.transport.transcript)
+    descriptor = dispatch_runtime(case, need_eager=True)
+    assert descriptor.cg_mode == CUDAGraphMode.NONE
+    assert case.transport.transcript == before

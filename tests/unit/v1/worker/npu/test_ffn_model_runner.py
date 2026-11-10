@@ -112,6 +112,23 @@ def test_graph_runner_rejects_rebinding_before_peer_work(graph_case):
     assert case.events == []
 
 
+@pytest.mark.parametrize("binding", ["eager", "diagnostic"])
+def test_graph_runner_rejects_binding_over_an_existing_eager_session(
+    graph_case, binding
+):
+    case = graph_case
+    if binding == "eager":
+        case.runner.hccl_v41_eager_session = copy(case.service)
+    else:
+        case.runner.hccl_v41_diagnostics = copy(case.service)
+
+    with pytest.raises(RuntimeError, match="conflicts with an existing binding"):
+        case.runner.bind_hccl_v41_graph_service(case.service)
+
+    assert not case.transport.terminal and case.events == []
+    assert not case.cache.closed
+
+
 def test_graph_runner_retains_cached_capture_when_cleanup_precedes_stop(graph_case):
     case = graph_case
     case.runner.bind_hccl_v41_graph_service(case.service)

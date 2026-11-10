@@ -184,8 +184,9 @@ def test_new_parent_counts_and_payloads_refresh_without_rebuilding_graph_storage
 
 @pytest.mark.parametrize("recv,cross", [(True, True), (True, False), (False, False)])
 @pytest.mark.parametrize("rows,valid", [((3, 2), (2, 0)), ((0, 2), (0, 1))])
-def test_ffn_receive_and_cross_layer_policies_preserve_wire_and_native_outputs(
-    monkeypatch, recv, cross, rows, valid
+@pytest.mark.parametrize("exchange_order", ["stage_serial", "bulk_v1"])
+def test_ffn_policy_preserves_wire_and_native_outputs(  # long-test: output/wire.
+    monkeypatch, recv, cross, rows, valid, exchange_order
 ):
     selection = select_hccl_overlap(
         HcclOverlapSettings(
@@ -198,6 +199,7 @@ def test_ffn_receive_and_cross_layer_policies_preserve_wire_and_native_outputs(
     case = make_ffn_graph_case(
         rows=rows,
         valid=valid,
+        exchange_order=exchange_order,
         pipeline_factory=lambda bank: (
             attach_pipeline(
                 monkeypatch, pipeline_module, bank, selection=selection
@@ -206,7 +208,7 @@ def test_ffn_receive_and_cross_layer_policies_preserve_wire_and_native_outputs(
     )
     payloads = queue_ffn_graph_inputs(case)
     assert case.driver.run() is None
-    assert case.events == [
+    serial = [
         (kind, stage, shape)
         for layer in case.bank.layer_indices
         for stage, count in enumerate(rows)
@@ -218,6 +220,17 @@ def test_ffn_receive_and_cross_layer_policies_preserve_wire_and_native_outputs(
             ("send", (count, 4)),
         )
     ]
+    bulk = [
+        (kind, stage, shape)
+        for layer in case.bank.layer_indices
+        for kind in ("receive", "send")
+        for stage, count in enumerate(rows)
+        if count
+        for shape in (
+            ((count, 4), (count, 4), (count,)) if kind == "receive" else ((count, 4),)
+        )
+    ]
+    assert case.events == (bulk if exchange_order == "bulk_v1" else serial)
     for stage, count in enumerate(rows):
         if count:
             outputs = [
@@ -229,6 +242,79 @@ def test_ffn_receive_and_cross_layer_policies_preserve_wire_and_native_outputs(
                 expected = staged_ffn_expected_output(payloads[layer, stage], layer)
                 expected[valid[stage] :] = 0
                 torch.testing.assert_close(output, expected, rtol=0, atol=0)
+
+
+def test_bulk_ffn_requires_a_pipeline_before_any_wire():
+    with pytest.raises(ValueError, match="actual compute pipeline"):
+        make_ffn_graph_case(exchange_order="bulk_v1")
+
+
+def test_bulk_failure_retains_prior_outputs_until_external_supervision(monkeypatch):
+    case = make_ffn_graph_case(
+        exchange_order="bulk_v1",
+        pipeline_factory=lambda bank: (
+            attach_pipeline(monkeypatch, pipeline_module, bank).pipeline
+        ),
+    )
+    payloads = queue_ffn_graph_inputs(case)
+    moe = case.model.model.layers[0].mlp
+    moe.fail_stage = 1
+    with pytest.raises(RuntimeError, match="controlled graph MoE failure"):
+        case.driver.run()
+    torch.testing.assert_close(
+        case.bank.buffers(0).output,
+        staged_ffn_expected_output(payloads[0, 0], 0),
+        rtol=0,
+        atol=0,
+    )
+    assert not any(event[0] == "send" for event in case.events)
+    with pytest.raises(RuntimeError, match="failed"):
+        case.driver.run()
+
+
+@pytest.mark.parametrize("rows,valid", [((3, 2), (2, 0)), ((3, 3), (3, 2))])
+def test_bulk_preserves_both_stage_outputs_when_native_calls_reuse_one_workspace(
+    monkeypatch, rows, valid
+):
+    case = make_ffn_graph_case(
+        rows=rows,
+        valid=valid,
+        reuse_workspace=True,
+        exchange_order="bulk_v1",
+        pipeline_factory=lambda bank: (
+            attach_pipeline(monkeypatch, pipeline_module, bank).pipeline
+        ),
+    )
+    payloads = queue_ffn_graph_inputs(case)
+    case.driver.run()
+    for stage, exchange in enumerate(case.bank.exchanges):
+        outputs = [
+            message[2] for message in exchange.endpoint.messages if message[0] == "send"
+        ]
+        for layer, output in zip(case.bank.layer_indices, outputs, strict=True):
+            expected = staged_ffn_expected_output(payloads[layer, stage], layer)
+            expected[valid[stage] :] = 0
+            torch.testing.assert_close(output, expected, rtol=0, atol=0)
+
+
+@pytest.mark.parametrize("defect", ["shape", "dtype", "layout", "device"])
+def test_bulk_rejects_native_output_instead_of_broadcasting_or_casting(
+    monkeypatch, defect
+):
+    case = make_ffn_graph_case(
+        output_defect=defect,
+        exchange_order="bulk_v1",
+        pipeline_factory=lambda bank: (
+            attach_pipeline(monkeypatch, pipeline_module, bank).pipeline
+        ),
+    )
+    queue_ffn_graph_inputs(case)
+    with pytest.raises(ValueError, match="static BF16 shape/device/layout"):
+        case.driver.run()
+    assert not any(event[0] == "send" for event in case.events)
+    torch.testing.assert_close(
+        case.bank.buffers(0).output, torch.zeros((3, 4), dtype=torch.bfloat16)
+    )
 
 
 @pytest.mark.parametrize(

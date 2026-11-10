@@ -17,6 +17,7 @@ import torch
 from afd_plugin.compat.npu import ascend_forward_context
 from afd_plugin.compat.npu.stream import use_npu_current_stream
 from afd_plugin.connectors.metadata import AFDForwardContextMetadata
+from afd_plugin.connectors.npu.hccl_diagnostics import HcclStageDiagnosticRun
 from afd_plugin.connectors.npu.hccl_eager_pipeline import HcclEagerPipeline
 from afd_plugin.connectors.npu.hccl_staged_transport import HcclStagedTransport
 from afd_plugin.v1.worker.ffn_metadata import _set_moe_layer_index
@@ -35,6 +36,7 @@ def execute_hccl_v41_eager_parent(
     pipeline: HcclEagerPipeline,
     *,
     compute_stream: torch.npu.Stream,
+    progress: HcclStageDiagnosticRun | None = None,
 ) -> None:
     """Compute each received native child once and finish the owning parent."""
     if (
@@ -58,6 +60,10 @@ def execute_hccl_v41_eager_parent(
         or transport.terminal
     ):
         raise RuntimeError("eager FFN requires an active FFN transport")
+    if progress is not None:
+        # Foreign diagnostics must not mark a healthy owner failed or reach
+        # a receive. Binding compares the actual consumer and wire streams.
+        pipeline.bind_progress(progress, compute_stream=compute_stream)
     try:
         device = torch.device("npu", transport.local_device)
         if (
@@ -147,6 +153,8 @@ def execute_hccl_v41_eager_parent(
                         ) as forward_context,
                     ):
                         _set_moe_layer_index(forward_context, layer_idx)
+                        if progress is not None:
+                            progress.record("compute_begin", layer_idx, stage.stage_idx)
                         output = model.compute_ffn_output(
                             hidden_states=payload.hidden_states,
                             layer_idx=layer_idx,
@@ -154,6 +162,10 @@ def execute_hccl_v41_eager_parent(
                             hidden_states_fp32=payload.hidden_states_fp32,
                             already_sequence_parallel=False,
                         )
+                        if progress is not None:
+                            progress.record(
+                                "compute_returned", layer_idx, stage.stage_idx
+                            )
                     pipeline.post_ffn_output(
                         ticket, output, producer_stream=compute_stream
                     )

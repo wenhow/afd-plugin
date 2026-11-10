@@ -1,0 +1,44 @@
+{
+  "scope": "independent locked source/signature review only; not runtime",
+  "upstream_commit": "7e37e29a7803d6897a7113088e2b771f83205bc0",
+  "signatures": [
+    {
+      "local_path": "afd_plugin/v1/worker/npu/attention_worker.py",
+      "local_symbol": "AFDNPUAttentionWorker.profile",
+      "upstream_path": "vllm_ascend/worker/worker.py",
+      "upstream_symbol": "NPUWorker.profile",
+      "signature": {
+        "arguments": "self, is_start: bool=True, profile_prefix: str | None=None",
+        "return": null
+      },
+      "matches": true
+    },
+    {
+      "local_path": "afd_plugin/v1/worker/npu/attention_worker.py",
+      "local_symbol": "AFDNPUAttentionWorker.shutdown",
+      "upstream_path": "vllm_ascend/worker/worker.py",
+      "upstream_symbol": "NPUWorker.shutdown",
+      "signature": {
+        "arguments": "self",
+        "return": "None"
+      },
+      "matches": true
+    },
+    {
+      "local_path": "afd_plugin/v1/worker/npu/attention_model_runner_v2.py",
+      "local_symbol": "AFDNPUAttentionModelRunnerV2.execute_model",
+      "upstream_path": "vllm_ascend/worker/v2/model_runner.py",
+      "upstream_symbol": "NPUModelRunner.execute_model",
+      "signature": {
+        "arguments": "self, scheduler_output: SchedulerOutput, intermediate_tensors: IntermediateTensors | None=None, dummy_run: bool=False, skip_attn_for_dummy_run: bool=False, is_profile: bool=False, context_len: int=0, valid_dummy_state_slots: bool=False",
+        "return": null
+      },
+      "matches": true
+    }
+  ],
+  "source_sha256": {
+    "afd_plugin/compat/npu/profiler.py": "4dcd664757a788f26efbdf1a3dfaf8acbf7a0a007f26bd2e53c1b6a896d1c117",
+    "afd_plugin/v1/worker/npu/attention_worker.py": "ee49007d1e991c7643240bf697f916b53128cc0f34ad267778ea8885489eb645",
+    "afd_plugin/v1/worker/npu/attention_model_runner_v2.py": "8c6b6414d3b28a022872981e2772a07bf531567e1c2aad293c08ac8f61dbada2"
+  }
+}

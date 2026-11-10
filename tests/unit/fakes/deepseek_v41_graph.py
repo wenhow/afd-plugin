@@ -103,7 +103,9 @@ def attach_graph_pipeline(monkeypatch, module, case, *, hybrid=True, runtime=Non
     return case
 
 
-def make_graph_model_case(split=(2, 3), *, valid=None, engram=True):
+def make_graph_model_case(
+    split=(2, 3), *, valid=None, engram=True, exchange_order="stage_serial"
+):
     case = make_staged_case(split, valid=valid, engram=engram)
     for context in case.contexts:
         context.cudagraph_runtime_mode = CUDAGraphMode.FULL
@@ -112,6 +114,7 @@ def make_graph_model_case(split=(2, 3), *, valid=None, engram=True):
         rows=split,
         valid=valid,
         endpoint_factory=lambda index: endpoints[index],
+        exchange_order=exchange_order,
     )
     case.endpoints = endpoints
     case.producer_parents = []

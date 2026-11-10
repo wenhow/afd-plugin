@@ -96,7 +96,7 @@ def _create_profiler(
     *,
     trace_name: str | None = None,
 ) -> AFDNPUProfiler:
-    """Build without starting; deferred F sessions call this on their owner."""
+    """Build without starting; deferred role sessions call this on their owner."""
 
     import torch_npu
 
@@ -209,7 +209,8 @@ class AFDNPUProfilerSession:
                 "error": None if self._error is None else str(self._error),
             }
 
-    def _require_owner(self) -> None:
+    def require_owner(self) -> None:
+        """Claim/check the execution thread before any owner cleanup starts."""
         thread_id = threading.get_ident()
         with self._lock:
             if self._owner is None:
@@ -229,7 +230,7 @@ class AFDNPUProfilerSession:
 
     def before_step(self) -> None:
         """Apply the latest request at a safe owner boundary, outside capture."""
-        self._require_owner()
+        self.require_owner()
         with self._lock:
             if self._closed:
                 raise RuntimeError("AFD profiler owner has exited")
@@ -257,7 +258,7 @@ class AFDNPUProfilerSession:
             self._applied_id = request_id
 
     def step(self) -> None:
-        """Advance one actual F parent, including HCCL capture/replay parents."""
+        """Advance the caller's successful boundary; A executes and F parents differ."""
         self.before_step()
         if self._profiler is not None:
             try:
@@ -277,7 +278,7 @@ class AFDNPUProfilerSession:
 
     def finish(self) -> None:
         """Stop/export on the owner after STOP or loop exit; retain on failure."""
-        self._require_owner()
+        self.require_owner()
         with self._lock:
             if self._closed:
                 return
@@ -340,6 +341,34 @@ def afd_npu_profiler_owner(
             profiler.finish()
 
 
+@contextmanager
+def afd_npu_profiler_execute(
+    profiler: AFDNPUProfiler | None,
+) -> Iterator[None]:
+    """Apply A requests before execute and count successful native executes.
+
+    A legal None return or KV-only maintenance still counts as an execute-step;
+    this is not evidence that a model parent ran. Deferred sessions remain open
+    between calls. Raw legacy profilers retain their historical entry-step.
+    """
+    if not isinstance(profiler, AFDNPUProfilerSession):
+        step_afd_npu_profiler(profiler)
+        yield
+        return
+    try:
+        profiler.before_step()
+        yield
+        profiler.step()
+    except BaseException:
+        # Export on the execution owner, but never replace its original error.
+        # A failed profiler retains its backend for process-level supervision.
+        try:
+            profiler.finish()
+        except Exception:
+            logger.exception("AFD profiler cleanup failed after Attention execute")
+        raise
+
+
 def step_afd_npu_profiler(profiler: AFDNPUProfiler | None) -> None:
     if profiler is not None:
         profiler.step()
@@ -398,6 +427,7 @@ __all__ = [
     "AFDNPUProfilerConfig",
     "AFDNPUProfiler",
     "AFDNPUProfilerSession",
+    "afd_npu_profiler_execute",
     "afd_npu_profiler_owner",
     "afd_npu_profiler_config",
     "create_afd_npu_profiler",

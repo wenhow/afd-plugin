@@ -53,7 +53,14 @@ from tests.unit.fakes.hccl_v41_graph_control import make_attention_graph_control
 from tests.unit.fakes.input_batch import make_ascend_decode_batch, make_hccl_ubatch_seam
 
 
-def make_coordinator_case(*, stages=2, descriptors=None, prefix=None, role_rank=0):
+def make_coordinator_case(
+    *,
+    stages=2,
+    descriptors=None,
+    prefix=None,
+    role_rank=0,
+    exchange_order="stage_serial",
+):
     descriptor = BatchExecutionDescriptor(
         CUDAGraphMode.FULL, 4, 4, uniform_token_count=1, num_ubatches=stages
     )
@@ -68,6 +75,7 @@ def make_coordinator_case(*, stages=2, descriptors=None, prefix=None, role_rank=
         1,
         local_counts_version=1,
         graph_execution_version=1,
+        graph_exchange_order=exchange_order,
     )
     case = make_attention_graph_control_case(
         descriptor=descriptor,
@@ -87,6 +95,7 @@ def make_coordinator_case(*, stages=2, descriptors=None, prefix=None, role_rank=
             2,
             local_counts_version=1,
             graph_execution_version=1,
+            graph_exchange_order=exchange_order,
         )
         case = make_attention_graph_control_case(
             descriptor=descriptor,
@@ -138,6 +147,7 @@ def make_coordinator_case(*, stages=2, descriptors=None, prefix=None, role_rank=
         ubatch_runner=manager.ubatch_runner,
         cudagraph_manager=manager,
         hccl_v41_transport=case.transport,
+        hccl_v41_graph_eager=None,
         attn_groups=[],
         block_tables=SimpleNamespace(),
         kv_cache_config=runner.kv_cache_config,

@@ -19,6 +19,7 @@ from afd_plugin.connectors.npu import hccl_staged_transport as transport_module
 from afd_plugin.v1.worker.npu import hccl_v41_ffn_eager as consumer_module
 from afd_plugin.v1.worker.npu.ffn_model_runner import AFDNPUFFNModelRunner
 from tests.unit.fakes.hccl import ROUTER_DELTA_SCALE
+from tests.unit.fakes.hccl_eager_pipeline import make_eager_progress
 from tests.unit.fakes.hccl_v41_ffn_eager import make_ffn_eager_case
 from tests.unit.fakes.npu_stream import HostStream
 
@@ -34,12 +35,13 @@ def case(monkeypatch):
     )
 
 
-def run(case):
+def run(case, *, progress=None):
     return consumer_module.execute_hccl_v41_eager_parent(
         case.runner,
         case.transport,
         case.owner,
         compute_stream=case.pair.runtime.compute,
+        progress=progress,
     )
 
 
@@ -86,6 +88,73 @@ def test_native_context_and_exact_unmasked_outputs_complete_once(
         if direction == "send"
     ]
     assert messages.count("COMPLETE") == 1
+
+
+def test_ffn_diagnostics_order_received_loan_native_compute_and_posted_output(case):
+    diagnostics = make_eager_progress(case.owner, case.pair.runtime.compute)
+    run(case, progress=diagnostics.progress)
+    events = [
+        record["event"]
+        for record in diagnostics.recorder.records
+        if record.get("layer") == 0 and record.get("stage") == 0
+    ]
+    assert events == [
+        "recv_post_begin",
+        "recv_post_returned",
+        "loan_wait_begin",
+        "loan_wait_returned",
+        "compute_begin",
+        "compute_returned",
+        "send_post_begin",
+        "send_post_returned",
+        "stage_reuse_wait_begin",
+        "stage_reuse_wait_returned",
+    ]
+    assert diagnostics.recorder.events[-1] == "parent_finish_returned"
+    assert "device_sync" not in diagnostics.recorder.events
+    assert case.owner.finished and len(case.model.observations) == 4
+
+
+@pytest.mark.parametrize("boundary", ["transaction", "rank", "actual_streams"])
+def test_foreign_ffn_progress_is_rejected_without_receiving_or_failing_owner(
+    case, boundary
+):
+    diagnostics = make_eager_progress(case.owner, case.pair.runtime.compute)
+    progress = diagnostics.progress
+    if boundary == "transaction":
+        progress = replace(progress, transaction_id="foreign")
+    elif boundary == "rank":
+        progress = replace(
+            progress, diagnostics=replace(progress.diagnostics, world_rank=5)
+        )
+    else:
+        progress = replace(
+            progress,
+            actual_execution=replace(
+                progress.actual_execution, stream_aliases=(True, True, True)
+            ),
+        )
+    before = list(case.pair.backend.trace)
+    with pytest.raises(ValueError, match="parent|executor streams"):
+        run(case, progress=progress)
+    assert case.pair.backend.trace == before and case.model.observations == []
+    assert not case.owner.failed and not case.owner.finished
+    assert case.query_stream() is case.previous_stream
+
+
+@pytest.mark.parametrize("event", ["compute_begin", "compute_returned"])
+def test_ffn_compute_sink_failure_keeps_live_owner_and_restores_native_context(
+    case, event
+):
+    diagnostics = make_eager_progress(case.owner, case.pair.runtime.compute)
+    diagnostics.recorder.fail_event = event
+    with pytest.raises(RuntimeError, match="diagnostic sink failed"):
+        run(case, progress=diagnostics.progress)
+    assert case.owner.failed and not case.owner.finished
+    assert case.transport.eager_pipeline is case.owner and case.transport.terminal
+    assert case.context.current is None
+    assert case.query_stream() is case.previous_stream
+    assert len(case.model.observations) == (event == "compute_returned")
 
 
 def test_empty_parent_finishes_without_a_loaded_model(monkeypatch):

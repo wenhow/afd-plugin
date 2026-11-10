@@ -43,6 +43,11 @@ def parse_args():
         "--devices", default="0,2", help="FFN ranks then Attention ranks"
     )
     parser.add_argument("--model", default=helpers.CHECKPOINT, help="config only")
+    parser.add_argument(
+        "--stage-diagnostics",
+        action="store_true",
+        help="record scalar actual-owner host milestones; no added device fences",
+    )
     parser.add_argument("--output-dir", type=Path, required=True)
     parser.add_argument("--timeout", type=int, default=helpers.TOTAL_TIMEOUT_SECONDS)
     parser.add_argument("--role", choices=("attention", "ffn"), help=argparse.SUPPRESS)
@@ -238,6 +243,75 @@ def run_ffn(torch, transport, owner, plan, parent_index, compute, report):
             )
 
 
+def verify_diagnostics(report):
+    """Scalar-only validation after normal STOP and native TP preservation."""
+    records = report["diagnostic_records"]
+    parents = {parent["transaction_id"]: parent for parent in report["parents"]}
+    actual = report["diagnostic_actual_streams"]
+    if not records or any(
+        type(value) not in (str, int, bool)
+        for record in records
+        for value in record.values()
+    ):
+        raise AssertionError("diagnostic records must contain scalar fields only")
+    for record in records:
+        if (
+            record["transaction_id"] not in parents
+            or record["role"] != report["role"]
+            or record["role_rank"] != report["role_rank"]
+            or record["world_rank"] != report["world_rank"]
+            or record["phase"] != "eager"
+            or record["num_stages"] != 2
+            or record["actual.mode"] != "eager-streamed"
+            or record["actual.ffn_compute_sync"] is not False
+            or record["boundary"] != "host_enqueue"
+            or any(record[key] != value for key, value in actual.items())
+        ):
+            raise AssertionError(
+                "diagnostics differ from the actual accepted rank/streams"
+            )
+    required = {
+        "send_post_begin",
+        "send_post_returned",
+        "recv_post_begin",
+        "recv_post_returned",
+        "loan_wait_begin",
+        "loan_wait_returned",
+        "stage_reuse_wait_begin",
+        "stage_reuse_wait_returned",
+    }
+    for transaction, parent in parents.items():
+        events = [r["event"] for r in records if r["transaction_id"] == transaction]
+        if (
+            events[0] != "configuration"
+            or events[-1] != "parent_finish_returned"
+            or events.count("configuration") != 1
+            or events.count("parent_finish_begin") != 1
+            or events.count("parent_finish_returned") != 1
+        ):
+            raise AssertionError(
+                "each accepted parent needs configuration and COMPLETE milestones"
+            )
+        if any(parent["padded"]):
+            if not required.issubset(events):
+                raise AssertionError("active eager parent omitted an owner milestone")
+        elif events != [
+            "configuration",
+            "parent_finish_begin",
+            "parent_finish_returned",
+        ]:
+            raise AssertionError("empty parent unexpectedly posted or borrowed payload")
+    report["diagnostic_validation"] = {
+        "configuration_count": sum(r["event"] == "configuration" for r in records),
+        "record_count": len(records),
+        "all_rank_identity_exact": True,
+        "all_u2_compute_sync_inactive": True,
+        "actual_stream_aliases_exact": True,
+        "empty_parent_configuration": True,
+        "owner_milestones_present": True,
+    }
+
+
 def worker(args):
     # Runtime isolation: supervisor and --help do not import device packages.
     import torch
@@ -256,8 +330,10 @@ def worker(args):
     from vllm_ascend.ascend_config import init_ascend_config
     from vllm_ascend.utils import adapt_patch
 
+    from afd_plugin.connectors.npu.hccl_overlap import HcclOverlapSettings
     from afd_plugin.connectors.npu.hccl_staged_transport import HcclStagedTransport
     from afd_plugin.distributed.hccl_plan import HcclLocalForward, HcclPlanCapabilities
+    from afd_plugin.v1.worker.npu.hccl_v41_diagnostics import HcclV41DiagnosticBinding
 
     role_offset = args.tp_size if args.role == "attention" else 0
     device_index = args.devices[role_offset + args.role_rank]
@@ -276,6 +352,8 @@ def worker(args):
         "posting_frontiers": [],
         "parents": [],
     }
+    if args.stage_diagnostics:
+        report["diagnostic_records"] = []
 
     def native_check():
         value = torch.tensor([1.0], device=device)
@@ -330,6 +408,27 @@ def worker(args):
             )
             transport.warmup_eager_pipeline(parent_stream=parent)
             report["matched_stage_groups_warmed"] = transport.eager_pipeline_warmed
+            binding = None
+            if args.stage_diagnostics:
+                report["world_rank"] = transport.world_rank
+                report["diagnostic_actual_streams"] = {
+                    "actual.compute_stream": "parent"
+                    if compute == parent
+                    else "compute",
+                    "actual.send_stream": "parent" if send == parent else "send",
+                    "actual.recv_stream": "parent" if receive == parent else "recv",
+                    "actual.compute_send_alias": compute == send,
+                    "actual.compute_recv_alias": compute == receive,
+                    "actual.send_recv_alias": send == receive,
+                }
+                binding = HcclV41DiagnosticBinding(
+                    transport,
+                    HcclOverlapSettings(
+                        stage_diagnostics=True, ffn_compute_sync_diagnostics=True
+                    ),
+                    emit=report["diagnostic_records"].append,
+                )
+                binding.require_idle(transport)
             for index, (padded, valid) in enumerate(PARENT_EXTENTS):
                 transaction = f"eager-owner-{index}"
                 if args.role == "attention":
@@ -346,6 +445,15 @@ def worker(args):
                 owner = transport.open_eager_pipeline(
                     parent_stream=parent, send_stream=send, receive_stream=receive
                 )
+                if binding is not None:
+                    progress = binding.bind_parent(
+                        eager_pipeline=owner, compute_stream=compute
+                    )
+                    if progress is None:
+                        raise AssertionError(
+                            "requested diagnostics returned no progress"
+                        )
+                    owner.bind_progress(progress, compute_stream=compute)
                 run = run_attention if args.role == "attention" else run_ffn
                 run(torch, transport, owner, plan, index, compute, report)
                 owner.finish()
@@ -372,6 +480,8 @@ def worker(args):
             report["native_tp_after_plugin_close"] = native_check()
             destroy_model_parallel()
             destroy_distributed_environment()
+            if args.stage_diagnostics:
+                verify_diagnostics(report)
             report["success"] = True
     except BaseException:
         # Keep live communication/storage in place; the supervisor owns failed
@@ -402,6 +512,9 @@ def supervise(args):
                 name = f"{role}-{rank}"
                 log = (args.output_dir / f"{name}.log").open("w")
                 logs.append(log)
+                diagnostic_flags = (
+                    ["--stage-diagnostics"] if args.stage_diagnostics else []
+                )
                 children[name] = subprocess.Popen(
                     [
                         sys.executable,
@@ -421,6 +534,7 @@ def supervise(args):
                         str(rank),
                         "--port",
                         str(port),
+                        *diagnostic_flags,
                     ],
                     stdout=log,
                     stderr=subprocess.STDOUT,

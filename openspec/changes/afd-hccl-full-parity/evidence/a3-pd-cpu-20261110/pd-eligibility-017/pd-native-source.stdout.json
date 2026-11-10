@@ -1,0 +1,19 @@
+{
+  "scope": "read-only installed native PD configuration source hashes; no runtime or device import",
+  "site": "/mnt/workspace/code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages",
+  "torch_imported": false,
+  "torch_npu_imported": false,
+  "checks": {
+    "vllm/config/kv_transfer.py": {
+      "expected_sha256": "506fae7a9d7f32cb3646156cf9249a856f6317dff6c4c85db70efd34418c429b",
+      "actual_sha256": "506fae7a9d7f32cb3646156cf9249a856f6317dff6c4c85db70efd34418c429b",
+      "matches_locked_source": true
+    },
+    "vllm_ascend/distributed/kv_transfer/kv_p2p/mooncake_hybrid_connector.py": {
+      "expected_sha256": "a6a9c3a870b7d577fb2a39435067fe378646b6ab39bc669140641beba92bdf84",
+      "actual_sha256": "a6a9c3a870b7d577fb2a39435067fe378646b6ab39bc669140641beba92bdf84",
+      "matches_locked_source": true
+    }
+  },
+  "success": true
+}

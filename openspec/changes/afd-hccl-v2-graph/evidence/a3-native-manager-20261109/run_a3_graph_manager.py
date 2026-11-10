@@ -172,6 +172,8 @@ def remote_run(args):
         str(INNER_TIMEOUT_SECONDS),
         "--output-dir",
         str(results / "probe"),
+        "--exchange-order",
+        args.exchange_order,
     ]
     if args.stage_bank:
         command.append("--stage-bank")
@@ -224,6 +226,7 @@ def remote_run(args):
         "stage_bank": args.stage_bank,
         "compute_pipeline": args.compute_pipeline,
         "pipeline_hybrid": args.pipeline_hybrid,
+        "exchange_order": args.exchange_order,
         "graph_axes": (
             {name: vars(args)[name] for name in GRAPH_AXIS_ARGUMENTS}
             if args.graph_axes
@@ -262,6 +265,9 @@ def main():
     parser.add_argument("--stage-bank", action="store_true")
     parser.add_argument("--compute-pipeline", action="store_true")
     parser.add_argument("--pipeline-hybrid", type=int, choices=(0, 1))
+    parser.add_argument(
+        "--exchange-order", choices=("stage_serial", "bulk_v1"), default="stage_serial"
+    )
     for name in GRAPH_AXIS_ARGUMENTS:
         parser.add_argument("--" + name.replace("_", "-"), type=int, choices=(0, 1))
     parser.add_argument("--prepare-only", action="store_true", help="no SSH or devices")
@@ -288,6 +294,11 @@ def main():
             )
         if args.ffn_cross and not args.ffn_recv:
             parser.error("--ffn-cross 1 requires --ffn-recv 1")
+    if args.exchange_order == "bulk_v1" and not (
+        args.stage_bank
+        and (args.compute_pipeline or (args.graph_axes and args.graph_compute))
+    ):
+        parser.error("bulk_v1 requires --stage-bank and enabled compute pipeline")
     if args.remote_root:
         return remote_run(args)
     if not args.label or any(
@@ -384,6 +395,7 @@ def main():
         "stage_bank": args.stage_bank,
         "compute_pipeline": args.compute_pipeline,
         "pipeline_hybrid": args.pipeline_hybrid,
+        "exchange_order": args.exchange_order,
         "graph_axes": (
             {name: vars(args)[name] for name in GRAPH_AXIS_ARGUMENTS}
             if args.graph_axes
@@ -441,6 +453,7 @@ def main():
     remote_command += (
         " --remote-root " + shlex.quote(remote) + " --model " + shlex.quote(args.model)
     )
+    remote_command += " --exchange-order " + args.exchange_order
     if args.stage_bank:
         remote_command += " --stage-bank"
     if args.compute_pipeline:

@@ -123,6 +123,7 @@ class ServiceGraphBanks:
             native_tp_size=caps.native_tp_size,
             role_rank=transport.role_rank,
             endpoint_factory=endpoint,
+            exchange_order=caps.graph_exchange_order,
         )
         bank = SimpleNamespace(
             layer_indices=caps.layer_indices,
@@ -137,6 +138,7 @@ class ServiceGraphBanks:
             valid_counts=cpu.valid_counts,
             buffers=cpu.buffers,
             update_counts=cpu.update_counts,
+            exchange_order=cpu.exchange_order,
         )
         # SimpleNamespace cannot be weak-referenced; retain only its actual CPU
         # backing as a lifecycle observation, not the adapter itself.
@@ -247,6 +249,7 @@ class FFNGraphControlPeer(ScriptedStagedControlPeer):
         valid=(2, 2),
         fallback=False,
         capture_sequence_digest=None,
+        availability=None,
     ):
         candidate = make_graph_candidate(
             phase=phase,
@@ -261,7 +264,9 @@ class FFNGraphControlPeer(ScriptedStagedControlPeer):
                 eager_padded_tokens=(0,),
                 capture_sequence_digest=capture_sequence_digest,
             )
-        state = "missing" if fallback or phase in ("warmup", "capture") else "ready"
+        state = availability or (
+            "missing" if fallback or phase in ("warmup", "capture") else "ready"
+        )
         decision = decide_graph_execution(
             identifier, candidate, (HcclGraphReport(state),)
         )
@@ -315,8 +320,10 @@ class FFNGraphControlPeer(ScriptedStagedControlPeer):
             (HcclPlanMessage("STOP"), HcclPlanMessage("STOP_ACK"))
         )
 
-    def queue_rejection(self, phase, *, error, capture_sequence_digest=None):
-        candidate = make_graph_candidate(phase=phase, rows=self.base_bank.stage_rows)
+    def queue_rejection(self, phase, *, error, capture_sequence_digest=None, rows=None):
+        candidate = make_graph_candidate(
+            phase=phase, rows=self.base_bank.stage_rows if rows is None else rows
+        )
         if capture_sequence_digest is not None:
             candidate = replace(
                 candidate,
@@ -346,9 +353,12 @@ def make_graph_service_case(
     overlap_settings=None,
     rows=(2, 2),
     diagnostic_sink=None,
+    exchange_order="stage_serial",
 ):
     events = []
-    model_case = make_ffn_graph_case(rows=rows, valid=rows)
+    model_case = make_ffn_graph_case(
+        rows=rows, valid=rows, exchange_order=exchange_order, build_driver=False
+    )
     transport = FFNGraphControlPeer(model_case.bank, events)
     config = hccl_vllm_config(
         dtype=torch.bfloat16,
@@ -368,6 +378,7 @@ def make_graph_service_case(
     runner.graph_pool = None
     runner.hccl_v41_graph_service = None
     runner.hccl_v41_eager_session = None
+    runner.hccl_v41_diagnostics = None
     runner.prof = None
     api, banks = GraphServiceAPI(events), ServiceGraphBanks()
     cache = HcclGraphCache(api.synchronize)

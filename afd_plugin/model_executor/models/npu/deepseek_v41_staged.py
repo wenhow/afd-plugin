@@ -18,6 +18,10 @@ from vllm.forward_context import ForwardContext, override_forward_context
 from vllm_ascend.models.deepseek_v41.model import AscendParallelEngramEmbedding
 
 from afd_plugin.compat.npu.stream import use_npu_current_stream
+from afd_plugin.connectors.npu.hccl_diagnostics import (
+    HcclDiagnosticExecution,
+    HcclStageDiagnosticRun,
+)
 from afd_plugin.connectors.npu.hccl_eager_pipeline import (
     HcclAttentionTicket,
     HcclEagerPipeline,
@@ -93,6 +97,8 @@ class _StageExecution:
 # already-produced Engram views; no native forward signature is changed.
 # Optional pipeline/compute_stream explicitly select delayed eager loans;
 # their transport owns all wire storage and completion. Defaults stay serial.
+# Optional progress describes this accepted parent and its actual executor;
+# it adds host enqueue observations only and never enables a compute fence.
 # The SP/PP/Graph paths are excluded, not replaced. Parent request history,
 # readiness production, native TP and final ModelState cleanup stay upstream.
 # Removal: use upstream stage-aware model/decoder hooks when available.
@@ -105,6 +111,7 @@ def run_deepseek_v41_stages(
     *,
     pipeline: HcclEagerPipeline | None = None,
     compute_stream: torch.npu.Stream | None = None,
+    progress: HcclStageDiagnosticRun | None = None,
 ) -> torch.Tensor | tuple[torch.Tensor, list[torch.Tensor]]:
     # ### PATCH START: admit an explicit accepted eager parent
     plan = transport.plan
@@ -133,6 +140,23 @@ def run_deepseek_v41_stages(
         != pipeline.parent_stream
     ):
         raise ValueError("eager stages require their active exact parent and streams")
+    if progress is not None:
+        progress.validate_parent(
+            role=transport.role,
+            world_rank=transport.world_rank,
+            role_rank=transport.role_rank,
+            num_stages=len(plan.stages),
+            layer_indices=plan.layer_indices,
+            transaction_id=plan.transaction_id,
+        )
+        if pipeline is None:
+            progress.validate_execution(
+                HcclDiagnosticExecution(
+                    "serial", "parent", stream_aliases=(True, True, True)
+                )
+            )
+        else:
+            pipeline.bind_progress(progress, compute_stream=compute_stream)
     bindings = DeepseekV41StageAttentionStates(model, token_slices)
     for stage_idx, (stage, context, token_slice) in enumerate(
         zip(stages, contexts, token_slices, strict=True)
@@ -197,6 +221,10 @@ def run_deepseek_v41_stages(
             if compute_stream is not None
             else nullcontext(),
         ):
+            if progress is not None:
+                _record_progress(
+                    progress, pipeline, "prepare_begin", layers[0].layer_idx, stage_idx
+                )
             if stage.inputs_embeds is not None:
                 hidden_states = stage.inputs_embeds
             elif stage.input_ids.numel():
@@ -221,6 +249,14 @@ def run_deepseek_v41_stages(
                     hidden_states, pre_mix, ids, stage.engram.mask_ready_event, []
                 )
             )
+            if progress is not None:
+                _record_progress(
+                    progress,
+                    pipeline,
+                    "prepare_returned",
+                    layers[0].layer_idx,
+                    stage_idx,
+                )
     # ### PATCH END: admit an explicit accepted eager parent
 
     # ### PATCH START: layer-major replaces native full-stage model calls
@@ -234,6 +270,7 @@ def run_deepseek_v41_stages(
             bindings,
             pipeline,
             compute_stream,
+            progress,
         )
     else:
         for layer in layers:
@@ -241,10 +278,34 @@ def run_deepseek_v41_stages(
                 zip(stages, contexts, executions, strict=True)
             ):
                 with override_forward_context(context), bindings.bind(stage_idx):
+                    if progress is not None:
+                        _record_progress(
+                            progress,
+                            pipeline,
+                            "compute_begin",
+                            layer.layer_idx,
+                            stage_idx,
+                        )
                     x, x_fp32, continuation = _prepare_stage(
                         model, layer, stage, execution
                     )
+                    if progress is not None:
+                        _record_progress(
+                            progress,
+                            pipeline,
+                            "compute_returned",
+                            layer.layer_idx,
+                            stage_idx,
+                        )
                     if any(plan.stages[stage_idx].attention_padded_tokens):
+                        if progress is not None:
+                            _record_progress(
+                                progress,
+                                pipeline,
+                                "send_begin",
+                                layer.layer_idx,
+                                stage_idx,
+                            )
                         transport.send_layer_inputs(
                             layer.layer_idx,
                             stage_idx,
@@ -252,16 +313,59 @@ def run_deepseek_v41_stages(
                             x_fp32.contiguous(),
                             execution.transfer_ids,
                         )
+                        if progress is not None:
+                            _record_progress(
+                                progress,
+                                pipeline,
+                                "send_returned",
+                                layer.layer_idx,
+                                stage_idx,
+                            )
+                            _record_progress(
+                                progress,
+                                pipeline,
+                                "recv_begin",
+                                layer.layer_idx,
+                                stage_idx,
+                            )
                         ffn_output = transport.receive_layer_output(
                             layer.layer_idx, stage_idx
                         )
+                        if progress is not None:
+                            _record_progress(
+                                progress,
+                                pipeline,
+                                "recv_returned",
+                                layer.layer_idx,
+                                stage_idx,
+                            )
                         if continuation is not None:
+                            if progress is not None:
+                                _record_progress(
+                                    progress,
+                                    pipeline,
+                                    "continuation_begin",
+                                    layer.layer_idx,
+                                    stage_idx,
+                                )
                             execution.hidden_states, execution.pre_mix = (
                                 layer.complete_remote_ffn(ffn_output, continuation)
                             )
+                            if progress is not None:
+                                _record_progress(
+                                    progress,
+                                    pipeline,
+                                    "continuation_returned",
+                                    layer.layer_idx,
+                                    stage_idx,
+                                )
     # ### PATCH END: layer-major replaces native full-stage model calls
 
     # ### PATCH START: reconstruct parent coordinates before final native collapse
+    if progress is not None:
+        _record_progress(
+            progress, pipeline, "collapse_begin", layers[-1].layer_idx, len(stages) - 1
+        )
     hidden_states = torch.cat(
         [execution.hidden_states for execution in executions], dim=0
     )
@@ -279,6 +383,14 @@ def run_deepseek_v41_stages(
         torch.cat([execution.auxiliary[index] for execution in executions], dim=0)
         for index in range(len(executions[0].auxiliary))
     ]
+    if progress is not None:
+        _record_progress(
+            progress,
+            pipeline,
+            "collapse_returned",
+            layers[-1].layer_idx,
+            len(stages) - 1,
+        )
     # ### PATCH END: reconstruct parent coordinates before final native collapse
     if aux_hidden_states:
         return hidden_states, aux_hidden_states
@@ -362,6 +474,7 @@ def _run_pipelined_stages(
     bindings: DeepseekV41StageAttentionStates,
     pipeline: HcclEagerPipeline,
     compute_stream: torch.npu.Stream,
+    progress: HcclStageDiagnosticRun | None = None,
 ) -> None:
     # ### PATCH START: delayed HC consumers with bounded eager wire tickets
     try:
@@ -380,19 +493,51 @@ def _run_pipelined_stages(
                         ) as output,
                     ):
                         if execution.continuation is not None:
+                            if progress is not None:
+                                _record_progress(
+                                    progress,
+                                    pipeline,
+                                    "continuation_begin",
+                                    execution.ticket.layer_idx,
+                                    stage_idx,
+                                )
                             execution.hidden_states, execution.pre_mix = layers[
                                 layer_index - 1
                             ].complete_remote_ffn(output, execution.continuation)
+                            if progress is not None:
+                                _record_progress(
+                                    progress,
+                                    pipeline,
+                                    "continuation_returned",
+                                    execution.ticket.layer_idx,
+                                    stage_idx,
+                                )
                     execution.ticket = execution.continuation = None
                 with (
                     override_forward_context(context),
                     bindings.bind(stage_idx),
                     use_npu_current_stream(compute_stream),
                 ):
+                    if progress is not None:
+                        _record_progress(
+                            progress,
+                            pipeline,
+                            "compute_begin",
+                            layer.layer_idx,
+                            stage_idx,
+                        )
                     x, fp32, execution.continuation = _prepare_stage(
                         model, layer, stage, execution
                     )
                     x, fp32 = x.contiguous(), fp32.contiguous()
+                    if progress is not None:
+                        _record_progress(
+                            progress,
+                            pipeline,
+                            "compute_returned",
+                            layer.layer_idx,
+                            stage_idx,
+                        )
                 if any(pipeline.plan.stages[stage_idx].attention_padded_tokens):
                     execution.ticket = pipeline.post_attention(
                         layer.layer_idx,
@@ -418,9 +563,25 @@ def _run_pipelined_stages(
                 ) as output,
             ):
                 if execution.continuation is not None:
+                    if progress is not None:
+                        _record_progress(
+                            progress,
+                            pipeline,
+                            "continuation_begin",
+                            execution.ticket.layer_idx,
+                            stage_idx,
+                        )
                     execution.hidden_states, execution.pre_mix = layers[
                         -1
                     ].complete_remote_ffn(output, execution.continuation)
+                    if progress is not None:
+                        _record_progress(
+                            progress,
+                            pipeline,
+                            "continuation_returned",
+                            execution.ticket.layer_idx,
+                            stage_idx,
+                        )
             execution.ticket = execution.continuation = None
         # Collapse/MTP/native retirement must see all stage computations. A
         # device dependency plus allocator ownership replaces a host sync here.
@@ -434,3 +595,25 @@ def _run_pipelined_stages(
         pipeline.fail()
         raise
     # ### PATCH END: delayed HC consumers with bounded eager wire tickets
+
+
+def _record_progress(
+    progress: HcclStageDiagnosticRun,
+    pipeline: HcclEagerPipeline | None,
+    event: str,
+    layer_idx: int,
+    stage_idx: int,
+) -> None:
+    """A failed sink retains its live ticket owner, including before stage entry."""
+    try:
+        progress.record(event, layer_idx, stage_idx)
+    except BaseException:
+        if (
+            pipeline is not None
+            and pipeline.transport.eager_pipeline is pipeline
+            and pipeline.transport.plan is pipeline.plan
+            and not pipeline.finished
+            and not pipeline.failed
+        ):
+            pipeline.fail()
+        raise

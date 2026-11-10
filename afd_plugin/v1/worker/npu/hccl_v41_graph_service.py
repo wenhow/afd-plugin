@@ -86,6 +86,7 @@ class HcclV41GraphService:
         if pipeline_policy is not None and overlap_settings is not None:
             raise ValueError("choose graph pipeline policy or overlap settings")
         self.runner, self.transport, self.cache = runner, transport, cache
+        self._capabilities = transport.negotiated_capabilities
         self.generation = generation
         self._pipeline_policy = pipeline_policy
         self._overlap_settings = overlap_settings
@@ -174,6 +175,7 @@ class HcclV41GraphService:
         caps.validate()
         if (
             transport.role != "ffn"
+            or caps != self._capabilities
             or not transport.initialized
             or transport.closed
             or transport.terminal
@@ -298,6 +300,19 @@ class HcclV41GraphService:
             or candidate.key.num_ubatches > caps.max_stages
         ):
             raise ValueError("FFN graph key exceeds this bank's session capacity")
+        bulk_unsupported = (
+            caps.graph_exchange_order == "bulk_v1"
+            and candidate.key is not None
+            and (
+                candidate.key.num_ubatches == 2
+                or candidate.capture_sequence_digest is not None
+            )
+            and self.pipeline_policy is None
+            and (
+                self.overlap_settings is None
+                or not self.overlap_settings.graph_u2_compute_overlap
+            )
+        )
         if candidate.capture_sequence_digest is not None:
             # Attention peers own the native ordered capture list. FFN has no
             # corresponding manager list: it must report an honest miss from
@@ -309,11 +324,17 @@ class HcclV41GraphService:
             if not self.cache.is_empty:
                 raise ValueError("capture preflight requires a fresh FFN graph cache")
             return HcclGraphReport(
-                "unsupported" if candidate.key is None else "missing"
+                "unsupported"
+                if candidate.key is None or bulk_unsupported
+                else "missing"
             )
         if candidate.key is None:
             return HcclGraphReport("unsupported")
         self._model()
+        if bulk_unsupported:
+            # Report before GRAPH_DECISION: every role selects eager, without
+            # entering an unmatched bulk warmup or partial tensor schedule.
+            return HcclGraphReport("unsupported")
         if candidate.phase in ("warmup", "capture"):
             if self.cache.contains(candidate.key):
                 raise ValueError(

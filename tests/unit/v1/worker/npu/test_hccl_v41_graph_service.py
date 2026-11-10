@@ -35,6 +35,52 @@ def case(monkeypatch):
     return make_graph_service_case(service_module, monkeypatch)
 
 
+@pytest.mark.parametrize(
+    "rows,compute", [((4,), False), ((2, 2), False), ((2, 2), True)]
+)
+def test_bulk_ffn_preflight_reports_pipeline_support_before_warmup(
+    monkeypatch, rows, compute
+):
+    case = make_graph_service_case(
+        service_module,
+        monkeypatch,
+        rows=rows,
+        exchange_order="bulk_v1",
+        overlap_settings=HcclOverlapSettings(graph_u2_compute_overlap=compute),
+    )
+    supported = compute
+    case.transport.queue_parent(
+        "replay",
+        identifier="bulk-preflight",
+        valid=(0,),
+        fallback=True,
+        availability="missing" if supported else "unsupported",
+        capture_sequence_digest=graph_capture_sequence_digest(
+            (case.transport.base_bank.key,), max_full_descs_to_capture=None
+        ),
+    )
+    assert case.service.execute_step()
+    reports = [
+        message.graph_report.availability
+        for direction, _, _, message in case.transport.transcript
+        if direction == "send" and message.kind == "GRAPH_REPORT"
+    ]
+    assert reports == ["missing" if supported else "unsupported"]
+    assert "tensor-body" not in case.events
+    assert case.cache.is_empty and not case.transport.terminal
+
+
+def test_graph_service_rejects_changed_wire_order_before_reservation(case):
+    case.transport.negotiated_capabilities = replace(
+        case.transport.negotiated_capabilities, graph_exchange_order="bulk_v1"
+    )
+    with pytest.raises(ValueError, match="idle V4.1"):
+        case.service.execute_step()
+    assert not any(
+        message.kind == "GRAPH_REPORT" for _, _, _, message in case.transport.transcript
+    )
+
+
 @pytest.fixture(params=[False, True])
 def pipeline_case(monkeypatch, request):
     return make_graph_service_case(
@@ -515,11 +561,9 @@ def test_invalid_graph_offer_rejects_peers_before_parent_acceptance(
         case.generation.value = True
     elif invalid == "weights":
         case.runner.model = None
-    else:
-        case.transport.negotiated_capabilities = replace(
-            case.transport.negotiated_capabilities, max_tokens=2
-        )
-    case.transport.queue_rejection("capture", error=reason)
+    case.transport.queue_rejection(
+        "capture", error=reason, rows=(4, 4) if invalid == "capacity" else None
+    )
     with pytest.raises(RuntimeError, match=reason):
         case.service.execute_step()
     assert case.events == ["ERROR"]

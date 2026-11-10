@@ -61,6 +61,7 @@ def make_graph_stage_bank(
     native_tp_size=1,
     role_rank=0,
     endpoint_factory=None,
+    exchange_order="stage_serial",
 ):
     key = make_graph_key(rows=rows)
     capabilities = HcclPlanCapabilities(
@@ -73,6 +74,7 @@ def make_graph_stage_bank(
         native_tp_size,
         local_counts_version=1,
         graph_execution_version=1,
+        graph_exchange_order=exchange_order,
     )
     exchanges = tuple(
         HcclGraphExchange(

@@ -10,10 +10,13 @@ class StageDiagnosticRecorder:
         self.records = []
         self.events = []
         self.fail_sync = False
+        self.fail_event = None
 
     def emit(self, record):
         self.records.append(dict(record))
         self.events.append(record["event"])
+        if record["event"] == self.fail_event:
+            raise RuntimeError("requested diagnostic sink failed")
 
     def synchronize(self):
         self.events.append("device_sync")

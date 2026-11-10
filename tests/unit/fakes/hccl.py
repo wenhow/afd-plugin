@@ -44,11 +44,13 @@ class StagedModelPeer:
         self.plan = plan
         self.role = "attention"
         self.role_rank = role_rank
+        self.world_rank = role_rank + 1
         self.terminal = False
         self.completed = False
         self.messages = []
         self.pending = None
         self.fail_step = fail_step
+        self.eager_pipeline = None
 
     def send_layer_inputs(self, layer_idx, stage_idx, hidden, fp32, ids):
         if self.pending is not None:
@@ -178,6 +180,7 @@ def make_hccl_runner(runner_type, connector, model):
     runner.model = model
     runner.hccl_v41_graph_service = None
     runner.hccl_v41_eager_session = None
+    runner.hccl_v41_diagnostics = None
     runner.prof = None
     return runner
 

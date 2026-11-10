@@ -21,7 +21,7 @@ def api():
         **{
             name: value
             for name, value in runpy.run_path(str(root / "hccl_diagnostics.py")).items()
-            if name.startswith("HcclStage")
+            if name.startswith("Hccl")
         },
     )
 
@@ -243,3 +243,138 @@ def test_default_sink_uses_standard_logging_without_global_logger(case, caplog):
         diagnostics.bind_execution(layer_indices=(0,), actual_compute_stream="parent")
     assert "AFD HCCL stage diagnostic" in caplog.text
     assert "configuration" in caplog.text
+
+
+@pytest.mark.parametrize("role", ["attention", "ffn"])
+@pytest.mark.parametrize(
+    "streams,aliases",
+    [
+        (("compute", "send", "recv"), (False, False, False)),
+        (("parent", "parent", "parent"), (True, True, True)),
+        (("compute", "send", "recv"), (True, True, True)),
+        (("parent", "parent", "recv"), (True, False, False)),
+    ],
+)
+def test_explicit_eager_family_records_actual_stream_aliases_without_sync(
+    api, role, streams, aliases
+):
+    selection = api.select_hccl_overlap(
+        api.HcclOverlapSettings(
+            stage_diagnostics=True, ffn_compute_sync_diagnostics=True
+        ),
+        role=role,
+        phase="eager",
+        num_stages=2,
+    )
+    case = make_diagnostics_case(api, selection)
+    run = case.diagnostics.bind_execution(
+        layer_indices=(0, 1),
+        transaction_id="ticket-parent",
+        actual_execution=api.HcclDiagnosticExecution(
+            "eager-streamed", *streams, stream_aliases=aliases
+        ),
+    )
+    run.synchronize_compute(0, 0)
+    (record,) = case.records
+    assert record["actual.mode"] == "eager-streamed"
+    assert (
+        tuple(record[f"actual.{key}_stream"] for key in ("compute", "send", "recv"))
+        == streams
+    )
+    assert (
+        tuple(
+            record[f"actual.{key}_alias"]
+            for key in ("compute_send", "compute_recv", "send_recv")
+        )
+        == aliases
+    )
+    assert record["actual.ffn_compute_sync"] is False
+    assert record["transaction_id"] == "ticket-parent"
+    assert case.events == ["configuration"]
+
+
+@pytest.mark.parametrize(
+    "changes",
+    [
+        {"role": "attention"},
+        {"world_rank": 0},
+        {"role_rank": 0},
+        {"num_stages": 2},
+        {"layer_indices": (0, 3)},
+        {"transaction_id": "foreign-parent"},
+    ],
+)
+def test_parent_identity_rejects_foreign_progress(case, changes):
+    run = case.diagnostics.bind_execution(
+        layer_indices=(0, 2), actual_compute_stream="parent", transaction_id="parent"
+    )
+    coordinates = dict(
+        role="ffn",
+        world_rank=3,
+        role_rank=1,
+        num_stages=1,
+        layer_indices=(0, 2),
+        transaction_id="parent",
+    )
+    run.validate_parent(**coordinates)
+    with pytest.raises(ValueError, match="exact accepted parent"):
+        run.validate_parent(**{**coordinates, **changes})
+    assert case.events == ["configuration"]
+
+
+@pytest.mark.parametrize(
+    "kwargs",
+    [
+        {"mode": "unknown", "compute_stream": "parent"},
+        {"mode": "serial", "compute_stream": "compute"},
+        {"mode": "graph-streamed", "compute_stream": "compute", "send_stream": "send"},
+        {
+            "mode": "eager-streamed",
+            "compute_stream": "parent",
+            "stream_aliases": (False, False, False),
+        },
+        {
+            "mode": "eager-streamed",
+            "compute_stream": "compute",
+            "send_stream": "send",
+            "recv_stream": "recv",
+            "stream_aliases": (True, True, False),
+        },
+        {
+            "mode": "eager-streamed",
+            "compute_stream": "compute",
+            "stream_aliases": (1, False, False),
+        },
+    ],
+)
+def test_invalid_actual_family_or_alias_is_rejected_without_records(api, kwargs):
+    with pytest.raises(ValueError, match="actual|parent|serial"):
+        api.HcclDiagnosticExecution(**kwargs)
+
+
+def test_configuration_is_emitted_on_every_paired_tp2_rank(api):
+    records = []
+    for role, offset in (("ffn", 0), ("attention", 2)):
+        for role_rank in (0, 1):
+            selection = api.select_hccl_overlap(
+                api.HcclOverlapSettings(stage_diagnostics=True),
+                role=role,
+                phase="eager",
+                num_stages=2,
+            )
+            case = make_diagnostics_case(
+                api, selection, world_rank=offset + role_rank, role_rank=role_rank
+            )
+            case.diagnostics.bind_execution(
+                layer_indices=(0, 1),
+                actual_compute_stream="parent",
+                transaction_id="same-parent",
+            )
+            records.extend(case.records)
+    assert {(r["world_rank"], r["role"], r["role_rank"]) for r in records} == {
+        (0, "ffn", 0),
+        (1, "ffn", 1),
+        (2, "attention", 0),
+        (3, "attention", 1),
+    }
+    assert all(r["event"] == "configuration" for r in records)

@@ -1,0 +1,34 @@
+{
+  "scope": "actual installed source identity supplement to CPU017; no torch import or device work",
+  "command": [
+    "ssh",
+    "-F",
+    "C:/Users/zq/.atomgitdevenv/.ssh/config",
+    "-o",
+    "BatchMode=yes",
+    "-o",
+    "ConnectTimeout=15",
+    "devenvc_rissvg.4ff038c993bf40219c03182f786a9def.atomgit.0",
+    "python3 -B -c 'import hashlib,json,pathlib,sys\nsite=pathlib.Path('\"'\"'/mnt/workspace/code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages'\"'\"')\nexpected={'\"'\"'vllm/config/kv_transfer.py'\"'\"': '\"'\"'506fae7a9d7f32cb3646156cf9249a856f6317dff6c4c85db70efd34418c429b'\"'\"', '\"'\"'vllm_ascend/distributed/kv_transfer/kv_p2p/mooncake_hybrid_connector.py'\"'\"': '\"'\"'a6a9c3a870b7d577fb2a39435067fe378646b6ab39bc669140641beba92bdf84'\"'\"'}\nchecks={name:{'\"'\"'expected_sha256'\"'\"':digest,'\"'\"'actual_sha256'\"'\"':hashlib.sha256((site/name).read_bytes()).hexdigest()} for name,digest in expected.items()}\nfor check in checks.values(): check['\"'\"'matches_locked_source'\"'\"']=check['\"'\"'expected_sha256'\"'\"']==check['\"'\"'actual_sha256'\"'\"']\nprint(json.dumps({'\"'\"'scope'\"'\"':'\"'\"'read-only installed native PD configuration source hashes; no runtime or device import'\"'\"','\"'\"'site'\"'\"':str(site),'\"'\"'torch_imported'\"'\"':'\"'\"'torch'\"'\"' in sys.modules,'\"'\"'torch_npu_imported'\"'\"':'\"'\"'torch_npu'\"'\"' in sys.modules,'\"'\"'checks'\"'\"':checks,'\"'\"'success'\"'\"':all(check['\"'\"'matches_locked_source'\"'\"'] for check in checks.values())},indent=2))\n'"
+  ],
+  "returncode": 0,
+  "result": {
+    "scope": "read-only installed native PD configuration source hashes; no runtime or device import",
+    "site": "/mnt/workspace/code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages",
+    "torch_imported": false,
+    "torch_npu_imported": false,
+    "checks": {
+      "vllm/config/kv_transfer.py": {
+        "expected_sha256": "506fae7a9d7f32cb3646156cf9249a856f6317dff6c4c85db70efd34418c429b",
+        "actual_sha256": "506fae7a9d7f32cb3646156cf9249a856f6317dff6c4c85db70efd34418c429b",
+        "matches_locked_source": true
+      },
+      "vllm_ascend/distributed/kv_transfer/kv_p2p/mooncake_hybrid_connector.py": {
+        "expected_sha256": "a6a9c3a870b7d577fb2a39435067fe378646b6ab39bc669140641beba92bdf84",
+        "actual_sha256": "a6a9c3a870b7d577fb2a39435067fe378646b6ab39bc669140641beba92bdf84",
+        "matches_locked_source": true
+      }
+    },
+    "success": true
+  }
+}

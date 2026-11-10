@@ -145,6 +145,8 @@ def remote_run(args):
         "--output-dir",
         str(results / "probe"),
     ]
+    if args.stage_diagnostics:
+        command.append("--stage-diagnostics")
     started = time.monotonic()
     timed_out, owned, killed = False, {}, []
     with (results / "probe.log").open("wb") as output:
@@ -179,6 +181,7 @@ def remote_run(args):
         "remote": str(remote),
         "tp_size": args.tp_size,
         "devices": args.devices,
+        "stage_diagnostics": args.stage_diagnostics,
         "command": command,
         "source_files_match": all(checks.values()),
         "upstream_files_checked": len(checks),
@@ -213,6 +216,7 @@ def main():
     parser.add_argument("--label")
     parser.add_argument("--model", default="/mnt/workspace/models/DeepSeek-V4.1-Flash")
     parser.add_argument("--prepare-only", action="store_true", help="no SSH or devices")
+    parser.add_argument("--stage-diagnostics", action="store_true")
     parser.add_argument("--remote-root", help=argparse.SUPPRESS)
     args = parser.parse_args()
     try:
@@ -289,6 +293,7 @@ def main():
         ).strip(),
         "tp_size": args.tp_size,
         "devices": args.devices,
+        "stage_diagnostics": args.stage_diagnostics,
         "prepare_only": args.prepare_only,
         "manifest": manifest,
         "snapshot_manifest_sha256": hashlib.sha256(
@@ -336,6 +341,8 @@ def main():
         + " --model "
         + shlex.quote(args.model)
     )
+    if args.stage_diagnostics:
+        remote_command += " --stage-diagnostics"
     command = [
         "ssh",
         "-F",

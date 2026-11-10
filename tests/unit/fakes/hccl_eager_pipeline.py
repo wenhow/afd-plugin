@@ -8,6 +8,14 @@ from types import SimpleNamespace
 
 import torch
 
+from afd_plugin.connectors.npu.hccl_diagnostics import (
+    HcclDiagnosticExecution,
+    HcclStageDiagnostics,
+)
+from afd_plugin.connectors.npu.hccl_overlap import (
+    HcclOverlapSettings,
+    select_hccl_overlap,
+)
 from afd_plugin.distributed.hccl import HcclStageLayout
 from afd_plugin.distributed.hccl_plan import (
     HcclParentPlan,
@@ -15,6 +23,7 @@ from afd_plugin.distributed.hccl_plan import (
     HcclPlanMessage,
 )
 from tests.unit.fakes.hccl import ScriptedStagedControlPeer
+from tests.unit.fakes.hccl_diagnostics import StageDiagnosticRecorder
 from tests.unit.fakes.npu_stream import HostStream, HostStreamRecorder
 
 
@@ -238,6 +247,42 @@ def open_eager_pair(case):
         for peer in (case.attention, case.ffn)
     )
     return owners
+
+
+def make_eager_progress(owner, compute_stream, *, enabled=True):
+    """A real immutable diagnostic run, driven by the host packet seam."""
+    recorder = StageDiagnosticRecorder()
+    selection = select_hccl_overlap(
+        HcclOverlapSettings(
+            stage_diagnostics=enabled, ffn_compute_sync_diagnostics=enabled
+        ),
+        role=owner.transport.role,
+        phase="eager",
+        num_stages=len(owner.plan.stages),
+    )
+    actual = HcclDiagnosticExecution(
+        "eager-streamed",
+        "parent" if compute_stream == owner.parent_stream else "compute",
+        "parent" if owner.send_stream == owner.parent_stream else "send",
+        "parent" if owner.receive_stream == owner.parent_stream else "recv",
+        (
+            compute_stream == owner.send_stream,
+            compute_stream == owner.receive_stream,
+            owner.send_stream == owner.receive_stream,
+        ),
+    )
+    progress = HcclStageDiagnostics(
+        selection,
+        world_rank=owner.transport.world_rank,
+        role_rank=owner.transport.role_rank,
+        emit=recorder.emit,
+        synchronize=recorder.synchronize,
+    ).bind_execution(
+        layer_indices=owner.plan.layer_indices,
+        transaction_id=owner.plan.transaction_id,
+        actual_execution=actual,
+    )
+    return SimpleNamespace(progress=progress, recorder=recorder)
 
 
 def eager_payload(rows, *, valid=None):

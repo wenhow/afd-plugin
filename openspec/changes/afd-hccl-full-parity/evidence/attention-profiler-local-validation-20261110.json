@@ -1,0 +1,38 @@
+{
+  "scope": "A profiler source/stdlib CPU boundary only; native dependency and NPU timeline checks pending",
+  "head_commit": "5aebfc5e954d20da18bff754a2008c44bd7e31bc",
+  "python": "3.14.3",
+  "manifest": {
+    "afd_plugin/compat/npu/profiler.py": "4dcd664757a788f26efbdf1a3dfaf8acbf7a0a007f26bd2e53c1b6a896d1c117",
+    "afd_plugin/v1/worker/npu/attention_model_runner_v2.py": "8c6b6414d3b28a022872981e2772a07bf531567e1c2aad293c08ac8f61dbada2",
+    "afd_plugin/v1/worker/npu/attention_worker.py": "ee49007d1e991c7643240bf697f916b53128cc0f34ad267778ea8885489eb645",
+    "tests/unit/compat/npu/test_profiler.py": "da48172a3a4cb03b4176e8d3d0f3e064e96be8cdd16e982e043cee3313150c51",
+    "tests/unit/compat/patches/test_signatures.py": "723e4fb07a244876d2329ca1724f93621e1e9d61bc009c0303e2791d1f914a73",
+    "tests/unit/fakes/profiler.py": "dd890c0eb5286a9deeac1f0ce2f6329c5f0ace41de3cb8a58ef0cf59da38e418",
+    "tests/unit/v1/worker/npu/test_attention_worker.py": "94cfac895d39d96290ec6cf208981444042f56522688124975fe084e2279946d",
+    "tests/unit/v1/worker/npu/test_attention_model_runner_v2.py": "7ab2f77fb392c93f4403ded392d916e8362171b8b6800308b39a9a599ce3d373",
+    "tests/unit/v1/worker/test_npu_model_runner_v2.py": "377be0ccad47f21e7ec1e5db05f6cccdf17c75edfc11cdeb9512c2bbd51a81cc",
+    "tests/unit/v1/worker/test_npu_runtime.py": "8ddcfc7318ddcc9a1b94558ff53beeffc9a6cbbf25542995b8df6b94a87229ae",
+    "tests/unit/v1/worker/npu/test_hccl_v41_execution.py": "9a1332440ba325b5063e17a15367c4f18b621448c1fb629893be7cb0c89fa3e1"
+  },
+  "grammar": "Python 3.11 AST: all 11 paths passed",
+  "stdlib_command": ".venv/Scripts/python.exe -m pytest -o addopts= -q tests/unit/compat/npu/test_profiler.py --junitxml=openspec/changes/afd-hccl-full-parity/evidence/attention-profiler-local-20261110.xml",
+  "stdlib_result": {
+    "exit_code": 0,
+    "passed": 31,
+    "skipped": 0,
+    "duration_seconds": 0.18,
+    "stdout_kind": "tool result transcription; original pytest XML retained",
+    "stdout": "............................... [100%]\n31 passed in 0.18s\n"
+  },
+  "lint": "Final 11-path Ruff check and format check passed (tool result transcription)",
+  "device_probe_started": false,
+  "upstream_changed": false,
+  "shared_fixture_followup": {
+    "path": "tests/unit/fakes/attention_model_runner_v2.py",
+    "sha256": "ac4ad83cff30608869502c3ac7df4adb90c1d5e57c767cedb62a10f09e93734d",
+    "reason": "Return explicit unbound replacement control/eager after lower-level C6 builder began preselecting its own eager owner",
+    "ruff_check_exit_code": 0,
+    "ruff_format_check_exit_code": 0
+  }
+}

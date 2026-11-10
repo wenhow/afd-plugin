@@ -15,6 +15,14 @@ from vllm_ascend.models.deepseek_v41.model import (
 )
 
 from afd_plugin.connectors import AFDA2FTransferPayload
+from afd_plugin.connectors.npu.hccl_diagnostics import (
+    HcclDiagnosticExecution,
+    HcclStageDiagnostics,
+)
+from afd_plugin.connectors.npu.hccl_overlap import (
+    HcclOverlapSettings,
+    select_hccl_overlap,
+)
 from afd_plugin.distributed.hccl import HcclStageLayout
 from afd_plugin.distributed.hccl_plan import HcclParentPlan
 from afd_plugin.model_executor.models.npu.deepseek_v41 import (
@@ -25,6 +33,7 @@ from afd_plugin.model_executor.models.npu.deepseek_v41_staged import (
     DeepseekV41EngramInputs,
     DeepseekV41StageInputs,
 )
+from tests.unit.fakes.hccl_diagnostics import StageDiagnosticRecorder
 
 ROUTER_DELTA_SCALE = 4_096
 
@@ -353,6 +362,30 @@ def make_staged_case(split=(2, 3), *, valid=None, engram=True, remote_active=Fal
         mtp_rows=model._mtp_hidden_buffer[:rows],
         wrapper=SimpleNamespace(language_model=SimpleNamespace(model=model)),
     )
+
+
+def make_staged_progress(peer):
+    recorder = StageDiagnosticRecorder()
+    selection = select_hccl_overlap(
+        HcclOverlapSettings(stage_diagnostics=True, ffn_compute_sync_diagnostics=True),
+        role="attention",
+        phase="eager",
+        num_stages=len(peer.plan.stages),
+    )
+    progress = HcclStageDiagnostics(
+        selection,
+        world_rank=peer.world_rank,
+        role_rank=peer.role_rank,
+        emit=recorder.emit,
+        synchronize=recorder.synchronize,
+    ).bind_execution(
+        layer_indices=peer.plan.layer_indices,
+        transaction_id=peer.plan.transaction_id,
+        actual_execution=HcclDiagnosticExecution(
+            "serial", "parent", stream_aliases=(True, True, True)
+        ),
+    )
+    return SimpleNamespace(progress=progress, recorder=recorder)
 
 
 class ParentEngramState(EngramModelState):

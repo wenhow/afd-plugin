@@ -28,7 +28,7 @@ git rev-parse HEAD
 沿用容器已部署的依赖和 CANN 环境。Python 使用
 `/usr/local/python3.11.10/bin/python`，无需新建 venv，也不要求名为 `atb-env` 的环境。
 
-## 一次运行十四个组件用例
+## 一次运行十五个组件用例
 
 在仓库根目录执行，确认 `afd_model` 是本机 checkpoint 目录。
 `npu-smi info` 确认所选设备空闲后运行；示例使用设备 0、1、2、3。
@@ -114,12 +114,17 @@ run_component c6-axes10010 tests/npu/hccl_graph_manager_probe.py \
   --output-dir "$afd_batch_run/c6-axes10010"
 
 run_component c6-eager-owner-tp1 tests/npu/hccl_eager_pipeline_probe.py \
-  --model "$afd_model" --tp-size 1 --devices 0,1 \
+  --model "$afd_model" --tp-size 1 --devices 0,1 --stage-diagnostics \
   --output-dir "$afd_batch_run/c6-eager-owner-tp1"
 
 run_component c6-eager-owner-tp2 tests/npu/hccl_eager_pipeline_probe.py \
-  --model "$afd_model" --tp-size 2 --devices 0,1,2,3 \
+  --model "$afd_model" --tp-size 2 --devices 0,1,2,3 --stage-diagnostics \
   --output-dir "$afd_batch_run/c6-eager-owner-tp2"
+
+run_component c6-graph-bulk-v1 tests/npu/hccl_graph_manager_probe.py \
+  --model "$afd_model" --devices 0,1 --stage-bank --exchange-order bulk_v1 \
+  --graph-compute 1 --graph-hybrid 1 --attention-three 1 --ffn-recv 1 --ffn-cross 1 \
+  --output-dir "$afd_batch_run/c6-graph-bulk-v1"
 
 npu-smi info > "$afd_batch_run/npu-after.txt"
 cat "$afd_batch_run/exit-codes.tsv"
@@ -149,6 +154,7 @@ printf '结果包：%s.tar.gz\n' "$afd_batch_run"
 | `c6-axes10010` | 在上一项基础上开启 F-recv，保留关闭跨层流水时的每层 join | 同上；U2 policy 的 `ffn_recv_stream=true`、`ffn_cross_layer=false` |
 | `c6-eager-owner-tp1` | 两 stage group 显式匹配预热，真实 owner/ticket/loan；6 个 target U2 parent、双层递推、在途上限与同 stage 复用，原始 FP32、raw IDs、完整 padding 输出及空 stage/全空 parent | `result.json` 的 `success=true`，`exit_codes` 两角色均为 0，`killed_owned_pids=[]`；每个角色 JSON 的 `success=true`、6 个 `parents`、16 个 `checked_steps`、`normal_stop=true`，`native_tp_before` 和 `native_tp_after_plugin_close` 均为 `[1.0]` |
 | `c6-eager-owner-tp2` | 独立四卡 session 验证上述配对 TP2 owner、每角色 native TP 域及 STOP 后保留 | 同上；`exit_codes` 四角色均为 0，四个角色 JSON 的 native TP 前后均为 `[2.0]` |
+| `c6-graph-bulk-v1` | 双角色显式协商 bulk_v1；U2 每层 A 全发送后全接收，F 全接收并排入计算后全发送，HCCL 保持 capture parent；U1 和 eager fallback 保持串行 | `summary.json` 的 `status=passed`、`exit_codes=[0,0]`、`exchange_order=bulk_v1`；两个 `rank-*.json` 的 `status=passed`、26 个 `transactions`，U2 `pipeline_storage[*].exchange_order=bulk_v1`，native TP 前后均为 `[1.0]` |
 
 五轴顺序是 compute、hybrid、Attention-three、F-recv、F-cross。五个 CLI 必须一起显式
 传入，不能与第 5～6 项的 legacy 参数混用；`--ffn-cross 1` 要求 `--ffn-recv 1`。
@@ -156,7 +162,7 @@ printf '结果包：%s.tar.gz\n' "$afd_batch_run"
 `graph_selections[*].selection` 记录 configured/effective 以及 logical/physical stream；
 Graph 通信始终受父流约束，不应将逻辑 send/recv 配置解释为物理独立通信流。
 
-回传不便时，最小结果为 `git-head.txt`、`exit-codes.tsv`，以及十四项各自的结果：
+回传不便时，最小结果为 `git-head.txt`、`exit-codes.tsv`，以及十五项各自的结果：
 
 - `c4-1a1f/result.json`
 - `c4-2a2f-tp2/result.json`
@@ -172,6 +178,7 @@ Graph 通信始终受父流约束，不应将逻辑 send/recv 配置解释为物
 - `c6-axes10010/summary.json` 和该目录的 `rank-*.json`
 - `c6-eager-owner-tp1/result.json`，以及 `attention-0.json`、`ffn-0.json`
 - `c6-eager-owner-tp2/result.json`，以及 `attention-0.json`、`attention-1.json`、`ffn-0.json`、`ffn-1.json`
+- `c6-graph-bulk-v1/summary.json`，以及 `rank-0.json`、`rank-1.json`
 
 同时保留体积很小的 `npu-before.txt` / `npu-after.txt`；失败项再补该项目的顶层
 日志和角色日志。A3 证据及实际范围见
@@ -202,4 +209,22 @@ GraphControl 和实际 NPU stream/event/HCCL。每项均有 4 次 warmup、4 次
 有界在途通信、BF16/独立 FP32/int32 IDs、借用依赖及同 stage buffer 复用，
 不代表原生 V4.1 延迟 HC/pre_mix/Engram、原生 MoE、完整模型或重叠性能验收。
 角色文件名是 `attention-*.json` / `ffn-*.json`，不是 Graph 用例的 `rank-*.json`。
+这两项已带 `--stage-diagnostics`，不增加用例数量。每个角色的
+`diagnostic_validation.configuration_count=6`，其他布尔校验字段均应为 `true`；
+`diagnostic_records` 保存每个 accepted parent 的配置及 post、loan、reuse、finish
+主机边界，包含精确的 transaction、world/role rank、实际 compute/send/recv 及 alias。
+所有记录的 `actual.ffn_compute_sync=false`；全空 parent 也应有 configuration 与
+finish 记录。此参数只增加标量记录和校验，不增加 device wait、event、query 或
+synchronize。请务必回传上述各角色 JSON；只有顶层 `result.json` 不足以核对日志。
+这些记录不代表原生模型消费者或有效重叠、性能验收。
 结果和 A3 范围见 [实际 owner 记录](../../openspec/changes/afd-hccl-v2-multistream/evidence/a3-eager-pipeline-20261110/README.md)。
+
+第 15 项是独立 Graph bulk_v1 通信组件，不加载原生模型。它保留真实 base
+manager、固定 stage bank、独立 FP32/IDs/输出 oracle 和 native TP 检查，覆盖
+4 warmup、4 capture、12 replay、6 eager fallback。角色 JSON 的
+`native_tp_before` 与 `native_tp_after_close` 均应为 `[1.0]`；U2 的四个
+`pipeline_storage` 资源记录必须为 `exchange_order=bulk_v1`。前面的既有 Graph
+用例仍保持默认 `stage_serial`，不能在同一 session/cache 中切换 order。
+该组件只验证同层输入前沿与实际 capture/replay 正确性，不代表物理 send/recv
+侧流、完整跨层流水、原生 HC/Engram/MoE、完整模型或性能验收。A3 的单次 TP1
+会话及范围见 [bulk 记录](../../openspec/changes/afd-hccl-v2-multistream/evidence/a3-graph-bulk-20261110/README.md)。

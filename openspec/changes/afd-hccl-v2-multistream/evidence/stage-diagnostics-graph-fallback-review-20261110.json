@@ -1,0 +1,100 @@
+{
+  "scope": "Independent static review and actual-dependency CPU seams only; no NPU/model/performance acceptance",
+  "reviewed_manifest_sha256": "211295311d86ee9a8b1350f451e8df1299885b0ab82b79f52c885e2f7a199bd1",
+  "reviewed_head_commit": "5aebfc5e954d20da18bff754a2008c44bd7e31bc",
+  "sources": {
+    "afd_plugin/v1/worker/npu/hccl_v41_graph_eager.py": {
+      "snapshot_sha256": "94faa205aad51daf1b2906962623512fbb91c89d1b091970f501525051260d10",
+      "reviewed_current_sha256": "94faa205aad51daf1b2906962623512fbb91c89d1b091970f501525051260d10"
+    },
+    "afd_plugin/v1/worker/npu/hccl_v41_execution.py": {
+      "snapshot_sha256": "fde490f5d0995f51d52a3e721fba409bfffbf6ca340f4d90ea7ec64ffdfd4a10",
+      "reviewed_current_sha256": "fde490f5d0995f51d52a3e721fba409bfffbf6ca340f4d90ea7ec64ffdfd4a10"
+    },
+    "afd_plugin/v1/worker/npu/hccl_v41_graph_coordinator.py": {
+      "snapshot_sha256": "4f2b9d3f220cbc9f8c1665355c5f5f0220ae61a6d914fa1f97e4f9a82f24b74a",
+      "reviewed_current_sha256": "4f2b9d3f220cbc9f8c1665355c5f5f0220ae61a6d914fa1f97e4f9a82f24b74a"
+    },
+    "tests/unit/fakes/hccl_v41_graph_eager.py": {
+      "snapshot_sha256": "7c481a7e9b5f88387e90803fa33cd7e8bd0831e043cd18eef2660df023cceee6",
+      "reviewed_current_sha256": "7c481a7e9b5f88387e90803fa33cd7e8bd0831e043cd18eef2660df023cceee6"
+    },
+    "tests/unit/v1/worker/npu/test_hccl_v41_graph_eager.py": {
+      "snapshot_sha256": "1c399a9e60ef4def74df812383bd13ef779594878174fd53b313cc612b1d4bd2",
+      "reviewed_current_sha256": "1c399a9e60ef4def74df812383bd13ef779594878174fd53b313cc612b1d4bd2"
+    }
+  },
+  "source_findings": [],
+  "review_points": [
+    "Explicit settings/sink retain exact transport; accepted parent precedes configuration.",
+    "Actual serial parent-stream execution remains distinct from logical U2 side-compute settings.",
+    "Native target/profile/dummy/empty preparation preserves output, auxiliary tensors and producer ownership.",
+    "UBatch preparation/binding, dispatcher and forward context restore on success and sink failure.",
+    "Non-None pre-KV settings must be retained by the coordinator; prior None may enable later.",
+    "FULL captured replay gains no Python diagnostic logs or additional device operations."
+  ],
+  "actual_cpu_attempt": {
+    "label": "graph-fallback-diagnostics-021",
+    "summary": "a3-pipeline-cpu-20261110/graph-fallback-diagnostics-021/results/summary.json",
+    "counts": {
+      "passed": 212,
+      "failure": 2,
+      "error": 26,
+      "skipped": 0,
+      "total": 240
+    },
+    "module_outcomes": {
+      "tests.unit.v1.worker.npu.test_hccl_v41_execution": {
+        "passed": 8,
+        "error": 26,
+        "failure": 2
+      },
+      "tests.unit.v1.worker.npu.test_hccl_v41_graph_coordinator": {
+        "passed": 81
+      },
+      "tests.unit.v1.worker.npu.test_hccl_v41_graph_eager": {
+        "passed": 49
+      },
+      "tests.unit.v1.worker.npu.test_hccl_v41_ubatch_runner": {
+        "passed": 74
+      }
+    },
+    "upstream_pins_total": 10,
+    "upstream_pins_all_match": true,
+    "source_files_match": true,
+    "device_probe_started": false,
+    "raw_artifact_sha256": {
+      "delivery.json": "fee8854be5130e397ea3f12336e9fa86cac5220d48ac986f8b94355dd3e7c7a8",
+      "identity.json": "ee7f25506c673a3fef53b7d37f1259e834494d067bc63bb2651668f3846880e5",
+      "remote-run.log": "8acdbb0d7804ed86377eb9fa9fb32a473ca7b3ea71380c8857d793d4cc7970ab",
+      "results/cpu.stderr.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "results/cpu.stdout.log": "01202861a1043a53ba639cc77b7119ee0e1de00eea6609f40c9374890af810a6",
+      "results/cpu.xml": "71ed92ad80655baa09a56fe452c67a4a3742e169b0bea91ec0d07cf2b6eda24d",
+      "results/effective-env.json": "547294743a90cc688247a10be6f8953c83d608f2650021b8e1a14650790b4719",
+      "results/source-check.json": "26217f98782ba8d3091010cf6a886fd9dc1195b125b41e89642960e0311108cd",
+      "results/summary.json": "6cbbafa1a554d2e1ba4325508dd21b9d844b24fcaea3dfc5c4378ffc0440d56d",
+      "results/versions.json": "8aa40a41b53ecde5293ad581f313555c4e948071ce87c879c3b93ac6d8ad2601"
+    }
+  },
+  "fixture_finding": {
+    "classification": "Concurrent H14 explicit-session profiler API rename; retired Execution fixture patch names",
+    "setup_errors": {
+      "count": 26,
+      "symbol": "step_afd_npu_profiler",
+      "mirror_line": 127
+    },
+    "failures": {
+      "count": 2,
+      "symbol": "create_afd_npu_profiler",
+      "mirror_line": 530
+    },
+    "next_step": "Owner repairs Execution fixture; independent complete Execution-module closure. 021 remains failed."
+  },
+  "not_accepted": [
+    "native model or device HC/Engram/MoE output",
+    "device overlap or allocator/kernel completion",
+    "profiler trace collection",
+    "full-model correctness",
+    "performance"
+  ]
+}

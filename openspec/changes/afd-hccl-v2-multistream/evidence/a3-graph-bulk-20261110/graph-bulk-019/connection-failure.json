@@ -1,0 +1,10 @@
+{
+  "scope": "agent record of local harness delivery failure; not remote test evidence",
+  "first_remote_mkdir_ssh_exit_code": 255,
+  "local_destination_created": true,
+  "identity_or_immutable_snapshot_written": false,
+  "remote_cpu_started": false,
+  "npu_probe_started": false,
+  "retry_same_label": "refused by existing-directory guard",
+  "next_distinct_label": "graph-bulk-019a"
+}

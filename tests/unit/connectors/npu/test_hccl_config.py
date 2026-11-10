@@ -12,6 +12,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from afd_plugin.compat.npu.runtime_config import get_npu_ffn_config
 from afd_plugin.config import (
     HCCL_P2P_CONNECTOR,
     SUPPORTED_AFD_CONNECTORS,
@@ -19,7 +20,7 @@ from afd_plugin.config import (
     afd_config_from_mapping,
     validate_afd_config,
 )
-from tests.unit.fakes.vllm_config import hccl_vllm_config
+from tests.unit.fakes.vllm_config import hccl_vllm_config, pd_kv_transfer_config
 
 
 @pytest.fixture(scope="module")
@@ -222,7 +223,12 @@ def test_staged_runtime_admits_counts_protocol_without_relaxing_legacy_u1(
         ("parallel_config", "use_sequence_parallel_moe", True, "sequence parallelism"),
         ("parallel_config", "enable_eplb", True, "EPLB"),
         ("compilation_config", "use_inductor_graph_partition", True, "modes NONE"),
-        (None, "kv_transfer_config", True, "KV transfer/PD"),
+        (
+            None,
+            "kv_transfer_config",
+            pd_kv_transfer_config(connector="UnsupportedKVConnector"),
+            "KV transfer/PD",
+        ),
         (None, "lora_config", True, "LoRA"),
     ],
 )
@@ -265,7 +271,7 @@ def test_explicit_graph_component_reports_its_protocol_without_mutating_config(
         ),
         ("parallel_config", "data_parallel_size", 2, "data_parallel_size=1"),
         (None, "speculative_config", True, "speculation off"),
-        (None, "kv_transfer_config", True, "KV transfer/PD"),
+        (None, "kv_transfer_config", pd_kv_transfer_config(), "KV transfer/PD"),
         (None, "lora_config", True, "LoRA"),
     ],
 )
@@ -436,7 +442,11 @@ def test_runtime_rejects_compilation_or_graphs(
     ("field", "value", "reason"),
     [
         ("use_v2_model_runner", False, "ModelRunner V2"),
-        ("kv_transfer_config", True, "KV transfer/PD"),
+        (
+            "kv_transfer_config",
+            pd_kv_transfer_config(connector="UnsupportedKVConnector"),
+            "KV transfer/PD",
+        ),
         ("lora_config", True, "LoRA"),
     ],
 )
@@ -457,6 +467,69 @@ def dspark_runtime(hccl_config_module):
         cudagraph_mode=hccl_config_module.CUDAGraphMode.NONE,
         dspark=True,
     )
+
+
+@pytest.mark.parametrize("tp_size", [1, 2])
+@pytest.mark.parametrize("num_stages", [1, 2])
+@pytest.mark.parametrize("kv_role", ["kv_producer", "kv_consumer"])
+def test_eager_pd_keeps_native_attention_transfer_and_equal_private_ffn_capabilities(
+    hccl_config_module, tp_size, num_stages, kv_role
+):
+    runtime = hccl_vllm_config(
+        dtype=hccl_config_module.torch.bfloat16,
+        compilation_mode=hccl_config_module.CompilationMode.NONE,
+        cudagraph_mode=hccl_config_module.CUDAGraphMode.NONE,
+        tensor_parallel_size=tp_size,
+        num_ubatches=num_stages,
+    )
+    native_config = pytest.importorskip("vllm.config")
+    runtime.kv_transfer_config = native_config.KVTransferConfig(
+        **vars(pd_kv_transfer_config(tp_size=tp_size)),
+        kv_buffer_device="npu",
+    )
+    runtime.kv_transfer_config.kv_role = kv_role
+    source = deepcopy(runtime)
+    source.additional_config["afd"]["role"] = "ffn"
+    attention_afd = hccl_config_module.parse_afd_config(runtime)
+    ffn_afd = hccl_config_module.parse_afd_config(source)
+    validate = (
+        hccl_config_module.validate_staged_hccl_runtime
+        if num_stages == 2
+        else hccl_config_module.validate_hccl_runtime
+    )
+
+    attention_caps = validate(runtime, attention_afd, 0)
+    with pytest.raises(ValueError, match="KV transfer/PD off on FFN"):
+        validate(source, ffn_afd, 0)
+    private = get_npu_ffn_config(source)
+    ffn_caps = validate(private, ffn_afd, 0)
+
+    assert ffn_caps == attention_caps
+    assert private.kv_transfer_config is None
+    assert (
+        runtime.kv_transfer_config is not None and source.kv_transfer_config is not None
+    )
+    assert private.model_config is source.model_config
+    assert private.parallel_config is source.parallel_config
+
+
+@pytest.mark.parametrize("num_stages", [1, 2])
+def test_eager_pd_rejects_native_dspark_without_prompt_draft_ingress_contract(
+    hccl_config_module, dspark_runtime, num_stages
+):
+    runtime = dspark_runtime
+    runtime.kv_transfer_config = pd_kv_transfer_config()
+    runtime.parallel_config.num_ubatches = num_stages
+    runtime.parallel_config.enable_dbo = runtime.parallel_config.use_ubatching = (
+        num_stages == 2
+    )
+    afd = hccl_config_module.parse_afd_config(runtime)
+    before = deepcopy(runtime)
+
+    with pytest.raises(ValueError, match="PD requires speculation off"):
+        hccl_config_module.validate_staged_hccl_runtime(runtime, afd, 0)
+
+    assert runtime == before
 
 
 def test_hccl_admits_native_attention_local_dspark_components(

@@ -279,6 +279,274 @@
         },
         "missing_python_sources": []
       }
+    },
+    "attention-profiler-022": {
+      "scope": "A deferred profiler/native execute and shutdown CPU seams; no NPU timeline",
+      "head_commit": "5aebfc5e954d20da18bff754a2008c44bd7e31bc",
+      "manifest_sha256": "9011ef40b51f54e3c4aad620dced6f414ce768748e4499987b90122ca28b3f9a",
+      "manifest_entries": 328,
+      "summary": {
+        "scope": "CPU module seams with actual installed dependencies; no device probe",
+        "remote": "/mnt/workspace/tmp/afd-c0-20261104.hVgsIf/c5-control-cpu-20261109-5p1pbyl8",
+        "command": [
+          "/mnt/workspace/code/.venvs/afd-v030-dsv41-c0/bin/python",
+          "-B",
+          "-m",
+          "pytest",
+          "-o",
+          "addopts=",
+          "-q",
+          "-rs",
+          "--tb=short",
+          "-p",
+          "no:cacheprovider",
+          "-m",
+          "not npu and not gpu",
+          "--junitxml=/mnt/workspace/tmp/afd-c0-20261104.hVgsIf/c5-control-cpu-20261109-5p1pbyl8/results/cpu.xml",
+          "tests/unit/compat/npu/test_profiler.py",
+          "tests/unit/v1/worker/npu/test_attention_worker.py",
+          "tests/unit/v1/worker/npu/test_attention_model_runner_v2.py",
+          "tests/unit/v1/worker/test_npu_model_runner_v2.py",
+          "tests/unit/v1/worker/test_npu_runtime.py",
+          "tests/unit/v1/worker/npu/test_hccl_v41_execution.py",
+          "tests/unit/compat/patches/test_signatures.py"
+        ],
+        "returncode": 1,
+        "source_files_match": true,
+        "snapshot_exclusions": [],
+        "device_probe_started": false,
+        "success": false
+      },
+      "junit_suites": [
+        {
+          "name": "pytest",
+          "errors": "8",
+          "failures": "12",
+          "skipped": "0",
+          "tests": "319",
+          "time": "3.269",
+          "timestamp": "2026-11-10T12:35:05.010924+08:00",
+          "hostname": "4ff038c993bf40219c03182f786a9def"
+        }
+      ],
+      "counts": {
+        "passed": 299,
+        "error": 8,
+        "failure": 12
+      },
+      "module_outcomes": {
+        "tests.unit.compat.npu.test_profiler": {
+          "passed": 31
+        },
+        "tests.unit.v1.worker.npu.test_attention_worker": {
+          "error": 8,
+          "failure": 4
+        },
+        "tests.unit.v1.worker.npu.test_attention_model_runner_v2": {
+          "failure": 8,
+          "passed": 3
+        },
+        "tests.unit.v1.worker.test_npu_model_runner_v2": {
+          "passed": 156
+        },
+        "tests.unit.v1.worker.test_npu_runtime": {
+          "passed": 55
+        },
+        "tests.unit.v1.worker.npu.test_hccl_v41_execution": {
+          "passed": 36
+        },
+        "tests.unit.compat.patches.test_signatures": {
+          "passed": 18
+        }
+      },
+      "failure_or_error_cases": [
+        {
+          "module": "tests.unit.v1.worker.npu.test_attention_worker",
+          "name": "test_successful_native_execute_is_one_step_including_legal_none[None]",
+          "kind": "error"
+        },
+        {
+          "module": "tests.unit.v1.worker.npu.test_attention_worker",
+          "name": "test_successful_native_execute_is_one_step_including_legal_none[native-result]",
+          "kind": "error"
+        },
+        {
+          "module": "tests.unit.v1.worker.npu.test_attention_worker",
+          "name": "test_idle_profile_request_is_pending_until_the_next_execute",
+          "kind": "error"
+        },
+        {
+          "module": "tests.unit.v1.worker.npu.test_attention_worker",
+          "name": "test_execute_failure_preserves_native_error_and_exports_on_owner[False]",
+          "kind": "failure"
+        },
+        {
+          "module": "tests.unit.v1.worker.npu.test_attention_worker",
+          "name": "test_execute_failure_preserves_native_error_and_exports_on_owner[True]",
+          "kind": "failure"
+        },
+        {
+          "module": "tests.unit.v1.worker.npu.test_attention_worker",
+          "name": "test_profiler_shutdown_failure_retains_native_storage_and_groups[foreign-thread]",
+          "kind": "failure"
+        },
+        {
+          "module": "tests.unit.v1.worker.npu.test_attention_worker",
+          "name": "test_profiler_shutdown_failure_retains_native_storage_and_groups[export-failure]",
+          "kind": "failure"
+        },
+        {
+          "module": "tests.unit.v1.worker.npu.test_attention_worker",
+          "name": "test_shutdown_preserves_stop_cache_export_native_group_order",
+          "kind": "error"
+        },
+        {
+          "module": "tests.unit.v1.worker.npu.test_attention_worker",
+          "name": "test_role_and_native_profiler_conflict_is_an_explicit_management_error",
+          "kind": "error"
+        },
+        {
+          "module": "tests.unit.v1.worker.npu.test_attention_worker",
+          "name": "test_disabled_role_profiler_preserves_native_rpc_result",
+          "kind": "error"
+        },
+        {
+          "module": "tests.unit.v1.worker.npu.test_attention_worker",
+          "name": "test_disabled_role_preserves_native_shutdown_including_partial_worker[False]",
+          "kind": "error"
+        },
+        {
+          "module": "tests.unit.v1.worker.npu.test_attention_worker",
+          "name": "test_disabled_role_preserves_native_shutdown_including_partial_worker[True]",
+          "kind": "error"
+        },
+        {
+          "module": "tests.unit.v1.worker.npu.test_attention_model_runner_v2",
+          "name": "test_native_zero_return_uses_the_current_graph_lifecycle[False]",
+          "kind": "failure"
+        },
+        {
+          "module": "tests.unit.v1.worker.npu.test_attention_model_runner_v2",
+          "name": "test_native_zero_return_uses_the_current_graph_lifecycle[True]",
+          "kind": "failure"
+        },
+        {
+          "module": "tests.unit.v1.worker.npu.test_attention_model_runner_v2",
+          "name": "test_unbound_graph_lifecycle_fails_before_native_work[execute]",
+          "kind": "failure"
+        },
+        {
+          "module": "tests.unit.v1.worker.npu.test_attention_model_runner_v2",
+          "name": "test_graph_binding_cannot_replace_an_already_bound_lifecycle",
+          "kind": "failure"
+        },
+        {
+          "module": "tests.unit.v1.worker.npu.test_attention_model_runner_v2",
+          "name": "test_real_kv_coordinator_rejects_a_different_pre_kv_session",
+          "kind": "failure"
+        },
+        {
+          "module": "tests.unit.v1.worker.npu.test_attention_model_runner_v2",
+          "name": "test_shutdown_retains_native_owners_until_graph_reset_succeeds[None]",
+          "kind": "failure"
+        },
+        {
+          "module": "tests.unit.v1.worker.npu.test_attention_model_runner_v2",
+          "name": "test_shutdown_retains_native_owners_until_graph_reset_succeeds[cache]",
+          "kind": "failure"
+        },
+        {
+          "module": "tests.unit.v1.worker.npu.test_attention_model_runner_v2",
+          "name": "test_shutdown_retains_native_owners_until_graph_reset_succeeds[native]",
+          "kind": "failure"
+        }
+      ],
+      "upstream_pins_total": 10,
+      "upstream_pins_all_match": true,
+      "raw_artifacts_sha256": {
+        "delivery.json": "3ff4db36de416370a099ae7347af7033500c9a8844957326a5fbab598327f9e8",
+        "identity.json": "302f259f4a06f55f741d87bbdbe4a7d8bf2ab9ef887c1df199f1ef72935618df",
+        "remote-run.log": "7df20d370cae2114f18e4b9aff95e50c4ec147fad66e9da000a65c65a5b2c8e9",
+        "results\\cpu.stderr.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "results\\cpu.stdout.log": "810f29a97f001514a2ffc3020eda98d4d12bc9f42cfd7197637538811a8ee742",
+        "results\\cpu.xml": "a0ecf4ca889255bd336817d656c4a640994b0b3e879cff3a0e24071c6b2369af",
+        "results\\effective-env.json": "2b415bd79b443a6c2fb6c8da30734df1a8fc8b95dd05c8d9e839d7bd6a95409e",
+        "results\\source-check.json": "26217f98782ba8d3091010cf6a886fd9dc1195b125b41e89642960e0311108cd",
+        "results\\summary.json": "18a7000b46b89e8be89e9470ce5f47cf7e59f5789c77eac4c7b944ed4dfa12e2",
+        "results\\versions.json": "8aa40a41b53ecde5293ad581f313555c4e948071ce87c879c3b93ac6d8ad2601"
+      }
+    },
+    "attention-profiler-023": {
+      "scope": "A deferred profiler/native execute and shutdown CPU seams; no NPU timeline",
+      "head_commit": "5aebfc5e954d20da18bff754a2008c44bd7e31bc",
+      "manifest_sha256": "92d725d7575f60d8f1ce10d24d25b144ad2704f86d3c794a0fe244295d2c6bbc",
+      "manifest_entries": 328,
+      "summary": {
+        "scope": "CPU module seams with actual installed dependencies; no device probe",
+        "remote": "/mnt/workspace/tmp/afd-c0-20261104.hVgsIf/c5-control-cpu-20261109-ifmqaqa1",
+        "command": [
+          "/mnt/workspace/code/.venvs/afd-v030-dsv41-c0/bin/python",
+          "-B",
+          "-m",
+          "pytest",
+          "-o",
+          "addopts=",
+          "-q",
+          "-rs",
+          "--tb=short",
+          "-p",
+          "no:cacheprovider",
+          "-m",
+          "not npu and not gpu",
+          "--junitxml=/mnt/workspace/tmp/afd-c0-20261104.hVgsIf/c5-control-cpu-20261109-ifmqaqa1/results/cpu.xml",
+          "tests/unit/v1/worker/npu/test_attention_worker.py",
+          "tests/unit/v1/worker/npu/test_attention_model_runner_v2.py"
+        ],
+        "returncode": 0,
+        "source_files_match": true,
+        "snapshot_exclusions": [],
+        "device_probe_started": false,
+        "success": true
+      },
+      "junit_suites": [
+        {
+          "name": "pytest",
+          "errors": "0",
+          "failures": "0",
+          "skipped": "0",
+          "tests": "23",
+          "time": "3.104",
+          "timestamp": "2026-11-10T12:45:01.781267+08:00",
+          "hostname": "4ff038c993bf40219c03182f786a9def"
+        }
+      ],
+      "counts": {
+        "passed": 23
+      },
+      "module_outcomes": {
+        "tests.unit.v1.worker.npu.test_attention_worker": {
+          "passed": 12
+        },
+        "tests.unit.v1.worker.npu.test_attention_model_runner_v2": {
+          "passed": 11
+        }
+      },
+      "failure_or_error_cases": [],
+      "upstream_pins_total": 10,
+      "upstream_pins_all_match": true,
+      "raw_artifacts_sha256": {
+        "delivery.json": "7d7519dfb180810b10476af4bcc1c34f7fa45bd4e40feb55a4553fccb88fa7dd",
+        "identity.json": "94b74923b93fb7e4a83d29ecb8ff768104f6b1ae5e54219b12b05c853fdf88fc",
+        "remote-run.log": "6be1b436207cc29343a0f872aebe9f1e433e6967ac22ff369979024894cf6a72",
+        "results\\cpu.stderr.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "results\\cpu.stdout.log": "77eb6f0b25187dc3fca305378bd7783346d0c098c375d22c64eb2d093304169b",
+        "results\\cpu.xml": "4f7f7e0e2b339daf387decbac0439d1e8e562032a8c242955a838825a7375079",
+        "results\\effective-env.json": "e12248ba0d245dc92e0c0c710e077a73b2737f343c0c73dc6afc09bf12013045",
+        "results\\source-check.json": "26217f98782ba8d3091010cf6a886fd9dc1195b125b41e89642960e0311108cd",
+        "results\\summary.json": "e1749f9893c288bf6fcac5310ab34bc62eec22fa4a1a65f7fa5e9bfb6069b268",
+        "results\\versions.json": "8aa40a41b53ecde5293ad581f313555c4e948071ce87c879c3b93ac6d8ad2601"
+      },
+      "closure": "Directed two-module repeat after shared fixture reset its replacement graph owner to unbound. Three production hashes unchanged from 022; no aggregate all-green count claimed."
     }
   },
   "related_cpu_index": "../../../afd-hccl-v2-multistream/evidence/a3-pipeline-cpu-20261110/validation-summary.json",

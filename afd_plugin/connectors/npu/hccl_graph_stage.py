@@ -28,7 +28,7 @@ if TYPE_CHECKING:
 
 
 class HcclGraphStageBank:
-    """One exchange per stage, reused across layers on one compute stream.
+    """One exchange per stage, reused across layers with fenced compute.
 
     The output returned to Attention is a borrowed view. Its continuation must
     consume it before that stage's next layer exchange overwrites the buffer.
@@ -140,6 +140,15 @@ class HcclGraphStageBank:
             for rows in self.stage_rows
         )
 
+    @property
+    def exchange_order(self) -> str:
+        """The negotiated U2 order; U1 keeps the serial tensor contract."""
+        return (
+            self.capabilities.graph_exchange_order
+            if self.key.num_ubatches == 2
+            else "stage_serial"
+        )
+
     @classmethod
     def allocate(
         cls, transport: HcclStagedTransport, key: HcclGraphKey, *, device: torch.device
@@ -242,7 +251,24 @@ class HcclGraphStageBank:
         hidden_states_fp32: torch.Tensor,
         input_ids: torch.Tensor,
     ) -> torch.Tensor:
-        """Record/call only tensor copies, padding mask and paired exchange."""
+        """Keep the original serial send-three/receive-one tensor contract."""
+        if self.exchange_order != "stage_serial":
+            raise RuntimeError("bulk_v1 requires all stage sends before receives")
+        self.attention_send(stage_idx, hidden_states, hidden_states_fp32, input_ids)
+        return self.attention_receive(stage_idx)
+
+    def attention_send(
+        self,
+        stage_idx: int,
+        hidden_states: torch.Tensor,
+        hidden_states_fp32: torch.Tensor,
+        input_ids: torch.Tensor,
+    ) -> None:
+        """Copy original BF16/FP32/IDs and enqueue one paired input packet.
+
+        The pipeline owns the static bulk send/receive frontier. This method
+        changes neither plan cursors nor control state inside the graph body.
+        """
         if self.role != "attention":
             raise RuntimeError("graph Attention exchange requires Attention role")
         exchange = self._exchange(stage_idx)
@@ -266,8 +292,14 @@ class HcclGraphStageBank:
         buffers.input_ids.copy_(input_ids)
         buffers.input_ids.masked_fill_(self._padding_mask(stage_idx), 0)
         exchange.send_inputs()
+
+    def attention_receive(self, stage_idx: int) -> torch.Tensor:
+        """Receive into the same borrowed output storage as the serial path."""
+        if self.role != "attention":
+            raise RuntimeError("graph Attention receive requires Attention role")
+        exchange = self._exchange(stage_idx)
         exchange.receive_output()
-        return buffers.output
+        return exchange.buffers.output
 
     def receive_inputs(self, stage_idx: int) -> HcclGraphBuffers:
         if self.role != "ffn":
@@ -276,9 +308,15 @@ class HcclGraphStageBank:
         exchange.receive_inputs()
         return exchange.buffers
 
-    def send_output(self, stage_idx: int, output: torch.Tensor) -> None:
+    def prepare_output(self, stage_idx: int, output: torch.Tensor) -> torch.Tensor:
+        """Validate and copy native output into this stage's retained storage.
+
+        A deferred sender calls this on the compute stream before recording
+        its completion event, so another native call may reuse its workspace.
+        Padding and communication stay with the later parent send.
+        """
         if self.role != "ffn":
-            raise RuntimeError("graph output send requires FFN role")
+            raise RuntimeError("graph output preparation requires FFN role")
         exchange = self._exchange(stage_idx)
         if (
             output.shape != exchange.buffers.output.shape
@@ -290,7 +328,11 @@ class HcclGraphStageBank:
                 "graph FFN output requires static BF16 shape/device/layout"
             )
         exchange.buffers.output.copy_(output)
-        exchange.buffers.output.masked_fill_(
-            self._padding_mask(stage_idx).unsqueeze(1), 0
-        )
-        exchange.send_output()
+        return exchange.buffers.output
+
+    def send_output(self, stage_idx: int, output: torch.Tensor) -> None:
+        if self.role != "ffn":
+            raise RuntimeError("graph output send requires FFN role")
+        prepared = self.prepare_output(stage_idx, output)
+        prepared.masked_fill_(self._padding_mask(stage_idx).unsqueeze(1), 0)
+        self._exchange(stage_idx).send_output()

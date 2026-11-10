@@ -34,15 +34,17 @@ class FFNGraphEndpoint(StageGraphEndpoint):
 
 
 class GraphContractMoE(torch.nn.Module):
-    def __init__(self, layer_idx):
+    def __init__(self, layer_idx, *, workspace=None, output_defect=None):
         super().__init__()
         self.layer_idx, self.fail = layer_idx, False
+        self.fail_stage = None
+        self.workspace, self.output_defect = workspace, output_defect
         self.current_stream = self.expected_stream = None
 
     def forward(
         self, hidden_states, *, input_ids, hidden_states_fp32, already_sequence_parallel
     ):
-        if self.fail:
+        if self.fail or get_forward_context().ubatch_idx == self.fail_stage:
             raise RuntimeError("controlled graph MoE failure")
         if (
             self.current_stream is not None
@@ -57,10 +59,23 @@ class GraphContractMoE(torch.nn.Module):
             or already_sequence_parallel
         ):
             raise ValueError("graph MoE requires its prepared native context")
-        return staged_ffn_expected_output(
+        output = staged_ffn_expected_output(
             HcclLayerInputs(hidden_states, hidden_states_fp32, input_ids),
             self.layer_idx,
         )
+        if self.workspace is not None:
+            borrowed = self.workspace[: output.shape[0]]
+            borrowed.copy_(output)
+            output = borrowed
+        if self.output_defect == "shape":
+            return output[:1]
+        if self.output_defect == "dtype":
+            return output.float()
+        if self.output_defect == "layout":
+            return output.repeat_interleave(2, dim=1)[:, ::2]
+        if self.output_defect == "device":
+            return torch.empty_like(output, device="meta")
+        return output
 
 
 def make_ffn_graph_case(
@@ -71,6 +86,10 @@ def make_ffn_graph_case(
     role_rank=0,
     pipeline_factory=None,
     diagnostics=None,
+    exchange_order="stage_serial",
+    build_driver=True,
+    reuse_workspace=False,
+    output_defect=None,
 ):
     events = []
     bank = make_graph_stage_bank(
@@ -79,6 +98,7 @@ def make_ffn_graph_case(
         valid=valid,
         native_tp_size=native_tp_size,
         role_rank=role_rank,
+        exchange_order=exchange_order,
         endpoint_factory=lambda index: FFNGraphEndpoint(
             index,
             events,
@@ -108,11 +128,21 @@ def make_ffn_graph_case(
         )
     model = AFDDeepseekV41FFNForCausalLM.__new__(AFDDeepseekV41FFNForCausalLM)
     torch.nn.Module.__init__(model)
+    workspace = (
+        torch.empty((max(rows), bank.capabilities.hidden_size), dtype=torch.bfloat16)
+        if reuse_workspace
+        else None
+    )
     model.model = SimpleNamespace(
         start_layer=0,
         end_layer=len(bank.layer_indices),
         layers=[
-            SimpleNamespace(mlp=GraphContractMoE(index)) for index in bank.layer_indices
+            SimpleNamespace(
+                mlp=GraphContractMoE(
+                    index, workspace=workspace, output_defect=output_defect
+                )
+            )
+            for index in bank.layer_indices
         ],
     )
     config = hccl_vllm_config(
@@ -124,13 +154,17 @@ def make_ffn_graph_case(
     )
     config.parallel_config.rank = role_rank
     pipeline = pipeline_factory(bank) if pipeline_factory is not None else None
-    driver = HcclV41FFNGraph(
-        model,
-        contexts,
-        bank,
-        config.parallel_config,
-        pipeline=pipeline,
-        diagnostics=diagnostics,
+    driver = (
+        HcclV41FFNGraph(
+            model,
+            contexts,
+            bank,
+            config.parallel_config,
+            pipeline=pipeline,
+            diagnostics=diagnostics,
+        )
+        if build_driver
+        else None
     )
     if pipeline is not None:
         for layer in model.model.layers:

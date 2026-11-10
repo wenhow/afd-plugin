@@ -15,9 +15,10 @@ from afd_plugin.config import (
 )
 
 if TYPE_CHECKING:
-    from vllm.config import VllmConfig
+    from vllm.config import KVTransferConfig, VllmConfig
 
 FLASHINFER_ALL2ALLV_BACKEND = "flashinfer_all2allv"
+HCCL_NATIVE_PD_CONNECTOR = "MooncakeHybridConnector"
 DEEPSEEK_V2_MODEL_TYPES = frozenset(
     ("deepseek", "deepseek_v2", "deepseek_v3", "deepseek_v32", "glm_moe_dsa")
 )
@@ -86,17 +87,86 @@ def validate_deepseek_v41_speculation(vllm_config: VllmConfig) -> None:
         raise ValueError("V4.1 HCCL DSpark requires native checkpoint draft metadata")
 
 
+def validate_deepseek_v41_pd(vllm_config: VllmConfig) -> None:
+    """Limit native PD eligibility without certifying remote cache layouts.
+
+    The caller selects exact V4.1/HCCL. Native MRV2 retains request/history,
+    KV transfer and Engram retirement. Configured equal P/D TP is a prerequisite;
+    actual checkpoint, physical-page layout and ingress history still require
+    separate P/D qualification while the production model guard stays closed.
+    """
+    transfer: KVTransferConfig | None = vllm_config.kv_transfer_config
+    if transfer is None:
+        return
+    if (
+        transfer.kv_connector != HCCL_NATIVE_PD_CONNECTOR
+        or transfer.kv_connector_module_path is not None
+    ):
+        raise ValueError(
+            "V4.1 HCCL KV transfer/PD requires native MooncakeHybridConnector"
+        )
+    if transfer.kv_role not in ("kv_producer", "kv_consumer"):
+        raise ValueError("V4.1 HCCL PD requires a separate producer or consumer")
+    if (
+        not vllm_config.model_config.enforce_eager
+        or vllm_config.compilation_config.cudagraph_mode.name != "NONE"
+    ):
+        raise ValueError("V4.1 HCCL PD requires eager execution without Graph")
+    if vllm_config.speculative_config is not None:
+        # The pinned SFA draft-ingress path requires offload, which rejects
+        # V4.1 compression. Generic Mooncake has no named prompt-draft readiness
+        # proof; same-checkpoint DSpark validation alone cannot supply it.
+        raise ValueError("V4.1 HCCL PD requires speculation off")
+    if vllm_config.cache_config.enable_prefix_caching:
+        raise ValueError("V4.1 HCCL PD requires local prefix caching disabled")
+    if vllm_config.additional_config.get("sparse_kv_offload_config", {}).get(
+        "enabled", False
+    ):
+        raise ValueError("V4.1 HCCL PD requires sparse KV offload disabled")
+    parallel = vllm_config.parallel_config
+    for name, size in (
+        ("pipeline_parallel_size", parallel.pipeline_parallel_size),
+        ("data_parallel_size", parallel.data_parallel_size),
+        ("prefill_context_parallel_size", parallel.prefill_context_parallel_size),
+        ("decode_context_parallel_size", parallel.decode_context_parallel_size),
+    ):
+        if type(size) is not int or size != 1:
+            raise ValueError(f"V4.1 HCCL PD requires {name}=1")
+    tp_size = parallel.tensor_parallel_size
+    if type(tp_size) is not int or tp_size <= 0:
+        raise ValueError("V4.1 HCCL PD requires a positive native TP size")
+    # Native MooncakeWorker._get_prefill_decode_size @ 7e37e29a:1864-1884
+    # consumes these exact extra fields. PP defaults to one in that native API.
+    for side in ("prefill", "decode"):
+        layout = transfer.kv_connector_extra_config.get(side, {})
+        if (
+            type(layout.get("tp_size")) is not int
+            or layout.get("tp_size") != tp_size
+            or type(layout.get("dp_size")) is not int
+            or layout.get("dp_size") != 1
+            or type(layout.get("pp_size", 1)) is not int
+            or layout.get("pp_size", 1) != 1
+        ):
+            raise ValueError(
+                "V4.1 HCCL PD requires configured equal P/D native TP and DP/PP=1"
+            )
+
+
 def get_npu_ffn_config(vllm_config: VllmConfig) -> VllmConfig:
     """Detach V4.1's A-owned state before native FFN worker construction.
 
     A shallow copy preserves the native ModelConfig identity and caches without
     rerunning VllmConfig validation. Other configuration children remain shared;
     this view removes F's ownership of Engram and the Attention-local drafter.
+    HCCL's validated native PD connector also remains on Attention only.
     """
     if not is_deepseek_v41_model(vllm_config):
         return vllm_config
     afd_config = parse_afd_config(vllm_config, expected_role="ffn")
     validate_deepseek_v41_speculation(vllm_config)
+    if afd_config.connector == HCCL_P2P_CONNECTOR:
+        # Validate the original target before removing its A-owned fields.
+        validate_deepseek_v41_pd(vllm_config)
     parallel = vllm_config.parallel_config
     if (
         vllm_config.speculative_config is not None
@@ -113,6 +183,8 @@ def get_npu_ffn_config(vllm_config: VllmConfig) -> VllmConfig:
     ffn_config = copy(vllm_config)
     ffn_config.engram_config = None
     ffn_config.speculative_config = None
+    if afd_config.connector == HCCL_P2P_CONNECTOR:
+        ffn_config.kv_transfer_config = None
     return ffn_config
 
 
@@ -207,5 +279,6 @@ __all__ = [
     "npu_model_uses_sequence_parallel_moe",
     "npu_model_uses_sharded_pp_tensors",
     "uses_async_cam_dbo",
+    "validate_deepseek_v41_pd",
     "validate_deepseek_v41_speculation",
 ]

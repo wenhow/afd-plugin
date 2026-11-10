@@ -6,6 +6,7 @@ import torch
 from vllm.config import CompilationMode, CUDAGraphMode
 from vllm.forward_context import override_forward_context
 
+from afd_plugin.connectors.npu.hccl_overlap import HcclOverlapSettings
 from afd_plugin.model_executor.models import forward_context as context_module
 from afd_plugin.v1.worker.npu.attention_model_runner_v2 import (
     AFDNPUAttentionModelRunnerV2,
@@ -14,6 +15,7 @@ from afd_plugin.v1.worker.npu.hccl_v41_graph_eager import HcclV41GraphEager
 from afd_plugin.v1.worker.npu.hccl_v41_graph_session import HcclV41GraphSession
 from tests.unit.fakes.batch_req_state import make_batch_req_state
 from tests.unit.fakes.hccl import StagedModelPeer
+from tests.unit.fakes.hccl_diagnostics import StageDiagnosticRecorder
 from tests.unit.fakes.hccl_v41_graph_control import AttentionGraphControlPeer
 from tests.unit.fakes.hccl_v41_graph_coordinator import (
     dispatch_runtime,
@@ -43,7 +45,7 @@ class PreKVAttentionPeer(AttentionGraphControlPeer):
         return output
 
 
-def make_graph_eager_case(*, stages=1, scheduled=(1, 1, 1, 1)):
+def make_graph_eager_case(*, stages=1, scheduled=(1, 1, 1, 1), stage_diagnostics=False):
     """Reuse native/model/control builders, then select pre-KV owner fields."""
     case = make_coordinator_case(stages=stages)
     peer = PreKVAttentionPeer(case.transport.negotiated_capabilities)
@@ -66,6 +68,12 @@ def make_graph_eager_case(*, stages=1, scheduled=(1, 1, 1, 1)):
     owner.hccl_v41_graph_eager = owner.hccl_v41_graph_session = None
     owner.hccl_v41_graph_coordinator = None
     owner.prof = None
+    case.diagnostics = StageDiagnosticRecorder()
+    case.overlap_settings = (
+        HcclOverlapSettings(stage_diagnostics=True, ffn_compute_sync_diagnostics=True)
+        if stage_diagnostics
+        else None
+    )
     case.owner, case.manager, case.transport = owner, None, peer
     case.control.manager, case.control.transport = None, peer
     case.session = HcclV41GraphSession(peer)
@@ -81,8 +89,13 @@ def make_graph_eager_case(*, stages=1, scheduled=(1, 1, 1, 1)):
         owner.model_state._prepare_engram_before_forward, with_kwargs=True
     )
     case.eager = HcclV41GraphEager(
-        owner, case.control, next_transaction_id=case.next_transaction_id
+        owner,
+        case.control,
+        next_transaction_id=case.next_transaction_id,
+        overlap_settings=case.overlap_settings,
+        diagnostic_sink=case.diagnostics.emit if stage_diagnostics else None,
     )
+    owner.hccl_v41_graph_eager = case.eager
     return case
 
 

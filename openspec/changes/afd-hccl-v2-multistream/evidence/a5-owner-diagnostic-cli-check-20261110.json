@@ -1,0 +1,30 @@
+{
+  "scope": "local actual CLI parse only; no device or SSH",
+  "guide_sha256": "9974e8b026f2c727af2ec4d7633ed8eb213efc28807fd4ad1756b47588d789ec",
+  "guide_unchanged_during_check": true,
+  "actual_parse_args_calls": 2,
+  "cases": [
+    {
+      "tp_size": 1,
+      "devices": [
+        0,
+        1
+      ],
+      "stage_diagnostics": true,
+      "output_dir": "$afd_batch_run\\c6-eager-owner-tp1"
+    },
+    {
+      "tp_size": 2,
+      "devices": [
+        0,
+        1,
+        2,
+        3
+      ],
+      "stage_diagnostics": true,
+      "output_dir": "$afd_batch_run\\c6-eager-owner-tp2"
+    }
+  ],
+  "torch_imported": false,
+  "vllm_imported": false
+}

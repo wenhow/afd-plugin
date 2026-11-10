@@ -102,6 +102,7 @@ class HcclPlanCapabilities:
     max_stages: int = MAX_HCCL_STAGES
     local_counts_version: int = 0
     graph_execution_version: int = 0
+    graph_exchange_order: str = "stage_serial"
 
     def validate(self) -> None:
         _integer("hidden_size", self.hidden_size, minimum=1)
@@ -119,6 +120,14 @@ class HcclPlanCapabilities:
         _integer("graph_execution_version", self.graph_execution_version, maximum=1)
         if self.graph_execution_version and self.local_counts_version != 1:
             raise ValueError("graph execution requires local_counts_version=1")
+        if self.graph_exchange_order not in ("stage_serial", "bulk_v1"):
+            raise ValueError("graph_exchange_order must be stage_serial or bulk_v1")
+        if self.graph_exchange_order == "bulk_v1" and (
+            self.graph_execution_version != 1
+            or self.max_stages != 2
+            or self.native_tp_size not in (1, 2)
+        ):
+            raise ValueError("bulk_v1 requires Graph v1, U2 and paired TP1/TP2")
         if self.local_counts_version == 1 and not (
             self.attention_size == self.ffn_size == self.native_tp_size
         ):
@@ -150,6 +159,11 @@ class HcclPlanCapabilities:
                 self.graph_execution_version,
                 peer.graph_execution_version,
             ),
+            (
+                "graph_exchange_order",
+                self.graph_exchange_order,
+                peer.graph_exchange_order,
+            ),
         ):
             if local != remote:
                 raise ValueError(f"HCCL peer {name} does not match")
@@ -164,6 +178,7 @@ class HcclPlanCapabilities:
             min(self.max_stages, peer.max_stages),
             self.local_counts_version,
             self.graph_execution_version,
+            self.graph_exchange_order,
         )
 
 
@@ -475,6 +490,8 @@ def encode_hccl_plan_message(message: HcclPlanMessage) -> bytes:
             capability_payload["local_counts_version"] = cap.local_counts_version
         if cap.graph_execution_version:
             capability_payload["graph_execution_version"] = cap.graph_execution_version
+        if cap.graph_exchange_order != "stage_serial":
+            capability_payload["graph_exchange_order"] = cap.graph_exchange_order
         payload["capabilities"] = capability_payload
     if message.plan is not None:
         payload["plan"] = _plan_payload(message.plan)
@@ -529,7 +546,7 @@ def _decode_capabilities(value: JsonValue) -> HcclPlanCapabilities:
             "native_tp_size",
             "max_stages",
         },
-        {"local_counts_version", "graph_execution_version"},
+        {"local_counts_version", "graph_execution_version", "graph_exchange_order"},
     )
     result = HcclPlanCapabilities(
         _integer("hidden_size", cap["hidden_size"], minimum=1),
@@ -547,6 +564,11 @@ def _decode_capabilities(value: JsonValue) -> HcclPlanCapabilities:
         _integer("local_counts_version", cap.get("local_counts_version", 0), maximum=1),
         _integer(
             "graph_execution_version", cap.get("graph_execution_version", 0), maximum=1
+        ),
+        _text(
+            "graph_exchange_order",
+            cap.get("graph_exchange_order", "stage_serial"),
+            len("stage_serial"),
         ),
     )
     result.validate()

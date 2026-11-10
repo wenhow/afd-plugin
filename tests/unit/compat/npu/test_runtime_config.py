@@ -9,9 +9,14 @@ import pytest
 
 from afd_plugin.compat.npu.runtime_config import (
     get_npu_ffn_config,
+    validate_deepseek_v41_pd,
     validate_deepseek_v41_speculation,
 )
-from tests.unit.fakes.vllm_config import npu_vllm_config, v41_dspark_config
+from tests.unit.fakes.vllm_config import (
+    npu_vllm_config,
+    pd_kv_transfer_config,
+    v41_dspark_config,
+)
 
 
 @pytest.mark.parametrize("has_engram", [False, True])
@@ -211,3 +216,167 @@ def test_ffn_config_leaves_dspark_and_engram_on_attention(tensor_parallel_size):
         "DeepseekV41DSparkModel"
     ]
     assert source.engram_config.dp_shared_memory is False
+
+
+@pytest.mark.parametrize("tp_size", [1, 2])
+@pytest.mark.parametrize("num_stages", [1, 2])
+@pytest.mark.parametrize("kv_role", ["kv_producer", "kv_consumer"])
+def test_hccl_ffn_config_isolates_pd_before_construction_without_changing_target(
+    tp_size, num_stages, kv_role
+):
+    transfer = pd_kv_transfer_config(tp_size=tp_size)
+    transfer.kv_role = kv_role
+    source = npu_vllm_config(
+        role="ffn",
+        connector="P2pHcclAFDConnector",
+        model_type="deepseek_v41",
+        cudagraph_mode="NONE",
+        kv_transfer_config=transfer,
+        engram_config=SimpleNamespace(dp_shared_memory=False),
+        tensor_parallel_size=tp_size,
+        num_attention_ranks=tp_size,
+        num_ffn_ranks=tp_size,
+        num_ubatches=num_stages,
+        use_ubatching=num_stages == 2,
+        enable_dbo=num_stages == 2,
+    )
+    before = deepcopy(source)
+
+    result = get_npu_ffn_config(source)
+
+    assert result.kv_transfer_config is None
+    assert result.engram_config is result.speculative_config is None
+    assert result.model_config is source.model_config
+    assert result.parallel_config is source.parallel_config
+    assert source == before and source.kv_transfer_config is transfer
+
+
+@pytest.mark.parametrize("connector", ["CAMP2pAFDConnector", "CAMAsyncAFDConnector"])
+def test_non_hccl_ffn_config_retains_existing_pd_configuration(connector):
+    transfer = pd_kv_transfer_config(connector="AnotherNativeKVConnector")
+    source = npu_vllm_config(
+        role="ffn",
+        connector=connector,
+        model_type="deepseek_v41",
+        kv_transfer_config=transfer,
+    )
+
+    result = get_npu_ffn_config(source)
+
+    assert result.kv_transfer_config is source.kv_transfer_config is transfer
+
+
+@pytest.mark.parametrize(
+    "section,field,value,reason",
+    [
+        ("transfer", "kv_connector", "SfaRemoteD2HConnector", "native Mooncake"),
+        ("transfer", "kv_connector", "MultiConnector", "native Mooncake"),
+        ("transfer", "kv_connector_module_path", "custom.pd", "native Mooncake"),
+        ("transfer", "kv_role", "kv_both", "separate producer or consumer"),
+        ("transfer", "kv_role", None, "separate producer or consumer"),
+        ("model_config", "enforce_eager", False, "eager execution"),
+        ("cache_config", "enable_prefix_caching", True, "prefix caching"),
+        ("parallel_config", "pipeline_parallel_size", 2, "pipeline_parallel_size=1"),
+        ("parallel_config", "data_parallel_size", 2, "data_parallel_size=1"),
+        (
+            "parallel_config",
+            "prefill_context_parallel_size",
+            2,
+            "context_parallel_size=1",
+        ),
+        (
+            "parallel_config",
+            "decode_context_parallel_size",
+            2,
+            "context_parallel_size=1",
+        ),
+    ],
+)
+def test_pd_rejection_happens_before_ffn_isolation_and_preserves_source(
+    section, field, value, reason
+):
+    source = npu_vllm_config(
+        role="ffn",
+        connector="P2pHcclAFDConnector",
+        model_type="deepseek_v41",
+        cudagraph_mode="NONE",
+        kv_transfer_config=pd_kv_transfer_config(),
+    )
+    target = (
+        source.kv_transfer_config if section == "transfer" else vars(source)[section]
+    )
+    setattr(target, field, value)
+    before = deepcopy(source)
+
+    with pytest.raises(ValueError, match=reason):
+        get_npu_ffn_config(source)
+
+    assert source == before
+
+
+@pytest.mark.parametrize("side", ["prefill", "decode"])
+@pytest.mark.parametrize(
+    "field,value",
+    [
+        ("tp_size", 2),
+        ("tp_size", True),
+        ("tp_size", None),
+        ("dp_size", 2),
+        ("dp_size", None),
+        ("pp_size", 2),
+    ],
+)
+def test_pd_requires_explicit_equal_native_tp_and_unpartitioned_placements(
+    side, field, value
+):
+    source = npu_vllm_config(
+        connector="P2pHcclAFDConnector",
+        model_type="deepseek_v41",
+        cudagraph_mode="NONE",
+        kv_transfer_config=pd_kv_transfer_config(),
+    )
+    source.kv_transfer_config.kv_connector_extra_config[side][field] = value
+    before = deepcopy(source)
+
+    with pytest.raises(ValueError, match="configured equal P/D"):
+        validate_deepseek_v41_pd(source)
+
+    assert source == before
+
+
+@pytest.mark.parametrize("num_stages", [1, 2])
+def test_validated_dspark_pd_remains_rejected_before_ffn_draft_is_removed(num_stages):
+    source = v41_dspark_config(role="ffn")
+    source.kv_transfer_config = pd_kv_transfer_config()
+    source.compilation_config.cudagraph_mode.name = "NONE"
+    source.parallel_config.num_ubatches = num_stages
+    source.parallel_config.enable_dbo = source.parallel_config.use_ubatching = (
+        num_stages == 2
+    )
+    before = deepcopy(source)
+
+    with pytest.raises(ValueError, match="PD requires speculation off"):
+        get_npu_ffn_config(source)
+
+    assert source == before
+
+
+@pytest.mark.parametrize("feature", ["graph", "sparse_offload"])
+def test_pd_does_not_admit_unqualified_native_cache_modes(feature):
+    source = npu_vllm_config(
+        role="ffn",
+        connector="P2pHcclAFDConnector",
+        model_type="deepseek_v41",
+        cudagraph_mode="NONE",
+        kv_transfer_config=pd_kv_transfer_config(),
+    )
+    if feature == "graph":
+        source.compilation_config.cudagraph_mode.name = "FULL"
+    else:
+        source.additional_config["sparse_kv_offload_config"] = {"enabled": True}
+    before = deepcopy(source)
+
+    with pytest.raises(ValueError, match="without Graph|sparse KV offload disabled"):
+        get_npu_ffn_config(source)
+
+    assert source == before

@@ -1,0 +1,53 @@
+{
+  "scope": "source/CLI/immutable archive review candidate, not device execution",
+  "source_sha256": {
+    "tests/npu/hccl_eager_pipeline_probe.py": "c8b4b0b2becb3fe11d958666b8e204e8757df09f418a32850bf76b12fd787fc6",
+    "openspec/changes/afd-hccl-v2-multistream/evidence/run_a3_eager_pipeline.py": "e808603c73d5bd5b353db108d9dab63f902fd1dcc860469944efe60c46e1700e",
+    "afd_plugin/connectors/npu/hccl_diagnostics.py": "45f34d9ddbe821c2d142ad34063da48d8d009ae8e4fa4149bf95e8fd453f6549",
+    "afd_plugin/connectors/npu/hccl_eager_pipeline.py": "19db743a77cfdf7b2db27fb90077a7291f826797576dfd8ff4989084c7beebd2",
+    "afd_plugin/v1/worker/npu/hccl_v41_diagnostics.py": "749994fc17b163286b17c9b6cfde57744a9fa1b5a2cfd7c531229dc23faf074a"
+  },
+  "archive_precheck_identity": "a3-eager-pipeline-20261110/diagnostic-archive-precheck-001/identity.json",
+  "archive_members": 142,
+  "source_pins": 33,
+  "requirements": {
+    "opt_in_flag": "--stage-diagnostics",
+    "default_enabled": false,
+    "real_binding": "HcclV41DiagnosticBinding.bind_parent followed by HcclEagerPipeline.bind_progress",
+    "new_wait_event_query_sync": false,
+    "payload_oracle_unchanged": true,
+    "all_rank_configuration": true,
+    "all_u2_sync_false": true,
+    "empty_parent_configuration": true,
+    "model_native_consumer_claim": false,
+    "performance_claim": false
+  },
+  "static_validation": {
+    "python311_ast": true,
+    "ruff_check": true,
+    "probe_help_exit": 0,
+    "harness_help_exit": 0,
+    "prepare_only_exit": 0,
+    "prepare_only_ssh": false
+  },
+  "planned_sessions": [
+    {
+      "label": "diagnostics-tp1-002",
+      "tp_size": 1,
+      "devices": [
+        0,
+        2
+      ]
+    },
+    {
+      "label": "diagnostics-tp2-002",
+      "tp_size": 2,
+      "devices": [
+        0,
+        2,
+        4,
+        6
+      ]
+    }
+  ]
+}

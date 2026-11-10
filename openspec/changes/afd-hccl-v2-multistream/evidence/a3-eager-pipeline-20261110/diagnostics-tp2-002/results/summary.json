@@ -1,0 +1,33 @@
+{
+  "scope": "actual ticket-owner component; no native model/MoE/overlap claim",
+  "remote": "/mnt/workspace/tmp/afd-c0-20261104.hVgsIf/c6-eager-pipeline-20261110-3sdmudwc",
+  "tp_size": 2,
+  "devices": "0,2,4,6",
+  "stage_diagnostics": true,
+  "command": [
+    "/mnt/workspace/code/.venvs/afd-v030-dsv41-c0/bin/python",
+    "-B",
+    "/mnt/workspace/tmp/afd-c0-20261104.hVgsIf/c6-eager-pipeline-20261110-3sdmudwc/snapshot/tests/npu/hccl_eager_pipeline_probe.py",
+    "--tp-size",
+    "2",
+    "--devices",
+    "0,2,4,6",
+    "--model",
+    "/mnt/workspace/models/DeepSeek-V4.1-Flash",
+    "--timeout",
+    "240",
+    "--output-dir",
+    "/mnt/workspace/tmp/afd-c0-20261104.hVgsIf/c6-eager-pipeline-20261110-3sdmudwc/results/probe",
+    "--stage-diagnostics"
+  ],
+  "source_files_match": true,
+  "upstream_files_checked": 33,
+  "returncode": 0,
+  "elapsed_seconds": 31.486913420259953,
+  "outer_timed_out": false,
+  "outer_killed_owned_pids": [],
+  "idle_boards_before": 8,
+  "idle_boards_after": 8,
+  "owner_component_passed": true,
+  "success": true
+}

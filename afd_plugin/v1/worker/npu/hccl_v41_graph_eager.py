@@ -22,7 +22,9 @@ from afd_plugin.compat.patches.npu.hccl_graph_dispatch import (
     HcclGraphDispatchArguments,
     use_hccl_graph_dispatch,
 )
+from afd_plugin.connectors.npu.hccl_overlap import HcclOverlapSettings
 from afd_plugin.distributed.hccl_plan import HcclLocalForward
+from afd_plugin.v1.worker.npu.hccl_v41_diagnostics import HcclV41DiagnosticBinding
 from afd_plugin.v1.worker.npu.hccl_v41_execution import (
     HcclV41Execution,
     validate_hccl_v41_binding,
@@ -51,6 +53,8 @@ class HcclV41GraphEager:
         control: HcclV41GraphControl[HcclV41GraphResources],
         *,
         next_transaction_id: Callable[[], str],
+        overlap_settings: HcclOverlapSettings | None = None,
+        diagnostic_sink: Callable[[dict[str, str | int | bool]], None] | None = None,
     ) -> None:
         self.owner, self.control = owner, control
         self.transport, self.cache = control.transport, control.cache
@@ -61,9 +65,23 @@ class HcclV41GraphEager:
         )
         self.ubatch_runner = owner.ubatch_runner
         self.next_transaction_id = next_transaction_id
+        self._overlap_settings = overlap_settings
+        self._diagnostics = (
+            None
+            if overlap_settings is None
+            else HcclV41DiagnosticBinding(
+                self.transport,
+                overlap_settings,
+                emit=diagnostic_sink,
+            )
+        )
         self._active = False
         self._require_storage()
         self._require_idle()
+
+    @property
+    def overlap_settings(self) -> HcclOverlapSettings | None:
+        return self._overlap_settings
 
     def _require_storage(self) -> None:
         owner = self.owner
@@ -164,6 +182,7 @@ class HcclV41GraphEager:
                 mode=mode,
                 valid_tokens=valid_tokens,
                 dummy_run=dummy_run,
+                diagnostics=self._diagnostics,
             )
             preparation.enter_context(eager.scope(manage_dispatch=False))
             return reservation.geometry.descriptor
@@ -202,6 +221,8 @@ class HcclV41GraphEager:
                         raise RuntimeError(
                             "pre-KV graph session stopped before acceptance"
                         )
+                    if self._diagnostics is not None:
+                        self._diagnostics.bind_parent()
                     self.transport.finish_forward()
                 if (
                     self.transport.plan is not None

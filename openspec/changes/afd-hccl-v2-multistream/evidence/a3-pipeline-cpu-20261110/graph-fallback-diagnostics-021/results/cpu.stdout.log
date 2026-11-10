@@ -1,0 +1,126 @@
+........................................................................ [ 30%]
+..............................................................EEEEEEEEEE [ 60%]
+EEEEEEEEEEEEFFEE...EE................................................... [ 90%]
+........................                                                 [100%]
+==================================== ERRORS ====================================
+_ ERROR at setup of test_native_entry_submits_actual_stage_counts_and_completes_parent[False-False-False-True-valid0-padded0] _
+tests/unit/v1/worker/npu/test_hccl_v41_execution.py:127: in native_case
+    monkeypatch.setattr(attention, "step_afd_npu_profiler", lambda _: None)
+E   AttributeError: <module 'afd_plugin.v1.worker.npu.attention_model_runner_v2' from '/mnt/workspace/tmp/afd-c0-20261104.hVgsIf/c5-control-cpu-20261109-x997eu_s/snapshot/afd_plugin/v1/worker/npu/attention_model_runner_v2.py'> has no attribute 'step_afd_npu_profiler'
+_ ERROR at setup of test_native_entry_submits_actual_stage_counts_and_completes_parent[True-False-False-True-valid1-padded1] _
+tests/unit/v1/worker/npu/test_hccl_v41_execution.py:127: in native_case
+    monkeypatch.setattr(attention, "step_afd_npu_profiler", lambda _: None)
+E   AttributeError: <module 'afd_plugin.v1.worker.npu.attention_model_runner_v2' from '/mnt/workspace/tmp/afd-c0-20261104.hVgsIf/c5-control-cpu-20261109-x997eu_s/snapshot/afd_plugin/v1/worker/npu/attention_model_runner_v2.py'> has no attribute 'step_afd_npu_profiler'
+_ ERROR at setup of test_native_entry_submits_actual_stage_counts_and_completes_parent[False-True-True-False-valid2-padded2] _
+tests/unit/v1/worker/npu/test_hccl_v41_execution.py:127: in native_case
+    monkeypatch.setattr(attention, "step_afd_npu_profiler", lambda _: None)
+E   AttributeError: <module 'afd_plugin.v1.worker.npu.attention_model_runner_v2' from '/mnt/workspace/tmp/afd-c0-20261104.hVgsIf/c5-control-cpu-20261109-x997eu_s/snapshot/afd_plugin/v1/worker/npu/attention_model_runner_v2.py'> has no attribute 'step_afd_npu_profiler'
+_ ERROR at setup of test_native_entry_submits_actual_stage_counts_and_completes_parent[False-True-False-True-valid3-padded3] _
+tests/unit/v1/worker/npu/test_hccl_v41_execution.py:127: in native_case
+    monkeypatch.setattr(attention, "step_afd_npu_profiler", lambda _: None)
+E   AttributeError: <module 'afd_plugin.v1.worker.npu.attention_model_runner_v2' from '/mnt/workspace/tmp/afd-c0-20261104.hVgsIf/c5-control-cpu-20261109-x997eu_s/snapshot/afd_plugin/v1/worker/npu/attention_model_runner_v2.py'> has no attribute 'step_afd_npu_profiler'
+_ ERROR at setup of test_native_entry_submits_actual_stage_counts_and_completes_parent[True-True-False-True-valid4-padded4] _
+tests/unit/v1/worker/npu/test_hccl_v41_execution.py:127: in native_case
+    monkeypatch.setattr(attention, "step_afd_npu_profiler", lambda _: None)
+E   AttributeError: <module 'afd_plugin.v1.worker.npu.attention_model_runner_v2' from '/mnt/workspace/tmp/afd-c0-20261104.hVgsIf/c5-control-cpu-20261109-x997eu_s/snapshot/afd_plugin/v1/worker/npu/attention_model_runner_v2.py'> has no attribute 'step_afd_npu_profiler'
+_ ERROR at setup of test_same_native_entry_alternates_u1_and_u2_without_reusing_parent_ids _
+tests/unit/v1/worker/npu/test_hccl_v41_execution.py:127: in native_case
+    monkeypatch.setattr(attention, "step_afd_npu_profiler", lambda _: None)
+E   AttributeError: <module 'afd_plugin.v1.worker.npu.attention_model_runner_v2' from '/mnt/workspace/tmp/afd-c0-20261104.hVgsIf/c5-control-cpu-20261109-x997eu_s/snapshot/afd_plugin/v1/worker/npu/attention_model_runner_v2.py'> has no attribute 'step_afd_npu_profiler'
+_ ERROR at setup of test_dspark_target_keeps_query_coordinates_and_ordered_aux_through_completion _
+tests/unit/v1/worker/npu/test_hccl_v41_execution.py:127: in native_case
+    monkeypatch.setattr(attention, "step_afd_npu_profiler", lambda _: None)
+E   AttributeError: <module 'afd_plugin.v1.worker.npu.attention_model_runner_v2' from '/mnt/workspace/tmp/afd-c0-20261104.hVgsIf/c5-control-cpu-20261109-x997eu_s/snapshot/afd_plugin/v1/worker/npu/attention_model_runner_v2.py'> has no attribute 'step_afd_npu_profiler'
+_ ERROR at setup of test_completed_dspark_u2_target_leaves_native_draft_forward_attention_local _
+tests/unit/v1/worker/npu/test_hccl_v41_execution.py:127: in native_case
+    monkeypatch.setattr(attention, "step_afd_npu_profiler", lambda _: None)
+E   AttributeError: <module 'afd_plugin.v1.worker.npu.attention_model_runner_v2' from '/mnt/workspace/tmp/afd-c0-20261104.hVgsIf/c5-control-cpu-20261109-x997eu_s/snapshot/afd_plugin/v1/worker/npu/attention_model_runner_v2.py'> has no attribute 'step_afd_npu_profiler'
+_ ERROR at setup of test_reserved_eager_execution_reuses_the_agreed_transaction[False-padded0] _
+tests/unit/v1/worker/npu/test_hccl_v41_execution.py:127: in native_case
+    monkeypatch.setattr(attention, "step_afd_npu_profiler", lambda _: None)
+E   AttributeError: <module 'afd_plugin.v1.worker.npu.attention_model_runner_v2' from '/mnt/workspace/tmp/afd-c0-20261104.hVgsIf/c5-control-cpu-20261109-x997eu_s/snapshot/afd_plugin/v1/worker/npu/attention_model_runner_v2.py'> has no attribute 'step_afd_npu_profiler'
+_ ERROR at setup of test_reserved_eager_execution_reuses_the_agreed_transaction[True-padded1] _
+tests/unit/v1/worker/npu/test_hccl_v41_execution.py:127: in native_case
+    monkeypatch.setattr(attention, "step_afd_npu_profiler", lambda _: None)
+E   AttributeError: <module 'afd_plugin.v1.worker.npu.attention_model_runner_v2' from '/mnt/workspace/tmp/afd-c0-20261104.hVgsIf/c5-control-cpu-20261109-x997eu_s/snapshot/afd_plugin/v1/worker/npu/attention_model_runner_v2.py'> has no attribute 'step_afd_npu_profiler'
+_ ERROR at setup of test_native_u1_pre_hook_failure_is_terminal_after_acceptance _
+tests/unit/v1/worker/npu/test_hccl_v41_execution.py:127: in native_case
+    monkeypatch.setattr(attention, "step_afd_npu_profiler", lambda _: None)
+E   AttributeError: <module 'afd_plugin.v1.worker.npu.attention_model_runner_v2' from '/mnt/workspace/tmp/afd-c0-20261104.hVgsIf/c5-control-cpu-20261109-x997eu_s/snapshot/afd_plugin/v1/worker/npu/attention_model_runner_v2.py'> has no attribute 'step_afd_npu_profiler'
+__ ERROR at setup of test_binding_rejects_a_second_or_late_session[duplicate] __
+tests/unit/v1/worker/npu/test_hccl_v41_execution.py:127: in native_case
+    monkeypatch.setattr(attention, "step_afd_npu_profiler", lambda _: None)
+E   AttributeError: <module 'afd_plugin.v1.worker.npu.attention_model_runner_v2' from '/mnt/workspace/tmp/afd-c0-20261104.hVgsIf/c5-control-cpu-20261109-x997eu_s/snapshot/afd_plugin/v1/worker/npu/attention_model_runner_v2.py'> has no attribute 'step_afd_npu_profiler'
+_ ERROR at setup of test_binding_rejects_a_second_or_late_session[legacy-started] _
+tests/unit/v1/worker/npu/test_hccl_v41_execution.py:127: in native_case
+    monkeypatch.setattr(attention, "step_afd_npu_profiler", lambda _: None)
+E   AttributeError: <module 'afd_plugin.v1.worker.npu.attention_model_runner_v2' from '/mnt/workspace/tmp/afd-c0-20261104.hVgsIf/c5-control-cpu-20261109-x997eu_s/snapshot/afd_plugin/v1/worker/npu/attention_model_runner_v2.py'> has no attribute 'step_afd_npu_profiler'
+_ ERROR at setup of test_binding_rejects_a_second_or_late_session[kv-started] __
+tests/unit/v1/worker/npu/test_hccl_v41_execution.py:127: in native_case
+    monkeypatch.setattr(attention, "step_afd_npu_profiler", lambda _: None)
+E   AttributeError: <module 'afd_plugin.v1.worker.npu.attention_model_runner_v2' from '/mnt/workspace/tmp/afd-c0-20261104.hVgsIf/c5-control-cpu-20261109-x997eu_s/snapshot/afd_plugin/v1/worker/npu/attention_model_runner_v2.py'> has no attribute 'step_afd_npu_profiler'
+_ ERROR at setup of test_binding_rejects_a_second_or_late_session[adapter-transport] _
+tests/unit/v1/worker/npu/test_hccl_v41_execution.py:127: in native_case
+    monkeypatch.setattr(attention, "step_afd_npu_profiler", lambda _: None)
+E   AttributeError: <module 'afd_plugin.v1.worker.npu.attention_model_runner_v2' from '/mnt/workspace/tmp/afd-c0-20261104.hVgsIf/c5-control-cpu-20261109-x997eu_s/snapshot/afd_plugin/v1/worker/npu/attention_model_runner_v2.py'> has no attribute 'step_afd_npu_profiler'
+____ ERROR at setup of test_local_dp1_dispatch_preserves_threshold_fallback ____
+tests/unit/v1/worker/npu/test_hccl_v41_execution.py:127: in native_case
+    monkeypatch.setattr(attention, "step_afd_npu_profiler", lambda _: None)
+E   AttributeError: <module 'afd_plugin.v1.worker.npu.attention_model_runner_v2' from '/mnt/workspace/tmp/afd-c0-20261104.hVgsIf/c5-control-cpu-20261109-x997eu_s/snapshot/afd_plugin/v1/worker/npu/attention_model_runner_v2.py'> has no attribute 'step_afd_npu_profiler'
+__ ERROR at setup of test_load_model_negotiates_before_native_u2_admission[1] __
+tests/unit/v1/worker/npu/test_hccl_v41_execution.py:127: in native_case
+    monkeypatch.setattr(attention, "step_afd_npu_profiler", lambda _: None)
+E   AttributeError: <module 'afd_plugin.v1.worker.npu.attention_model_runner_v2' from '/mnt/workspace/tmp/afd-c0-20261104.hVgsIf/c5-control-cpu-20261109-x997eu_s/snapshot/afd_plugin/v1/worker/npu/attention_model_runner_v2.py'> has no attribute 'step_afd_npu_profiler'
+__ ERROR at setup of test_load_model_negotiates_before_native_u2_admission[2] __
+tests/unit/v1/worker/npu/test_hccl_v41_execution.py:127: in native_case
+    monkeypatch.setattr(attention, "step_afd_npu_profiler", lambda _: None)
+E   AttributeError: <module 'afd_plugin.v1.worker.npu.attention_model_runner_v2' from '/mnt/workspace/tmp/afd-c0-20261104.hVgsIf/c5-control-cpu-20261109-x997eu_s/snapshot/afd_plugin/v1/worker/npu/attention_model_runner_v2.py'> has no attribute 'step_afd_npu_profiler'
+_ ERROR at setup of test_shutdown_releases_staged_adapter_only_after_native_cleanup[False] _
+tests/unit/v1/worker/npu/test_hccl_v41_execution.py:127: in native_case
+    monkeypatch.setattr(attention, "step_afd_npu_profiler", lambda _: None)
+E   AttributeError: <module 'afd_plugin.v1.worker.npu.attention_model_runner_v2' from '/mnt/workspace/tmp/afd-c0-20261104.hVgsIf/c5-control-cpu-20261109-x997eu_s/snapshot/afd_plugin/v1/worker/npu/attention_model_runner_v2.py'> has no attribute 'step_afd_npu_profiler'
+_ ERROR at setup of test_shutdown_releases_staged_adapter_only_after_native_cleanup[True] _
+tests/unit/v1/worker/npu/test_hccl_v41_execution.py:127: in native_case
+    monkeypatch.setattr(attention, "step_afd_npu_profiler", lambda _: None)
+E   AttributeError: <module 'afd_plugin.v1.worker.npu.attention_model_runner_v2' from '/mnt/workspace/tmp/afd-c0-20261104.hVgsIf/c5-control-cpu-20261109-x997eu_s/snapshot/afd_plugin/v1/worker/npu/attention_model_runner_v2.py'> has no attribute 'step_afd_npu_profiler'
+_ ERROR at setup of test_binding_accepts_normal_staged_adapter_for_native_u1_or_u2[False] _
+tests/unit/v1/worker/npu/test_hccl_v41_execution.py:127: in native_case
+    monkeypatch.setattr(attention, "step_afd_npu_profiler", lambda _: None)
+E   AttributeError: <module 'afd_plugin.v1.worker.npu.attention_model_runner_v2' from '/mnt/workspace/tmp/afd-c0-20261104.hVgsIf/c5-control-cpu-20261109-x997eu_s/snapshot/afd_plugin/v1/worker/npu/attention_model_runner_v2.py'> has no attribute 'step_afd_npu_profiler'
+_ ERROR at setup of test_binding_accepts_normal_staged_adapter_for_native_u1_or_u2[True] _
+tests/unit/v1/worker/npu/test_hccl_v41_execution.py:127: in native_case
+    monkeypatch.setattr(attention, "step_afd_npu_profiler", lambda _: None)
+E   AttributeError: <module 'afd_plugin.v1.worker.npu.attention_model_runner_v2' from '/mnt/workspace/tmp/afd-c0-20261104.hVgsIf/c5-control-cpu-20261109-x997eu_s/snapshot/afd_plugin/v1/worker/npu/attention_model_runner_v2.py'> has no attribute 'step_afd_npu_profiler'
+_ ERROR at setup of test_native_serial_diagnostics_preserve_output_and_single_parent_producer[False] _
+tests/unit/v1/worker/npu/test_hccl_v41_execution.py:127: in native_case
+    monkeypatch.setattr(attention, "step_afd_npu_profiler", lambda _: None)
+E   AttributeError: <module 'afd_plugin.v1.worker.npu.attention_model_runner_v2' from '/mnt/workspace/tmp/afd-c0-20261104.hVgsIf/c5-control-cpu-20261109-x997eu_s/snapshot/afd_plugin/v1/worker/npu/attention_model_runner_v2.py'> has no attribute 'step_afd_npu_profiler'
+_ ERROR at setup of test_native_serial_diagnostics_preserve_output_and_single_parent_producer[True] _
+tests/unit/v1/worker/npu/test_hccl_v41_execution.py:127: in native_case
+    monkeypatch.setattr(attention, "step_afd_npu_profiler", lambda _: None)
+E   AttributeError: <module 'afd_plugin.v1.worker.npu.attention_model_runner_v2' from '/mnt/workspace/tmp/afd-c0-20261104.hVgsIf/c5-control-cpu-20261109-x997eu_s/snapshot/afd_plugin/v1/worker/npu/attention_model_runner_v2.py'> has no attribute 'step_afd_npu_profiler'
+_ ERROR at setup of test_configuration_sink_failure_stops_native_parent_before_producer[False] _
+tests/unit/v1/worker/npu/test_hccl_v41_execution.py:127: in native_case
+    monkeypatch.setattr(attention, "step_afd_npu_profiler", lambda _: None)
+E   AttributeError: <module 'afd_plugin.v1.worker.npu.attention_model_runner_v2' from '/mnt/workspace/tmp/afd-c0-20261104.hVgsIf/c5-control-cpu-20261109-x997eu_s/snapshot/afd_plugin/v1/worker/npu/attention_model_runner_v2.py'> has no attribute 'step_afd_npu_profiler'
+_ ERROR at setup of test_configuration_sink_failure_stops_native_parent_before_producer[True] _
+tests/unit/v1/worker/npu/test_hccl_v41_execution.py:127: in native_case
+    monkeypatch.setattr(attention, "step_afd_npu_profiler", lambda _: None)
+E   AttributeError: <module 'afd_plugin.v1.worker.npu.attention_model_runner_v2' from '/mnt/workspace/tmp/afd-c0-20261104.hVgsIf/c5-control-cpu-20261109-x997eu_s/snapshot/afd_plugin/v1/worker/npu/attention_model_runner_v2.py'> has no attribute 'step_afd_npu_profiler'
+=================================== FAILURES ===================================
+_____ test_normal_runner_constructor_binds_selected_staged_adapter[False] ______
+tests/unit/v1/worker/npu/test_hccl_v41_execution.py:530: in test_normal_runner_constructor_binds_selected_staged_adapter
+    monkeypatch.setattr(attention, "create_afd_npu_profiler", lambda _: None)
+E   AttributeError: <module 'afd_plugin.v1.worker.npu.attention_model_runner_v2' from '/mnt/workspace/tmp/afd-c0-20261104.hVgsIf/c5-control-cpu-20261109-x997eu_s/snapshot/afd_plugin/v1/worker/npu/attention_model_runner_v2.py'> has no attribute 'create_afd_npu_profiler'
+______ test_normal_runner_constructor_binds_selected_staged_adapter[True] ______
+tests/unit/v1/worker/npu/test_hccl_v41_execution.py:530: in test_normal_runner_constructor_binds_selected_staged_adapter
+    monkeypatch.setattr(attention, "create_afd_npu_profiler", lambda _: None)
+E   AttributeError: <module 'afd_plugin.v1.worker.npu.attention_model_runner_v2' from '/mnt/workspace/tmp/afd-c0-20261104.hVgsIf/c5-control-cpu-20261109-x997eu_s/snapshot/afd_plugin/v1/worker/npu/attention_model_runner_v2.py'> has no attribute 'create_afd_npu_profiler'
+=============================== warnings summary ===============================
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/torch/jit/_script.py:362: 14 warnings
+  /mnt/workspace/code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/torch/jit/_script.py:362: DeprecationWarning: `torch.jit.script_method` is deprecated. Please switch to `torch.compile` or `torch.export`.
+    warnings.warn(
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+- generated xml file: /mnt/workspace/tmp/afd-c0-20261104.hVgsIf/c5-control-cpu-20261109-x997eu_s/results/cpu.xml -
+2 failed, 212 passed, 14 warnings, 26 errors in 3.71s

@@ -1,0 +1,72 @@
+{
+  "scope": "local readonly verification of raw device evidence; no new device execution",
+  "independent_sessions": 4,
+  "all_raw_hashes_match": true,
+  "raw_artifact_count": 76,
+  "diagnostic_sessions": {
+    "diagnostics-tp1-002": {
+      "manifest": "b7d1964c67db1c6e5692ab363a1d90eb1480485ba290d4c4b2012e844384d20c",
+      "rank_checks": {
+        "ffn-0": {
+          "configuration_count": 6,
+          "record_count": 146,
+          "all_rank_identity_exact": true,
+          "all_u2_compute_sync_inactive": true,
+          "actual_stream_aliases_exact": true,
+          "empty_parent_configuration": true,
+          "owner_milestones_present": true
+        },
+        "attention-0": {
+          "configuration_count": 6,
+          "record_count": 146,
+          "all_rank_identity_exact": true,
+          "all_u2_compute_sync_inactive": true,
+          "actual_stream_aliases_exact": true,
+          "empty_parent_configuration": true,
+          "owner_milestones_present": true
+        }
+      }
+    },
+    "diagnostics-tp2-002": {
+      "manifest": "b7d1964c67db1c6e5692ab363a1d90eb1480485ba290d4c4b2012e844384d20c",
+      "rank_checks": {
+        "ffn-0": {
+          "configuration_count": 6,
+          "record_count": 146,
+          "all_rank_identity_exact": true,
+          "all_u2_compute_sync_inactive": true,
+          "actual_stream_aliases_exact": true,
+          "empty_parent_configuration": true,
+          "owner_milestones_present": true
+        },
+        "ffn-1": {
+          "configuration_count": 6,
+          "record_count": 146,
+          "all_rank_identity_exact": true,
+          "all_u2_compute_sync_inactive": true,
+          "actual_stream_aliases_exact": true,
+          "empty_parent_configuration": true,
+          "owner_milestones_present": true
+        },
+        "attention-0": {
+          "configuration_count": 6,
+          "record_count": 146,
+          "all_rank_identity_exact": true,
+          "all_u2_compute_sync_inactive": true,
+          "actual_stream_aliases_exact": true,
+          "empty_parent_configuration": true,
+          "owner_milestones_present": true
+        },
+        "attention-1": {
+          "configuration_count": 6,
+          "record_count": 146,
+          "all_rank_identity_exact": true,
+          "all_u2_compute_sync_inactive": true,
+          "actual_stream_aliases_exact": true,
+          "empty_parent_configuration": true,
+          "owner_milestones_present": true
+        }
+      }
+    }
+  }
+}

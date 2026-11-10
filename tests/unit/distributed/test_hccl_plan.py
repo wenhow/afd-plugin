@@ -68,6 +68,56 @@ def test_graph_zero_keeps_pre_extension_hello_fields(capabilities):
     assert "graph_execution_version" not in wire["capabilities"]
 
 
+@pytest.mark.parametrize("order", ["stage_serial", "bulk_v1"])
+def test_graph_exchange_order_roundtrips_without_changing_default_hello(
+    graph_round, order
+):
+    cap = replace(graph_round.capabilities, graph_exchange_order=order)
+    message = HcclPlanMessage("HELLO", role="attention", world_rank=2, capabilities=cap)
+    encoded = encode_hccl_plan_message(message)
+    assert decode_hccl_plan_message(encoded) == message
+    payload = json.loads(encoded)["capabilities"]
+    assert ("graph_exchange_order" in payload) == (order == "bulk_v1")
+    if order == "stage_serial":
+        assert encoded == encode_hccl_plan_message(
+            replace(message, capabilities=graph_round.capabilities)
+        )
+    else:
+        assert cap.negotiate(cap) == cap
+        with pytest.raises(ValueError, match="graph_exchange_order"):
+            cap.negotiate(graph_round.capabilities)
+        with pytest.raises(ValueError, match="graph_exchange_order"):
+            graph_round.capabilities.negotiate(cap)
+
+
+@pytest.mark.parametrize("value", [None, True, 1, "bulk", "BULK_V1", [], {}])
+def test_graph_exchange_order_rejects_unknown_or_non_string_wire_values(
+    graph_round, value
+):
+    message = HcclPlanMessage(
+        "HELLO", role="attention", world_rank=2, capabilities=graph_round.capabilities
+    )
+    payload = json.loads(encode_hccl_plan_message(message))
+    payload["capabilities"]["graph_exchange_order"] = value
+    with pytest.raises(ValueError, match="graph_exchange_order"):
+        decode_hccl_plan_message(json.dumps(payload).encode())
+
+
+@pytest.mark.parametrize(
+    "change",
+    [
+        {"graph_execution_version": 0},
+        {"max_stages": 1},
+        {"native_tp_size": 4, "attention_size": 4, "ffn_size": 4},
+    ],
+)
+def test_graph_bulk_requires_the_supported_static_session(graph_round, change):
+    with pytest.raises(ValueError, match="bulk_v1"):
+        replace(
+            graph_round.capabilities, graph_exchange_order="bulk_v1", **change
+        ).validate()
+
+
 def test_graph_parent_digest_binds_phase_and_static_key(graph_round):
     plan = graph_round.plan
     changed = replace(

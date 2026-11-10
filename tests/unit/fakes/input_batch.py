@@ -96,6 +96,7 @@ def make_hccl_ubatch_seam(
     runner.model_state = model_state
     runner.graph_owner = graph_owner
     runner.eager_session = None
+    runner.diagnostic_binding = None
     runner._preparing_cg_mode = CUDAGraphMode.NONE
     runner.num_ubatches, runner.dcp_size, runner.dcp_rank = 2, 1, 0
     runner.cp_interleave = 1

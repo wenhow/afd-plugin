@@ -36,6 +36,7 @@ from afd_plugin.connectors.npu.hccl_staged_transport import HcclStagedTransport
 from afd_plugin.model_executor.models.npu.deepseek_v41 import (
     AFDDeepseekV41AttentionForCausalLM,
 )
+from afd_plugin.v1.worker.npu.hccl_v41_diagnostics import HcclV41DiagnosticBinding
 from afd_plugin.v1.worker.npu.hccl_v41_eager import HcclV41EagerSession
 from afd_plugin.v1.worker.npu.hccl_v41_execution import execute_hccl_v41_stages
 from afd_plugin.v1.worker.npu.ubatch_runner import NPUUBatchRunner
@@ -177,6 +178,7 @@ class HcclV41UBatchRunner(NPUUBatchRunner):
         # ### PATCH START: retain the explicit parent graph owner
         self.graph_owner = graph_owner
         self.eager_session: HcclV41EagerSession | None = None
+        self.diagnostic_binding: HcclV41DiagnosticBinding | None = None
         self._preparing_cg_mode = CUDAGraphMode.NONE
         # ### PATCH END: retain the explicit parent graph owner
 
@@ -395,21 +397,47 @@ class HcclV41UBatchRunner(NPUUBatchRunner):
         session = self.eager_session
         if session is not None and session.transport is not transport:
             raise ValueError("native eager execution requires its bound transport")
+        diagnostics = self.diagnostic_binding
+        if diagnostics is not None and diagnostics.transport is not transport:
+            raise ValueError("native diagnostics require their bound transport")
         pipeline = None if session is None else session.open_parent()
+        accepted_plan = transport.plan
         schedule = (
             {"eager_pipeline": pipeline, "compute_stream": session.compute_stream}
             if pipeline is not None
             else {}
         )
-        return execute_hccl_v41_stages(
-            model,
-            self.model_state,
-            model_inputs,
-            tuple(ubatch_state.forward_contexts),
-            tuple(stage.token_slice for stage in ubatch_state.slices),
-            transport,
-            **schedule,
-        )
+        try:
+            progress = (
+                None
+                if diagnostics is None
+                else diagnostics.bind_parent(
+                    eager_pipeline=pipeline,
+                    compute_stream=None if pipeline is None else session.compute_stream,
+                )
+            )
+            return execute_hccl_v41_stages(
+                model,
+                self.model_state,
+                model_inputs,
+                tuple(ubatch_state.forward_contexts),
+                tuple(stage.token_slice for stage in ubatch_state.slices),
+                transport,
+                **({"progress": progress} if progress is not None else {}),
+                **schedule,
+            )
+        except BaseException:
+            if (
+                pipeline is not None
+                and not pipeline.finished
+                and not pipeline.failed
+                and transport.eager_pipeline is pipeline
+                and transport.plan is accepted_plan
+            ):
+                pipeline.fail()
+            if transport.plan is None or transport.plan is accepted_plan:
+                transport.terminal = True
+            raise
 
     def bind_eager_session(self, session: HcclV41EagerSession) -> None:
         """Inject a warmed caller-owned session before accepting any parent."""
@@ -425,4 +453,15 @@ class HcclV41UBatchRunner(NPUUBatchRunner):
             or self.transport.graph_reservation is not None
         ):
             raise RuntimeError("bind one idle eager session to its exact U2 transport")
+        if self.diagnostic_binding is not None:
+            self.diagnostic_binding.require_settings(session.settings)
         self.eager_session = session
+
+    def bind_diagnostics(self, binding: HcclV41DiagnosticBinding) -> None:
+        """Fix diagnostics before any accepted native parent or producer."""
+        if self.diagnostic_binding is not None or self.graph_owner is not None:
+            raise RuntimeError("bind eager diagnostics once before native execution")
+        binding.require_idle(self.transport)
+        if self.eager_session is not None:
+            binding.require_settings(self.eager_session.settings)
+        self.diagnostic_binding = binding

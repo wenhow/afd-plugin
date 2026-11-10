@@ -21,6 +21,10 @@ import torch
 import torch.distributed as dist
 
 from afd_plugin.compat.npu.stream import use_npu_current_stream
+from afd_plugin.connectors.npu.hccl_diagnostics import (
+    HcclDiagnosticExecution,
+    HcclStageDiagnosticRun,
+)
 from afd_plugin.connectors.npu.hccl_transport import HcclLayerInputs
 
 if TYPE_CHECKING:
@@ -131,6 +135,7 @@ class HcclEagerPipeline:
         )
         self._posted = 0
         self._failed = self._finished = False
+        self._progress: HcclStageDiagnosticRun | None = None
         self._history: list[tuple[list[dist.Work], list[torch.npu.Event]]] = []
         self._slots: dict[int, _StageSlot] = {}
         self._in_progress: tuple[torch.Tensor, ...] = ()
@@ -171,6 +176,51 @@ class HcclEagerPipeline:
     @property
     def occupied_stages(self) -> tuple[int, ...]:
         return tuple(index for index, slot in self._slots.items() if slot.ticket)
+
+    def bind_progress(
+        self,
+        progress: HcclStageDiagnosticRun,
+        *,
+        compute_stream: torch.npu.Stream,
+    ) -> None:
+        """Bind exact parent progress before posting; equal objects are idempotent."""
+        self._active()
+        self._stream(compute_stream)
+        progress.validate_parent(
+            role=self.transport.role,
+            world_rank=self.transport.world_rank,
+            role_rank=self.transport.role_rank,
+            num_stages=len(self.plan.stages),
+            layer_indices=self.plan.layer_indices,
+            transaction_id=self.plan.transaction_id,
+        )
+        self._validate_progress_execution(progress, compute_stream)
+        if self._progress is progress:
+            return
+        if (
+            self._progress is not None
+            or self._posted
+            or any(slot.ticket is not None for slot in self._slots.values())
+        ):
+            raise ValueError("eager diagnostics must bind once before payload posting")
+        self._progress = progress
+
+    def _validate_progress_execution(
+        self, progress: HcclStageDiagnosticRun, compute_stream: torch.npu.Stream
+    ) -> None:
+        progress.validate_execution(
+            HcclDiagnosticExecution(
+                "eager-streamed",
+                "parent" if compute_stream == self.parent_stream else "compute",
+                "parent" if self.send_stream == self.parent_stream else "send",
+                "parent" if self.receive_stream == self.parent_stream else "recv",
+                (
+                    compute_stream == self.send_stream,
+                    compute_stream == self.receive_stream,
+                    self.send_stream == self.receive_stream,
+                ),
+            )
+        )
 
     def _active(self, role: str | None = None) -> None:
         self.transport._require_active(role)
@@ -250,6 +300,11 @@ class HcclEagerPipeline:
         ):
             raise RuntimeError("stage reuse requires its closed loan and posted output")
         assert slot.consumer_done is not None
+        progress = self._progress
+        if progress is not None:
+            progress.record(
+                "stage_reuse_wait_begin", slot.ticket.layer_idx, slot.ticket.stage_idx
+            )
         with use_npu_current_stream(self.parent_stream):
             slot.consumer_done.wait(self.parent_stream)
             self._wait(slot.works)
@@ -258,6 +313,12 @@ class HcclEagerPipeline:
             ready.record(self.parent_stream)
             slot.events.append(ready)
             slot.reuse_ready = ready
+        if progress is not None:
+            progress.record(
+                "stage_reuse_wait_returned",
+                slot.ticket.layer_idx,
+                slot.ticket.stage_idx,
+            )
         self._history.append((slot.works, slot.events))
         slot.works, slot.events, slot.retained = [], [], ()
         slot.ticket, slot.consumer_done = None, None
@@ -288,6 +349,7 @@ class HcclEagerPipeline:
         )
         self.transport._check_tensor(input_ids, (native_rows,), torch.int32)
         self._in_progress = (hidden_states, hidden_states_fp32, input_ids, *retain)
+        progress = self._progress
         try:
             with use_npu_current_stream(producer_stream):
                 self.transport._check_ids(
@@ -301,6 +363,8 @@ class HcclEagerPipeline:
             slot.ticket = ticket
             slot.retained = (hidden_states, hidden_states_fp32, input_ids, *retain)
             slot.events.append(produced)
+            if progress is not None:
+                progress.record("send_post_begin", layer_idx, stage_idx)
             with use_npu_current_stream(self.send_stream):
                 if slot.reuse_ready is not None:
                     slot.reuse_ready.wait(self.send_stream)
@@ -326,6 +390,9 @@ class HcclEagerPipeline:
                             group_dst=peer.ffn_world_rank,
                         )
                     )
+            if progress is not None:
+                progress.record("send_post_returned", layer_idx, stage_idx)
+                progress.record("recv_post_begin", layer_idx, stage_idx)
             with use_npu_current_stream(self.receive_stream):
                 if slot.reuse_ready is not None:
                     slot.reuse_ready.wait(self.receive_stream)
@@ -337,6 +404,8 @@ class HcclEagerPipeline:
                         group_src=peer.ffn_world_rank,
                     )
                 )
+            if progress is not None:
+                progress.record("recv_post_returned", layer_idx, stage_idx)
             self._posted += 1
             self._in_progress = ()
             return ticket
@@ -360,10 +429,21 @@ class HcclEagerPipeline:
         native_rows = self.plan.stages[ticket.stage_idx].attention_padded_tokens[
             self.transport.role_rank
         ]
+        progress = self._progress
+        if progress is not None:
+            self._validate_progress_execution(progress, consumer_stream)
         slot.loaned = True
         try:
             with use_npu_current_stream(consumer_stream):
+                if progress is not None:
+                    progress.record(
+                        "loan_wait_begin", ticket.layer_idx, ticket.stage_idx
+                    )
                 self._wait(slot.works)
+                if progress is not None:
+                    progress.record(
+                        "loan_wait_returned", ticket.layer_idx, ticket.stage_idx
+                    )
                 self._retain((*slot.tensors, *retain), consumer_stream)
                 slot.retained += retain
                 yield slot.output[:native_rows]
@@ -381,11 +461,14 @@ class HcclEagerPipeline:
         slot = self._step(layer_idx, stage_idx)
         if slot.ticket is not None and not slot.output_posted:
             raise RuntimeError("post the current FFN output before the next receive")
+        progress = self._progress
         try:
             self._release(slot)
             ticket = HcclFFNTicket(layer_idx, stage_idx)
             slot.ticket = ticket
             peer = self.plan.stages[stage_idx].for_ffn(self.transport.role_rank)[0]
+            if progress is not None:
+                progress.record("recv_post_begin", layer_idx, stage_idx)
             with use_npu_current_stream(self.receive_stream):
                 if slot.reuse_ready is not None:
                     slot.reuse_ready.wait(self.receive_stream)
@@ -402,6 +485,8 @@ class HcclEagerPipeline:
                             group_src=peer.attention_world_rank,
                         )
                     )
+            if progress is not None:
+                progress.record("recv_post_returned", layer_idx, stage_idx)
             return ticket
         except BaseException:
             self.fail()
@@ -420,10 +505,21 @@ class HcclEagerPipeline:
         slot = self._ticket(ticket)
         if slot.loaned or slot.consumed:
             raise RuntimeError("FFN inputs loan can only be consumed once")
+        progress = self._progress
+        if progress is not None:
+            self._validate_progress_execution(progress, consumer_stream)
         slot.loaned = True
         try:
             with use_npu_current_stream(consumer_stream):
+                if progress is not None:
+                    progress.record(
+                        "loan_wait_begin", ticket.layer_idx, ticket.stage_idx
+                    )
                 self._wait(slot.works)
+                if progress is not None:
+                    progress.record(
+                        "loan_wait_returned", ticket.layer_idx, ticket.stage_idx
+                    )
                 stage = self.plan.stages[ticket.stage_idx]
                 peer = stage.for_ffn(self.transport.role_rank)[0]
                 self.transport._check_ids(slot.inputs.input_ids, peer.valid_tokens)
@@ -453,6 +549,7 @@ class HcclEagerPipeline:
         if slot.loaned or not slot.consumed or slot.output_posted:
             raise RuntimeError("FFN output requires a closed input loan and one send")
         self.transport._check_tensor(output, tuple(slot.output.shape), torch.bfloat16)
+        progress = self._progress
         self._in_progress = (output, *retain)
         try:
             with use_npu_current_stream(producer_stream):
@@ -461,6 +558,8 @@ class HcclEagerPipeline:
                 produced.record(producer_stream)
             slot.events.append(produced)
             slot.retained += (output, *retain)
+            if progress is not None:
+                progress.record("send_post_begin", ticket.layer_idx, ticket.stage_idx)
             with use_npu_current_stream(self.send_stream):
                 produced.wait(self.send_stream)
                 self._retain(slot.tensors, self.send_stream)
@@ -474,6 +573,10 @@ class HcclEagerPipeline:
                         group=self.transport.data_groups[ticket.stage_idx],
                         group_dst=peer.attention_world_rank,
                     )
+                )
+            if progress is not None:
+                progress.record(
+                    "send_post_returned", ticket.layer_idx, ticket.stage_idx
                 )
             slot.output_posted = True
             self._posted += 1
@@ -496,7 +599,11 @@ class HcclEagerPipeline:
             raise RuntimeError(
                 "finish requires all postings and closed native consumer loans"
             )
+        progress = self._progress
+        final_layer = self.plan.layer_indices[-1]
         try:
+            if progress is not None:
+                progress.record("parent_finish_begin", final_layer, 0)
             for slot in self._slots.values():
                 self._release(slot)
             self.transport._complete_eager_pipeline(self)
@@ -504,6 +611,10 @@ class HcclEagerPipeline:
         except BaseException:
             self.fail()
             raise
+        if progress is not None:
+            # COMPLETE already retired this owner; a sink error must not fail
+            # a finished owner or a different transaction accepted afterward.
+            progress.record("parent_finish_returned", final_layer, 0)
 
     def fail(self) -> None:
         """Sticky failure retains groups, Works, events, slots and consumer refs."""

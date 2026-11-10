@@ -24,8 +24,9 @@ from vllm_ascend.worker.v2.model_runner import NPUModelRunner as NPUModelRunnerV
 
 from afd_plugin.compat.npu import fail_if_unsupported_npu_afd_features
 from afd_plugin.compat.npu.profiler import (
-    create_afd_npu_profiler,
-    step_afd_npu_profiler,
+    AFDNPUProfilerSession,
+    afd_npu_profiler_execute,
+    create_deferred_afd_npu_profiler,
     stop_afd_npu_profiler,
 )
 from afd_plugin.compat.npu.runtime_config import (
@@ -57,6 +58,7 @@ from afd_plugin.v1.worker.attention_model_runner_v2 import (
     _use_afd_capture_input_preparation,
     _use_afd_ubatch_preparation,
 )
+from afd_plugin.v1.worker.npu.hccl_v41_diagnostics import HcclV41DiagnosticBinding
 from afd_plugin.v1.worker.npu.hccl_v41_eager import HcclV41EagerSession
 from afd_plugin.v1.worker.npu.hccl_v41_execution import (
     HcclV41Execution,
@@ -236,6 +238,9 @@ class AFDNPUAttentionModelRunnerV2(AFDMetadataProviderMixin, NPUModelRunnerV2):
     hccl_v41_graph_eager: HcclV41GraphEager | None = None
     hccl_v41_graph_session: HcclV41GraphSession | None = None
     hccl_v41_graph_coordinator: HcclV41GraphCoordinator | None = None
+    hccl_v41_diagnostics: HcclV41DiagnosticBinding | None = None
+    _afd_shutdown_prepared = False
+    _afd_staged_stop_completed = False
 
     def __init__(
         self,
@@ -255,6 +260,18 @@ class AFDNPUAttentionModelRunnerV2(AFDMetadataProviderMixin, NPUModelRunnerV2):
         try:
             self.afd_config = self.parse_config(self.vllm_config)
             rank, _ = _resolve_world_ranks()
+            # Freeze role/rank settings now; start/export only on execute's
+            # owner thread. Constructor/load traces are intentionally excluded.
+            self.prof = create_deferred_afd_npu_profiler("attention", role_rank=rank)
+            if (
+                self.prof is not None
+                and vllm_config.profiler_config is not None
+                and vllm_config.profiler_config.profiler is not None
+            ):
+                raise ValueError(
+                    "AFD_NPU_ATTENTION_PROFILER_ENABLE and native --profiler-config "
+                    "cannot be enabled together"
+                )
             local_rank = int(device.index)
             connector = create_npu_runtime_connector(
                 rank,
@@ -287,7 +304,6 @@ class AFDNPUAttentionModelRunnerV2(AFDMetadataProviderMixin, NPUModelRunnerV2):
             self.hccl_v41_graph_eager = None
             self.hccl_v41_graph_session = None
             self.hccl_v41_graph_coordinator = None
-            self.prof = create_afd_npu_profiler("attention")
             if isinstance(connector, HcclStagedAFDConnector):
                 self.bind_hccl_v41_transport(connector.transport)
         except BaseException:
@@ -398,6 +414,7 @@ class AFDNPUAttentionModelRunnerV2(AFDMetadataProviderMixin, NPUModelRunnerV2):
         transport = self.hccl_v41_transport
         if (
             self.hccl_v41_graph_eager is not None
+            or self.hccl_v41_diagnostics is not None
             or self.hccl_v41_graph_session is not None
             or self.hccl_v41_graph_coordinator is not None
             or eager.owner is not self
@@ -434,6 +451,16 @@ class AFDNPUAttentionModelRunnerV2(AFDMetadataProviderMixin, NPUModelRunnerV2):
         ):
             raise RuntimeError("eager stream binding requires its native U2 runner")
         self.ubatch_runner.bind_eager_session(session)
+
+    def bind_hccl_v41_diagnostics(self, binding: HcclV41DiagnosticBinding) -> None:
+        """Bind eager U1/U2 diagnostics independently of a stream session."""
+        transport = self.hccl_v41_transport
+        if self.hccl_v41_diagnostics is not None or transport is None:
+            raise RuntimeError("bind Attention diagnostics once to its staged session")
+        binding.require_idle(transport)
+        if isinstance(self.ubatch_runner, HcclV41UBatchRunner):
+            self.ubatch_runner.bind_diagnostics(binding)
+        self.hccl_v41_diagnostics = binding
 
     def bind_hccl_v41_graph_coordinator(
         self, coordinator: HcclV41GraphCoordinator
@@ -523,6 +550,10 @@ class AFDNPUAttentionModelRunnerV2(AFDMetadataProviderMixin, NPUModelRunnerV2):
             hccl_graph_owner=graph_session if transport is not None else None,
         ):
             super().initialize_kv_cache(kv_cache_config, kv_cache_allocation_context)
+        if self.hccl_v41_diagnostics is not None and isinstance(
+            self.ubatch_runner, HcclV41UBatchRunner
+        ):
+            self.ubatch_runner.bind_diagnostics(self.hccl_v41_diagnostics)
         # ### PATCH END: create the native NPU ubatch adapter.
 
     # Patch reason: vLLM v0.30.0 prepares FULL graph inputs before each warmup
@@ -631,23 +662,108 @@ class AFDNPUAttentionModelRunnerV2(AFDMetadataProviderMixin, NPUModelRunnerV2):
         valid_dummy_state_slots: bool = False,
     ):
         # ### PATCH START: scope AFD metadata provider/replay and profiler step.
-        step_afd_npu_profiler(self.prof)
-        transport = self.hccl_v41_transport
-        if transport is not None:
-            mode = "profile" if is_profile else "dummy" if dummy_run else "target"
-            valid_tokens = (
-                0 if dummy_run else int(scheduler_output.total_num_scheduled_tokens)
-            )
-            if transport.negotiated_capabilities.graph_execution_version == 1:
-                graph_execution = (
-                    self.hccl_v41_graph_eager
-                    if self.cudagraph_manager is None
-                    else self.hccl_v41_graph_coordinator
+        with afd_npu_profiler_execute(self.prof):
+            transport = self.hccl_v41_transport
+            if transport is not None:
+                mode = "profile" if is_profile else "dummy" if dummy_run else "target"
+                valid_tokens = (
+                    0 if dummy_run else int(scheduler_output.total_num_scheduled_tokens)
                 )
-                if graph_execution is None:
-                    raise RuntimeError("bind the owning graph lifecycle before execute")
-                with graph_execution.execution_scope(
-                    mode=mode, valid_tokens=valid_tokens, dummy_run=dummy_run
+                if transport.negotiated_capabilities.graph_execution_version == 1:
+                    graph_execution = (
+                        self.hccl_v41_graph_eager
+                        if self.cudagraph_manager is None
+                        else self.hccl_v41_graph_coordinator
+                    )
+                    if graph_execution is None:
+                        raise RuntimeError(
+                            "bind the owning graph lifecycle before execute"
+                        )
+                    with graph_execution.execution_scope(
+                        mode=mode, valid_tokens=valid_tokens, dummy_run=dummy_run
+                    ):
+                        return super().execute_model(
+                            scheduler_output,
+                            intermediate_tensors,
+                            dummy_run=dummy_run,
+                            skip_attn_for_dummy_run=skip_attn_for_dummy_run,
+                            is_profile=is_profile,
+                            context_len=context_len,
+                            valid_dummy_state_slots=valid_dummy_state_slots,
+                        )
+                execution = HcclV41Execution(
+                    self,
+                    transport,
+                    mode=mode,
+                    valid_tokens=valid_tokens,
+                    dummy_run=dummy_run,
+                    diagnostics=self.hccl_v41_diagnostics,
+                )
+                with execution.scope():
+                    return super().execute_model(
+                        scheduler_output,
+                        intermediate_tensors,
+                        dummy_run=dummy_run,
+                        skip_attn_for_dummy_run=skip_attn_for_dummy_run,
+                        is_profile=is_profile,
+                        context_len=context_len,
+                        valid_dummy_state_slots=valid_dummy_state_slots,
+                    )
+            use_fullgraph_replay_hook = (
+                self.vllm_config.compilation_config.cudagraph_mode
+                in (CUDAGraphMode.FULL, CUDAGraphMode.FULL_DECODE_ONLY)
+                and self.cudagraph_manager is not None
+            )
+            previous_metadata = self._afd_pending_metadata
+            previous_suppress_send = self._afd_suppress_metadata_send
+            previous_is_warmup = self._is_warmup
+            previous_is_graph_capturing = self._afd_is_graph_capturing
+            previous_is_graph_replaying = getattr(
+                self, "_afd_is_graph_replaying", False
+            )
+            previous_is_profile = self._afd_is_profile
+            self._afd_is_profile = bool(is_profile)
+            self._afd_is_graph_replaying = False
+            is_hccl = isinstance(self.connector, P2pHcclAFDConnector)
+            if is_hccl:
+                previous_hccl_execution = self._afd_hccl_execution
+                self._afd_hccl_execution = (
+                    "profile" if is_profile else "dummy" if dummy_run else "target",
+                    0
+                    if dummy_run
+                    else int(scheduler_output.total_num_scheduled_tokens),
+                )
+                self._afd_pending_metadata = None
+
+            replay_scope = (
+                _use_afd_fullgraph_replay_hook(
+                    self,
+                    int(scheduler_output.total_num_scheduled_tokens),
+                )
+                if use_fullgraph_replay_hook
+                else nullcontext()
+            )
+            try:
+                with (
+                    skip_dp_coordination()
+                    if self.afd_config.async_dp
+                    else nullcontext(),
+                    _use_camp2p_dp_padding(
+                        self.afd_config.num_attention_ranks,
+                        self.afd_config.num_ffn_ranks,
+                    )
+                    if not self.afd_config.async_dp
+                    and self.afd_config.num_attention_ranks
+                    > self.afd_config.num_ffn_ranks
+                    else nullcontext(),
+                    replay_scope,
+                    use_async_cam_dbo_dispatch()
+                    if self.afd_config.async_dp and self.ubatch_runner is not None
+                    else nullcontext(),
+                    _use_afd_ubatch_preparation(self),
+                    use_afd_metadata_provider(
+                        self.install_afd_metadata_on_forward_context,
+                    ),
                 ):
                     return super().execute_model(
                         scheduler_output,
@@ -658,97 +774,53 @@ class AFDNPUAttentionModelRunnerV2(AFDMetadataProviderMixin, NPUModelRunnerV2):
                         context_len=context_len,
                         valid_dummy_state_slots=valid_dummy_state_slots,
                     )
-            execution = HcclV41Execution(
-                self,
-                transport,
-                mode=mode,
-                valid_tokens=valid_tokens,
-                dummy_run=dummy_run,
-            )
-            with execution.scope():
-                return super().execute_model(
-                    scheduler_output,
-                    intermediate_tensors,
-                    dummy_run=dummy_run,
-                    skip_attn_for_dummy_run=skip_attn_for_dummy_run,
-                    is_profile=is_profile,
-                    context_len=context_len,
-                    valid_dummy_state_slots=valid_dummy_state_slots,
-                )
-        use_fullgraph_replay_hook = (
-            self.vllm_config.compilation_config.cudagraph_mode
-            in (CUDAGraphMode.FULL, CUDAGraphMode.FULL_DECODE_ONLY)
-            and self.cudagraph_manager is not None
-        )
-        previous_metadata = self._afd_pending_metadata
-        previous_suppress_send = self._afd_suppress_metadata_send
-        previous_is_warmup = self._is_warmup
-        previous_is_graph_capturing = self._afd_is_graph_capturing
-        previous_is_graph_replaying = getattr(self, "_afd_is_graph_replaying", False)
-        previous_is_profile = self._afd_is_profile
-        self._afd_is_profile = bool(is_profile)
-        self._afd_is_graph_replaying = False
-        is_hccl = isinstance(self.connector, P2pHcclAFDConnector)
-        if is_hccl:
-            previous_hccl_execution = self._afd_hccl_execution
-            self._afd_hccl_execution = (
-                "profile" if is_profile else "dummy" if dummy_run else "target",
-                0 if dummy_run else int(scheduler_output.total_num_scheduled_tokens),
-            )
-            self._afd_pending_metadata = None
-
-        replay_scope = (
-            _use_afd_fullgraph_replay_hook(
-                self,
-                int(scheduler_output.total_num_scheduled_tokens),
-            )
-            if use_fullgraph_replay_hook
-            else nullcontext()
-        )
-        try:
-            with (
-                skip_dp_coordination() if self.afd_config.async_dp else nullcontext(),
-                _use_camp2p_dp_padding(
-                    self.afd_config.num_attention_ranks, self.afd_config.num_ffn_ranks
-                )
-                if not self.afd_config.async_dp
-                and self.afd_config.num_attention_ranks > self.afd_config.num_ffn_ranks
-                else nullcontext(),
-                replay_scope,
-                use_async_cam_dbo_dispatch()
-                if self.afd_config.async_dp and self.ubatch_runner is not None
-                else nullcontext(),
-                _use_afd_ubatch_preparation(self),
-                use_afd_metadata_provider(
-                    self.install_afd_metadata_on_forward_context,
-                ),
-            ):
-                return super().execute_model(
-                    scheduler_output,
-                    intermediate_tensors,
-                    dummy_run=dummy_run,
-                    skip_attn_for_dummy_run=skip_attn_for_dummy_run,
-                    is_profile=is_profile,
-                    context_len=context_len,
-                    valid_dummy_state_slots=valid_dummy_state_slots,
-                )
-        finally:
-            self._afd_pending_metadata = previous_metadata
-            self._afd_suppress_metadata_send = previous_suppress_send
-            self._is_warmup = previous_is_warmup
-            self._afd_is_graph_capturing = previous_is_graph_capturing
-            self._afd_is_graph_replaying = previous_is_graph_replaying
-            self._afd_is_profile = previous_is_profile
-            if is_hccl:
-                self._afd_hccl_execution = previous_hccl_execution
+            finally:
+                self._afd_pending_metadata = previous_metadata
+                self._afd_suppress_metadata_send = previous_suppress_send
+                self._is_warmup = previous_is_warmup
+                self._afd_is_graph_capturing = previous_is_graph_capturing
+                self._afd_is_graph_replaying = previous_is_graph_replaying
+                self._afd_is_profile = previous_is_profile
+                if is_hccl:
+                    self._afd_hccl_execution = previous_hccl_execution
         # ### PATCH END: scope AFD metadata provider/replay and profiler step.
+
+    def prepare_shutdown(self) -> None:
+        """Complete peer/cache/profiler cleanup before native Worker releases KV.
+
+        Only a wholly successful preparation is idempotent. A failed STOP,
+        graph reset or export retains native resources for worker supervision.
+        """
+        if isinstance(self.prof, AFDNPUProfilerSession):
+            # Reject foreign/failed owners before changing any peer state.
+            self.prof.require_owner()
+        if self._afd_shutdown_prepared:
+            return
+        transport = self.hccl_v41_transport
+        staged_stop_completed = False
+        if transport is not None and transport.initialized:
+            if transport.terminal or transport.closed:
+                raise RuntimeError("failed staged session requires worker supervision")
+            transport.stop_attention()
+            staged_stop_completed = True
+            if self.hccl_v41_graph_eager is not None:
+                self.hccl_v41_graph_eager.control.cache.close()
+        elif transport is None and (
+            isinstance(self.connector, P2pHcclAFDConnector)
+            and self.connector.is_initialized
+        ):
+            self.connector.request_stop()
+        if isinstance(self.prof, AFDNPUProfilerSession):
+            self.prof.finish()
+        self._afd_staged_stop_completed = staged_stop_completed
+        self._afd_shutdown_prepared = True
 
     # Patch reason: native V2 shutdown does not know about AFD's profiler,
     # connector, pending metadata sidecar, or stage-local graph inputs.
     # Patch functionality: preserve delegated native cleanup and guarantee all
     # AFD cleanup layers run when any earlier layer raises. Explicit Graph
     # caches are reset only after STOP and before native storage release; a
-    # failed STOP or cache reset retains native state for worker supervision.
+    # failed STOP, cache reset or export retains native state for supervision.
     # Signature: matches vLLM v0.30.0 GPUModelRunner.shutdown exactly.
     # Upstream source: vllm/v1/worker/gpu/model_runner.py,
     # GPUModelRunner.shutdown; commit
@@ -759,25 +831,8 @@ class AFDNPUAttentionModelRunnerV2(AFDMetadataProviderMixin, NPUModelRunnerV2):
     # to a shared composition/factory owner; it never copies native cleanup.
     def shutdown(self) -> None:
         # ### PATCH START: guarantee profiler/native/connector cleanup.
+        self.prepare_shutdown()
         transport = self.hccl_v41_transport
-        staged_stop_completed = False
-        if transport is not None and transport.initialized:
-            if transport.terminal or transport.closed:
-                raise RuntimeError("failed staged session requires worker supervision")
-            transport.stop_attention()
-            staged_stop_completed = True
-            if self.hccl_v41_graph_eager is not None:
-                # Peers have acknowledged STOP. Synchronize/reset graphs while
-                # native KV, ModelState, streams and groups are still alive.
-                # A failure escapes before native cleanup and retains owners.
-                self.hccl_v41_graph_eager.control.cache.close()
-        elif transport is None and (
-            isinstance(self.connector, P2pHcclAFDConnector)
-            and self.connector.is_initialized
-        ):
-            # Complete peer STOP/ACK before native model/stream cleanup. A
-            # failed or active session must escape to process supervision.
-            self.connector.request_stop()
         native_cleanup_complete = False
         try:
             stop_afd_npu_profiler(self.prof)
@@ -801,7 +856,7 @@ class AFDNPUAttentionModelRunnerV2(AFDMetadataProviderMixin, NPUModelRunnerV2):
                     self._afd_pending_metadata = None
                     if transport is None:
                         self.connector.close()
-                    elif staged_stop_completed and native_cleanup_complete:
+                    elif self._afd_staged_stop_completed and native_cleanup_complete:
                         try:
                             self.connector.close()
                         finally:
