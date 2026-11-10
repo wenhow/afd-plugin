@@ -20,6 +20,7 @@ if TYPE_CHECKING:
 
 FLASHINFER_ALL2ALLV_BACKEND = "flashinfer_all2allv"
 HCCL_NATIVE_PD_CONNECTOR = "MooncakeHybridConnector"
+HCCL_ATTESTED_PD_MODULE = "afd_plugin.compat.npu.kv_layout_connector"
 DEEPSEEK_V2_MODEL_TYPES = frozenset(
     ("deepseek", "deepseek_v2", "deepseek_v3", "deepseek_v32", "glm_moe_dsa")
 )
@@ -162,10 +163,11 @@ def validate_deepseek_v41_pd(vllm_config: VllmConfig) -> None:
         return
     if (
         transfer.kv_connector != HCCL_NATIVE_PD_CONNECTOR
-        or transfer.kv_connector_module_path is not None
+        or transfer.kv_connector_module_path not in (None, HCCL_ATTESTED_PD_MODULE)
     ):
         raise ValueError(
-            "V4.1 HCCL KV transfer/PD requires native MooncakeHybridConnector"
+            "V4.1 HCCL KV transfer/PD requires native MooncakeHybridConnector "
+            "or its exact plugin attestation module"
         )
     if transfer.kv_role not in ("kv_producer", "kv_consumer"):
         raise ValueError("V4.1 HCCL PD requires a separate producer or consumer")
@@ -181,6 +183,10 @@ def validate_deepseek_v41_pd(vllm_config: VllmConfig) -> None:
         raise ValueError("V4.1 HCCL PD requires speculation off")
     if vllm_config.cache_config.enable_prefix_caching:
         raise ValueError("V4.1 HCCL PD requires local prefix caching disabled")
+    if vllm_config.model_config.enable_sleep_mode:
+        raise ValueError("V4.1 HCCL PD requires sleep disabled")
+    if vllm_config.weight_transfer_config is not None:
+        raise ValueError("V4.1 HCCL PD requires weight updates disabled")
     if vllm_config.additional_config.get("sparse_kv_offload_config", {}).get(
         "enabled", False
     ):

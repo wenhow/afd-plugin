@@ -26,6 +26,11 @@ import pytest
         "attention-profile",
         "attention-shutdown",
         "npu-model-loader",
+        "pd-outer-constructor",
+        "pd-worker-constructor",
+        "pd-register",
+        "pd-remote-metadata",
+        "pd-read",
         "ds-mxfp8",
         "ds-mxfp4",
         "ds-mxfp4-expert-scale",
@@ -36,7 +41,47 @@ import pytest
 def test_scoped_patch_preserves_upstream_signature(hook):  # long-test: shared table
     pytest.importorskip("torch")
     pytest.importorskip("vllm")
-    if hook == "capture-inputs":
+    if hook.startswith("pd-"):
+        pytest.importorskip("torch_npu")
+        pytest.importorskip("vllm_ascend")
+        from vllm_ascend.distributed.kv_transfer.kv_p2p import (
+            mooncake_hybrid_connector as native,
+        )
+
+        from afd_plugin.compat.npu import kv_layout_connector as adapter
+
+        if hook == "pd-outer-constructor":
+            target, replacement, symbol = (
+                native.MooncakeConnector,
+                adapter.MooncakeHybridConnector.__init__,
+                "__init__",
+            )
+        elif hook == "pd-worker-constructor":
+            target, replacement, symbol = (
+                native.MooncakeConnectorWorker,
+                adapter.AFDMooncakeConnectorWorker.__init__,
+                "__init__",
+            )
+        elif hook == "pd-register":
+            target, replacement, symbol = (
+                native.MooncakeConnectorWorker,
+                adapter.AFDMooncakeConnectorWorker.register_kv_caches,
+                "register_kv_caches",
+            )
+        elif hook == "pd-remote-metadata":
+            target, replacement, symbol = (
+                native.KVCacheRecvingThread,
+                adapter.AFDMooncakeRecvingThread._get_remote_metadata,
+                "_get_remote_metadata",
+            )
+        else:
+            target, replacement, symbol = (
+                native.KVCacheRecvingThread,
+                adapter.AFDMooncakeRecvingThread._transfer_kv_cache_all_groups,
+                "_transfer_kv_cache_all_groups",
+            )
+        scope = patch.object(target, symbol, replacement)
+    elif hook == "capture-inputs":
         from vllm.v1.worker.gpu import cudagraph_utils as target
         from vllm.v1.worker.gpu.pcp_manager import PCPManager  # noqa: F401
 

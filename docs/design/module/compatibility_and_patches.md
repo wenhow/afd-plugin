@@ -18,6 +18,7 @@ primary_code_paths:
   - "afd_plugin/compat/npu/profiler_control.py"
   - "afd_plugin/compat/npu/kv_layout.py"
   - "afd_plugin/compat/npu/kv_layout_native.py"
+  - "afd_plugin/compat/npu/kv_layout_connector.py"
   - "afd_plugin/compat/patches/**/*.py"
 related_code_paths:
   - "afd_plugin/__init__.py"
@@ -105,6 +106,22 @@ dependencies before importing the collector. This tool does not attach to
 native registration, exchange remote attestation, change PD guards or prove a
 transfer. The [operator guide](../../npu/DSV41_KV_LAYOUT_VALIDATION_ZH.md) states
 the controlled snapshot and live-object collection boundaries.
+
+The explicitly selected
+[`kv_layout_connector.py`](../../../afd_plugin/compat/npu/kv_layout_connector.py)
+extends the pinned Mooncake connector through its external-module factory.
+Its worker collects typed materialized V4.1 layout before native memory
+registration or thread startup. The receiver requires the layout extension,
+binds it to the ordered native address/stride arrays and validates each complete
+request after native window-tail projection before its batched read. The
+registration and peer resources have one fixed lifetime; partial initialization
+cannot be retried in the same native engine. Scheduler, request retirement and
+the sending thread remain native. This is consistency between cooperating
+peers, not remote authentication. The mirrored connector CPU seams replace
+network, transfer-engine and thread-start boundaries; they do not establish
+NPU registration, PD transfer or prompt-history/Engram correctness. The V4.1
+production guard remains closed. Remove these copied seams when upstream
+exposes worker/thread factories and a typed metadata validation hook.
 
 The NPU V4.1 loader hook in
 [`model_loader.py`](../../../afd_plugin/compat/patches/npu/model_loader.py)

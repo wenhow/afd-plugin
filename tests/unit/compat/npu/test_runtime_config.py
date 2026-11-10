@@ -369,6 +369,7 @@ def test_non_hccl_ffn_config_retains_existing_pd_configuration(connector):
         ("transfer", "kv_role", None, "separate producer or consumer"),
         ("model_config", "enforce_eager", False, "eager execution"),
         ("cache_config", "enable_prefix_caching", True, "prefix caching"),
+        ("model_config", "enable_sleep_mode", True, "sleep disabled"),
         ("parallel_config", "pipeline_parallel_size", 2, "pipeline_parallel_size=1"),
         ("parallel_config", "data_parallel_size", 2, "data_parallel_size=1"),
         (
@@ -405,6 +406,36 @@ def test_pd_rejection_happens_before_ffn_isolation_and_preserves_source(
         get_npu_ffn_config(source)
 
     assert source == before
+
+
+@pytest.mark.parametrize("module", [None, "afd_plugin.compat.npu.kv_layout_connector"])
+def test_pd_keeps_the_exact_native_or_attesting_connector_on_attention_only(module):
+    transfer = pd_kv_transfer_config()
+    transfer.kv_connector_module_path = module
+    source = npu_vllm_config(
+        role="ffn",
+        connector="P2pHcclAFDConnector",
+        model_type="deepseek_v41",
+        cudagraph_mode="NONE",
+        kv_transfer_config=transfer,
+    )
+    isolated = get_npu_ffn_config(source)
+    assert source.kv_transfer_config is transfer
+    assert isolated.kv_transfer_config is None
+
+
+def test_pd_rejects_weight_updates_before_clearing_ffn_owned_fields():
+    source = npu_vllm_config(
+        role="ffn",
+        connector="P2pHcclAFDConnector",
+        model_type="deepseek_v41",
+        cudagraph_mode="NONE",
+        kv_transfer_config=pd_kv_transfer_config(),
+    )
+    source.weight_transfer_config = SimpleNamespace()
+    with pytest.raises(ValueError, match="weight updates disabled"):
+        get_npu_ffn_config(source)
+    assert source.kv_transfer_config is not None
 
 
 @pytest.mark.parametrize("side", ["prefill", "decode"])
