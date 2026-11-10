@@ -32,6 +32,8 @@ validation_paths:
   - "tests/unit/v1/worker/test_runtime_classpaths.py"
   - "tests/unit/v1/worker/test_model_runner_v2.py"
   - "tests/unit/v1/worker/test_npu_runtime.py"
+  - "tests/npu/pd_kv_layout_probe.py"
+  - "tools/diagnostics/run_a3_pd_layout.py"
 upstream_refs:
   - "vLLM vllm.v1.engine.core.EngineCore and EngineCoreProc"
   - "vLLM vllm.v1.engine.core_client.DPAsyncMPClient"
@@ -122,6 +124,20 @@ network, transfer-engine and thread-start boundaries; they do not establish
 NPU registration, PD transfer or prompt-history/Engram correctness. The V4.1
 production guard remains closed. Remove these copied seams when upstream
 exposes worker/thread factories and a typed metadata validation hook.
+
+The separate [PD NPU probe](../../../tests/npu/pd_kv_layout_probe.py) uses the
+real external constructor, native threads and transfer engine with controlled
+typed NPU shared pages. It checks whole-slab bytes, window-tail projection,
+incompatible layout and whole-page conflict rejection, native DONE and process
+exit. Its [prepare/run harness](../../../tools/diagnostics/run_a3_pd_layout.py)
+freezes installed sources, transfer binaries, model configuration and the owned
+PID supervision dependencies before an explicitly selected device session.
+Preparation imports no device package and establishes no transfer result. The
+[component guide](../../npu/DSV41_PD_COMPONENT_VALIDATION_ZH.md) separates manual
+slabs from native model allocation, and request/executor drain from the native
+worker/GlobalTE wrapper's lack of a shutdown API. The underlying transfer engine
+exposes memory unregistration; the probe does not invoke it or establish engine
+shutdown.
 
 The NPU V4.1 loader hook in
 [`model_loader.py`](../../../afd_plugin/compat/patches/npu/model_loader.py)
