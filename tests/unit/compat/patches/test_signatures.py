@@ -28,6 +28,7 @@ import pytest
         "ds-mxfp4",
         "ds-mxfp4-expert-scale",
         "ds-mxfp4-gmm2",
+        "ds-mxfp4-gmm1-act-quant",
     ],
 )
 def test_scoped_patch_preserves_upstream_signature(hook):  # long-test: shared table
@@ -170,7 +171,12 @@ def test_scoped_patch_preserves_upstream_signature(hook):  # long-test: shared t
         target = AscendW8A8MXFP8DSDynamicLinearMethod
         symbol = "process_weights_after_loading"
         scope = patch.object(target, symbol, adapter.process_weights_after_loading)
-    elif hook in ("ds-mxfp4", "ds-mxfp4-expert-scale", "ds-mxfp4-gmm2"):
+    elif hook in (
+        "ds-mxfp4",
+        "ds-mxfp4-expert-scale",
+        "ds-mxfp4-gmm2",
+        "ds-mxfp4-gmm1-act-quant",
+    ):
         pytest.importorskip("torch_npu")
         pytest.importorskip("vllm_ascend")
         from vllm_ascend.ops.fused_moe.dataclass.moe_mlp import (  # noqa: F401
@@ -189,9 +195,12 @@ def test_scoped_patch_preserves_upstream_signature(hook):  # long-test: shared t
         elif hook == "ds-mxfp4-expert-scale":
             symbol = "_process_scale_2d"
             replacement = staticmethod(adapter._process_scale_2d)
-        else:
+        elif hook == "ds-mxfp4-gmm2":
             symbol = "apply_gmm2"
             replacement = adapter.apply_gmm2
+        else:
+            symbol = "apply_gmm1_act_quant"
+            replacement = adapter.apply_gmm1_act_quant
         scope = patch.object(target, symbol, replacement)
     else:
         from torch import nn  # noqa: F401

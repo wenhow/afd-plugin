@@ -1,0 +1,32 @@
+{
+  "checkpoint": "/home/models/DeepSeek-V4.1-Flash",
+  "sha256": {
+    "config.json": "8be45ce0476004a3f529fd896115a4a2e800a129ad2d3ec05b16050f52e21879",
+    "model.safetensors.index.json": "74b0686a3d2891980d5e303251b075a3bccae2c2ff650747db2620a649b98fa8"
+  },
+  "expected_sha256": {
+    "config.json": "8be45ce0476004a3f529fd896115a4a2e800a129ad2d3ec05b16050f52e21879",
+    "model.safetensors.index.json": "74b0686a3d2891980d5e303251b075a3bccae2c2ff650747db2620a649b98fa8"
+  },
+  "shard_count": 48,
+  "missing_shards": [],
+  "checkpoint_matches": true,
+  "plugin_entrypoint_matches": true,
+  "module_paths": {
+    "afd_plugin": "/home/z00569729/dsv41-afd/src/afd-plugin-dsv41-a5/afd_plugin/__init__.py",
+    "vllm": "/usr/local/python3.11.10/lib/python3.11/site-packages/vllm/__init__.py",
+    "vllm_ascend": "/opt/vllm-ascend/vllm_ascend/__init__.py"
+  },
+  "general_plugins": {
+    "msserviceprofiler": "ms_service_profiler.patcher.vllm:register_service_profiler",
+    "afd": "afd_plugin:register_afd",
+    "afd_dsv41_mxfp8": "afd_plugin:register_dsv41_mxfp8_scale_patch",
+    "ascend_kv_connector": "vllm_ascend:register_connector",
+    "ascend_model": "vllm_ascend:register_model",
+    "ascend_model_loader": "vllm_ascend:register_model_loader",
+    "ascend_service_profiling": "vllm_ascend:register_service_profiling",
+    "arctic_inference": "arctic_inference.vllm.plugin:arctic_inference_plugin",
+    "lora_filesystem_resolver": "vllm.plugins.lora_resolvers.filesystem_resolver:register_filesystem_resolver",
+    "lora_hf_hub_resolver": "vllm.plugins.lora_resolvers.hf_hub_resolver:register_hf_hub_resolver"
+  }
+}

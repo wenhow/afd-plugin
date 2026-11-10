@@ -8,13 +8,19 @@ set -uo pipefail
 
 if [[ "${1:-}" == "--help" ]]; then
     cat <<'HELP'
-Usage: bash tools/diagnostics/run_dsv41_a5_native_eager.sh
+Usage: bash tools/diagnostics/run_dsv41_a5_native_eager.sh [--probe-only]
 Optional environment: AFD_PYTHON, AFD_MODEL.
 Defaults: /usr/local/python3.11.10/bin/python, /home/models/DeepSeek-V4.1-Flash.
 The console prints one fresh results directory. All other output goes to files.
 Run in the existing validated A5 environment; no packages are installed.
+The activation probe runs before model loading. --probe-only stops after it.
 HELP
     exit 0
+fi
+afd_probe_only=0
+if [[ "${1:-}" == "--probe-only" ]]; then
+    afd_probe_only=1
+    shift
 fi
 if (( $# != 0 )); then
     printf 'Unexpected argument; use --help.\n' >&2
@@ -86,6 +92,15 @@ module_paths = {
     name: importlib.util.find_spec(name).origin
     for name in ("afd_plugin", "vllm", "vllm_ascend")
 }
+ascend_root = Path(module_paths["vllm_ascend"]).parent
+ascend_source_sha256 = {
+    name: hashlib.sha256((ascend_root / name).read_bytes()).hexdigest()
+    for name in (
+        "quantization/methods/w4a8/w4a8_mxfp4.py",
+        "ops/fused_moe/moe_mlp.py",
+        "ops/fused_moe/dataclass/moe_mlp.py",
+    )
+}
 matches = actual == expected and not missing and len(shards) == 48
 plugin_matches = plugins.get("afd_dsv41_mxfp8") == "afd_plugin:register_dsv41_mxfp8_scale_patch"
 report = {
@@ -93,6 +108,7 @@ report = {
     "shard_count": len(shards), "missing_shards": missing,
     "checkpoint_matches": matches, "plugin_entrypoint_matches": plugin_matches,
     "module_paths": module_paths, "general_plugins": plugins,
+    "ascend_source_sha256": ascend_source_sha256,
 }
 print(json.dumps(report, indent=2))
 raise SystemExit(0 if matches and plugin_matches else 1)
@@ -101,6 +117,20 @@ afd_preflight_status=$?
 if (( afd_preflight_status != 0 )); then
     printf 'Preflight failed; see preflight.json and preflight.log.\n'
     exit "$afd_preflight_status"
+fi
+
+printf 'Running W13/SwiGLU/W2 probe; see activation-probe.json and .log.\n'
+"$afd_python" -B tests/npu/dsv41_mxfp4_activation_probe.py --device 0 \
+    --output "$afd_native_run/activation-probe.json" \
+    > "$afd_native_run/activation-probe.log" 2>&1
+afd_probe_status=$?
+printf '%s\n' "$afd_probe_status" > "$afd_native_run/activation-probe-exit-code.txt"
+if (( afd_probe_status != 0 )); then
+    printf 'Activation probe failed; full model not started.\n'
+    exit "$afd_probe_status"
+fi
+if (( afd_probe_only )); then
+    exit 0
 fi
 
 printf 'Starting native TP8; see native-server.log.\n'

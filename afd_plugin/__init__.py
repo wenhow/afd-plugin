@@ -152,7 +152,7 @@ def register_dsv41_mxfp8_scale_patch() -> None:
     apply_dsv41_mxfp4_scale_patch()
     logging.getLogger("vllm.afd_dsv41_mxfp8").info(
         "Enabled DS MXFP8 linear and MXFP4 MoE scale-pair corrections "
-        "with MXFP4 GMM K alignment"
+        "with MXFP4 GMM K alignment and fused SwiGLU alignment"
     )
 
 

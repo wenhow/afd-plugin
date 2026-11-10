@@ -8,7 +8,8 @@
 MXFP8 Linear scale 打包失败；第三次 Linear 探针 6 项通过，但 routed MoE 的
 MXFP4 scale 打包失败。后续 MoE 探针前 6 项通过，在 K=288 的 W2 遇到
 WeightNz 的 K 对齐要求；补物理 K 对齐后的 12 项 MoE 探针已于 11-10 回传通过。
-随后完整启动在 profile 的原生模型前向失败，当前 traceback 截断，根异常待补。
+随后完整启动在 profile 的原生模型前向失败；第四次回传已确认融合 SwiGLU 的
+576-wide 输入未满足 128 对齐。已补 gate/up 分半对齐，新增链路探针待 A5 执行。
 服务和首请求尚未通过，模型支持和 AFD 总 guard 均未放开。**
 
 ## 容量候选
@@ -260,6 +261,40 @@ worker 根异常。退出后的 shared-memory 清理警告也不能用于确定�
 没有包含模型异常。现改用下面的独立脚本直接重定向 stdout/stderr，避免复制多行命令
 或 `tee` 导致控制台刷屏。保留本次旧日志，新运行使用独立目录。
 
+### 第四次完整日志：融合 SwiGLU 输入宽度 576
+
+`a9e556a7b78b4f9085a6ba01ca093ecb.gz` 已完整保存 worker 根异常。
+8 个 rank 均报告完成权重加载，每 rank `Model loading took 61.84 GiB`；
+这仅是加载阶段的报告量，不是 profile/HBM 峰值或可用 KV 空间。
+10:25:10 首个 TP7 worker 报：
+
+```text
+apply_gmm1_act_quant -> torch.ops._C_ascend.npu_swiglu_group_quant
+RuntimeError: In mx quant, the last dim of x should be divisible by 128, actual 576.
+```
+
+W13 输出为两半 `gate[288] + up[288]`，总宽 576。此前探针没有执行 SwiGLU，
+其 12 项矩阵乘通过不能覆盖此约束。锁定 Ascend 的 `csrc/torch_binding.cpp:1843`
+同样包含该校验，不能把这个具体错误仅归因于 HEAD 不同。
+本轮 afd-plugin 为 `b7f86e1`，Ascend 源码 HEAD 实为 `4ec6dc77…`，
+而 editable 包版本元数据仍显示 `…g2db8549c5`；本地没有该新 HEAD 的 Git 对象，
+不声称其全部源码与锁定版本一致。下轮 preflight 增加相关实际源文件 hash。
+本轮各 worker 已确认启用量化修正入口；checkpoint 配置/index 和 48 个分片存在性检查通过。
+详见 [第四次诊断](a5-20261110-native-startup-004/diagnosis.json)。
+
+新增修复复制锁定的原生 `apply_gmm1_act_quant`，仅在调用 SwiGLU 前
+分别给 gate/up 补 32 个零值，形成 `gate[320] + up[320]`，总宽 640。
+不能直接在整个 576-wide tensor 尾部追加零，否则会改变 gate/up 配对。
+融合量化的输出宽 320 与之前已补齐的 W2 一致，保留有效元素、原生 clamp 和分组参数。
+每个 token 多 64 个 BF16 零值；新增一次 padding/copy，无额外权重补齐。
+
+启动脚本现在先执行新增的 W13→融合 SwiGLU/MX 量化→W2 单卡探针，
+覆盖 intermediate=256/288/320、clamp=0/6、cumulative/count 两种 group list，共 12 项。
+与之前的矩阵乘探针分别记录，不将新探针的未执行状态视为通过。
+探针使用两个 synthetic experts，检查不同 gate/up、最后一个有效 group、补零输出及 W2 数值；
+不覆盖路由、EPLB/MegaMoE、TP/Engram 或完整 checkpoint。
+默认只有它通过才继续加载整模型，全部日志继续直接写文件。
+
 ## 启动原生 TP8（显式量化修正）
 
 以下使用标准 vLLM CLI，加载 Ascend 插件及独立的量化修正入口；不加载 `afd` 入口。
@@ -272,6 +307,8 @@ worker 根异常。退出后的 shared-memory 清理警告也不能用于确定�
 保留上述 TP8 控制组配置：stdout/stderr 直接写入 `native-server.log`，不使用 `tee`。
 控制台只打印新结果目录；`launcher.log` 记录启动器输出，`launcher-exit-code.txt`
 记录正常/异常或 Ctrl+C 退出码，服务自然退出时另写 `server-exit-code.txt`。
+新增探针的输出分别为 `activation-probe.json`、`activation-probe.log` 和
+`activation-probe-exit-code.txt`；探针失败时停止，保留该轮结果，不加载整模型。
 脚本重新记录 checkpoint header/index、48 个 shard 存在性、实际模块路径及插件入口，
 并保存环境和运行前后 `npu-smi`。这不校验全部权重 payload 或设备空闲状态；
 仍须先完成前文 checkpoint/空闲卡和探针检查，运行期间服务占用 0–7 卡。
@@ -282,11 +319,14 @@ worker 根异常。退出后的 shared-memory 清理警告也不能用于确定�
 AFD_PYTHON="$afd_python" AFD_MODEL="$afd_model" bash tools/diagnostics/run_dsv41_a5_native_eager.sh
 ```
 
+如只执行新增的单卡探针，在上述命令末尾追加 `--probe-only`。
+
 将控制台打印的新路径赋给 `afd_native_run`，用于下面的请求和日志回传。
 如果使用默认路径且没有前文变量，可直接运行
 `bash tools/diagnostics/run_dsv41_a5_native_eager.sh`。
 不要用 `cat`/`tail -f` 持续输出日志；发生失败后直接回传该目录的
-`native-server.log`、`launcher.log`、`environment.txt`、`preflight.json` 与退出码文件。
+`activation-probe.json`、`activation-probe.log`、`native-server.log`、`launcher.log`、
+`environment.txt`、`preflight.json` 与退出码文件；未生成的文件按实际阶段说明。
 
 2026-11-09 17:20 用户回传的启动日志停在 `--engram-config` 的
 `Invalid JSON: expected ident at line 2 column 0`，尚未进入模型加载。
@@ -295,7 +335,7 @@ AFD_PYTHON="$afd_python" AFD_MODEL="$afd_model" bash tools/diagnostics/run_dsv41
 重试时用这三行替换原来的整行 `--engram-config '...'`。
 第二次 A5 回传已确认这三项均解析为 `False` 并进入模型加载。
 量化修正后的完整启动和首请求仍待验证；日志应出现
-`Enabled DS MXFP8 linear and MXFP4 MoE scale-pair corrections with MXFP4 GMM K alignment`，
+`Enabled DS MXFP8 linear and MXFP4 MoE scale-pair corrections with MXFP4 GMM K alignment and fused SwiGLU alignment`，
 确认独立补丁入口已加载。
 
 如果加载、profile、路由算子或首请求失败，保留本轮目录，先诊断原生根异常；

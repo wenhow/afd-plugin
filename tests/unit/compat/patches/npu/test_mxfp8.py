@@ -74,6 +74,7 @@ def test_repeated_plugin_registration_preserves_odd_scale_packing(monkeypatch):
     )
     monkeypatch.setattr(moe, "_process_scale_2d", staticmethod(moe._process_scale_2d))
     monkeypatch.setattr(moe, "apply_gmm2", moe.apply_gmm2)
+    monkeypatch.setattr(moe, "apply_gmm1_act_quant", moe.apply_gmm1_act_quant)
     monkeypatch.setenv("AFD_DSV41_MXFP8_SCALE_PATCH", "1")
     register_dsv41_mxfp8_scale_patch()
     register_dsv41_mxfp8_scale_patch()

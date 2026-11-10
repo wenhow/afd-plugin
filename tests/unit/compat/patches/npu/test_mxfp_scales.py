@@ -9,6 +9,7 @@ torch = pytest.importorskip("torch")
 from afd_plugin.compat.patches.npu.mxfp_scales import (  # noqa: E402
     align_mxfp4_weight,
     align_mxfp_gmm_input,
+    align_mxfp_swiglu_input,
     pack_mxfp_scale_pairs,
 )
 from tests.unit.fakes.mxfp_scales import (  # noqa: E402
@@ -86,3 +87,42 @@ def test_zero_padding_preserves_dequantized_mxfp_dot_products(width):
 
     torch.testing.assert_close(actual, expected, rtol=0, atol=0)
     assert torch.all(torch.isfinite(actual))
+
+
+@pytest.mark.parametrize("width", [256, 288, 320])
+@pytest.mark.parametrize("rows", [0, 3])
+@pytest.mark.parametrize("noncontiguous", [False, True])
+def test_swiglu_alignment_preserves_gate_up_pairs(width, rows, noncontiguous):
+    values = torch.arange(rows * 2 * width).reshape(rows, 2 * width)
+    values = values.remainder(61).sub(30).to(torch.bfloat16)
+    if noncontiguous:
+        values = values.T.contiguous().T
+    gate, up = values.chunk(2, dim=-1)
+
+    aligned = align_mxfp_swiglu_input(values)
+
+    assert aligned.shape == (rows, ((width + 63) // 64) * 128)
+    padded_gate, padded_up = aligned.chunk(2, dim=-1)
+    torch.testing.assert_close(padded_gate[..., :width], gate, rtol=0, atol=0)
+    torch.testing.assert_close(padded_up[..., :width], up, rtol=0, atol=0)
+    assert torch.count_nonzero(padded_gate[..., width:]) == 0
+    assert torch.count_nonzero(padded_up[..., width:]) == 0
+
+
+@pytest.mark.parametrize("width", [256, 288, 320])
+@pytest.mark.parametrize("limit", [0, 6])
+def test_swiglu_alignment_preserves_clamped_activation_values(width, limit):
+    values = torch.arange(2 * width).remainder(61).sub(30).float().unsqueeze(0)
+    gate, up = values.chunk(2, dim=-1)
+    if limit:
+        gate, up = gate.clamp(max=limit), up.clamp(min=-limit, max=limit)
+    expected = torch.nn.functional.silu(gate) * up
+
+    padded_gate, padded_up = align_mxfp_swiglu_input(values).chunk(2, dim=-1)
+    if limit:
+        padded_gate = padded_gate.clamp(max=limit)
+        padded_up = padded_up.clamp(min=-limit, max=limit)
+    actual = torch.nn.functional.silu(padded_gate) * padded_up
+
+    torch.testing.assert_close(actual[..., :width], expected, rtol=0, atol=0)
+    assert torch.count_nonzero(actual[..., width:]) == 0

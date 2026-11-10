@@ -27,6 +27,7 @@ def patched_mxfp4(monkeypatch):
         target, "_process_scale_2d", staticmethod(target._process_scale_2d)
     )
     monkeypatch.setattr(target, "apply_gmm2", target.apply_gmm2)
+    monkeypatch.setattr(target, "apply_gmm1_act_quant", target.apply_gmm1_act_quant)
     monkeypatch.setattr(torch_npu, "npu_format_cast", lambda tensor, *a, **k: tensor)
     mxfp4.apply_dsv41_mxfp4_scale_patch()
 

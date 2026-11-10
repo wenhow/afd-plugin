@@ -117,6 +117,23 @@ W2 E=384/N=5120 adds 30 MiB per layer plus activation padding/scale copying at
 runtime. Removal also requires upstream support for the paired weight/input
 K alignment or target-kernel acceptance of the original K.
 
+The subsequent A5 full-model profile reached the native fused SwiGLU MX
+quantizer, which requires combined gate/up width divisible by 128. TP8 emits
+576 values (two halves of 288), so the opt-in DS patch also copies inherited
+`apply_gmm1_act_quant` and independently zero-pads each half to 320 just before
+that quantizer. The 640-wide input produces the existing physical W2 width of
+320, retaining valid gate/up pairs, clamps, group indices and native SITU
+branches. Aligned inputs bypass the allocation. This adds a BF16 padding copy
+per unaligned invocation, with no extra weight allocation or communication.
+CPU helper tests verify pair/value preservation and clamped SwiGLU arithmetic;
+`tests/npu/dsv41_mxfp4_activation_probe.py` separately exercises the real W13,
+fused activation/quantization and W2 chain against a numerical reference.
+Its 12 cases cover three widths, two clamp settings and count/cumulative group
+lists, excluding routing, EPLB, MegaMoE, TP and full-model inference. The native
+A5 launcher writes the probe result to files and starts the full model only
+after the probe succeeds. Remove this hook when upstream handles the fused
+alignment together with W2, following device and complete-model acceptance.
+
 The connector-driven FFN forward scope also binds native current VllmConfig,
 matching Ascend's configuration lifetime while retaining the real V2 platform
 hook. Normal and exceptional exits restore the caller's configuration; this

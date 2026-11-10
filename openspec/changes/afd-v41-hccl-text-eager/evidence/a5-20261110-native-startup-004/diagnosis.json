@@ -1,0 +1,102 @@
+{
+  "date": "2026-11-10",
+  "archive": "a9e556a7b78b4f9085a6ba01ca093ecb.gz",
+  "archive_sha256": "2c6b3ac95d7489be4043d3a98a051643ecda3dda41d18b2aad514dbda55f55f4",
+  "stage": "Native TP8 profile -> MoE -> apply_gmm1_act_quant -> fused MX SwiGLU",
+  "first_error_time": "2026-11-10 10:25:10",
+  "first_error_rank": 7,
+  "root_error": "In mx quant, the last dim of x should be divisible by 128, actual 576.",
+  "not_an_oom_error": true,
+  "loading": {
+    "reported_ranks": [
+      0,
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7
+    ],
+    "per_rank_model_loading_gib": {
+      "7": 61.84,
+      "0": 61.84,
+      "4": 61.84,
+      "1": 61.84,
+      "5": 61.84,
+      "3": 61.84,
+      "6": 61.84,
+      "2": 61.84
+    },
+    "scope": "Reported model-loading allocation, not profile peak or service/KV total"
+  },
+  "configuration": {
+    "tp": 8,
+    "eager": true,
+    "v2": true,
+    "engram_cpu_offload": false,
+    "quantization": "deepseek_v4_fp8",
+    "shards_present": 48
+  },
+  "runtime": {
+    "afd_commit": "b7f86e1792ce43c2f56f4c27141106acf44e2607",
+    "ascend_source_head": "4ec6dc7722ec4f7f8005a86570238ac4377c5d43",
+    "ascend_package_metadata_version": "0.19.1rc2.dev637+g2db8549c5",
+    "locked_ascend": "7e37e29a7803d6897a7113088e2b771f83205bc0",
+    "source_head_available_in_local_object_store": false,
+    "plugin_enabled_in_workers": true,
+    "exit_code": null
+  },
+  "cause": {
+    "logical_intermediate_width": 288,
+    "w13_combined_width": 576,
+    "fused_input_alignment": 128,
+    "required_per_half_width": 320,
+    "required_combined_width": 640,
+    "previous_component_probe_excluded_swiglu": true,
+    "locked_csrc_has_same_alignment_constraint": "csrc/torch_binding.cpp:1843 construct_swiglu_group_quant_output_tensor"
+  },
+  "fix": {
+    "owner": "afd_plugin/compat/patches/npu/mxfp4.py apply_gmm1_act_quant",
+    "operation": "Independently zero-pad contiguous gate/up halves from 288 to 320 before fused SwiGLU; preserve native clamps, grouping and quantizer",
+    "already_aligned_shapes": "No allocation or change",
+    "forward_extra_bf16_elements_per_token": 64,
+    "additional_weight_padding": 0,
+    "npu_validation": "Pending new 12-case activation-chain probe"
+  },
+  "patch_contracts": [
+    {
+      "symbol": "process_weights_after_loading",
+      "signature_matches": true,
+      "upstream_line": 584,
+      "upstream_class": "AscendW4A8MXFPDSDynamicFusedMoEMethod"
+    },
+    {
+      "symbol": "_process_scale_2d",
+      "signature_matches": true,
+      "upstream_line": 561,
+      "upstream_class": "AscendW4A8MXFPDSDynamicFusedMoEMethod"
+    },
+    {
+      "symbol": "apply_gmm2",
+      "signature_matches": true,
+      "upstream_line": 499,
+      "upstream_class": "AscendW4A8MXFPDynamicFusedMoEMethod"
+    },
+    {
+      "symbol": "apply_gmm1_act_quant",
+      "signature_matches": true,
+      "upstream_line": 398,
+      "upstream_class": "AscendW4A8MXFPDynamicFusedMoEMethod",
+      "body_matches_after_removing_one_alignment_assignment": true
+    }
+  ],
+  "acceptance": {
+    "native_checkpoint_post_load": "Reported completed on all eight ranks",
+    "previous_single_npu_gmm_probe": "12 cases passed in prior return",
+    "new_activation_chain": "pending A5",
+    "profile": "failed",
+    "service_and_first_request": "pending",
+    "afd": "pending"
+  }
+}

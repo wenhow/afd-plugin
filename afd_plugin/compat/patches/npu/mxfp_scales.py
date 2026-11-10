@@ -10,6 +10,7 @@ MXFP_GROUP_SIZE = 32
 MXFP_GMM_K_ALIGNMENT = MXFP_GROUP_SIZE * SCALE_PAIR_WIDTH
 FP4_VALUES_PER_BYTE = 2
 E8M0_UNIT_EXPONENT = 127
+SWIGLU_HALF_COUNT = 2
 
 
 def pack_mxfp_scale_pairs(scales: torch.Tensor) -> torch.Tensor:
@@ -30,6 +31,18 @@ def align_mxfp4_weight(weight: torch.Tensor) -> torch.Tensor:
     if padding == 0:
         return weight
     return F.pad(weight, (0, padding), value=0)
+
+
+def align_mxfp_swiglu_input(hidden_states: torch.Tensor) -> torch.Tensor:
+    """Pad each contiguous gate/up half to 64 before fused MX SwiGLU."""
+    half_width = hidden_states.shape[-1] // SWIGLU_HALF_COUNT
+    padding = -half_width % MXFP_GMM_K_ALIGNMENT
+    if padding == 0:
+        return hidden_states
+    halves = hidden_states.reshape(
+        *hidden_states.shape[:-1], SWIGLU_HALF_COUNT, half_width
+    )
+    return F.pad(halves, (0, padding), value=0).flatten(-2)
 
 
 def align_mxfp_gmm_input(

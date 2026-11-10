@@ -1,0 +1,26 @@
+{
+  "scope": "CPU logging and launch-gating seams with stub executables only; no NPU or checkpoint executed",
+  "cases": [
+    {
+      "case": "probe_fails",
+      "exit_code": 19,
+      "server_started": false,
+      "console_line_count": 1,
+      "logs_captured": true
+    },
+    {
+      "case": "probe_only",
+      "exit_code": 0,
+      "server_started": false,
+      "console_line_count": 1,
+      "logs_captured": true
+    },
+    {
+      "case": "probe_passes_then_server_fails",
+      "exit_code": 17,
+      "server_started": true,
+      "console_line_count": 1,
+      "logs_captured": true
+    }
+  ]
+}

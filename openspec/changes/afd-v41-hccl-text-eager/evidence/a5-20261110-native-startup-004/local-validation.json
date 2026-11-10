@@ -1,0 +1,59 @@
+{
+  "scope": "Local CPU/static and shell logging validation only; no A5 device execution or full-model acceptance",
+  "cpu_tensor_tests": {
+    "command": "system python -B with workspace pytest on sys.path; pytest -o addopts= -p no:cacheprovider -q tests/unit/compat/patches/npu/test_mxfp_scales.py",
+    "passed": 46,
+    "exit_code": 0,
+    "covers": [
+      "MX bytes and FP4/FP8 padding",
+      "independent dequantized dot products",
+      "gate/up pair preservation",
+      "empty rows and noncontiguous tensors",
+      "clamped and unclamped SwiGLU arithmetic"
+    ]
+  },
+  "package_runtime_contract_tests": {
+    "command": ".venv/Scripts/python.exe -B -m pytest -o addopts= -p no:cacheprovider -q tests/unit/package/test_package.py tests/unit/compat/patches/test_signatures.py tests/unit/compat/patches/npu/test_mxfp4.py tests/unit/compat/patches/npu/test_mxfp8.py",
+    "passed": 11,
+    "skipped": 33,
+    "exit_code": 0,
+    "limitation": "Workspace venv lacks torch/vLLM/NPU runtime; dynamic NPU signatures and post-load tests skipped"
+  },
+  "ruff_check": {
+    "exit_code": 0,
+    "python_files": 8
+  },
+  "ruff_format_check": {
+    "exit_code": 0,
+    "python_files": 7
+  },
+  "probe_help": {
+    "exit_code": 0,
+    "does_not_import_device_packages": true
+  },
+  "bash_syntax_check": {
+    "exit_code": 0
+  },
+  "launcher_seam_checks": "launcher-validation.json: probe failure blocks model; probe-only exits; successful probe leads to captured server failure",
+  "patch_contracts": {
+    "exact_signature_ast_matches": 4,
+    "new_gmm1_body_exact_after_removing_one_alignment_assignment": true,
+    "source": "pinned Ascend 7e37e29a7803d6897a7113088e2b771f83205bc0"
+  },
+  "local_harness": {
+    "ok": true,
+    "upstreams_unchanged": true,
+    "scope": "planning consistency and readonly guard only"
+  },
+  "sha256": {
+    "afd_plugin/compat/patches/npu/mxfp4.py": "46e121aac4c436ecb59b8052ef6af66c7d3de002b232539c11e3dbb53922a378",
+    "afd_plugin/compat/patches/npu/mxfp_scales.py": "ade50396d5d4f741f4bc7584a97ea3d5e2687f1490a5014b4d54a640f1dd516e",
+    "tests/npu/dsv41_mxfp4_activation_probe.py": "8601813716022fb5e7ec5b68d4fce7cded5dd20eae6eb6e80cff01df39e1086d",
+    "tools/diagnostics/run_dsv41_a5_native_eager.sh": "90dddcd5a78b0af717f0462af77f5732b67e7ffa158ca64e7f372a6bbde7621c"
+  },
+  "remaining": [
+    "A5 activation-chain probe 12 cases",
+    "Native TP8 profile/KV/service/first request",
+    "AFD correctness and performance"
+  ]
+}
