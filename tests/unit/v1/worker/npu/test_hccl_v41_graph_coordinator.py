@@ -351,12 +351,13 @@ def test_capture_preflight_uses_an_honest_miss_and_retires_only_zero_rows(
 
 
 @pytest.mark.parametrize("stages,compute", [(1, False), (2, False), (2, True)])
+@pytest.mark.parametrize("order", ["bulk_v1", "cross_layer_v1"])
 def test_bulk_preflight_agrees_pipeline_support_before_any_native_factory(
-    coordinator_case, stages, compute
+    coordinator_case, stages, compute, order
 ):
     case = coordinator_case(
         stages=stages,
-        exchange_order="bulk_v1",
+        exchange_order=order,
         overlap_settings=HcclOverlapSettings(graph_u2_compute_overlap=compute),
     )
     assert case.coordinator.preflight_capture() is compute
@@ -881,3 +882,25 @@ def test_ready_graph_rejects_a_cache_bundle_with_foreign_captured_resources(
 
     assert tuple(sent(case, "FORWARD")) == before
     assert case.transport.plan is None and case.transport.terminal
+
+
+@pytest.mark.parametrize("stages", [1, 2])
+@pytest.mark.parametrize("hybrid", [False, True])
+def test_cross_layer_capture_preflight_checks_attention_gate_even_before_u1_bucket(
+    coordinator_case, stages, hybrid
+):
+    case = coordinator_case(
+        stages=stages,
+        exchange_order="cross_layer_v1",
+        overlap_settings=HcclOverlapSettings(
+            graph_u2_hybrid_dag=hybrid,
+            graph_u2_ffn_recv_stream=False,
+            graph_u2_ffn_cross_layer=False,
+        ),
+    )
+    assert case.coordinator.preflight_capture() is hybrid
+    assert sent(case, "GRAPH_DECISION")[0].graph_decision.reason == (
+        "cache_miss" if hybrid else "unsupported"
+    )
+    assert case.transport.plan is None and case.transport.graph_reservation is None
+    assert case.cache.is_empty and case.manager.graphs == {}

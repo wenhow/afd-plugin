@@ -253,7 +253,11 @@ class HcclGraphStageBank:
     ) -> torch.Tensor:
         """Keep the original serial send-three/receive-one tensor contract."""
         if self.exchange_order != "stage_serial":
-            raise RuntimeError("bulk_v1 requires all stage sends before receives")
+            raise RuntimeError(
+                "bulk_v1 requires all stage sends before receives"
+                if self.exchange_order == "bulk_v1"
+                else "cross_layer_v1 requires paired split Attention actions"
+            )
         self.attention_send(stage_idx, hidden_states, hidden_states_fp32, input_ids)
         return self.attention_receive(stage_idx)
 

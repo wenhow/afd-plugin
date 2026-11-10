@@ -34,9 +34,10 @@ class FFNGraphEndpoint(StageGraphEndpoint):
 
 
 class GraphContractMoE(torch.nn.Module):
-    def __init__(self, layer_idx, *, workspace=None, output_defect=None):
+    def __init__(self, layer_idx, *, workspace=None, output_defect=None, records=None):
         super().__init__()
         self.layer_idx, self.fail = layer_idx, False
+        self.records = records
         self.fail_stage = None
         self.workspace, self.output_defect = workspace, output_defect
         self.current_stream = self.expected_stream = None
@@ -59,6 +60,8 @@ class GraphContractMoE(torch.nn.Module):
             or already_sequence_parallel
         ):
             raise ValueError("graph MoE requires its prepared native context")
+        if self.records is not None:
+            self.records.append((self.layer_idx, context.ubatch_idx))
         output = staged_ffn_expected_output(
             HcclLayerInputs(hidden_states, hidden_states_fp32, input_ids),
             self.layer_idx,
@@ -90,12 +93,14 @@ def make_ffn_graph_case(
     build_driver=True,
     reuse_workspace=False,
     output_defect=None,
+    layer_count=2,
 ):
-    events = []
+    events, compute_events = [], []
     bank = make_graph_stage_bank(
         role="ffn",
         rows=rows,
         valid=valid,
+        layers=tuple(range(layer_count)),
         native_tp_size=native_tp_size,
         role_rank=role_rank,
         exchange_order=exchange_order,
@@ -139,7 +144,10 @@ def make_ffn_graph_case(
         layers=[
             SimpleNamespace(
                 mlp=GraphContractMoE(
-                    index, workspace=workspace, output_defect=output_defect
+                    index,
+                    workspace=workspace,
+                    output_defect=output_defect,
+                    records=compute_events,
                 )
             )
             for index in bank.layer_indices
@@ -177,6 +185,7 @@ def make_ffn_graph_case(
         parallel=config.parallel_config,
         driver=driver,
         events=events,
+        compute_events=compute_events,
     )
 
 

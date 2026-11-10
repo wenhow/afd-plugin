@@ -300,17 +300,26 @@ class HcclV41GraphService:
             or candidate.key.num_ubatches > caps.max_stages
         ):
             raise ValueError("FFN graph key exceeds this bank's session capacity")
-        bulk_unsupported = (
-            caps.graph_exchange_order == "bulk_v1"
+        policy = self.pipeline_policy
+        if self.overlap_settings is not None:
+            policy = HcclGraphPipelinePolicy.from_selection(
+                select_hccl_overlap(
+                    self.overlap_settings,
+                    role="ffn",
+                    phase="graph_capture",
+                    num_stages=2,
+                )
+            )
+        order_unsupported = (
+            caps.graph_exchange_order != "stage_serial"
             and candidate.key is not None
             and (
                 candidate.key.num_ubatches == 2
                 or candidate.capture_sequence_digest is not None
             )
-            and self.pipeline_policy is None
             and (
-                self.overlap_settings is None
-                or not self.overlap_settings.graph_u2_compute_overlap
+                policy is None
+                or not policy.supports_exchange_order("ffn", caps.graph_exchange_order)
             )
         )
         if candidate.capture_sequence_digest is not None:
@@ -325,13 +334,13 @@ class HcclV41GraphService:
                 raise ValueError("capture preflight requires a fresh FFN graph cache")
             return HcclGraphReport(
                 "unsupported"
-                if candidate.key is None or bulk_unsupported
+                if candidate.key is None or order_unsupported
                 else "missing"
             )
         if candidate.key is None:
             return HcclGraphReport("unsupported")
         self._model()
-        if bulk_unsupported:
+        if order_unsupported:
             # Report before GRAPH_DECISION: every role selects eager, without
             # entering an unmatched bulk warmup or partial tensor schedule.
             return HcclGraphReport("unsupported")

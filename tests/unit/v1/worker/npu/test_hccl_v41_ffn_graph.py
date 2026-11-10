@@ -273,14 +273,16 @@ def test_bulk_failure_retains_prior_outputs_until_external_supervision(monkeypat
 
 
 @pytest.mark.parametrize("rows,valid", [((3, 2), (2, 0)), ((3, 3), (3, 2))])
+@pytest.mark.parametrize("order", ["bulk_v1", "cross_layer_v1"])
 def test_bulk_preserves_both_stage_outputs_when_native_calls_reuse_one_workspace(
-    monkeypatch, rows, valid
+    monkeypatch, rows, valid, order
 ):
     case = make_ffn_graph_case(
         rows=rows,
         valid=valid,
         reuse_workspace=True,
-        exchange_order="bulk_v1",
+        layer_count=3,
+        exchange_order=order,
         pipeline_factory=lambda bank: (
             attach_pipeline(monkeypatch, pipeline_module, bank).pipeline
         ),
@@ -298,12 +300,13 @@ def test_bulk_preserves_both_stage_outputs_when_native_calls_reuse_one_workspace
 
 
 @pytest.mark.parametrize("defect", ["shape", "dtype", "layout", "device"])
+@pytest.mark.parametrize("order", ["bulk_v1", "cross_layer_v1"])
 def test_bulk_rejects_native_output_instead_of_broadcasting_or_casting(
-    monkeypatch, defect
+    monkeypatch, defect, order
 ):
     case = make_ffn_graph_case(
         output_defect=defect,
-        exchange_order="bulk_v1",
+        exchange_order=order,
         pipeline_factory=lambda bank: (
             attach_pipeline(monkeypatch, pipeline_module, bank).pipeline
         ),
@@ -390,3 +393,69 @@ def test_foreign_pipeline_bank_is_rejected_before_any_ffn_wire(monkeypatch):
             case.model, case.contexts, case.bank, case.parallel, pipeline=pipeline
         )
     assert case.events == other.events == []
+
+
+@pytest.mark.parametrize(
+    "rows,valid", [((3, 2), (2, 0)), ((0, 2), (0, 0)), ((3, 0), (1, 0))]
+)
+@pytest.mark.parametrize("tp,rank", [(1, 0), (2, 0), (2, 1)])
+def test_cross_layer_native_moe_compute_order_and_each_peer_output_are_preserved(
+    monkeypatch, rows, valid, tp, rank
+):
+    case = make_ffn_graph_case(
+        rows=rows,
+        valid=valid,
+        layer_count=3,
+        reuse_workspace=True,
+        native_tp_size=tp,
+        role_rank=rank,
+        exchange_order="cross_layer_v1",
+        pipeline_factory=lambda bank: (
+            attach_pipeline(monkeypatch, pipeline_module, bank).pipeline
+        ),
+    )
+    payloads = queue_ffn_graph_inputs(case)
+    case.driver.run()
+    assert case.compute_events == [
+        (layer, stage)
+        for layer in (0, 1, 2)
+        for stage, count in enumerate(rows)
+        if count
+    ]
+    for stage, exchange in enumerate(case.bank.exchanges):
+        if exchange is None:
+            continue
+        sent = [
+            message[2] for message in exchange.endpoint.messages if message[0] == "send"
+        ]
+        for layer, actual in enumerate(sent):
+            expected = staged_ffn_expected_output(payloads[layer, stage], layer)
+            expected[valid[stage] :] = 0
+            torch.testing.assert_close(actual, expected, rtol=0, atol=0)
+
+
+def test_cross_layer_partial_failure_keeps_both_stage_banks_and_rejects_reentry(
+    monkeypatch,
+):
+    case = make_ffn_graph_case(
+        layer_count=3,
+        reuse_workspace=True,
+        exchange_order="cross_layer_v1",
+        pipeline_factory=lambda bank: (
+            attach_pipeline(monkeypatch, pipeline_module, bank).pipeline
+        ),
+    )
+    payloads = queue_ffn_graph_inputs(case)
+    case.model.model.layers[1].mlp.fail_stage = 0
+    with pytest.raises(RuntimeError, match="controlled graph MoE failure"):
+        case.driver.run()
+    for stage in (0, 1):
+        expected = staged_ffn_expected_output(payloads[0, stage], 0)
+        if stage == 0:
+            expected[2:] = 0
+        torch.testing.assert_close(
+            case.bank.buffers(stage).output, expected, rtol=0, atol=0
+        )
+    assert [event[1] for event in case.events if event[0] == "send"] == [0]
+    with pytest.raises(RuntimeError, match="failed"):
+        case.driver.run()

@@ -304,6 +304,21 @@ class HcclV41GraphCoordinator:
         self.session.fail()
         self.control.cache.fail()
 
+    def _supports_session_pipeline(self) -> bool:
+        policy = self.pipeline_policy
+        if self.overlap_settings is not None:
+            policy = HcclGraphPipelinePolicy.from_selection(
+                select_hccl_overlap(
+                    self.overlap_settings,
+                    role="attention",
+                    phase="graph_capture",
+                    num_stages=2,
+                )
+            )
+        return policy is not None and policy.supports_exchange_order(
+            "attention", self._capabilities.graph_exchange_order
+        )
+
     def preflight_capture(self) -> bool:
         """Agree capture eligibility with an honest miss and zero-row fallback.
 
@@ -326,17 +341,11 @@ class HcclV41GraphCoordinator:
             supported = bool(self.coverage.geometries) and (
                 not native.has_engram or native.can_capture_engram_producer()
             )
-            if self._capabilities.graph_exchange_order == "bulk_v1":
+            if self._capabilities.graph_exchange_order != "stage_serial":
                 # FFN sees the complete sequence digest, not every descriptor.
                 # Require U2 compute eligibility for the whole bulk session,
                 # even if a native U1 bucket precedes its first U2 bucket.
-                supported = supported and (
-                    self.pipeline_policy is not None
-                    or (
-                        self.overlap_settings is not None
-                        and self.overlap_settings.graph_u2_compute_overlap
-                    )
-                )
+                supported = supported and self._supports_session_pipeline()
             keys = tuple(
                 self.control.key_for(geometry) for geometry in self.coverage.geometries
             )
@@ -510,15 +519,11 @@ class HcclV41GraphCoordinator:
         ):
             raise ValueError("native factory descriptor is outside validated coverage")
         if (
-            self._capabilities.graph_exchange_order == "bulk_v1"
+            self._capabilities.graph_exchange_order != "stage_serial"
             and descriptor.num_ubatches == 2
-            and self.pipeline_policy is None
-            and (
-                self.overlap_settings is None
-                or not self.overlap_settings.graph_u2_compute_overlap
-            )
+            and not self._supports_session_pipeline()
         ):
-            raise ValueError("bulk_v1 Graph U2 requires an actual compute pipeline")
+            raise ValueError("non-serial Graph U2 requires its selected compute policy")
         reservation = self.control.reserve_capture(
             descriptor, warmup=warmup, transaction_id=self._transaction_id()
         )

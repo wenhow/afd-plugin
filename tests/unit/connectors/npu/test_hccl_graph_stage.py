@@ -19,9 +19,10 @@ from tests.unit.fakes.hccl_graph_stage import (
 
 
 @pytest.mark.parametrize("rows", [(2,), (2, 3)])
-def test_bulk_bank_uses_split_packets_only_for_u2_and_preserves_storage(rows):
-    bank = make_graph_stage_bank(rows=rows, exchange_order="bulk_v1")
-    assert bank.exchange_order == ("bulk_v1" if len(rows) == 2 else "stage_serial")
+@pytest.mark.parametrize("order", ["bulk_v1", "cross_layer_v1"])
+def test_bulk_bank_uses_split_packets_only_for_u2_and_preserves_storage(rows, order):
+    bank = make_graph_stage_bank(rows=rows, exchange_order=order)
+    assert bank.exchange_order == (order if len(rows) == 2 else "stage_serial")
     inputs = tuple(
         torch.full((count, 4), index + 1, dtype=torch.bfloat16)
         for index, count in enumerate(rows)
@@ -39,7 +40,10 @@ def test_bulk_bank_uses_split_packets_only_for_u2_and_preserves_storage(rows):
         assert output is bank.buffers(stage).output
         torch.testing.assert_close(output, hidden * 3)
     if len(rows) == 2:
-        with pytest.raises(RuntimeError, match="all stage sends"):
+        with pytest.raises(
+            RuntimeError,
+            match="all stage sends" if order == "bulk_v1" else "paired split",
+        ):
             bank.attention_exchange(
                 0,
                 inputs[0],

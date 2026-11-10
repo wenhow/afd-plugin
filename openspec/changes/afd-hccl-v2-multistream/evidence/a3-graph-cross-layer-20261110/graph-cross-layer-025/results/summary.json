@@ -1,0 +1,33 @@
+{
+  "scope": "CPU module seams with actual installed dependencies; no device probe",
+  "remote": "/mnt/workspace/tmp/afd-c0-20261104.hVgsIf/c5-control-cpu-20261109-3j4_ts4a",
+  "command": [
+    "/mnt/workspace/code/.venvs/afd-v030-dsv41-c0/bin/python",
+    "-B",
+    "-m",
+    "pytest",
+    "-o",
+    "addopts=",
+    "-q",
+    "-rs",
+    "--tb=short",
+    "-p",
+    "no:cacheprovider",
+    "-m",
+    "not npu and not gpu",
+    "--junitxml=/mnt/workspace/tmp/afd-c0-20261104.hVgsIf/c5-control-cpu-20261109-3j4_ts4a/results/cpu.xml",
+    "tests/unit/connectors/npu/test_hccl_graph_schedule.py",
+    "tests/unit/distributed/test_hccl_plan.py",
+    "tests/unit/connectors/npu/test_hccl_graph_stage.py",
+    "tests/unit/connectors/npu/test_hccl_graph_pipeline.py",
+    "tests/unit/model_executor/models/npu/test_deepseek_v41_graph.py",
+    "tests/unit/v1/worker/npu/test_hccl_v41_ffn_graph.py",
+    "tests/unit/v1/worker/npu/test_hccl_v41_graph_coordinator.py",
+    "tests/unit/v1/worker/npu/test_hccl_v41_graph_service.py"
+  ],
+  "returncode": 1,
+  "source_files_match": true,
+  "snapshot_exclusions": [],
+  "device_probe_started": false,
+  "success": false
+}

@@ -18,6 +18,7 @@ from types import MappingProxyType
 import torch
 
 from afd_plugin.compat.npu.stream import use_npu_current_stream
+from afd_plugin.connectors.npu.hccl_graph_schedule import HcclGraphSchedule
 from afd_plugin.connectors.npu.hccl_graph_stage import HcclGraphStageBank
 from afd_plugin.connectors.npu.hccl_overlap import HcclOverlapSelection
 
@@ -44,6 +45,16 @@ class HcclGraphPipelinePolicy:
             raise ValueError("graph pipeline policy values must be bool")
         if self.ffn_cross_layer and not self.ffn_recv_stream:
             raise ValueError("graph FFN cross-layer policy requires receive stream")
+
+    def supports_exchange_order(self, role: str, exchange_order: str) -> bool:
+        """Check the local role's real dependency gates before any warmup."""
+        if exchange_order == "cross_layer_v1":
+            return (
+                self.hybrid
+                if role == "attention"
+                else (self.ffn_recv_stream and self.ffn_cross_layer)
+            )
+        return True
 
     @classmethod
     def from_selection(
@@ -150,6 +161,11 @@ class HcclGraphComputePipeline:
         self.step_events = MappingProxyType(dict(step_events))
         self.tail_events = MappingProxyType(dict(tail_events))
         self._steps, self._stages = steps, stages
+        self._schedule = (
+            HcclGraphSchedule(bank.layer_indices, bank.stage_rows)
+            if bank.exchange_order == "cross_layer_v1"
+            else None
+        )
         self._layout = (
             bank.role,
             bank.layer_indices,
@@ -183,6 +199,10 @@ class HcclGraphComputePipeline:
     @property
     def selection(self) -> HcclOverlapSelection | None:
         return self._selection
+
+    @property
+    def schedule(self) -> HcclGraphSchedule | None:
+        return self._schedule
 
     @property
     def logical_send_stream(self) -> str:
@@ -243,10 +263,17 @@ class HcclGraphComputePipeline:
             selected = HcclGraphPipelinePolicy.from_selection(selection)
             if selected is None:
                 raise ValueError("graph pipeline selection requires active U2 compute")
-            return selected
-        if policy is not None:
-            return policy
-        return HcclGraphPipelinePolicy(hybrid=True if hybrid is None else hybrid)
+        elif policy is not None:
+            selected = policy
+        else:
+            selected = HcclGraphPipelinePolicy(
+                hybrid=True if hybrid is None else hybrid
+            )
+        if not selected.supports_exchange_order(bank.role, bank.exchange_order):
+            raise ValueError(
+                "cross_layer_v1 requires its role's hybrid/receive/cross policy"
+            )
+        return selected
 
     @classmethod
     def allocate(
@@ -317,6 +344,7 @@ class HcclGraphComputePipeline:
         self._recorded = True
         self._wire_index = self._compute_index = 0
         self._send_index = self._receive_index = 0
+        self._action_index = 0
         self._received.clear()
         self._computed.clear()
         self._sent.clear()
@@ -370,6 +398,19 @@ class HcclGraphComputePipeline:
                 "pipeline wire order must remain layer-major and stage-minor"
             )
 
+    def _require_action(self, kind: str, step: tuple[int, int]) -> None:
+        if self.schedule is None:
+            return
+        if self._action_index >= len(self.schedule.actions):
+            raise RuntimeError("cross-layer wire action is already complete")
+        action = self.schedule.actions[self._action_index]
+        if (action.kind, action.layer_idx, action.stage_idx) != (kind, *step):
+            raise RuntimeError("cross-layer wire must follow the paired static action")
+
+    def _complete_action(self) -> None:
+        if self.schedule is not None:
+            self._action_index += 1
+
     def _retain_on(
         self,
         tensors: tuple[torch.Tensor, ...],
@@ -412,6 +453,7 @@ class HcclGraphComputePipeline:
             raise RuntimeError("pipeline compute requires its matching stage receive")
         if (
             self.bank.role == "attention"
+            and self.schedule is None
             and dependency is not None
             and any(
                 (dependency[0], stage) not in self._received for stage in self._stages
@@ -445,7 +487,7 @@ class HcclGraphComputePipeline:
     ) -> Iterator[None]:
         """Join the actual producer before BF16/FP32/IDs copies and parent HCCL."""
         if self.bank.exchange_order != "stage_serial":
-            raise RuntimeError("bulk_v1 requires split Attention send/receive scopes")
+            raise RuntimeError("non-serial Graph order requires split Attention scopes")
         send_stream = self._communication_stream(send=True)
         step = self._require_step(layer_idx, stage_idx)
         self._require_wire_step(step)
@@ -487,16 +529,23 @@ class HcclGraphComputePipeline:
         parent = self._communication_stream(send=True)
         step = self._require_step(layer_idx, stage_idx)
         if (
-            self.bank.exchange_order != "bulk_v1"
+            self.bank.exchange_order not in ("bulk_v1", "cross_layer_v1")
             or self.bank.role != "attention"
             or self._send_index >= len(self._steps)
             or self._steps[self._send_index] != step
-            or any((layer_idx, stage) not in self._computed for stage in self._stages)
+            or step not in self._computed
+            or (
+                self.schedule is None
+                and any(
+                    (layer_idx, stage) not in self._computed for stage in self._stages
+                )
+            )
         ):
             raise RuntimeError(
                 "bulk Attention send requires its ordered compute frontier"
             )
         events = self.step_events[step]
+        self._require_action("input", step)
         events.compute_done.wait(parent)
         self._retain_on(tensors, parent, stage_idx)
         try:
@@ -505,6 +554,7 @@ class HcclGraphComputePipeline:
             events.send_done.record(parent)
             self._sent.add(step)
             self._send_index += 1
+            self._complete_action()
         except BaseException:
             self._failed = True
             raise
@@ -516,17 +566,23 @@ class HcclGraphComputePipeline:
         step = self._require_step(layer_idx, stage_idx)
         self._require_wire_step(step)
         if (
-            self.bank.exchange_order != "bulk_v1"
+            self.bank.exchange_order not in ("bulk_v1", "cross_layer_v1")
             or self.bank.role != "attention"
-            or any((layer_idx, stage) not in self._sent for stage in self._stages)
+            or step not in self._sent
+            or (
+                self.schedule is None
+                and any((layer_idx, stage) not in self._sent for stage in self._stages)
+            )
         ):
             raise RuntimeError("bulk Attention receive requires all this layer's sends")
+        self._require_action("output", step)
         try:
             yield
             self._require_parent()
             self.step_events[step].receive_done.record(parent)
             self._received.add(step)
             self._wire_index += 1
+            self._complete_action()
         except BaseException:
             self._failed = True
             raise
@@ -536,12 +592,15 @@ class HcclGraphComputePipeline:
         """Fence the previous use of this stage's bank before receiving again."""
         parent = self._communication_stream(send=False)
         step = self._require_step(layer_idx, stage_idx)
-        if self.bank.exchange_order == "bulk_v1":
+        if self.bank.exchange_order in ("bulk_v1", "cross_layer_v1"):
             if (
                 self._receive_index >= len(self._steps)
                 or self._steps[self._receive_index] != step
-                or self._wire_index
-                != self.bank.layer_indices.index(layer_idx) * len(self._stages)
+                or (
+                    self.schedule is None
+                    and self._wire_index
+                    != self.bank.layer_indices.index(layer_idx) * len(self._stages)
+                )
             ):
                 raise RuntimeError(
                     "bulk FFN receive requires its ordered layer frontier"
@@ -550,6 +609,7 @@ class HcclGraphComputePipeline:
             self._require_wire_step(step)
         if self.bank.role != "ffn" or step in self._received:
             raise RuntimeError("FFN receive requires a fresh ordered step")
+        self._require_action("input", step)
         index = self.bank.layer_indices.index(layer_idx)
         if index:
             previous = (self.bank.layer_indices[index - 1], stage_idx)
@@ -570,6 +630,7 @@ class HcclGraphComputePipeline:
             self.step_events[step].receive_done.record(parent)
             self._received.add(step)
             self._receive_index += 1
+            self._complete_action()
         except BaseException:
             self._failed = True
             raise
@@ -584,10 +645,11 @@ class HcclGraphComputePipeline:
         self._require_wire_step(step)
         if self.bank.role != "ffn" or step not in self._computed:
             raise RuntimeError("FFN send requires its completed compute frontier")
-        if self.bank.exchange_order == "bulk_v1" and any(
+        if self.bank.exchange_order in ("bulk_v1", "cross_layer_v1") and any(
             (layer_idx, stage) not in self._computed for stage in self._stages
         ):
             raise RuntimeError("bulk FFN send requires every stage receive/compute")
+        self._require_action("output", step)
         events = self.step_events[step]
         events.compute_done.wait(parent)
         self._retain_on(tensors, parent, stage_idx)
@@ -597,6 +659,7 @@ class HcclGraphComputePipeline:
             events.send_done.record(parent)
             self._sent.add(step)
             self._wire_index += 1
+            self._complete_action()
         except BaseException:
             self._failed = True
             raise
@@ -659,8 +722,13 @@ class HcclGraphComputePipeline:
     def join(self, *, outputs: tuple[torch.Tensor, ...] = ()) -> None:
         """Make every final side task an ancestor of parent output consumption."""
         parent = self._require_parent()
-        if self._wire_index != len(self._steps) or self._compute_index != len(
-            self._steps
+        if (
+            self._wire_index != len(self._steps)
+            or self._compute_index != len(self._steps)
+            or (
+                self.schedule is not None
+                and self._action_index != len(self.schedule.actions)
+            )
         ):
             raise RuntimeError("pipeline join requires every static layer/stage")
         if self.bank.role == "attention":

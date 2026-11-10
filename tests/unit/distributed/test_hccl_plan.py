@@ -68,7 +68,7 @@ def test_graph_zero_keeps_pre_extension_hello_fields(capabilities):
     assert "graph_execution_version" not in wire["capabilities"]
 
 
-@pytest.mark.parametrize("order", ["stage_serial", "bulk_v1"])
+@pytest.mark.parametrize("order", ["stage_serial", "bulk_v1", "cross_layer_v1"])
 def test_graph_exchange_order_roundtrips_without_changing_default_hello(
     graph_round, order
 ):
@@ -77,7 +77,7 @@ def test_graph_exchange_order_roundtrips_without_changing_default_hello(
     encoded = encode_hccl_plan_message(message)
     assert decode_hccl_plan_message(encoded) == message
     payload = json.loads(encoded)["capabilities"]
-    assert ("graph_exchange_order" in payload) == (order == "bulk_v1")
+    assert ("graph_exchange_order" in payload) == (order != "stage_serial")
     if order == "stage_serial":
         assert encoded == encode_hccl_plan_message(
             replace(message, capabilities=graph_round.capabilities)
@@ -111,10 +111,11 @@ def test_graph_exchange_order_rejects_unknown_or_non_string_wire_values(
         {"native_tp_size": 4, "attention_size": 4, "ffn_size": 4},
     ],
 )
-def test_graph_bulk_requires_the_supported_static_session(graph_round, change):
-    with pytest.raises(ValueError, match="bulk_v1"):
+@pytest.mark.parametrize("order", ["bulk_v1", "cross_layer_v1"])
+def test_graph_bulk_requires_the_supported_static_session(graph_round, change, order):
+    with pytest.raises(ValueError, match=order):
         replace(
-            graph_round.capabilities, graph_exchange_order="bulk_v1", **change
+            graph_round.capabilities, graph_exchange_order=order, **change
         ).validate()
 
 
@@ -583,3 +584,16 @@ def test_encoder_rejects_parent_larger_than_control_frame():
     )
     with pytest.raises(ValueError, match="maximum size"):
         encode_hccl_plan_message(HcclPlanMessage("FORWARD", plan=plan))
+
+
+@pytest.mark.parametrize(
+    "left,right", [("bulk_v1", "cross_layer_v1"), ("cross_layer_v1", "bulk_v1")]
+)
+def test_graph_peers_never_downgrade_between_bulk_and_cross_layer(
+    graph_round, left, right
+):
+    cap = graph_round.capabilities
+    with pytest.raises(ValueError, match="graph_exchange_order"):
+        replace(cap, graph_exchange_order=left).negotiate(
+            replace(cap, graph_exchange_order=right)
+        )

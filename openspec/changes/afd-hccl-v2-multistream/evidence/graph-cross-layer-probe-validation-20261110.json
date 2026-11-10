@@ -1,0 +1,99 @@
+{
+  "scope": "static probe/harness preparation; no SSH or NPU execution",
+  "head": "bdf4b3e3eeef2781713a0b63591eb0ce79e94843",
+  "source_files": {
+    "tests/npu/hccl_graph_manager_probe.py": "8e64e60927cdaefd692a3bf82d4482317013db24a28807d0baff151939a2b904",
+    "openspec/changes/afd-hccl-v2-graph/evidence/a3-native-manager-20261109/run_a3_graph_manager.py": "1084c6d330902ba1ebc3a99bbb552671081434cdef3fd85f25f54dba791ab734"
+  },
+  "frozen_twenty_paths_match": true,
+  "frozen_production_in_prepare_manifest": 8,
+  "oracle_ast_unchanged_from_head": {
+    "payload": true,
+    "verify": true,
+    "observe_bank": true,
+    "native_check": true,
+    "complete_active": true
+  },
+  "python311_ast": 2,
+  "cli_rejection_checks": [
+    {
+      "source": "tests/npu/hccl_graph_manager_probe.py",
+      "case": "missing_compute",
+      "exit_code": 2,
+      "expected_error": "enabled compute pipeline"
+    },
+    {
+      "source": "tests/npu/hccl_graph_manager_probe.py",
+      "case": "hybrid_off",
+      "exit_code": 2,
+      "expected_error": "hybrid and FFN"
+    },
+    {
+      "source": "tests/npu/hccl_graph_manager_probe.py",
+      "case": "layer_count_invalid",
+      "exit_code": 2,
+      "expected_error": "invalid choice"
+    },
+    {
+      "source": "tests/npu/hccl_graph_manager_probe.py",
+      "case": "incomplete_axes",
+      "exit_code": 2,
+      "expected_error": "five Graph axes"
+    },
+    {
+      "source": "openspec/changes/afd-hccl-v2-graph/evidence/a3-native-manager-20261109/run_a3_graph_manager.py",
+      "case": "missing_compute",
+      "exit_code": 2,
+      "expected_error": "enabled compute pipeline"
+    },
+    {
+      "source": "openspec/changes/afd-hccl-v2-graph/evidence/a3-native-manager-20261109/run_a3_graph_manager.py",
+      "case": "hybrid_off",
+      "exit_code": 2,
+      "expected_error": "hybrid and FFN"
+    },
+    {
+      "source": "openspec/changes/afd-hccl-v2-graph/evidence/a3-native-manager-20261109/run_a3_graph_manager.py",
+      "case": "layer_count_invalid",
+      "exit_code": 2,
+      "expected_error": "invalid choice"
+    },
+    {
+      "source": "openspec/changes/afd-hccl-v2-graph/evidence/a3-native-manager-20261109/run_a3_graph_manager.py",
+      "case": "incomplete_axes",
+      "exit_code": 2,
+      "expected_error": "five Graph axes"
+    }
+  ],
+  "help_exits": {
+    "probe": 0,
+    "harness": 0
+  },
+  "prepare_only": {
+    "identity": "a3-graph-cross-layer-20261110/cross-prepare-001/identity.json",
+    "identity_sha256": "e6e79259c49c5514bc086fc62ac2d6d9b1fc13354bd61580cc34cdb13bdeb31c",
+    "manifest_entries": 141,
+    "manifest_sha256": "4dd1a582eeeefdfe5a785ca1ebf175cb92e0f315cb396a76614dfc077246229b",
+    "archive_members": 142,
+    "source_pin_count": 31,
+    "exchange_order": "cross_layer_v1",
+    "layer_count": 3,
+    "graph_axes": {
+      "graph_compute": 1,
+      "graph_hybrid": 1,
+      "attention_three": 1,
+      "ffn_recv": 1,
+      "ffn_cross": 1
+    }
+  },
+  "remaining": "independent artifact review and separate parent authorization before one bounded TP1 device session",
+  "not_claimed": [
+    "cross_layer_v1 device correctness",
+    "native model/HC/Engram/MoE",
+    "TP2 device",
+    "physical side HCCL",
+    "overlap or performance"
+  ],
+  "ruff": "passed",
+  "diff_check": "passed"
+}

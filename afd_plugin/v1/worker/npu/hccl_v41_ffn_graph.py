@@ -81,8 +81,10 @@ class HcclV41FFNGraph:
         self.model, self.contexts, self.bank = model, contexts, bank
         if pipeline is not None and pipeline.bank is not bank:
             raise ValueError("FFN graph pipeline must own the retained stage bank")
-        if bank.exchange_order == "bulk_v1" and pipeline is None:
-            raise ValueError("bulk_v1 Graph U2 requires an actual compute pipeline")
+        if bank.exchange_order != "stage_serial" and pipeline is None:
+            raise ValueError(
+                f"{bank.exchange_order} Graph U2 requires an actual compute pipeline"
+            )
         self.pipeline = pipeline
         self.diagnostics = None
         if diagnostics is not None:
@@ -111,75 +113,41 @@ class HcclV41FFNGraph:
         """Execute/record tensor work; replay does not enter this Python loop."""
         bank, pipeline, progress = self.bank, self.pipeline, self.diagnostics
         with pipeline.run() if pipeline is not None else nullcontext():
-            for layer_idx in bank.layer_indices:
-                outputs: list[tuple[int, torch.Tensor]] = []
-                for stage_idx, (rows, context) in enumerate(
-                    zip(bank.stage_rows, self.contexts, strict=True)
-                ):
-                    if not rows:
-                        continue
-                    with override_forward_context(context):
-                        _set_moe_layer_index(context, layer_idx)
-                        if progress is not None:
-                            progress.record("recv_begin", layer_idx, stage_idx)
-                        with (
-                            pipeline.ffn_receive(layer_idx, stage_idx)
-                            if pipeline is not None
-                            else nullcontext()
-                        ):
-                            buffers = bank.receive_inputs(stage_idx)
-                        if progress is not None:
-                            progress.record("recv_returned", layer_idx, stage_idx)
-                            progress.record("compute_begin", layer_idx, stage_idx)
-                        with (
-                            pipeline.compute(
-                                layer_idx,
-                                stage_idx,
-                                inputs=(
-                                    buffers.hidden_states,
-                                    buffers.hidden_states_fp32,
-                                    buffers.input_ids,
-                                ),
+            if pipeline is not None and pipeline.schedule is not None:
+                outputs: dict[int, torch.Tensor] = {}
+                for action in pipeline.schedule.actions:
+                    if action.kind == "input":
+                        outputs[action.stage_idx] = self._receive_compute(
+                            action.layer_idx, action.stage_idx
+                        )
+                    else:
+                        with override_forward_context(self.contexts[action.stage_idx]):
+                            self._send_output(
+                                action.layer_idx,
+                                action.stage_idx,
+                                outputs.pop(action.stage_idx),
                             )
-                            if pipeline is not None
-                            else nullcontext()
-                        ):
-                            output = self.model.compute_ffn_output(
-                                hidden_states=buffers.hidden_states,
-                                layer_idx=layer_idx,
-                                input_ids=buffers.input_ids,
-                                hidden_states_fp32=buffers.hidden_states_fp32,
-                                already_sequence_parallel=False,
-                            )
-                            if bank.exchange_order == "bulk_v1":
-                                # A native Tensor can borrow a reusable MoE
-                                # workspace. Consume it before another call,
-                                # then publish only the fixed stage bank.
-                                if output.device.type == "npu":
-                                    output.record_stream(torch.npu.current_stream())
-                                output = bank.prepare_output(stage_idx, output)
-                        if pipeline is not None and bank.exchange_order == "bulk_v1":
-                            pipeline.retain_compute_outputs(
-                                layer_idx, stage_idx, tensors=(output,)
-                            )
-                        if progress is not None:
-                            progress.record("compute_returned", layer_idx, stage_idx)
+            else:
+                for layer_idx in bank.layer_indices:
+                    pending: list[tuple[int, torch.Tensor]] = []
+                    for stage_idx, rows in enumerate(bank.stage_rows):
+                        if not rows:
+                            continue
+                        output = self._receive_compute(layer_idx, stage_idx)
                         if bank.exchange_order == "bulk_v1":
-                            # Keep every native output until both receives and
-                            # their side computes have been enqueued. Parent
-                            # HCCL can then receive S1 while compute S0 runs.
-                            outputs.append((stage_idx, output))
+                            pending.append((stage_idx, output))
                         else:
+                            with override_forward_context(self.contexts[stage_idx]):
+                                self._send_output(layer_idx, stage_idx, output)
+                    for stage_idx, output in pending:
+                        with override_forward_context(self.contexts[stage_idx]):
                             self._send_output(layer_idx, stage_idx, output)
-                for stage_idx, output in outputs:
-                    with override_forward_context(self.contexts[stage_idx]):
-                        self._send_output(layer_idx, stage_idx, output)
-                if pipeline is not None and not pipeline.policy.ffn_cross_layer:
-                    if progress is not None:
-                        progress.record("layer_send_wait_begin", layer_idx, 0)
-                    pipeline.join_layer(layer_idx)
-                    if progress is not None:
-                        progress.record("layer_send_wait_returned", layer_idx, 0)
+                    if pipeline is not None and not pipeline.policy.ffn_cross_layer:
+                        if progress is not None:
+                            progress.record("layer_send_wait_begin", layer_idx, 0)
+                        pipeline.join_layer(layer_idx)
+                        if progress is not None:
+                            progress.record("layer_send_wait_returned", layer_idx, 0)
             if pipeline is not None:
                 if progress is not None:
                     progress.record("final_send_wait_begin", bank.layer_indices[-1], 0)
@@ -188,6 +156,54 @@ class HcclV41FFNGraph:
                     progress.record(
                         "final_send_wait_returned", bank.layer_indices[-1], 0
                     )
+
+    def _receive_compute(self, layer_idx: int, stage_idx: int) -> torch.Tensor:
+        """Receive one stage and publish its complete native MoE result."""
+        bank, pipeline, progress = self.bank, self.pipeline, self.diagnostics
+        with override_forward_context(self.contexts[stage_idx]):
+            _set_moe_layer_index(self.contexts[stage_idx], layer_idx)
+            if progress is not None:
+                progress.record("recv_begin", layer_idx, stage_idx)
+            with (
+                pipeline.ffn_receive(layer_idx, stage_idx)
+                if pipeline is not None
+                else nullcontext()
+            ):
+                buffers = bank.receive_inputs(stage_idx)
+            if progress is not None:
+                progress.record("recv_returned", layer_idx, stage_idx)
+                progress.record("compute_begin", layer_idx, stage_idx)
+            with (
+                pipeline.compute(
+                    layer_idx,
+                    stage_idx,
+                    inputs=(
+                        buffers.hidden_states,
+                        buffers.hidden_states_fp32,
+                        buffers.input_ids,
+                    ),
+                )
+                if pipeline is not None
+                else nullcontext()
+            ):
+                output = self.model.compute_ffn_output(
+                    hidden_states=buffers.hidden_states,
+                    layer_idx=layer_idx,
+                    input_ids=buffers.input_ids,
+                    hidden_states_fp32=buffers.hidden_states_fp32,
+                    already_sequence_parallel=False,
+                )
+                if bank.exchange_order != "stage_serial":
+                    # A native return may borrow a reusable MoE workspace.
+                    # Consume it into stage-owned storage before compute_done.
+                    if output.device.type == "npu":
+                        output.record_stream(torch.npu.current_stream())
+                    output = bank.prepare_output(stage_idx, output)
+            if pipeline is not None and bank.exchange_order != "stage_serial":
+                pipeline.retain_compute_outputs(layer_idx, stage_idx, tensors=(output,))
+            if progress is not None:
+                progress.record("compute_returned", layer_idx, stage_idx)
+            return output
 
     def _send_output(
         self, layer_idx: int, stage_idx: int, output: torch.Tensor

@@ -36,6 +36,76 @@ def make_body(case, *, pipeline=None):
     )
 
 
+@pytest.mark.parametrize("split", [(2, 3), (0, 3), (3, 0), (5,)])
+@pytest.mark.parametrize("engram", [False, True])
+def test_cross_layer_parent_preserves_three_layer_hc_aux_mtp_and_one_engram_producer(
+    monkeypatch, split, engram
+):
+    case = make_graph_model_case(
+        split, engram=engram, exchange_order="cross_layer_v1", layer_count=3
+    )
+    expected = case.model(**case.parent_inputs)
+    expected_mtp = case.mtp_rows.clone()
+    attach_graph_pipeline(monkeypatch, pipeline_module, case)
+    actual = DeepseekV41GraphParent(make_body(case, pipeline=case.pipeline))(
+        case.graph_inputs
+    )
+    torch.testing.assert_close(actual, expected, rtol=0, atol=0)
+    torch.testing.assert_close(case.mtp_rows, expected_mtp, rtol=0, atol=0)
+    assert len(case.producer_parents) == int(engram)
+    assert case.joined == ([True] if engram else [])
+    positive = [stage for stage, count in enumerate(split) if count]
+    assert [event[1:3] for event in case.runtime.trace if event[0] == "attention"] == [
+        (layer, stage) for layer in range(3) for stage in positive
+    ]
+    if len(split) == 2:
+        schedule = case.pipeline.schedule
+        expected_wire = [
+            ("send" if action.kind == "input" else "receive", action.stage_idx)
+            for action in schedule.actions
+            for _ in range(3 if action.kind == "input" else 1)
+        ]
+        assert [
+            event[1:3] for event in case.runtime.trace if event[0] == "wire"
+        ] == expected_wire
+    for endpoint in case.endpoints:
+        for offset in range(0, len(endpoint.messages), 3):
+            hidden, original, ids = endpoint.messages[offset : offset + 3]
+            assert original.dtype == torch.float32 and ids.dtype == torch.int32
+            assert torch.any(hidden.float() != original)
+
+
+def test_cross_layer_failure_restores_parent_after_advancing_next_compute(
+    monkeypatch,
+):
+    streams = make_npu_stream_case(monkeypatch, pipeline_module, cached="foreign")
+    case = attach_graph_pipeline(
+        monkeypatch,
+        pipeline_module,
+        make_graph_model_case(exchange_order="cross_layer_v1", layer_count=3),
+        runtime=streams.runtime,
+    )
+    original = case.model.shared_attention_state
+    parent = SimpleNamespace(ubatch_idx=-1)
+
+    def fail(*args):
+        raise RuntimeError("cross layer peer failure")
+
+    monkeypatch.setattr(case.endpoints[1], "receive", fail)
+    body = DeepseekV41GraphParent(make_body(case, pipeline=case.pipeline))
+    with override_forward_context(parent):
+        with pytest.raises(RuntimeError, match="cross layer peer failure"):
+            body(case.graph_inputs)
+        assert get_forward_context() is parent
+    assert ("attention", 1, 0, True, True) in case.runtime.trace
+    assert case.model.shared_attention_state is original
+    assert all(layer.self_attn.shared_state is original for layer in case.model.layers)
+    assert case.joined == [True]
+    assert streams.query() is streams.previous
+    with pytest.raises(RuntimeError, match="failed"), case.pipeline.run():
+        pass
+
+
 @pytest.mark.parametrize("split", [(5,), (2, 3), (0, 3), (3, 0)])
 @pytest.mark.parametrize("engram", [False, True])
 def test_bulk_graph_parent_preserves_native_hc_engram_aux_and_all_send_frontier(

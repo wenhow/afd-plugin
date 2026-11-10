@@ -30,7 +30,7 @@ if TYPE_CHECKING:
 
 HIDDEN_SIZE = 16
 CAPACITY = 32
-LAYERS = (0, 1)
+DEFAULT_LAYER_COUNT = 2
 CAPTURE_SIZES = (4, 8)
 GROUP_TIMEOUT_SECONDS = 45
 TOTAL_TIMEOUT_SECONDS = 300
@@ -55,9 +55,12 @@ def parse_args():
     parser.add_argument("--timeout", type=int, default=TOTAL_TIMEOUT_SECONDS)
     parser.add_argument(
         "--exchange-order",
-        choices=("stage_serial", "bulk_v1"),
+        choices=("stage_serial", "bulk_v1", "cross_layer_v1"),
         default="stage_serial",
-        help="fixed HELLO proposal on both roles; bulk_v1 requires U2 compute",
+        help="fixed HELLO proposal on both roles; non-serial orders require U2 compute",
+    )
+    parser.add_argument(
+        "--layer-count", type=int, choices=(2, 3), default=DEFAULT_LAYER_COUNT
     )
     parser.add_argument(
         "--stage-bank",
@@ -116,11 +119,23 @@ def parse_args():
             )
         if args.ffn_cross and not args.ffn_recv:
             parser.error("--ffn-cross 1 requires --ffn-recv 1")
-    if args.exchange_order == "bulk_v1" and not (
+    if args.exchange_order != "stage_serial" and not (
         args.stage_bank
         and (args.compute_pipeline or (args.graph_axes and args.graph_compute))
     ):
-        parser.error("bulk_v1 requires --stage-bank and enabled compute pipeline")
+        parser.error(
+            "non-serial order requires --stage-bank and enabled compute pipeline"
+        )
+    if args.exchange_order == "cross_layer_v1" and (
+        (
+            args.graph_axes
+            and not (args.graph_hybrid and args.ffn_recv and args.ffn_cross)
+        )
+        or (args.compute_pipeline and not args.pipeline_hybrid)
+    ):
+        parser.error(
+            "cross_layer_v1 requires hybrid and FFN receive/cross dependencies"
+        )
     return args
 
 
@@ -206,6 +221,7 @@ def run_worker(args):
     from afd_plugin.v1.worker.npu.ubatch_runner import NPUUBatchRunner
     from tests.npu.hccl_staged_probe import build_config
 
+    layers = tuple(range(args.layer_count))
     device = torch.device("npu", args.devices[args.rank])
     role = "ffn" if args.rank == 0 else "attention"
     settings = (
@@ -234,6 +250,7 @@ def run_worker(args):
         "compute_pipeline": args.compute_pipeline,
         "pipeline_hybrid": args.pipeline_hybrid,
         "exchange_order": args.exchange_order,
+        "layer_count": args.layer_count,
         "graph_axes": (
             {name: vars(args)[name] for name in GRAPH_AXIS_ARGUMENTS}
             if args.graph_axes
@@ -301,13 +318,13 @@ def run_worker(args):
             from afd_plugin.connectors.npu.hccl_graph_stage import HcclGraphStageBank
 
             bank = HcclGraphStageBank.allocate(transport, key, device=device)
-            exchanges = tuple(exchange for _ in LAYERS for exchange in bank.exchanges)
+            exchanges = tuple(exchange for _ in layers for exchange in bank.exchanges)
             # Only the bank is production exchange storage. These separate
             # probe buffers retain each layer's oracle inputs/outputs, so a
             # later layer cannot hide an earlier bad exchange by overwriting it.
             observations = tuple(
                 HcclGraphBuffers.allocate(rows, HIDDEN_SIZE, device) if rows else None
-                for _ in LAYERS
+                for _ in layers
                 for rows in bank.stage_rows
             )
             pipeline, selection, produced, continuations = None, None, (), ()
@@ -350,7 +367,7 @@ def run_worker(args):
                         HcclGraphBuffers.allocate(rows, HIDDEN_SIZE, device)
                         if rows
                         else None
-                        for _ in LAYERS
+                        for _ in layers
                         for rows in bank.stage_rows
                     )
                     continuations = tuple(
@@ -372,6 +389,12 @@ def run_worker(args):
                         "positive_steps": len(pipeline.step_events),
                         "tail_event_pairs": len(pipeline.tail_events),
                         "exchange_order": bank.exchange_order,
+                        "static_wire_actions": [
+                            [action.kind, action.layer_idx, action.stage_idx]
+                            for action in pipeline.schedule.actions
+                        ]
+                        if pipeline.schedule is not None
+                        else [],
                     }
                 )
             tensors = bank_tensors(bank)
@@ -397,7 +420,7 @@ def run_worker(args):
                 continuations=continuations,
             )
         exchanges, valid_counts, row_indices = [], [], []
-        for _layer in LAYERS:
+        for _layer in layers:
             for stage, rows in enumerate(key.padded_tokens):
                 endpoint = HcclGraphEndpoint.from_process_group(
                     transport.data_groups[stage], 1 - args.rank
@@ -532,12 +555,15 @@ def run_worker(args):
 
     def pipeline_body(bundle):
         bank, pipeline = bundle.bank, bundle.pipeline
+        if bank.exchange_order == "cross_layer_v1":
+            wavefront_body(bundle)
+            return
         bulk = bank.exchange_order == "bulk_v1"
         if bulk:
             assert pipeline is not None
         positive = tuple(stage for stage, rows in enumerate(bank.stage_rows) if rows)
         with pipeline.run() if pipeline is not None else nullcontext():
-            for layer_index, layer in enumerate(LAYERS):
+            for layer_index, layer in enumerate(layers):
                 if role == "attention":
                     for stage in positive:
                         index = layer_index * len(bank.stage_rows) + stage
@@ -662,33 +688,135 @@ def run_worker(args):
                             observe_bank(bundle, index, stage)
                     if pipeline is not None and not pipeline.policy.ffn_cross_layer:
                         pipeline.join_layer(layer)
+            join_pipeline(bundle, positive)
+
+    def wavefront_body(bundle):
+        bank, pipeline = bundle.bank, bundle.pipeline
+        assert pipeline is not None and pipeline.schedule is not None
+        positive = tuple(stage for stage, rows in enumerate(bank.stage_rows) if rows)
+        pending = {}
+
+        def prepare_attention(layer, stage):
+            index = layers.index(layer) * len(bank.stage_rows) + stage
+            observed, produced = bundle.observations[index], bundle.produced[index]
+            previous = bank.buffers(stage).output if layer != layers[0] else None
+            dependencies = (
+                observed.hidden_states,
+                observed.hidden_states_fp32,
+                observed.input_ids,
+            ) + ((previous,) if previous is not None else ())
+            with pipeline.compute(layer, stage, inputs=dependencies):
+                if previous is None:
+                    produced.hidden_states.copy_(observed.hidden_states)
+                    produced.hidden_states_fp32.copy_(observed.hidden_states_fp32)
+                else:
+                    produced.hidden_states.copy_(
+                        observed.hidden_states.float() + previous.float()
+                    )
+                    produced.hidden_states_fp32.copy_(
+                        observed.hidden_states_fp32 + previous.float()
+                    )
+                produced.input_ids.copy_(observed.input_ids)
+            pipeline.retain_compute_outputs(
+                layer,
+                stage,
+                tensors=(
+                    produced.hidden_states,
+                    produced.hidden_states_fp32,
+                    produced.input_ids,
+                ),
+            )
+
+        with pipeline.run():
             if role == "attention":
                 for stage in positive:
-                    index = (len(LAYERS) - 1) * len(bank.stage_rows) + stage
-                    previous = bank.buffers(stage).output
-                    produced = bundle.produced[index].hidden_states
-                    continuation = bundle.continuations[stage]
-                    with (
-                        pipeline.final_compute(stage, inputs=(previous, produced))
-                        if pipeline is not None
-                        else nullcontext()
-                    ):
-                        torch.add(previous, produced, out=continuation)
-                        continuation.masked_fill_(
-                            bank.padding_masks[stage].unsqueeze(1), 0
-                        )
-                if pipeline is not None:
-                    pipeline.join(
-                        outputs=tuple(bundle.continuations[stage] for stage in positive)
-                    )
-            elif pipeline is not None:
+                    prepare_attention(layers[0], stage)
+            for action in pipeline.schedule.actions:
+                layer, stage = action.layer_idx, action.stage_idx
+                index = layers.index(layer) * len(bank.stage_rows) + stage
+                if action.kind == "input":
+                    if role == "attention":
+                        if layer != layers[0]:
+                            prepare_attention(layer, stage)
+                        produced = bundle.produced[index]
+                        with pipeline.attention_send(
+                            layer,
+                            stage,
+                            tensors=(
+                                produced.hidden_states,
+                                produced.hidden_states_fp32,
+                                produced.input_ids,
+                            ),
+                        ):
+                            bank.attention_send(
+                                stage,
+                                produced.hidden_states,
+                                produced.hidden_states_fp32,
+                                produced.input_ids,
+                            )
+                    else:
+                        with pipeline.ffn_receive(layer, stage):
+                            inputs = bank.receive_inputs(stage)
+                        with pipeline.compute(
+                            layer,
+                            stage,
+                            inputs=(
+                                inputs.hidden_states,
+                                inputs.hidden_states_fp32,
+                                inputs.input_ids,
+                            ),
+                        ):
+                            output = (
+                                inputs.hidden_states.float()
+                                + (
+                                    inputs.hidden_states_fp32
+                                    - inputs.hidden_states.float()
+                                )
+                                * ROUTER_SCALE
+                                + inputs.input_ids[:, None].float()
+                            ).bfloat16()
+                            output.record_stream(pipeline.compute_stream)
+                            output = bank.prepare_output(stage, output)
+                        pipeline.retain_compute_outputs(layer, stage, tensors=(output,))
+                        pending[stage] = output
+                elif role == "attention":
+                    with pipeline.attention_receive(layer, stage):
+                        bank.attention_receive(stage)
+                        observe_bank(bundle, index, stage)
+                else:
+                    output = pending.pop(stage)
+                    with pipeline.ffn_send(layer, stage, tensors=(output,)):
+                        bank.send_output(stage, output)
+                        observe_bank(bundle, index, stage)
+            join_pipeline(bundle, positive)
+
+    def join_pipeline(bundle, positive):
+        bank, pipeline = bundle.bank, bundle.pipeline
+        if role == "attention":
+            for stage in positive:
+                index = (len(layers) - 1) * len(bank.stage_rows) + stage
+                previous = bank.buffers(stage).output
+                produced = bundle.produced[index].hidden_states
+                continuation = bundle.continuations[stage]
+                with (
+                    pipeline.final_compute(stage, inputs=(previous, produced))
+                    if pipeline is not None
+                    else nullcontext()
+                ):
+                    torch.add(previous, produced, out=continuation)
+                    continuation.masked_fill_(bank.padding_masks[stage].unsqueeze(1), 0)
+            if pipeline is not None:
                 pipeline.join(
-                    outputs=tuple(
-                        observed.output
-                        for observed in bundle.observations
-                        if observed is not None
-                    )
+                    outputs=tuple(bundle.continuations[stage] for stage in positive)
                 )
+        elif pipeline is not None:
+            pipeline.join(
+                outputs=tuple(
+                    observed.output
+                    for observed in bundle.observations
+                    if observed is not None
+                )
+            )
 
     def observe_bank(bundle, index, stage):
         observed, buffers = bundle.observations[index], bundle.bank.buffers(stage)
@@ -779,7 +907,7 @@ def run_worker(args):
         active = None
 
     def eager(plan, iteration):
-        for layer_index, layer in enumerate(LAYERS):
+        for layer_index, layer in enumerate(layers):
             for stage in plan.stages:
                 rows = stage.attention_padded_tokens[0]
                 if not rows:
@@ -847,7 +975,7 @@ def run_worker(args):
                     HIDDEN_SIZE,
                     1024,
                     CAPACITY,
-                    LAYERS,
+                    layers,
                     1,
                     1,
                     local_counts_version=1,
@@ -1143,6 +1271,7 @@ def run_supervisor(args):
         "compute_pipeline": args.compute_pipeline,
         "pipeline_hybrid": args.pipeline_hybrid,
         "exchange_order": args.exchange_order,
+        "layer_count": args.layer_count,
         "graph_axes": (
             {name: vars(args)[name] for name in GRAPH_AXIS_ARGUMENTS}
             if args.graph_axes
@@ -1168,6 +1297,8 @@ def run_supervisor(args):
                 str(port),
                 "--exchange-order",
                 args.exchange_order,
+                "--layer-count",
+                str(args.layer_count),
             ]
             if args.stage_bank:
                 command.append("--stage-bank")

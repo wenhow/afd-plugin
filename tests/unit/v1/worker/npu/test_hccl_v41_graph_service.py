@@ -38,14 +38,15 @@ def case(monkeypatch):
 @pytest.mark.parametrize(
     "rows,compute", [((4,), False), ((2, 2), False), ((2, 2), True)]
 )
+@pytest.mark.parametrize("order", ["bulk_v1", "cross_layer_v1"])
 def test_bulk_ffn_preflight_reports_pipeline_support_before_warmup(
-    monkeypatch, rows, compute
+    monkeypatch, rows, compute, order
 ):
     case = make_graph_service_case(
         service_module,
         monkeypatch,
         rows=rows,
-        exchange_order="bulk_v1",
+        exchange_order=order,
         overlap_settings=HcclOverlapSettings(graph_u2_compute_overlap=compute),
     )
     supported = compute
@@ -659,3 +660,44 @@ def test_invalid_service_binding_is_rejected_before_receiving_peer_control(
         case.service.execute_step()
     assert case.events == []
     assert case.transport.terminal and case.cache.terminal
+
+
+@pytest.mark.parametrize("rows", [(4,), (2, 2)])
+@pytest.mark.parametrize("recv,cross", [(True, True), (True, False), (False, False)])
+def test_cross_layer_ffn_capture_preflight_checks_role_gates_without_partial_capture(
+    monkeypatch, rows, recv, cross
+):
+    case = make_graph_service_case(
+        service_module,
+        monkeypatch,
+        rows=rows,
+        exchange_order="cross_layer_v1",
+        overlap_settings=HcclOverlapSettings(
+            graph_u2_hybrid_dag=False,
+            graph_u2_ffn_recv_stream=recv,
+            graph_u2_ffn_cross_layer=cross,
+        ),
+    )
+    supported = recv and cross
+    case.transport.queue_parent(
+        "replay",
+        identifier="cross-preflight",
+        valid=(0,),
+        fallback=True,
+        availability="missing" if supported else "unsupported",
+        capture_sequence_digest=graph_capture_sequence_digest(
+            (case.transport.base_bank.key,), max_full_descs_to_capture=None
+        ),
+    )
+    assert case.service.execute_step()
+    assert [
+        message.graph_report.availability
+        for direction, _, _, message in case.transport.transcript
+        if direction == "send" and message.kind == "GRAPH_REPORT"
+    ] == ["missing" if supported else "unsupported"]
+    assert case.cache.is_empty
+    assert not any(
+        event in case.events
+        for event in ("tensor-body", "capture-enter", "graph-created")
+    )
+    assert case.transport.plan is None and case.transport.graph_reservation is None

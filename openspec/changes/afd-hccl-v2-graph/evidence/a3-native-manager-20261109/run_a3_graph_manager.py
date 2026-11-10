@@ -174,6 +174,8 @@ def remote_run(args):
         str(results / "probe"),
         "--exchange-order",
         args.exchange_order,
+        "--layer-count",
+        str(args.layer_count),
     ]
     if args.stage_bank:
         command.append("--stage-bank")
@@ -227,6 +229,7 @@ def remote_run(args):
         "compute_pipeline": args.compute_pipeline,
         "pipeline_hybrid": args.pipeline_hybrid,
         "exchange_order": args.exchange_order,
+        "layer_count": args.layer_count,
         "graph_axes": (
             {name: vars(args)[name] for name in GRAPH_AXIS_ARGUMENTS}
             if args.graph_axes
@@ -266,10 +269,13 @@ def main():
     parser.add_argument("--compute-pipeline", action="store_true")
     parser.add_argument("--pipeline-hybrid", type=int, choices=(0, 1))
     parser.add_argument(
-        "--exchange-order", choices=("stage_serial", "bulk_v1"), default="stage_serial"
+        "--exchange-order",
+        choices=("stage_serial", "bulk_v1", "cross_layer_v1"),
+        default="stage_serial",
     )
     for name in GRAPH_AXIS_ARGUMENTS:
         parser.add_argument("--" + name.replace("_", "-"), type=int, choices=(0, 1))
+    parser.add_argument("--layer-count", type=int, choices=(2, 3), default=2)
     parser.add_argument("--prepare-only", action="store_true", help="no SSH or devices")
     parser.add_argument("--evidence-dir", type=Path)
     args = parser.parse_args()
@@ -294,11 +300,23 @@ def main():
             )
         if args.ffn_cross and not args.ffn_recv:
             parser.error("--ffn-cross 1 requires --ffn-recv 1")
-    if args.exchange_order == "bulk_v1" and not (
+    if args.exchange_order != "stage_serial" and not (
         args.stage_bank
         and (args.compute_pipeline or (args.graph_axes and args.graph_compute))
     ):
-        parser.error("bulk_v1 requires --stage-bank and enabled compute pipeline")
+        parser.error(
+            "non-serial order requires --stage-bank and enabled compute pipeline"
+        )
+    if args.exchange_order == "cross_layer_v1" and (
+        (
+            args.graph_axes
+            and not (args.graph_hybrid and args.ffn_recv and args.ffn_cross)
+        )
+        or (args.compute_pipeline and not args.pipeline_hybrid)
+    ):
+        parser.error(
+            "cross_layer_v1 requires hybrid and FFN receive/cross dependencies"
+        )
     if args.remote_root:
         return remote_run(args)
     if not args.label or any(
@@ -396,6 +414,7 @@ def main():
         "compute_pipeline": args.compute_pipeline,
         "pipeline_hybrid": args.pipeline_hybrid,
         "exchange_order": args.exchange_order,
+        "layer_count": args.layer_count,
         "graph_axes": (
             {name: vars(args)[name] for name in GRAPH_AXIS_ARGUMENTS}
             if args.graph_axes
@@ -454,6 +473,7 @@ def main():
         " --remote-root " + shlex.quote(remote) + " --model " + shlex.quote(args.model)
     )
     remote_command += " --exchange-order " + args.exchange_order
+    remote_command += " --layer-count " + str(args.layer_count)
     if args.stage_bank:
         remote_command += " --stage-bank"
     if args.compute_pipeline:

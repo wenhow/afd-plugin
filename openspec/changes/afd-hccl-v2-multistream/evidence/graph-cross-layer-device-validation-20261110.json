@@ -1,0 +1,334 @@
+{
+  "scope": "Actual A3 three-layer paired TP1 NPUGraph/HCCL component with controlled arithmetic and the cross_layer_v1 shared production schedule",
+  "run": "cross-layer-tp1-001",
+  "head": "bdf4b3e3eeef2781713a0b63591eb0ce79e94843",
+  "manifest_sha256": "8539a7e899605d997f825c9fdcc7eee8084bd802928844aa190d6b1962516830",
+  "summary": {
+    "scope": "native base manager/UBR + HCCL phase/cache; controlled arithmetic",
+    "stage_bank": true,
+    "compute_pipeline": false,
+    "pipeline_hybrid": null,
+    "exchange_order": "cross_layer_v1",
+    "layer_count": 3,
+    "graph_axes": {
+      "graph_compute": 1,
+      "graph_hybrid": 1,
+      "attention_three": 1,
+      "ffn_recv": 1,
+      "ffn_cross": 1
+    },
+    "remote": "/mnt/workspace/tmp/afd-c0-20261104.hVgsIf/c5-native-manager-20261109-7g1j_mhf",
+    "command": [
+      "/mnt/workspace/code/.venvs/afd-v030-dsv41-c0/bin/python",
+      "-B",
+      "/mnt/workspace/tmp/afd-c0-20261104.hVgsIf/c5-native-manager-20261109-7g1j_mhf/snapshot/tests/npu/hccl_graph_manager_probe.py",
+      "--devices",
+      "0,2",
+      "--model",
+      "/mnt/workspace/models/DeepSeek-V4.1-Flash",
+      "--timeout",
+      "300",
+      "--output-dir",
+      "/mnt/workspace/tmp/afd-c0-20261104.hVgsIf/c5-native-manager-20261109-7g1j_mhf/results/probe",
+      "--exchange-order",
+      "cross_layer_v1",
+      "--layer-count",
+      "3",
+      "--stage-bank",
+      "--graph-compute",
+      "1",
+      "--graph-hybrid",
+      "1",
+      "--attention-three",
+      "1",
+      "--ffn-recv",
+      "1",
+      "--ffn-cross",
+      "1"
+    ],
+    "source_files_match": true,
+    "upstream_files_checked": 31,
+    "returncode": 0,
+    "elapsed_seconds": 30.942467983812094,
+    "timed_out": false,
+    "outer_killed_owned_pids": [],
+    "cpu_repeated": false,
+    "idle_boards_before": 8,
+    "idle_boards_after": 8,
+    "success": true
+  },
+  "probe_summary": {
+    "scope": "Bounded native manager/phase/cache component with controlled arithmetic.\n\nUses the real base CudaGraphManager factory, dispatch and replay plus NPUGraph\nHCCL operations. No checkpoint, native model/attention, Engram, production Graph\nselector or full-model microbatch threads participate.\n",
+    "exit_codes": [
+      0,
+      0
+    ],
+    "supervisor_cleanup": [],
+    "stage_bank": true,
+    "compute_pipeline": false,
+    "pipeline_hybrid": null,
+    "exchange_order": "cross_layer_v1",
+    "layer_count": 3,
+    "graph_axes": {
+      "graph_compute": 1,
+      "graph_hybrid": 1,
+      "attention_three": 1,
+      "ffn_recv": 1,
+      "ffn_cross": 1
+    },
+    "elapsed_seconds": 28.824656291864812,
+    "status": "passed"
+  },
+  "frozen_source_files": {
+    "afd_plugin/connectors/npu/hccl_graph_schedule.py": "45c3904a6a8d523b3564b665894431b63b27309da5817c3577d495e4cc978c76",
+    "afd_plugin/connectors/npu/hccl_graph_pipeline.py": "94929ab44c1a27271fc544675e64b757ffe0ab3a1331b4fd3b8bfe66242468ae",
+    "afd_plugin/connectors/npu/hccl_graph_stage.py": "6e4110a23226b6a39354bd9aeb6f17c61d2f93166cef8c13f1997f80a95a00a0",
+    "afd_plugin/distributed/hccl_plan.py": "43434ec9bfc11a8bc7d4b57d97d2c1a2b2c1f928c4fe74ac78e66d042acdb762",
+    "afd_plugin/model_executor/models/npu/deepseek_v41_graph.py": "2a502b8d248f22ab168d901c58aa5b49a476deea7ca9df599cdc35f94817ef5f",
+    "afd_plugin/v1/worker/npu/hccl_v41_ffn_graph.py": "5b048db49931eef11d3741709538d949a87538a4dee04a7778b6576f11c9a19b",
+    "afd_plugin/v1/worker/npu/hccl_v41_graph_coordinator.py": "35adf2b22af1ba80938c91dd5bea8670c8f99f951c767abd9a45b6f26ee420f4",
+    "afd_plugin/v1/worker/npu/hccl_v41_graph_service.py": "3f5b104b22dcd2be6d1303f7bd4e90b5d0d3a216c8b36991100271bc852b1a43",
+    "tests/npu/hccl_graph_manager_probe.py": "8e64e60927cdaefd692a3bf82d4482317013db24a28807d0baff151939a2b904",
+    "openspec/changes/afd-hccl-v2-graph/evidence/a3-native-manager-20261109/run_a3_graph_manager.py": "1084c6d330902ba1ebc3a99bbb552671081434cdef3fd85f25f54dba791ab734"
+  },
+  "frozen_twenty_cpu_paths_match": true,
+  "rank_assertions": {
+    "0": {
+      "role": "ffn",
+      "device": "npu:0",
+      "status": "passed",
+      "phase_counts": {
+        "warmup": 4,
+        "capture": 4,
+        "replay": 12,
+        "eager": 6
+      },
+      "transaction_count": 26,
+      "native_tp_before": [
+        1.0
+      ],
+      "native_tp_after_close": [
+        1.0
+      ],
+      "u2_pipeline_resources": 4,
+      "positive_steps_per_resource": 6,
+      "tail_event_pairs_per_resource": 2,
+      "fresh_compute_stream_handles": 4,
+      "production_static_wire_actions": [
+        [
+          "input",
+          0,
+          0
+        ],
+        [
+          "input",
+          0,
+          1
+        ],
+        [
+          "output",
+          0,
+          0
+        ],
+        [
+          "input",
+          1,
+          0
+        ],
+        [
+          "output",
+          0,
+          1
+        ],
+        [
+          "input",
+          1,
+          1
+        ],
+        [
+          "output",
+          1,
+          0
+        ],
+        [
+          "input",
+          2,
+          0
+        ],
+        [
+          "output",
+          1,
+          1
+        ],
+        [
+          "input",
+          2,
+          1
+        ],
+        [
+          "output",
+          2,
+          0
+        ],
+        [
+          "output",
+          2,
+          1
+        ]
+      ],
+      "u1_selections_without_pipeline": 4,
+      "u2_selections_with_pipeline": 4,
+      "physical_hccl_streams": "parent",
+      "u2_compute_stream": "compute",
+      "oracle_paths_completed": [
+        "unchanged independent BF16/original FP32/router delta/raw IDs/output values",
+        "fixed bank addresses checked on warmup and replay",
+        "per-stage recursive output and final continuation checks",
+        "normal STOP/cache/group close before final native TP allreduce"
+      ],
+      "basis": "Passed status follows the unchanged oracle/STOP/close assertions in the frozen probe; these derived assertions are not additional raw-report fields."
+    },
+    "1": {
+      "role": "attention",
+      "device": "npu:2",
+      "status": "passed",
+      "phase_counts": {
+        "warmup": 4,
+        "capture": 4,
+        "replay": 12,
+        "eager": 6
+      },
+      "transaction_count": 26,
+      "native_tp_before": [
+        1.0
+      ],
+      "native_tp_after_close": [
+        1.0
+      ],
+      "u2_pipeline_resources": 4,
+      "positive_steps_per_resource": 6,
+      "tail_event_pairs_per_resource": 2,
+      "fresh_compute_stream_handles": 4,
+      "production_static_wire_actions": [
+        [
+          "input",
+          0,
+          0
+        ],
+        [
+          "input",
+          0,
+          1
+        ],
+        [
+          "output",
+          0,
+          0
+        ],
+        [
+          "input",
+          1,
+          0
+        ],
+        [
+          "output",
+          0,
+          1
+        ],
+        [
+          "input",
+          1,
+          1
+        ],
+        [
+          "output",
+          1,
+          0
+        ],
+        [
+          "input",
+          2,
+          0
+        ],
+        [
+          "output",
+          1,
+          1
+        ],
+        [
+          "input",
+          2,
+          1
+        ],
+        [
+          "output",
+          2,
+          0
+        ],
+        [
+          "output",
+          2,
+          1
+        ]
+      ],
+      "u1_selections_without_pipeline": 4,
+      "u2_selections_with_pipeline": 4,
+      "physical_hccl_streams": "parent",
+      "u2_compute_stream": "compute",
+      "oracle_paths_completed": [
+        "unchanged independent BF16/original FP32/router delta/raw IDs/output values",
+        "fixed bank addresses checked on warmup and replay",
+        "per-stage recursive output and final continuation checks",
+        "normal STOP/cache/group close before final native TP allreduce"
+      ],
+      "basis": "Passed status follows the unchanged oracle/STOP/close assertions in the frozen probe; these derived assertions are not additional raw-report fields."
+    }
+  },
+  "both_ranks_same_transactions": true,
+  "upstream_checked": 31,
+  "upstream_all_match": true,
+  "prepare_to_device_manifest_deltas": {
+    "afd_plugin/compat/npu/runtime_config.py": {
+      "prepare": "9c6083e6b309d8c60eecc90fc4051648fb43737301294c0bb2ce17b702875e45",
+      "device": "79f7041a41aef55129f094a1a0b7954d50b80b0285edbb25f0eb103f25569d40"
+    },
+    "afd_plugin/v1/worker/npu/ffn_model_runner.py": {
+      "prepare": "f8fdb4e91fa62d94a4c375acc1d33eaaaeda091a6eb8e22e60263c6389eba906",
+      "device": "2c92a94f57d1ceed2a9d34497aa8c104cb95ad46102faa374394781c3f289c19"
+    },
+    "afd_plugin/v1/worker/npu/ffn_worker.py": {
+      "prepare": "ecbeffe2d28c3bd04287cef44198b0ed0ddd205b61056017d6be3a81291897ba",
+      "device": "685d2afad186a5236f791a972e6a79b5c22b13f109b991f8fb74f49d6864cc73"
+    }
+  },
+  "parallel_delta_scope": "Three parallel runtime-config/F worker files were included in the immutable upload; this arithmetic probe does not validate their model/DSpark behavior.",
+  "raw_sha256": {
+    "delivery.json": "5e3729115914aeebc8f6de3e4446bcee806243635b3a867cb47e4f8ee682e7a5",
+    "identity.json": "f646a126dca1db5d3fd918020ef378d565fe916954f7eef7b04aad097359b519",
+    "remote-run.log": "21235412c2f7439b3a685c2bb815328ce5f259874f8fbaf47eeb33c145677670",
+    "results/effective-env.json": "8b88750e3513343a6a20fae37ae0ba570ff1cf345a495d0645cd747827c534c1",
+    "results/npu-after.log": "771d36019d6b4bfd9a22971976a6ae1f7a55e012ba2ee26357ed500b329f6960",
+    "results/npu-before.log": "32363a5924108921e09fe4c29960a0aa54570cf162291c4dd24038c67014dd88",
+    "results/owned-processes.json": "729c6b87897bc2bd19e4a7a9fa791c21396339e8026d6f3044e84c31050ebeff",
+    "results/probe/rank-0.json": "40833d25e04e916f4999488ea3cb139a5588760e3dbb9ebf7199c186f020475f",
+    "results/probe/rank-0.log": "c926d135eb2765a63fc7fc7316590f0774758d38bb44f54141316763b622d93e",
+    "results/probe/rank-1.json": "d0f70de94912fd867d6052d90b5350cc21f2eda546aeac9f651b8e2828c43ae7",
+    "results/probe/rank-1.log": "81c45078ac6b24653ae6397e6f2c3d2142dbdec8b9b92715718102312263c099",
+    "results/probe/summary.json": "47c5d5e53e787598f6b2569a1c677a5f834c25b814fb7e2c97c8b6ae32ae3311",
+    "results/probe.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "results/source-check.json": "e0d7473e680b70b65b78dcd78d457e46080ace46e5c564884e28e3b5c7baf30d",
+    "results/summary.json": "8f996c28d6488ddf9b83b4b68cfd6e0ae416813973006ec1b9ebef26f80c40c7",
+    "results/upstream-identity.json": "d9a3e13bf629d887c075beeeda16dda6ca9e726ebd7a26d561fdca2b6b59acb0",
+    "results/versions.json": "8aa40a41b53ecde5293ad581f313555c4e948071ce87c879c3b93ac6d8ad2601"
+  },
+  "not_claimed": [
+    "V4.1 native HC/pre_mix/Engram/Attention/MoE/quantization",
+    "full checkpoint or end-to-end inference",
+    "TP2 device",
+    "static zero-row stage on device (CPU coverage only)",
+    "physical side-stream HCCL",
+    "overlap timeline or performance",
+    "complete C6 task 1.6"
+  ],
+  "historical_cpu_scope": "025: 647 passed/5 failed with six unchanged modules 485 passed; 026: complete bank/pipeline 167 passed. Separate executions, not one combined rerun."
+}

@@ -28,7 +28,7 @@ git rev-parse HEAD
 沿用容器已部署的依赖和 CANN 环境。Python 使用
 `/usr/local/python3.11.10/bin/python`，无需新建 venv，也不要求名为 `atb-env` 的环境。
 
-## 一次运行十五个组件用例
+## 一次运行十六个组件用例
 
 在仓库根目录执行，确认 `afd_model` 是本机 checkpoint 目录。
 `npu-smi info` 确认所选设备空闲后运行；示例使用设备 0、1、2、3。
@@ -126,6 +126,12 @@ run_component c6-graph-bulk-v1 tests/npu/hccl_graph_manager_probe.py \
   --graph-compute 1 --graph-hybrid 1 --attention-three 1 --ffn-recv 1 --ffn-cross 1 \
   --output-dir "$afd_batch_run/c6-graph-bulk-v1"
 
+run_component c6-graph-cross-layer-v1 tests/npu/hccl_graph_manager_probe.py \
+  --model "$afd_model" --devices 0,2 --stage-bank \
+  --exchange-order cross_layer_v1 --layer-count 3 \
+  --graph-compute 1 --graph-hybrid 1 --attention-three 1 --ffn-recv 1 --ffn-cross 1 \
+  --output-dir "$afd_batch_run/c6-graph-cross-layer-v1"
+
 npu-smi info > "$afd_batch_run/npu-after.txt"
 cat "$afd_batch_run/exit-codes.tsv"
 tar -czf "$afd_batch_run.tar.gz" -C "$(dirname "$afd_batch_run")" \
@@ -155,6 +161,7 @@ printf '结果包：%s.tar.gz\n' "$afd_batch_run"
 | `c6-eager-owner-tp1` | 两 stage group 显式匹配预热，真实 owner/ticket/loan；6 个 target U2 parent、双层递推、在途上限与同 stage 复用，原始 FP32、raw IDs、完整 padding 输出及空 stage/全空 parent | `result.json` 的 `success=true`，`exit_codes` 两角色均为 0，`killed_owned_pids=[]`；每个角色 JSON 的 `success=true`、6 个 `parents`、16 个 `checked_steps`、`normal_stop=true`，`native_tp_before` 和 `native_tp_after_plugin_close` 均为 `[1.0]` |
 | `c6-eager-owner-tp2` | 独立四卡 session 验证上述配对 TP2 owner、每角色 native TP 域及 STOP 后保留 | 同上；`exit_codes` 四角色均为 0，四个角色 JSON 的 native TP 前后均为 `[2.0]` |
 | `c6-graph-bulk-v1` | 双角色显式协商 bulk_v1；U2 每层 A 全发送后全接收，F 全接收并排入计算后全发送，HCCL 保持 capture parent；U1 和 eager fallback 保持串行 | `summary.json` 的 `status=passed`、`exit_codes=[0,0]`、`exchange_order=bulk_v1`；两个 `rank-*.json` 的 `status=passed`、26 个 `transactions`，U2 `pipeline_storage[*].exchange_order=bulk_v1`，native TP 前后均为 `[1.0]` |
+| `c6-graph-cross-layer-v1` | 三层 TP1，双角色显式协商 cross_layer_v1，执行生产共享 12 步跨层 wire schedule；F 在 compute_done 前复制到 stage-owned output，A 消费前层 reply 后再复用；保留原 FP32/IDs/地址/递推 oracle | `summary.json` 的 `status=passed`、`exit_codes=[0,0]`、`exchange_order=cross_layer_v1`、`layer_count=3`；各 `rank-*.json` 为 passed、26 个 transactions，4 个 U2 pipeline_storage 各含 12 条 static_wire_actions、6 个 positive_steps；native TP 前后均为 `[1.0]` |
 
 五轴顺序是 compute、hybrid、Attention-three、F-recv、F-cross。五个 CLI 必须一起显式
 传入，不能与第 5～6 项的 legacy 参数混用；`--ffn-cross 1` 要求 `--ffn-recv 1`。
@@ -162,7 +169,7 @@ printf '结果包：%s.tar.gz\n' "$afd_batch_run"
 `graph_selections[*].selection` 记录 configured/effective 以及 logical/physical stream；
 Graph 通信始终受父流约束，不应将逻辑 send/recv 配置解释为物理独立通信流。
 
-回传不便时，最小结果为 `git-head.txt`、`exit-codes.tsv`，以及十五项各自的结果：
+回传不便时，最小结果为 `git-head.txt`、`exit-codes.tsv`，以及十六项各自的结果：
 
 - `c4-1a1f/result.json`
 - `c4-2a2f-tp2/result.json`
@@ -179,6 +186,7 @@ Graph 通信始终受父流约束，不应将逻辑 send/recv 配置解释为物
 - `c6-eager-owner-tp1/result.json`，以及 `attention-0.json`、`ffn-0.json`
 - `c6-eager-owner-tp2/result.json`，以及 `attention-0.json`、`attention-1.json`、`ffn-0.json`、`ffn-1.json`
 - `c6-graph-bulk-v1/summary.json`，以及 `rank-0.json`、`rank-1.json`
+- `c6-graph-cross-layer-v1/summary.json`，以及 `rank-0.json`、`rank-1.json`
 
 同时保留体积很小的 `npu-before.txt` / `npu-after.txt`；失败项再补该项目的顶层
 日志和角色日志。A3 证据及实际范围见
@@ -228,3 +236,25 @@ manager、固定 stage bank、独立 FP32/IDs/输出 oracle 和 native TP 检查
 该组件只验证同层输入前沿与实际 capture/replay 正确性，不代表物理 send/recv
 侧流、完整跨层流水、原生 HC/Engram/MoE、完整模型或性能验收。A3 的单次 TP1
 会话及范围见 [bulk 记录](../../openspec/changes/afd-hccl-v2-multistream/evidence/a3-graph-bulk-20261110/README.md)。
+
+第 16 项是独立 session 的三层 `cross_layer_v1` 组件。执行前先用 `npu-smi info`
+确认八卡全部空闲；本项只使用 0、2 两卡，TP1，各角色分别保留 native TP 域。
+记录本地 Git SHA、来源锁 `.agents/dsv41/sources.lock.json`、实际 vLLM /
+vLLM-Ascend / torch / torch_npu 版本，并审核锁定源码与容器安装源码是否一致；
+有差异先保留记录并核对，不能从包版本或 A3 结果推定本机源码相同。
+它不修改依赖，不加载权重，也没有绕过模型门禁的启动参数。
+
+本项仍有 4 warmup、4 capture、12 replay、6 eager fallback。U1 保持 serial；
+U2 两个正 stage 的共享静态顺序为
+`I00 I01 O00 I10 O01 I11 O10 I20 O11 I21 O20 O21`，两角色均从生产 schedule
+读取，`static_wire_actions` 是静态计划而非设备时间线。固定 oracle 检查独立原始
+FP32、BF16、raw IDs、固定 bank 地址、完整桶 / 1 / T-1 有效 token 及末层递推，
+不通过降低容差或修改期望值来适配此顺序。所有 HCCL 仍在 capture parent，
+compute 在实际侧流；不能据此声称物理通信侧流、有效重叠或性能收益。
+
+最小回传为本项的 `summary.json`、`rank-0.json`、`rank-1.json`，以及共同的
+Git SHA、版本/来源锁核对记录和八卡运行前后 `npu-smi`。A3 的单次三层 TP1
+通过结果及逐 rank 断言见
+[cross-layer 记录](../../openspec/changes/afd-hccl-v2-multistream/evidence/a3-graph-cross-layer-20261110/README.md)。
+该结果不包含原生 HC/pre_mix、Engram、Attention、MoE、完整 checkpoint、TP2
+设备或完整 C6 验收。

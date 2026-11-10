@@ -1,0 +1,22 @@
+{
+  "scope": "Bounded native manager/phase/cache component with controlled arithmetic.\n\nUses the real base CudaGraphManager factory, dispatch and replay plus NPUGraph\nHCCL operations. No checkpoint, native model/attention, Engram, production Graph\nselector or full-model microbatch threads participate.\n",
+  "exit_codes": [
+    0,
+    0
+  ],
+  "supervisor_cleanup": [],
+  "stage_bank": true,
+  "compute_pipeline": false,
+  "pipeline_hybrid": null,
+  "exchange_order": "cross_layer_v1",
+  "layer_count": 3,
+  "graph_axes": {
+    "graph_compute": 1,
+    "graph_hybrid": 1,
+    "attention_three": 1,
+    "ffn_recv": 1,
+    "ffn_cross": 1
+  },
+  "elapsed_seconds": 28.824656291864812,
+  "status": "passed"
+}

@@ -120,14 +120,22 @@ class HcclPlanCapabilities:
         _integer("graph_execution_version", self.graph_execution_version, maximum=1)
         if self.graph_execution_version and self.local_counts_version != 1:
             raise ValueError("graph execution requires local_counts_version=1")
-        if self.graph_exchange_order not in ("stage_serial", "bulk_v1"):
-            raise ValueError("graph_exchange_order must be stage_serial or bulk_v1")
-        if self.graph_exchange_order == "bulk_v1" and (
+        if self.graph_exchange_order not in (
+            "stage_serial",
+            "bulk_v1",
+            "cross_layer_v1",
+        ):
+            raise ValueError(
+                "graph_exchange_order must be stage_serial, bulk_v1 or cross_layer_v1"
+            )
+        if self.graph_exchange_order != "stage_serial" and (
             self.graph_execution_version != 1
             or self.max_stages != 2
             or self.native_tp_size not in (1, 2)
         ):
-            raise ValueError("bulk_v1 requires Graph v1, U2 and paired TP1/TP2")
+            raise ValueError(
+                f"{self.graph_exchange_order} requires Graph v1, U2 and paired TP1/TP2"
+            )
         if self.local_counts_version == 1 and not (
             self.attention_size == self.ffn_size == self.native_tp_size
         ):
@@ -568,7 +576,7 @@ def _decode_capabilities(value: JsonValue) -> HcclPlanCapabilities:
         _text(
             "graph_exchange_order",
             cap.get("graph_exchange_order", "stage_serial"),
-            len("stage_serial"),
+            len("cross_layer_v1"),
         ),
     )
     result.validate()

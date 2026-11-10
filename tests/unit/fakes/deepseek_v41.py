@@ -273,7 +273,7 @@ class HCContractLayer(AFDDeepseekV41AttentionDecoderLayer):
         return hidden_states, hidden_states.float() + 0.00031
 
 
-def make_staged_model(*, capacity=6, engram=True):
+def make_staged_model(*, capacity=6, engram=True, layer_count=2):
     """Use native model/decoder forward bodies without loading weights/operators."""
     parent = make_shared_attention_model(capacity=capacity, layer_count=0)
     model = AFDDeepseekV41AttentionModel.__new__(AFDDeepseekV41AttentionModel)
@@ -283,32 +283,36 @@ def make_staged_model(*, capacity=6, engram=True):
     model.has_engram = engram
     model.use_sequence_parallel = False
     model.shared_attention_state = parent.shared_attention_state
-    model.start_layer, model.end_layer = 0, 2
+    model.start_layer, model.end_layer = 0, layer_count
     model.layers = nn.ModuleList(
         HCContractLayer(i, model.shared_attention_state, engram=engram)
-        for i in range(2)
+        for i in range(layer_count)
     )
     model.norm = nn.Identity()
     model.embed_tokens = nn.Embedding.from_pretrained(
         torch.arange(128).reshape(32, 4).to(torch.bfloat16), freeze=True
     )
-    model.aux_hidden_state_layers = (1, 2)
+    model.aux_hidden_state_layers = tuple(range(1, layer_count + 1))
     model.engram_rotated = False
     model._mtp_hidden_buffer = torch.empty(capacity, 8, dtype=torch.bfloat16)
     return model
 
 
-def make_staged_case(split=(2, 3), *, valid=None, engram=True, remote_active=False):
+def make_staged_case(
+    split=(2, 3), *, valid=None, engram=True, remote_active=False, layer_count=2
+):
     """One native parent and typed children for execution/worker seam tests."""
     rows = sum(split)
     valid = split if valid is None else valid
-    model = make_staged_model(capacity=max(rows, 1), engram=engram)
+    model = make_staged_model(
+        capacity=max(rows, 1), engram=engram, layer_count=layer_count
+    )
     ids = torch.arange(1, rows + 1, dtype=torch.int32)
     positions = torch.arange(rows, dtype=torch.int64) + 10
     lookups = (
         {
             layer: (torch.arange(rows * 4).reshape(rows, 4) / 8 + layer).bfloat16()
-            for layer in range(2)
+            for layer in range(layer_count)
         }
         if engram
         else {}
@@ -351,7 +355,7 @@ def make_staged_case(split=(2, 3), *, valid=None, engram=True, remote_active=Fal
         stages=tuple(stages),
         contexts=tuple(contexts),
         slices=tuple(slices),
-        plan=HcclParentPlan("staged-case", (0, 1), tuple(layouts)),
+        plan=HcclParentPlan("staged-case", tuple(range(layer_count)), tuple(layouts)),
         parent_inputs={
             "input_ids": ids,
             "positions": positions,

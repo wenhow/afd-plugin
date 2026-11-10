@@ -74,11 +74,13 @@ def make_pipeline_case(
     policy=None,
     selection=None,
     exchange_order="stage_serial",
+    layers=(0, 1),
 ):
     runtime = HostStreamRecorder(torch.device("cpu"))
     bank = make_graph_stage_bank(
         role=role,
         rows=rows,
+        layers=layers,
         endpoint_factory=lambda stage: PipelineEndpoint(runtime, stage, role),
         exchange_order=exchange_order,
     )
@@ -238,5 +240,90 @@ def run_ffn_arithmetic(case):
             outputs.extend(run_ffn_layer(case, layer))
             if not pipeline.policy.ffn_cross_layer:
                 pipeline.join_layer(layer)
+        pipeline.join(outputs=tuple(outputs))
+    return tuple(outputs)
+
+
+def run_wavefront_arithmetic(case):
+    """Run public cross-layer scopes with CPU values and queued peer packets."""
+    bank, pipeline = case.bank, case.pipeline
+    assert pipeline.schedule is not None
+    hidden = {
+        stage: torch.full_like(bank.buffers(stage).hidden_states, stage + 1)
+        for stage, rows in enumerate(bank.stage_rows)
+        if rows
+    }
+    returned, prepared, outputs = {}, {}, []
+
+    def attention_compute(layer, stage):
+        inputs = (hidden[stage],) + ((returned[stage],) if stage in returned else ())
+        with pipeline.compute(layer, stage, inputs=inputs):
+            if stage in returned:
+                hidden[stage] = hidden[stage] + returned[stage]
+            x = hidden[stage] + layer + 1
+            prepared[stage] = (
+                x,
+                x.float() + 0.00031,
+                torch.arange(x.shape[0], dtype=torch.int32),
+            )
+        pipeline.retain_compute_outputs(layer, stage, tensors=prepared[stage])
+
+    with pipeline.run():
+        if bank.role == "attention":
+            for stage in hidden:
+                attention_compute(bank.layer_indices[0], stage)
+        for action in pipeline.schedule.actions:
+            layer, stage = action.layer_idx, action.stage_idx
+            if action.kind == "input":
+                if bank.role == "attention":
+                    if layer != bank.layer_indices[0]:
+                        attention_compute(layer, stage)
+                    x, router, ids = prepared.pop(stage)
+                    bank.exchanges[stage].endpoint.incoming.append(x * 2)
+                    with pipeline.attention_send(
+                        layer, stage, tensors=(x, router, ids)
+                    ):
+                        bank.attention_send(stage, x, router, ids)
+                else:
+                    buffers = bank.buffers(stage)
+                    bank.exchanges[stage].endpoint.incoming.extend(
+                        (
+                            torch.full_like(buffers.hidden_states, layer + stage + 1),
+                            torch.full_like(buffers.hidden_states_fp32, 0.00031),
+                            torch.arange(bank.stage_rows[stage], dtype=torch.int32),
+                        )
+                    )
+                    with pipeline.ffn_receive(layer, stage):
+                        buffers = bank.receive_inputs(stage)
+                    with pipeline.compute(
+                        layer,
+                        stage,
+                        inputs=(
+                            buffers.hidden_states,
+                            buffers.hidden_states_fp32,
+                            buffers.input_ids,
+                        ),
+                    ):
+                        output = buffers.hidden_states + buffers.hidden_states_fp32.to(
+                            torch.bfloat16
+                        )
+                        output = bank.prepare_output(stage, output)
+                    prepared[stage] = output
+                    pipeline.retain_compute_outputs(layer, stage, tensors=(output,))
+            elif bank.role == "attention":
+                with pipeline.attention_receive(layer, stage):
+                    returned[stage] = bank.attention_receive(stage)
+            else:
+                output = prepared.pop(stage)
+                with pipeline.ffn_send(layer, stage, tensors=(output,)):
+                    bank.send_output(stage, output)
+                outputs.append(output.clone())
+        if bank.role == "attention":
+            for stage in hidden:
+                with pipeline.final_compute(
+                    stage, inputs=(hidden[stage], returned[stage])
+                ):
+                    hidden[stage] = hidden[stage] + returned[stage]
+            outputs = list(hidden.values())
         pipeline.join(outputs=tuple(outputs))
     return tuple(outputs)

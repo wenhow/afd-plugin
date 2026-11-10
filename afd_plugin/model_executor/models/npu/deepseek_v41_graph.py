@@ -75,8 +75,10 @@ class DeepseekV41GraphStages:
             raise ValueError("V4.1 graph stages require one complete static layout")
         if pipeline is not None and pipeline.bank is not bank:
             raise ValueError("V4.1 graph pipeline must retain this exact stage bank")
-        if bank.exchange_order == "bulk_v1" and pipeline is None:
-            raise ValueError("bulk_v1 Graph U2 requires an actual compute pipeline")
+        if bank.exchange_order != "stage_serial" and pipeline is None:
+            raise ValueError(
+                f"{bank.exchange_order} Graph U2 requires an actual compute pipeline"
+            )
         # This validates contiguous bounds and creates stable parent-buffer
         # views before any graph body or producer is entered.
         bindings = DeepseekV41StageAttentionStates(model, token_slices)
@@ -275,81 +277,91 @@ class DeepseekV41GraphStages:
         assert pipeline is not None
         # ### PATCH START: delayed stage continuations with parent HCCL
         with pipeline.run():
-            for layer_offset, layer in enumerate(self.layers):
-                prepared: dict[
-                    int, tuple[torch.Tensor, torch.Tensor, torch.Tensor]
-                ] = {}
-                for index, (stage, context, execution) in enumerate(
-                    zip(stages, self.contexts, executions, strict=True)
-                ):
-                    with override_forward_context(context), self.bindings.bind(index):
-                        if not self.bank.stage_rows[index]:
-                            self._prepare_stage(layer, stage, execution)
-                            continue
-                        with pipeline.compute(
-                            layer.layer_idx,
-                            index,
-                            inputs=self._stage_tensors(
-                                stage, execution, layer.layer_idx
-                            ),
+            if pipeline.schedule is not None:
+                self._run_wavefront(stages, executions)
+            else:
+                for layer_offset, layer in enumerate(self.layers):
+                    prepared: dict[
+                        int, tuple[torch.Tensor, torch.Tensor, torch.Tensor]
+                    ] = {}
+                    for index, (stage, context, execution) in enumerate(
+                        zip(stages, self.contexts, executions, strict=True)
+                    ):
+                        with (
+                            override_forward_context(context),
+                            self.bindings.bind(index),
                         ):
-                            if layer_offset:
-                                self._complete_stage(
-                                    self.layers[layer_offset - 1], execution
-                                )
-                            inputs = self._prepare_stage(layer, stage, execution)
-                            assert inputs is not None
-                            x, x_fp32, execution.continuation = inputs
-                            prepared[index] = (x, x_fp32, stage.input_ids)
-                        if self.bank.exchange_order == "bulk_v1":
-                            pipeline.retain_compute_outputs(
+                            if not self.bank.stage_rows[index]:
+                                self._prepare_stage(layer, stage, execution)
+                                continue
+                            with pipeline.compute(
                                 layer.layer_idx,
                                 index,
-                                tensors=(x, x_fp32)
-                                + self._stage_tensors(
+                                inputs=self._stage_tensors(
                                     stage, execution, layer.layer_idx
                                 ),
-                            )
-                # Queue every stage's wire before any next-layer compute. In
-                # hybrid mode the recorded DAG still waits only its own receive.
-                for index, tensors in prepared.items():
-                    with (
-                        override_forward_context(self.contexts[index]),
-                        (
-                            pipeline.attention_send
-                            if self.bank.exchange_order == "bulk_v1"
-                            else pipeline.attention_exchange
-                        )(
-                            layer.layer_idx,
-                            index,
-                            tensors=tensors
-                            + (
-                                self._stage_tensors(
-                                    stages[index], executions[index], layer.layer_idx
+                            ):
+                                if layer_offset:
+                                    self._complete_stage(
+                                        self.layers[layer_offset - 1], execution
+                                    )
+                                inputs = self._prepare_stage(layer, stage, execution)
+                                assert inputs is not None
+                                x, x_fp32, execution.continuation = inputs
+                                prepared[index] = (x, x_fp32, stage.input_ids)
+                            if self.bank.exchange_order == "bulk_v1":
+                                pipeline.retain_compute_outputs(
+                                    layer.layer_idx,
+                                    index,
+                                    tensors=(x, x_fp32)
+                                    + self._stage_tensors(
+                                        stage, execution, layer.layer_idx
+                                    ),
                                 )
-                                if self.bank.exchange_order == "bulk_v1"
-                                else ()
-                            ),
-                        ),
-                    ):
-                        x, x_fp32, ids = tensors
-                        if self.bank.exchange_order == "bulk_v1":
-                            self.bank.attention_send(
-                                index, x.contiguous(), x_fp32.contiguous(), ids
-                            )
-                        else:
-                            executions[index].ffn_output = self.bank.attention_exchange(
-                                index, x.contiguous(), x_fp32.contiguous(), ids
-                            )
-                if self.bank.exchange_order == "bulk_v1":
-                    for index in prepared:
+                    # Queue every stage's wire before any next-layer compute. In
+                    # hybrid mode the recorded DAG still waits only its own receive.
+                    for index, tensors in prepared.items():
                         with (
                             override_forward_context(self.contexts[index]),
-                            pipeline.attention_receive(layer.layer_idx, index),
+                            (
+                                pipeline.attention_send
+                                if self.bank.exchange_order == "bulk_v1"
+                                else pipeline.attention_exchange
+                            )(
+                                layer.layer_idx,
+                                index,
+                                tensors=tensors
+                                + (
+                                    self._stage_tensors(
+                                        stages[index],
+                                        executions[index],
+                                        layer.layer_idx,
+                                    )
+                                    if self.bank.exchange_order == "bulk_v1"
+                                    else ()
+                                ),
+                            ),
                         ):
-                            executions[index].ffn_output = self.bank.attention_receive(
-                                index
-                            )
+                            x, x_fp32, ids = tensors
+                            if self.bank.exchange_order == "bulk_v1":
+                                self.bank.attention_send(
+                                    index, x.contiguous(), x_fp32.contiguous(), ids
+                                )
+                            else:
+                                executions[
+                                    index
+                                ].ffn_output = self.bank.attention_exchange(
+                                    index, x.contiguous(), x_fp32.contiguous(), ids
+                                )
+                    if self.bank.exchange_order == "bulk_v1":
+                        for index in prepared:
+                            with (
+                                override_forward_context(self.contexts[index]),
+                                pipeline.attention_receive(layer.layer_idx, index),
+                            ):
+                                executions[
+                                    index
+                                ].ffn_output = self.bank.attention_receive(index)
             for index, (stage, context, execution) in enumerate(
                 zip(stages, self.contexts, executions, strict=True)
             ):
@@ -375,6 +387,86 @@ class DeepseekV41GraphStages:
                 )
             )
         # ### PATCH END: delayed stage continuations with parent HCCL
+
+    def _run_wavefront(
+        self,
+        stages: tuple[DeepseekV41StageInputs, ...],
+        executions: list[_GraphStageExecution],
+    ) -> None:
+        """Consume the paired static plan, preserving native compute order.
+
+        Each positive stage completes its preceding continuation before its
+        next input action. Only the parent issues wire; the side stream keeps
+        the ordinary Engram waits and native HC/pre_mix/aux work.
+        """
+        pipeline = self.pipeline
+        assert pipeline is not None and pipeline.schedule is not None
+        prepared: dict[int, tuple[torch.Tensor, torch.Tensor, torch.Tensor]] = {}
+        layers = {
+            layer.layer_idx: (offset, layer) for offset, layer in enumerate(self.layers)
+        }
+        for index, rows in enumerate(self.bank.stage_rows):
+            if not rows:
+                with (
+                    override_forward_context(self.contexts[index]),
+                    self.bindings.bind(index),
+                ):
+                    for layer in self.layers:
+                        self._prepare_stage(layer, stages[index], executions[index])
+
+        def prepare(layer_idx: int, index: int) -> None:
+            offset, layer = layers[layer_idx]
+            stage, execution = stages[index], executions[index]
+            with (
+                override_forward_context(self.contexts[index]),
+                self.bindings.bind(index),
+            ):
+                with pipeline.compute(
+                    layer_idx,
+                    index,
+                    inputs=self._stage_tensors(stage, execution, layer_idx),
+                ):
+                    if offset:
+                        self._complete_stage(self.layers[offset - 1], execution)
+                    inputs = self._prepare_stage(layer, stage, execution)
+                    assert inputs is not None
+                    x, x_fp32, execution.continuation = inputs
+                    prepared[index] = (x, x_fp32, stage.input_ids)
+                pipeline.retain_compute_outputs(
+                    layer_idx,
+                    index,
+                    tensors=(x, x_fp32)
+                    + self._stage_tensors(stage, execution, layer_idx),
+                )
+
+        first_layer = self.layers[0].layer_idx
+        for index, rows in enumerate(self.bank.stage_rows):
+            if rows:
+                prepare(first_layer, index)
+        for action in pipeline.schedule.actions:
+            index, layer_idx = action.stage_idx, action.layer_idx
+            with override_forward_context(self.contexts[index]):
+                if action.kind == "input":
+                    if layer_idx != first_layer:
+                        prepare(layer_idx, index)
+                    tensors = prepared.pop(index)
+                    with pipeline.attention_send(
+                        layer_idx,
+                        index,
+                        tensors=tensors
+                        + self._stage_tensors(
+                            stages[index], executions[index], layer_idx
+                        ),
+                    ):
+                        x, x_fp32, ids = tensors
+                        self.bank.attention_send(
+                            index, x.contiguous(), x_fp32.contiguous(), ids
+                        )
+                else:
+                    with pipeline.attention_receive(layer_idx, index):
+                        executions[index].ffn_output = self.bank.attention_receive(
+                            index
+                        )
 
     @staticmethod
     def _complete_stage(

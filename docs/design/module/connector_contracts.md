@@ -45,6 +45,19 @@ last_reviewed: 2026-10-29
 
 # Connector contracts
 
+The opt-in Graph exchange order `cross_layer_v1` uses the immutable
+[`hccl_graph_schedule.py`](../../../afd_plugin/connectors/npu/hccl_graph_schedule.py)
+schedule shared by the A and F consumers. It keeps layer/stage compute order,
+crosses layer boundaries in the common input/output wire order, and copies F
+outputs into the existing fixed stage bank before deferred sends. A completes
+each prior receive and native continuation before producing the next layer's
+input. Construction rejects unsupported role-axis combinations before capture;
+default serial and bulk exchange contracts remain separate. Its mirrored CPU
+tests and the three-layer TP1 HCCL capture/replay component establish those
+seams, not full-model HC/Engram/MoE, physical overlap or performance. The
+[cross-layer evidence](../../../openspec/changes/afd-hccl-v2-multistream/evidence/a3-graph-cross-layer-20261110/README.md)
+preserves source identities, the failed-fixture attempts and their closures.
+
 ## Purpose and boundary
 
 This document owns connector factory behavior, lifecycle, transfer semantics,

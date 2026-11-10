@@ -1,0 +1,28 @@
+{
+  "scope": "Local Python3.11 grammar and Ruff; runtime/device acceptance separate",
+  "source_files": {
+    "afd_plugin/connectors/npu/hccl_graph_schedule.py": "45c3904a6a8d523b3564b665894431b63b27309da5817c3577d495e4cc978c76",
+    "afd_plugin/connectors/npu/hccl_graph_pipeline.py": "94929ab44c1a27271fc544675e64b757ffe0ab3a1331b4fd3b8bfe66242468ae",
+    "afd_plugin/connectors/npu/hccl_graph_stage.py": "1d6dee37108e490d65a6e4e13fc5df75ddcc6776ba33ae8313ebce483610517b",
+    "afd_plugin/distributed/hccl_plan.py": "43434ec9bfc11a8bc7d4b57d97d2c1a2b2c1f928c4fe74ac78e66d042acdb762",
+    "afd_plugin/model_executor/models/npu/deepseek_v41_graph.py": "2a502b8d248f22ab168d901c58aa5b49a476deea7ca9df599cdc35f94817ef5f",
+    "afd_plugin/v1/worker/npu/hccl_v41_ffn_graph.py": "5b048db49931eef11d3741709538d949a87538a4dee04a7778b6576f11c9a19b",
+    "afd_plugin/v1/worker/npu/hccl_v41_graph_coordinator.py": "35adf2b22af1ba80938c91dd5bea8670c8f99f951c767abd9a45b6f26ee420f4",
+    "afd_plugin/v1/worker/npu/hccl_v41_graph_service.py": "3f5b104b22dcd2be6d1303f7bd4e90b5d0d3a216c8b36991100271bc852b1a43",
+    "tests/unit/connectors/npu/test_hccl_graph_schedule.py": "4133ba69b5cab36e65b8cb4b6feb19e010de13a52a06eaba678ab05779bcb289",
+    "tests/unit/connectors/npu/test_hccl_graph_pipeline.py": "8c5da79d2d5980681e1962e0dbb1f05bc761bbabd3444e907f4acb018a41cb78",
+    "tests/unit/connectors/npu/test_hccl_graph_stage.py": "275eb5c76b6a09570409a9c4c1332d462dc0e42c8c191537ef7125b6bedd0758",
+    "tests/unit/distributed/test_hccl_plan.py": "31ce88fcde0457de1c90a51ed8b57e7995153a738ca30c637dbbe34f9c296213",
+    "tests/unit/fakes/deepseek_v41.py": "a459512eddda35465bd2e07800f818bfb31a060ccfdc4510b2c140728ffc43d5",
+    "tests/unit/fakes/deepseek_v41_graph.py": "7e663cc4ee382119e023381246e67e2bf99112f58b568240232873042c106376",
+    "tests/unit/fakes/hccl_graph_pipeline.py": "3db4e9170242659a8010ffdabbc10591752ee18a84cc537654b3e85927b81380",
+    "tests/unit/fakes/hccl_v41_ffn_graph.py": "9d9393c06dc34070cd5ce29fa32664286ee355b000a4650a04f5ae31c9db8bc3",
+    "tests/unit/model_executor/models/npu/test_deepseek_v41_graph.py": "6b18c65b43b96a02e1fc978fa2f5dff77f3bbcd2f652e7fb45b734ef5ae517ee",
+    "tests/unit/v1/worker/npu/test_hccl_v41_ffn_graph.py": "ab3567e92a1e07d4060089495f236af23b60e4ff1ef059be053cf7c378264b14",
+    "tests/unit/v1/worker/npu/test_hccl_v41_graph_coordinator.py": "b4ee84730772d2d77487de37a40af1ed4739bfe0dca83f90f59e2fec07b36f01",
+    "tests/unit/v1/worker/npu/test_hccl_v41_graph_service.py": "20c61a10a497d898321005fbb1d42fd334fdb708eeaf839bc3734ec88ff0f45d"
+  },
+  "python311_ast_files": 20,
+  "ruff": "passed",
+  "diff_check": "passed"
+}

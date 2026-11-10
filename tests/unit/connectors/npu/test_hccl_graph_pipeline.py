@@ -23,12 +23,150 @@ from tests.unit.fakes.hccl_graph_pipeline import (
     run_attention_arithmetic,
     run_ffn_arithmetic,
     run_ffn_layer,
+    run_wavefront_arithmetic,
 )
 
 
 @pytest.fixture
 def case(monkeypatch):
     return make_pipeline_case(monkeypatch, module)
+
+
+@pytest.mark.parametrize("rows", [(2, 3), (0, 3), (3, 0)])
+def test_cross_layer_three_layer_peers_match_every_packet_and_reuse_fence(
+    monkeypatch, rows
+):
+    traces = []
+    for role in ("attention", "ffn"):
+        case = make_pipeline_case(
+            monkeypatch,
+            module,
+            role=role,
+            rows=rows,
+            layers=(0, 1, 2),
+            exchange_order="cross_layer_v1",
+        )
+        outputs = run_wavefront_arithmetic(case)
+        expected = (
+            [27 * (stage + 1) + 36 for stage, count in enumerate(rows) if count]
+            if role == "attention"
+            else [
+                layer + stage + 1
+                for layer in (0, 1, 2)
+                for stage, count in enumerate(rows)
+                if count
+            ]
+        )
+        for output, value in zip(outputs, expected, strict=True):
+            torch.testing.assert_close(output, torch.full_like(output, value))
+        trace = case.runtime.trace
+        traces.append([event[1:3] for event in trace if event[0] == "wire"])
+        assert {event[-1] for event in trace if event[0] == "wire"} == {"parent"}
+        for stage, count in enumerate(rows):
+            if not count:
+                continue
+            for layer in (1, 2):
+                dependency = (
+                    f"L{layer - 1}S{stage}.receive"
+                    if role == "attention"
+                    else f"L{layer - 1}S{stage}.send"
+                )
+                consumer = "compute" if role == "attention" else "parent"
+                assert ("wait", dependency, consumer) in trace
+    assert len(traces[0]) == len(traces[1])
+    for (a_operation, a_stage), (f_operation, f_stage) in zip(*traces, strict=True):
+        assert a_stage == f_stage
+        assert (a_operation, f_operation) in (("send", "receive"), ("receive", "send"))
+
+
+@pytest.mark.parametrize("role", ["attention", "ffn"])
+def test_cross_layer_advances_next_receive_before_sibling_output_send(
+    monkeypatch, role
+):
+    case = make_pipeline_case(
+        monkeypatch, module, role=role, exchange_order="cross_layer_v1"
+    )
+    run_wavefront_arithmetic(case)
+    trace = case.runtime.trace
+    compute_records = [
+        event[1]
+        for event in trace
+        if event[0] == "record" and event[1].endswith(".compute")
+    ]
+    assert compute_records == [
+        "L0S0.compute",
+        "L0S1.compute",
+        "L1S0.compute",
+        "L1S1.compute",
+    ]
+    if role == "ffn":
+        assert trace.index(("record", "L1S0.receive", "parent")) < trace.index(
+            ("record", "L0S1.send", "parent")
+        )
+    else:
+        assert trace.index(("record", "L1S0.send", "parent")) < trace.index(
+            ("record", "L0S1.receive", "parent")
+        )
+
+
+@pytest.mark.parametrize(
+    "role,policy",
+    [
+        ("attention", module.HcclGraphPipelinePolicy(hybrid=False)),
+        ("ffn", module.HcclGraphPipelinePolicy(ffn_cross_layer=False)),
+        (
+            "ffn",
+            module.HcclGraphPipelinePolicy(
+                ffn_recv_stream=False, ffn_cross_layer=False
+            ),
+        ),
+    ],
+)
+def test_cross_layer_rejects_missing_role_dependency_before_events(
+    monkeypatch, role, policy
+):
+    with pytest.raises(ValueError, match="role's hybrid/receive/cross policy"):
+        make_pipeline_case(
+            monkeypatch,
+            module,
+            role=role,
+            exchange_order="cross_layer_v1",
+            policy=policy,
+        )
+
+
+@pytest.mark.parametrize(
+    "failure", ["skip_input", "duplicate_input", "skip_next_layer", "missing_tail"]
+)
+def test_cross_layer_rejects_missing_duplicate_or_out_of_order_actions(
+    monkeypatch, failure
+):
+    case = make_pipeline_case(monkeypatch, module, exchange_order="cross_layer_v1")
+    pipeline = case.pipeline
+    with pytest.raises(RuntimeError), pipeline.run():
+        for stage in range(2):
+            with pipeline.compute(0, stage):
+                pass
+        with pipeline.attention_send(0, 0):
+            pass
+        if failure == "duplicate_input":
+            scope = pipeline.attention_send(0, 0)
+        elif failure == "skip_input":
+            scope = pipeline.attention_receive(0, 0)
+        else:
+            with pipeline.attention_send(0, 1):
+                pass
+            with pipeline.attention_receive(0, 0):
+                pass
+            scope = (
+                pipeline.attention_receive(0, 1)
+                if failure == "skip_next_layer"
+                else pipeline.final_compute(0)
+            )
+        with scope:
+            pytest.fail("invalid action entered tensor body")
+    with pytest.raises(RuntimeError, match="failed"), pipeline.run():
+        pass
 
 
 @pytest.mark.parametrize("role", ["attention", "ffn"])
