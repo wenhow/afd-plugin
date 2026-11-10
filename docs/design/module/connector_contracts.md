@@ -58,6 +58,17 @@ seams, not full-model HC/Engram/MoE, physical overlap or performance. The
 [cross-layer evidence](../../../openspec/changes/afd-hccl-v2-multistream/evidence/a3-graph-cross-layer-20261110/README.md)
 preserves source identities, the failed-fixture attempts and their closures.
 
+Normal Graph configuration can select `stage_serial` (the default), `bulk_v1`
+or `cross_layer_v1` through `afd.connector_extra_config.graph_exchange_order`.
+The default extra mapping and HELLO encoding omit this optional choice. Eager
+and legacy admission reject either non-default order before process-group
+creation. Graph capability validation, exact peer HELLO agreement and local
+model binding preserve the selected order for the session/cache lifetime,
+including F's private configuration after draft isolation. Selecting an order
+does not enable compute streams: the existing all-peer capture preflight still
+requires the corresponding actual U2 pipeline policy or skips capture uniformly.
+U1 and eager fallback keep the serial tensor path within the agreed session.
+
 ## Purpose and boundary
 
 This document owns connector factory behavior, lifecycle, transfer semantics,

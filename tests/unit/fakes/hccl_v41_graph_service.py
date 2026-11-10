@@ -378,6 +378,9 @@ def make_graph_service_case(
     )
     config.parallel_config.rank = 0
     config.model_config.enforce_eager = False
+    config.additional_config["afd"]["connector_extra_config"] = {
+        "graph_exchange_order": exchange_order
+    }
     config.model_config.hf_text_config.hidden_size = 4
     config.model_config.hf_text_config.vocab_size = 128
     runner = object.__new__(AFDNPUFFNModelRunner)

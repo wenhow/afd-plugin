@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: Copyright contributors to the AFD plugin project
-"""Configuration admission for the isolated eager HCCL connector component.
+"""Configuration admission for the eager and Graph HCCL connector components.
 
 Admission here does not enable DeepSeek V4.1 model execution. The model feature
 guard remains closed until the Attention MoE boundary and role equivalence pass.
@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
 
 import torch
 from vllm.config import CompilationMode
@@ -40,15 +40,26 @@ DEEPSEEK_V41_ARCHITECTURES = frozenset(
 
 @dataclass(frozen=True)
 class HcclExtraInfo(ConnectorExtraInfo):
-    """Optional transfer-row ceiling, bounded by the scheduler on each role."""
+    """Transfer-row ceiling and the fixed, peer-agreed Graph exchange order."""
 
     max_tokens: int | None = None
+    graph_exchange_order: Literal["stage_serial", "bulk_v1", "cross_layer_v1"] = (
+        "stage_serial"
+    )
 
     def __post_init__(self) -> None:
         if self.max_tokens is not None and (
             type(self.max_tokens) is not int or self.max_tokens <= 0
         ):
             raise ValueError("HCCL max_tokens must be a positive integer or None")
+        if type(self.graph_exchange_order) is not str or (
+            self.graph_exchange_order
+            not in ("stage_serial", "bulk_v1", "cross_layer_v1")
+        ):
+            raise ValueError(
+                "HCCL graph_exchange_order must be "
+                "stage_serial, bulk_v1 or cross_layer_v1"
+            )
 
     @classmethod
     def from_mapping(cls, raw: Mapping[str, Any] | None) -> HcclExtraInfo:
@@ -56,15 +67,23 @@ class HcclExtraInfo(ConnectorExtraInfo):
             return cls()
         if not isinstance(raw, Mapping):
             raise TypeError("HCCL connector_extra_config must be a mapping")
-        unknown = sorted(str(key) for key in raw if key != "max_tokens")
+        unknown = sorted(
+            str(key) for key in raw if key not in ("max_tokens", "graph_exchange_order")
+        )
         if unknown:
             raise ValueError(
                 "unknown HCCL connector_extra_config field(s): " + ", ".join(unknown)
             )
-        return cls(max_tokens=raw.get("max_tokens"))
+        return cls(
+            max_tokens=raw.get("max_tokens"),
+            graph_exchange_order=raw.get("graph_exchange_order", "stage_serial"),
+        )
 
-    def to_mapping(self) -> dict[str, int | None]:
-        return {"max_tokens": self.max_tokens}
+    def to_mapping(self) -> dict[str, int | str | None]:
+        mapping: dict[str, int | str | None] = {"max_tokens": self.max_tokens}
+        if self.graph_exchange_order != "stage_serial":
+            mapping["graph_exchange_order"] = self.graph_exchange_order
+        return mapping
 
 
 def validate_hccl_runtime(
@@ -114,6 +133,9 @@ def validate_staged_hccl_runtime(
         native_tp_size=caps.native_tp_size,
         local_counts_version=1,
         graph_execution_version=1 if graph else 0,
+        graph_exchange_order=HcclExtraInfo.from_mapping(
+            afd_config.connector_extra_config
+        ).graph_exchange_order,
         target_query_len=query_len,
     )
     result.validate()
@@ -197,6 +219,7 @@ def validate_staged_hccl_binding(
         or caps.native_tp_size != expected.native_tp_size
         or caps.local_counts_version != expected.local_counts_version
         or caps.graph_execution_version != expected.graph_execution_version
+        or caps.graph_exchange_order != expected.graph_exchange_order
         or caps.target_query_len != expected.target_query_len
         or caps.max_tokens > expected.max_tokens
     ):
@@ -326,6 +349,10 @@ def _validate_hccl_runtime(
         raise ValueError("P2pHcclAFDConnector does not support LoRA")
 
     extra = HcclExtraInfo.from_mapping(afd_config.connector_extra_config)
+    if extra.graph_exchange_order != "stage_serial" and not graph:
+        raise ValueError(
+            "non-default HCCL graph_exchange_order requires Graph execution"
+        )
     scheduler_capacity = vllm_config.scheduler_config.max_num_batched_tokens
     if type(scheduler_capacity) is not int or scheduler_capacity <= 0:
         raise ValueError("HCCL scheduler max_num_batched_tokens must be positive")

@@ -543,22 +543,35 @@ def test_closed_endpoint_cannot_be_initialized(capabilities):
         transport.initialize()
 
 
-@pytest.mark.parametrize("local_q,peer_q", [(1, 3), (3, 1), (3, 2)])
+@pytest.mark.parametrize(
+    "field,local_value,peer_value",
+    [
+        ("target_query_len", 1, 3),
+        ("target_query_len", 3, 1),
+        ("target_query_len", 3, 2),
+        ("graph_exchange_order", "stage_serial", "bulk_v1"),
+        ("graph_exchange_order", "bulk_v1", "stage_serial"),
+        ("graph_exchange_order", "stage_serial", "cross_layer_v1"),
+        ("graph_exchange_order", "cross_layer_v1", "stage_serial"),
+        ("graph_exchange_order", "bulk_v1", "cross_layer_v1"),
+        ("graph_exchange_order", "cross_layer_v1", "bulk_v1"),
+    ],
+)
 @pytest.mark.parametrize(
     "role,role_rank", [("attention", 0), ("attention", 1), ("ffn", 0), ("ffn", 1)]
 )
-def test_target_query_hello_mismatch_closes_before_creating_a_data_group(
-    monkeypatch, graph_round, local_q, peer_q, role, role_rank
+def test_hello_contract_mismatch_closes_before_creating_a_data_group(
+    monkeypatch, graph_round, field, local_value, peer_value, role, role_rank
 ):
-    capabilities = replace(graph_round.capabilities, target_query_len=local_q)
+    capabilities = replace(graph_round.capabilities, **{field: local_value})
     case = make_staged_hello_runtime(
         monkeypatch,
         capabilities,
-        replace(capabilities, target_query_len=peer_q),
+        replace(capabilities, **{field: peer_value}),
         role=role,
         role_rank=role_rank,
     )
-    with pytest.raises((ValueError, RuntimeError), match="target_query_len"):
+    with pytest.raises((ValueError, RuntimeError), match=field):
         case.peer.initialize()
     assert [group.backend for group in case.created_groups] == ["gloo"]
     assert case.destroyed_groups == case.created_groups
@@ -580,13 +593,16 @@ def test_target_query_hello_mismatch_closes_before_creating_a_data_group(
 
 
 @pytest.mark.parametrize("query_len", [1, 3])
+@pytest.mark.parametrize("order", ["stage_serial", "bulk_v1", "cross_layer_v1"])
 @pytest.mark.parametrize(
     "role,role_rank", [("attention", 0), ("attention", 1), ("ffn", 0), ("ffn", 1)]
 )
-def test_matching_target_query_hello_creates_the_stage_groups_after_agreement(
-    monkeypatch, graph_round, query_len, role, role_rank
+def test_matching_hello_creates_the_stage_groups_after_agreement(
+    monkeypatch, graph_round, query_len, order, role, role_rank
 ):
-    capabilities = replace(graph_round.capabilities, target_query_len=query_len)
+    capabilities = replace(
+        graph_round.capabilities, target_query_len=query_len, graph_exchange_order=order
+    )
     case = make_staged_hello_runtime(
         monkeypatch, capabilities, capabilities, role=role, role_rank=role_rank
     )

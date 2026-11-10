@@ -182,8 +182,9 @@ def test_dspark_u2_selector_rejects_invalid_draft_instead_of_using_legacy_u1(bou
 @pytest.mark.parametrize("role", ["attention", "ffn"])
 @pytest.mark.parametrize("stages", [1, 2])
 @pytest.mark.parametrize("query_len", [1, 3])
+@pytest.mark.parametrize("order", ["stage_serial", "bulk_v1", "cross_layer_v1"])
 def test_normal_graph_factory_and_validation_select_the_same_role_protocol(
-    role, stages, query_len
+    role, stages, query_len, order
 ):
     runtime = hccl_vllm_config(
         dtype=torch.bfloat16,
@@ -195,6 +196,9 @@ def test_normal_graph_factory_and_validation_select_the_same_role_protocol(
     )
     runtime.model_config.enforce_eager = False
     runtime.parallel_config.rank = 0
+    runtime.additional_config["afd"]["connector_extra_config"] = {
+        "graph_exchange_order": order
+    }
     if query_len > 1:
         runtime.speculative_config.num_speculative_tokens = query_len - 1
     shape = DeepseekV41TargetShape(query_len)
@@ -211,11 +215,34 @@ def test_normal_graph_factory_and_validation_select_the_same_role_protocol(
     caps = connector.transport.negotiated_capabilities
     assert caps.graph_execution_version == caps.local_counts_version == 1
     assert caps.target_query_len == query_len
+    assert caps.graph_exchange_order == order
     assert not connector.is_initialized
     assert runtime.compilation_config.cudagraph_mode == CUDAGraphMode.FULL_DECODE_ONLY
     assert not runtime.model_config.enforce_eager
     if role == "ffn":
         assert runtime.speculative_config is None and runtime.engram_config is None
+
+
+@pytest.mark.parametrize("role", ["attention", "ffn"])
+@pytest.mark.parametrize("stages", [0, 2])
+@pytest.mark.parametrize("order", ["bulk_v1", "cross_layer_v1"])
+def test_eager_factory_and_common_validation_reject_graph_order_before_rendezvous(
+    runtime, role, stages, order
+):
+    runtime.additional_config["afd"].update(
+        role=role, connector_extra_config={"graph_exchange_order": order}
+    )
+    parallel = runtime.parallel_config
+    parallel.num_ubatches = stages
+    parallel.enable_dbo = parallel.use_ubatching = stages == 2
+    afd = parse_afd_config(runtime, expected_role=role)
+
+    with pytest.raises(ValueError, match="requires Graph execution"):
+        validate_npu_model_runner_v2_config(
+            runtime, expected_role=role, device_type="npu"
+        )
+    with pytest.raises(ValueError, match="requires Graph execution"):
+        adapter_module.create_npu_runtime_connector(0, 0, runtime, afd)
 
 
 @pytest.mark.parametrize("boundary", ["sleep", "weight_transfer", "mode"])

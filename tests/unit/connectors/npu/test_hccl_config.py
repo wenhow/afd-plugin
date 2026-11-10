@@ -109,12 +109,37 @@ def test_common_config_allows_last_pair_to_use_the_largest_tcp_port(afd_config):
     )
 
 
-@pytest.mark.parametrize("raw", [None, {}, {"max_tokens": None}, {"max_tokens": 4}])
+@pytest.mark.parametrize(
+    "raw",
+    [
+        None,
+        {},
+        {"max_tokens": None},
+        {"max_tokens": 4},
+        {"graph_exchange_order": "stage_serial"},
+        {"max_tokens": 4, "graph_exchange_order": "bulk_v1"},
+        {"graph_exchange_order": "cross_layer_v1"},
+    ],
+)
 def test_extra_config_round_trip(hccl_config_module, raw):
     extra = hccl_config_module.HcclExtraInfo.from_mapping(raw)
 
     assert extra.max_tokens == (raw or {}).get("max_tokens")
+    order = (raw or {}).get("graph_exchange_order", "stage_serial")
+    assert extra.graph_exchange_order == order
+    expected = {"max_tokens": extra.max_tokens}
+    if order != "stage_serial":
+        expected["graph_exchange_order"] = order
+    assert extra.to_mapping() == expected
     assert hccl_config_module.HcclExtraInfo.from_mapping(extra.to_mapping()) == extra
+
+
+@pytest.mark.parametrize(
+    "value", [None, True, False, 0, 1, [], {}, "", "bulk", "BULK_V1"]
+)
+def test_extra_config_requires_an_exact_graph_exchange_order(hccl_config_module, value):
+    with pytest.raises(ValueError, match="graph_exchange_order must be"):
+        hccl_config_module.HcclExtraInfo.from_mapping({"graph_exchange_order": value})
 
 
 @pytest.mark.parametrize("value", [0, -1, True, False, 1.0, 1.5, "4", [], {}])
@@ -219,6 +244,21 @@ def test_staged_runtime_admits_counts_protocol_without_relaxing_legacy_u1(
             hccl_config_module.validate_hccl_runtime(runtime, afd_config, 0)
 
 
+@pytest.mark.parametrize("order", ["bulk_v1", "cross_layer_v1"])
+@pytest.mark.parametrize("staged", [False, True])
+def test_eager_admission_rejects_graph_exchange_orders(
+    hccl_config_module, runtime, afd_config, order, staged
+):
+    config = replace(afd_config, connector_extra_config={"graph_exchange_order": order})
+    validate = (
+        hccl_config_module.validate_staged_hccl_runtime
+        if staged
+        else hccl_config_module.validate_hccl_runtime
+    )
+    with pytest.raises(ValueError, match="requires Graph execution"):
+        validate(runtime, config, 0)
+
+
 @pytest.mark.parametrize(
     ("section", "field", "value", "reason"),
     [
@@ -289,13 +329,13 @@ def test_explicit_graph_component_preserves_its_restricted_execution_contract(
         )
 
 
-def test_explicit_graph_wire_binds_to_actual_rank_and_native_device(
-    hccl_config_module, graph_runtime, afd_config
-):
+@pytest.fixture
+def graph_binding(hccl_config_module, graph_runtime):
+    afd_config = hccl_config_module.parse_afd_config(graph_runtime)
     caps = hccl_config_module.validate_staged_hccl_runtime(
         graph_runtime, afd_config, 0, graph=True
     )
-    transport = SimpleNamespace(
+    return SimpleNamespace(
         role="attention",
         role_rank=0,
         local_device=0,
@@ -305,12 +345,40 @@ def test_explicit_graph_wire_binds_to_actual_rank_and_native_device(
         plan=None,
         graph_reservation=None,
     )
+
+
+def test_explicit_graph_wire_binds_to_actual_rank_and_native_device(
+    hccl_config_module, graph_runtime, graph_binding
+):
     hccl_config_module.validate_staged_hccl_binding(
-        graph_runtime, transport, SimpleNamespace(type="npu", index=0)
+        graph_runtime, graph_binding, SimpleNamespace(type="npu", index=0)
     )
     with pytest.raises(ValueError, match="idle transport"):
         hccl_config_module.validate_staged_hccl_binding(
-            graph_runtime, transport, SimpleNamespace(type="npu", index=1)
+            graph_runtime, graph_binding, SimpleNamespace(type="npu", index=1)
+        )
+
+
+@pytest.mark.parametrize("order", ["stage_serial", "bulk_v1", "cross_layer_v1"])
+def test_graph_wire_binds_only_to_the_configured_exchange_order(
+    hccl_config_module, graph_runtime, graph_binding, order
+):
+    graph_runtime.additional_config["afd"]["connector_extra_config"] = {
+        "graph_exchange_order": order
+    }
+    graph_binding.negotiated_capabilities = replace(
+        graph_binding.negotiated_capabilities, graph_exchange_order=order
+    )
+    hccl_config_module.validate_staged_hccl_binding(
+        graph_runtime, graph_binding, SimpleNamespace(type="npu", index=0)
+    )
+    foreign_order = "bulk_v1" if order == "stage_serial" else "stage_serial"
+    graph_binding.negotiated_capabilities = replace(
+        graph_binding.negotiated_capabilities, graph_exchange_order=foreign_order
+    )
+    with pytest.raises(ValueError, match="idle transport"):
+        hccl_config_module.validate_staged_hccl_binding(
+            graph_runtime, graph_binding, SimpleNamespace(type="npu", index=0)
         )
 
 
@@ -596,11 +664,15 @@ def dspark_graph_runtime(dspark_runtime, hccl_config_module):
 
 
 @pytest.mark.parametrize("steps", [1, 2, 5])
+@pytest.mark.parametrize("order", ["stage_serial", "bulk_v1", "cross_layer_v1"])
 def test_graph_peers_retain_target_width_after_private_ffn_isolation(
-    hccl_config_module, dspark_graph_runtime, steps
+    hccl_config_module, dspark_graph_runtime, steps, order
 ):
     source = dspark_graph_runtime
     source.speculative_config.num_speculative_tokens = steps
+    source.additional_config["afd"]["connector_extra_config"] = {
+        "graph_exchange_order": order
+    }
     ffn = deepcopy(source)
     ffn.additional_config["afd"]["role"] = "ffn"
     shape = resolve_deepseek_v41_target_shape(ffn)
@@ -616,6 +688,7 @@ def test_graph_peers_retain_target_width_after_private_ffn_isolation(
         target_shape=shape,
     )
     assert a_caps == f_caps
+    assert a_caps.graph_exchange_order == order
     assert a_caps.target_query_len == steps + 1
     assert private.speculative_config is private.engram_config is None
     assert source.speculative_config.num_speculative_tokens == steps

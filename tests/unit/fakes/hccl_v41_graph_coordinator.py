@@ -151,6 +151,9 @@ def make_coordinator_case(
         draft.dspark_target_layer_ids = [1, 2]
     config.model_config.hf_config.model_type = "deepseek_v41"
     config.model_config.hf_config.architectures = ["DeepseekV41ForCausalLM"]
+    config.additional_config["afd"]["connector_extra_config"] = {
+        "graph_exchange_order": exchange_order
+    }
     config.model_config.enforce_eager = False
     config.model_config.dtype = torch.bfloat16
     config.model_config.hf_text_config.hidden_size = capabilities.hidden_size
