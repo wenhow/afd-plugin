@@ -100,3 +100,34 @@ the exact selected command. The JSON index contains each run's outcomes and
 raw artifact hashes separately. These CPU checks qualify request/status,
 execute-step semantics, thread ownership and STOP/cache/export/native KV/
 model/group cleanup order; actual profiler traces remain separate.
+
+## Fixed HTTP management entry
+
+`profiler-api-025` passed **62 cases**, no failures/errors/skips: API 31 and
+profiler lifecycle 31. All fifteen installed source pins matched. Its ASGI
+and native endpoint-loader CPU seams preserve independent app/executor
+binding, strict request validation and requested/applied state. It started
+no device probe and does not qualify a deployed native server or NPU trace.
+The [immutable identity](profiler-api-025/identity.json) and raw results are
+listed separately in the JSON index.
+
+## Headless F local management entry
+
+`headless-profiler-027` passed **91 cases**, no failures/errors/skips: local
+control 31, EngineCore 29 and profiler lifecycle 31. All seventeen installed
+source pins matched. Actual Unix sockets cover strict commands, partial IO,
+connection/size/deadline bounds, nonserializable RPC responses and owned-inode
+cleanup. EngineCore cases exercise requests during its existing management
+loop and cleanup on normal STOP and service failure. Executor/device work
+remains a CPU seam; the attempt started no NPU probe or model and changed no
+installed package or upstream source.
+
+The [identity](headless-profiler-027/identity.json) fixes the source snapshot
+and exact target list; [summary](headless-profiler-027/results/summary.json),
+[JUnit](headless-profiler-027/results/cpu.xml), source checks, versions and
+stdout/stderr remain intact. The JSON index records every raw hash. Local
+Windows verification separately passed 65 and skipped 26 because AF_UNIX is
+unavailable; those skips are not accepted socket behavior. Native full-model
+headless management, NPU timeline, pressure and A5 remain unaccepted. See the
+[source contract](../headless-profiler-control-contract-20261110.md) and
+[A5 guide](../../../../../docs/npu/DSV41_A5_PROFILER_VALIDATION_ZH.md).

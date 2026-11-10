@@ -26,6 +26,7 @@ from typing import TYPE_CHECKING, Any
 
 import vllm.v1.engine.core as core_module
 
+from afd_plugin.compat.npu.profiler_control import create_ffn_profiler_control
 from afd_plugin.compat.vllm import (
     TARGET_VLLM_VERSION,
 )
@@ -667,14 +668,27 @@ def _prepare_late_loaded_ffn_engine_core(
             scheduler_config.get_scheduler_cls = lambda: _AFDFFNNoopScheduler
 
 
+# Plugin-owned daemon loop reached by the patched native run_busy_loop. The
+# existing executor and management thread also own the explicitly configured
+# local profiler endpoint; default execution creates no listener. Remove that
+# adapter when native headless EngineCore offers an external fixed profiler API.
 def _run_ffn_busy_loop(self, core_module: Any) -> None:
     afd_config = _get_afd_config(self.vllm_config)
     uses_hccl = afd_config is not None and afd_config.connector == HCCL_P2P_CONNECTOR
     started = False
     peer_stopped = False
+    profiler_control = None
     if uses_hccl:
         self.process_input_queue_block = False
     try:
+        # ### PATCH START: explicitly owned headless F profiler management
+        # This plugin helper owns the existing F executor and management thread.
+        # Bind before worker startup so an invalid explicit socket cannot leave
+        # a running worker behind. Disabled mode performs no socket operations.
+        profiler_control = create_ffn_profiler_control(
+            self.vllm_config, self.model_executor
+        )
+        # ### PATCH END: explicitly owned headless F profiler management
         self.model_executor.collective_rpc("start_ffn_server_loop")
         started = True
         # Emit readiness only after the collective start RPC succeeded; the
@@ -689,6 +703,10 @@ def _run_ffn_busy_loop(self, core_module: Any) -> None:
                 # Keep native management RPCs and executor failure messages
                 # live while the worker thread owns connector computation.
                 self._process_input_queue()
+                # ### PATCH START: fixed profiler requests to this F executor
+                if profiler_control is not None:
+                    profiler_control.poll()
+                # ### PATCH END: fixed profiler requests to this F executor
                 # HCCL STOP ends the service thread without raising an error.
                 # Every F rank must finish its paired STOP before core exit;
                 # missing/malformed replies must never look like clean STOP.
@@ -717,6 +735,15 @@ def _run_ffn_busy_loop(self, core_module: Any) -> None:
         core_module.logger.exception("AFD FFN EngineCore encountered a fatal error")
         raise
     finally:
+        # ### PATCH START: release only the owned local management endpoint
+        if profiler_control is not None:
+            try:
+                profiler_control.close()
+            except OSError:
+                core_module.logger.debug(
+                    "AFD FFN profiler control cleanup failed", exc_info=True
+                )
+        # ### PATCH END: release only the owned local management endpoint
         if started:
             _stop_ffn_worker_loop(self, raise_errors=uses_hccl and peer_stopped)
 

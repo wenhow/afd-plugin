@@ -5,8 +5,10 @@
 from __future__ import annotations
 
 import importlib
+import json
 import logging
 import queue
+import socket
 import sys
 import types
 from collections import deque
@@ -17,6 +19,10 @@ from types import SimpleNamespace
 import pytest
 
 from afd_plugin.config import HCCL_P2P_CONNECTOR
+from tests.unit.fakes.profiler_control import (
+    ProfilerControlExecutor,
+    make_control_socket_path,
+)
 
 
 class _EngineShutdownState(IntEnum):
@@ -622,9 +628,12 @@ def hccl_engine(monkeypatch):
             self.service_replies = deque()
             self.stop_error = None
             self.shutdown_error = None
+            self.profiler = ProfilerControlExecutor()
 
-        def collective_rpc(self, method):
+        def collective_rpc(self, method, timeout=None, args=(), kwargs=None):
             self.messages.append(method)
+            if method in ("profile", "afd_profiler_status"):
+                return self.profiler.collective_rpc(method, timeout, args, kwargs)
             if method == "start_ffn_server_loop":
                 return None
             if method == "stop_ffn_server_loop":
@@ -667,6 +676,55 @@ def hccl_distributed_resources(monkeypatch, hccl_engine):
         raising=False,
     )
     return resources
+
+
+@pytest.fixture
+def ff_npu_profiler_socket(hccl_engine, tmp_path_factory, monkeypatch):
+    path = make_control_socket_path(tmp_path_factory)
+    monkeypatch.setenv("AFD_NPU_FFN_PROFILER_ENABLE", "1")
+    monkeypatch.setenv("AFD_NPU_FFN_PROFILER_CONTROL_PATH", str(path))
+    hccl_engine.vllm_config.device_config = SimpleNamespace(device_type="npu")
+    hccl_engine.vllm_config.profiler_config = None
+    return path
+
+
+@pytest.mark.parametrize("failed", [False, True])
+def test_headless_ffn_control_uses_own_executor_and_closes_on_exit(
+    hccl_engine, ff_npu_profiler_socket, failed
+):
+    path = ff_npu_profiler_socket
+    with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as client:
+        client.settimeout(1)
+
+        def open_control():
+            client.connect(str(path))
+            client.sendall(b'{"operation":"stop"}\n')
+
+        hccl_engine.open_control = open_control
+        hccl_engine.input_queue.put_nowait(
+            (_EngineCoreRequestType.UTILITY, ("control", "open_control"))
+        )
+        hccl_engine.model_executor.service_replies.append(
+            RuntimeError("service failed") if failed else [False]
+        )
+        with pytest.raises(RuntimeError if failed else SystemExit):
+            hccl_engine.run_busy_loop()
+        assert json.loads(client.recv(65_536)) == {
+            "ok": True,
+            "role": "ffn",
+            "accepted": True,
+        }
+        assert not path.exists()
+    assert (
+        hccl_engine.model_executor.profiler.profile.session.status()["requested"]
+        is False
+    )
+    assert hccl_engine.model_executor.messages == [
+        "start_ffn_server_loop",
+        "profile",
+        "poll_hccl_ffn_service",
+        "stop_ffn_server_loop",
+    ]
 
 
 @pytest.mark.parametrize("replies", [([False],), ([True], [False])])

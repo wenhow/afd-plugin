@@ -1,0 +1,19 @@
+{
+  "vllm/model_executor/model_loader/base_loader.py": true,
+  "vllm/model_executor/model_loader/utils.py": true,
+  "vllm/distributed/parallel_state.py": true,
+  "vllm/config/parallel.py": true,
+  "vllm/forward_context.py": true,
+  "vllm_ascend/distributed/parallel_state.py": true,
+  "vllm_ascend/worker/v2/model_runner.py": true,
+  "vllm_ascend/models/deepseek_v41/model.py": true,
+  "vllm_ascend/models/deepseek_v41/dspark.py": true,
+  "vllm_ascend/models/deepseek_v41/engram/model_state.py": true,
+  "vllm/plugins/__init__.py": true,
+  "vllm/plugins/endpoint_plugins/interface.py": true,
+  "vllm/engine/protocol.py": true,
+  "vllm/entrypoints/launchers/api_server/app_state.py": true,
+  "vllm/config/device.py": true,
+  "vllm/v1/engine/core.py": true,
+  "vllm/v1/executor/abstract.py": true
+}

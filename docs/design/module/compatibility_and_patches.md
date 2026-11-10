@@ -15,6 +15,7 @@ primary_code_paths:
   - "afd_plugin/compat/npu/runtime_config.py"
   - "afd_plugin/compat/npu/stream.py"
   - "afd_plugin/compat/npu/profiler_api.py"
+  - "afd_plugin/compat/npu/profiler_control.py"
   - "afd_plugin/compat/patches/**/*.py"
 related_code_paths:
   - "afd_plugin/__init__.py"
@@ -70,7 +71,22 @@ remaining execution-owned. Each app keeps an independent binding; no new
 global registry, native patch, general RPC route or HCCL packet is added.
 [`test_profiler_api.py`](../../../tests/unit/compat/npu/test_profiler_api.py)
 owns actual ASGI request/validation and native loader seams. These CPU tests
-do not establish a deployed server, headless F management or hardware timeline.
+do not establish a deployed server or hardware timeline.
+
+The opt-in headless F adapter in
+[`profiler_control.py`](../../../afd_plugin/compat/npu/profiler_control.py)
+binds an explicitly configured local Unix socket before starting the existing
+HCCL F worker loop. The EngineCore management thread polls bounded client IO
+and forwards only fixed status/start/stop operations to its existing executor.
+The executor RPC has a separate 30-second timeout; the five-second client IO
+deadline does not bound RPC execution or establish management latency. Worker
+execution owners still apply requests and export traces. Default-disabled
+construction creates no socket or thread. Shutdown removes only this listener's
+socket inode before following the existing worker STOP policy. Its real Unix
+socket and EngineCore-loop CPU seams live in
+[`test_profiler_control.py`](../../../tests/unit/compat/npu/test_profiler_control.py)
+and [`test_engine_core.py`](../../../tests/unit/compat/patches/test_engine_core.py).
+They do not establish full-model runtime reachability or device traces.
 
 The NPU V4.1 loader hook in
 [`model_loader.py`](../../../afd_plugin/compat/patches/npu/model_loader.py)

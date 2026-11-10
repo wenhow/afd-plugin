@@ -603,6 +603,64 @@
         "results/summary.json": "1ecfe9c9f98f2ea59e3ed9a4081c6ba8e67c4f7f291059c8431dd008b7706bc3",
         "results/versions.json": "8aa40a41b53ecde5293ad581f313555c4e948071ce87c879c3b93ac6d8ad2601"
       }
+    },
+    "headless-profiler-027": {
+      "scope": "Actual installed dependencies and real Unix sockets; CPU only",
+      "head_commit": "bdf4b3e3eeef2781713a0b63591eb0ce79e94843",
+      "manifest_sha256": "1cad334ebdf3f51de7f4a74fdc99992d8bce4527bb01cefea7b0065527f61db1",
+      "source_identity_origin": "openspec/changes/afd-hccl-full-parity/evidence/headless-profiler-source-identity-20261110.json",
+      "source_pins_checked": 17,
+      "all_source_pins_match": true,
+      "command": [
+        "/mnt/workspace/code/.venvs/afd-v030-dsv41-c0/bin/python",
+        "-B",
+        "-m",
+        "pytest",
+        "-o",
+        "addopts=",
+        "-q",
+        "-rs",
+        "--tb=short",
+        "-p",
+        "no:cacheprovider",
+        "-m",
+        "not npu and not gpu",
+        "--junitxml=/mnt/workspace/tmp/afd-c0-20261104.hVgsIf/c5-control-cpu-20261109-xasju5fw/results/cpu.xml",
+        "tests/unit/compat/npu/test_profiler_control.py",
+        "tests/unit/compat/patches/test_engine_core.py",
+        "tests/unit/compat/npu/test_profiler.py"
+      ],
+      "exit_code": 0,
+      "counts": {
+        "passed": 91
+      },
+      "modules": {
+        "tests.unit.compat.npu.test_profiler_control": 31,
+        "tests.unit.compat.patches.test_engine_core": 29,
+        "tests.unit.compat.npu.test_profiler": 31
+      },
+      "junit_time_seconds": 0.411,
+      "device_probe_started": false,
+      "source_sha256": {
+        "afd_plugin/compat/npu/profiler_control.py": "753dbc11acbdfbc6b1df640b165b4c87af79cade8a903cea039b6c5e88c654ba",
+        "afd_plugin/compat/patches/engine_core.py": "c7b5972f26b29d3bb68441fe94faad3dadc0be1f8cbfec7252c8f943ed63beb8",
+        "openspec/changes/afd-hccl-full-parity/evidence/run_a3_headless_profiler_cpu.py": "2173eedbe5f8334a458bace0bf4b7a84edc6b8a8e603b754c594afe8b8808c8e",
+        "tests/unit/compat/npu/test_profiler_control.py": "62bf087ebcef1aa193350b5307fd9f39e592d76a371cce42be413382a4cc4a69",
+        "tests/unit/compat/patches/test_engine_core.py": "5e6053b855a92abf75b4738cf6b33f59fd407ee57fb4e54a4d305735cfcefc50",
+        "tests/unit/fakes/profiler_control.py": "91feec1ea62fba245004a4f375a6742cdb04195495a9c2ce5218ef760ca527d4"
+      },
+      "raw_sha256": {
+        "openspec/changes/afd-hccl-full-parity/evidence/a3-profiler-cpu-20261110/headless-profiler-027/delivery.json": "9139e919cf1bc812abe08affb48a605451b135fc0951d870c2e48e1c6f1f91f0",
+        "openspec/changes/afd-hccl-full-parity/evidence/a3-profiler-cpu-20261110/headless-profiler-027/identity.json": "567854f88f43ed37ea198386ffbd4efeac89862b7d34334b4ba40653b2c15fb7",
+        "openspec/changes/afd-hccl-full-parity/evidence/a3-profiler-cpu-20261110/headless-profiler-027/remote-run.log": "d0368e69e70153d44bb61112ac19ebae0fe47cfd660a8285ffbf0b5bd6ed1168",
+        "openspec/changes/afd-hccl-full-parity/evidence/a3-profiler-cpu-20261110/headless-profiler-027/results/cpu.stderr.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "openspec/changes/afd-hccl-full-parity/evidence/a3-profiler-cpu-20261110/headless-profiler-027/results/cpu.stdout.log": "79b621c8898f93a90939e6dca0fa4cedb18260bfcf32ee2e440a8ae301de85d4",
+        "openspec/changes/afd-hccl-full-parity/evidence/a3-profiler-cpu-20261110/headless-profiler-027/results/cpu.xml": "c2f89e58d6f7de8615f485cb3f1bd09b72d75ca2ed698880f4e6b9cd75fb54be",
+        "openspec/changes/afd-hccl-full-parity/evidence/a3-profiler-cpu-20261110/headless-profiler-027/results/effective-env.json": "cf8cb2f223f576cad0e0c25cc01da184ac237522fb6de4626050790ec6099bdb",
+        "openspec/changes/afd-hccl-full-parity/evidence/a3-profiler-cpu-20261110/headless-profiler-027/results/source-check.json": "432dbecee87efc9122cdf4090c65aa7f1a4c99f055c4bad374d5fb72d9820623",
+        "openspec/changes/afd-hccl-full-parity/evidence/a3-profiler-cpu-20261110/headless-profiler-027/results/summary.json": "63c23a272d0ef4ad496cadc4bed89a013d2f4f8c213c27855cd86c3791bdab93",
+        "openspec/changes/afd-hccl-full-parity/evidence/a3-profiler-cpu-20261110/headless-profiler-027/results/versions.json": "8aa40a41b53ecde5293ad581f313555c4e948071ce87c879c3b93ac6d8ad2601"
+      }
     }
   },
   "related_cpu_index": "../../../afd-hccl-v2-multistream/evidence/a3-pipeline-cpu-20261110/validation-summary.json",

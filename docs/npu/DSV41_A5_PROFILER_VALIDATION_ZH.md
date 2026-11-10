@@ -80,9 +80,51 @@ POST 只返回 `{"accepted":true,"role":"attention"}` 或对应 F 角色，表�
 失败返回 HTTP 502；超时后应重新读取状态，不能假定请求一定未应用。
 
 一个 API server 只能管理其既有 EngineClient 所属 executor。A 的 URL 不会
-转发到另一独立 F 服务。若 F 使用 headless 模式，仍没有外部 HTTP 管理入口；
+转发到另一独立 F 服务。headless F 可使用下一节的显式本地 socket 入口。
 不要新建一个 Python 引擎来管理已运行的 F 进程。HTTP 线程只发送管理请求，
 不会直接停止后台 profiler、唤醒阻塞 receive 或修改 HCCL wire。
+
+## 可选 headless F 本地管理入口
+
+在 **F 的启动环境**中启用上面的 F role-env，并指定一个简短的绝对路径。
+父目录由运行 F 的用户拥有，仅供该用户访问；每个独立 F EngineCore 使用
+不同路径。此入口默认关闭，不依赖 HTTP endpoint plugin。
+
+```bash
+install -d -m 700 /tmp/afd-profiler-f
+export AFD_NPU_FFN_PROFILER_CONTROL_PATH=/tmp/afd-profiler-f/core.sock
+# 然后执行已审查的 F 启动命令，保留其余启动配置。
+```
+
+路径所在目录必须已存在，Unix socket 路径需符合系统长度限制。若路径已有
+文件或 socket，启动会失败；程序不会删除另一进程的入口。更新代码前启动的
+F 不会自动得到该入口，需要在后续计划的服务重启时添加环境变量。
+
+在同一容器、可访问该 socket 的终端执行：
+
+```bash
+afd_python=/usr/local/python3.11.10/bin/python
+afd_socket=/tmp/afd-profiler-f/core.sock
+"$afd_python" -m afd_plugin.compat.npu.profiler_control --socket "$afd_socket" status
+"$afd_python" -m afd_plugin.compat.npu.profiler_control --socket "$afd_socket" stop
+"$afd_python" -m afd_plugin.compat.npu.profiler_control --socket "$afd_socket" status
+"$afd_python" -m afd_plugin.compat.npu.profiler_control --socket "$afd_socket" start \
+  --profile-prefix sample2
+```
+
+`status` 返回 `ok/role/workers`；`start/stop` 成功返回
+`{"ok":true,"role":"ffn","accepted":true}`。它只修改现有 executor 的期望
+状态。是否应用仍需读取各 worker 的 `requested/applied/pending`，真实采集还需
+检查 trace。阻塞 receive 中的 F 执行线程不会因管理请求被强行唤醒。
+
+入口只接受固定命令；单请求最多 4096 字节、响应最多 65536 字节，最多四个
+连接，每次 poll 最多转发一个同步 RPC。未完成的客户端 IO 有五秒期限，RPC
+另有三十秒超时，CLI 等待最多三十五秒；这些限制不代表业务负载下的响应时延
+验收。超时后重新查询状态。正常退出关闭连接并仅清理自身绑定的 socket。
+
+此路径已通过 A3 实际依赖下的 CPU Unix socket/EngineCore 协议测试，尚未完成
+A5 全模型运行期间的管理可达性、真实 trace 和压力测试；请与本页最后的采集
+材料一起统一验证。
 
 ## 进程内控制与状态边界
 
@@ -99,7 +141,7 @@ status_after_request = llm.collective_rpc("afd_profiler_status", timeout=30)
 这些调用控制该 executor 实际管理的 workers；不会自动找到或控制另一组独立
 F 服务进程。不要在另一 Python 进程新造 `llm` 来控制已有服务，也不要将上述
 片段当作独立终端命令。已有 API server 可使用上面的独立 endpoint plugin；
-headless F 的外部管理入口仍待实现。
+headless F 可使用上面的本地 socket 入口。
 
 状态中 `requested/applied/pending` 分别表示请求、执行线程已应用的状态、尚待
 应用的请求。A 在下次 execute 边界应用，F 在下次服务边界应用；阻塞中的 F
