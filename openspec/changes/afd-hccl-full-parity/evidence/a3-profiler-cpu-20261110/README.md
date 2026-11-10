@@ -1,5 +1,23 @@
 # C7 profiler ownership: actual-dependency CPU evidence
 
+`profiler-api-025` separately validates the new native endpoint plugin with
+**62 passed**, no failures, errors or skips (JUnit 0.254 s): 31 complete HTTP/API
+cases and the existing 31 profiler cases. The actual installed dependency run
+includes the native endpoint loader's allowlist/task gates. All 15 upstream
+pins match, including the five endpoint/config contracts added in
+[`profiler-api-source-identity-20261110.json`](../profiler-api-source-identity-20261110.json).
+The [immutable identity](profiler-api-025/identity.json) records HEAD
+`36f52994217f4caeb4ae20d5b4783892da4b555d`, manifest
+`3fd88c1f933395e50d21d801e369db6377ef4255f38ceb2c0916b725918b5d26`, and the
+exact source/fake/test hashes. Raw [JUnit](profiler-api-025/results/cpu.xml),
+[stdout](profiler-api-025/results/cpu.stdout.log) and
+[summary](profiler-api-025/results/summary.json) qualify ASGI validation, fixed
+existing-engine RPC requests, pending/applied state and app-local ownership.
+They do not start a server, real worker RPC, native model or NPU task. Local
+collection had no FastAPI and was skipped; it is not behavior evidence.
+The three previously frozen profiler/Attention runner/Attention worker source
+hashes remain unchanged. This run does not replace the older attempts below.
+
 `profiler-owner-012` completed with **99 passed**, no failures, setup errors or
 skips (JUnit 2.124 s). This independent A3 snapshot used actual installed runtime
 packages, matched all ten upstream source pins, and started **no NPU probe**.

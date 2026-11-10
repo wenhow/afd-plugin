@@ -14,6 +14,7 @@ primary_code_paths:
   - "afd_plugin/compat/npu/runtime.py"
   - "afd_plugin/compat/npu/runtime_config.py"
   - "afd_plugin/compat/npu/stream.py"
+  - "afd_plugin/compat/npu/profiler_api.py"
   - "afd_plugin/compat/patches/**/*.py"
 related_code_paths:
   - "afd_plugin/__init__.py"
@@ -33,6 +34,7 @@ upstream_refs:
   - "vLLM vllm.forward_context.set_forward_context"
   - "vLLM vllm.engine.arg_utils.EngineArgs and vllm.config.VllmConfig"
   - "vLLM vllm.v1.worker.gpu.model_runner.GPUModelRunner"
+  - "vLLM vllm.plugins.endpoint_plugins.interface.EndpointPlugin"
   - "vLLM-Ascend platform and fused-MoE symbols referenced by NPU patches"
 verified_platform_refs:
   - "CPU/runtime compatibility tests in tests/unit/compat"
@@ -51,6 +53,24 @@ the prior value or absent field on normal and exceptional exit and creates no
 new registry. Its public-query CPU seams live in
 [`test_stream.py`](../../../tests/unit/compat/npu/test_stream.py); NPU event,
 allocator and graph behavior require separate device validation.
+
+The opt-in NPU profiler HTTP adapter in
+[`profiler_api.py`](../../../afd_plugin/compat/npu/profiler_api.py) implements
+the pinned native `EndpointPlugin` protocol. Its independent
+`afd_npu_profiler` endpoint entry requires explicit `VLLM_PLUGINS`
+allowlisting alongside the existing `afd` general entry. The native loader
+attaches its `/afd/profiler` routes after core routers; initialization binds
+the actual app's EngineClient and NPU AFD configuration and rejects disabled
+role-env or conflicting native profiler configuration before HTTP startup.
+GET forwards the fixed status RPC and preserves each worker snapshot; POST
+strictly validates desired state and acknowledges the fixed profile RPC.
+Neither operation starts/stops a profiler backend on the HTTP thread. Requests
+use a bounded timeout, with pending/applied state and NPU trace acceptance
+remaining execution-owned. Each app keeps an independent binding; no new
+global registry, native patch, general RPC route or HCCL packet is added.
+[`test_profiler_api.py`](../../../tests/unit/compat/npu/test_profiler_api.py)
+owns actual ASGI request/validation and native loader seams. These CPU tests
+do not establish a deployed server, headless F management or hardware timeline.
 
 The NPU V4.1 loader hook in
 [`model_loader.py`](../../../afd_plugin/compat/patches/npu/model_loader.py)

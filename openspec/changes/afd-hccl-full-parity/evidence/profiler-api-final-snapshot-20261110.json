@@ -1,0 +1,65 @@
+{
+  "scope": "Explicit native EndpointPlugin HTTP adapter; no native patch or device execution",
+  "sample_utc": "2026-11-10T05:53:08.417450+00:00",
+  "python_version": "3.14.3",
+  "source_sha256": {
+    "afd_plugin/compat/npu/profiler_api.py": "d75cbba9548607feedd65f0c739f6ede827dfdb34bf3b5a1090ee4004cbd5841",
+    "tests/unit/fakes/profiler_api.py": "a276848da915d0b584d0b4c28c8762d22544b53e86f3c7ca89bb4b5f55e6000d",
+    "tests/unit/compat/npu/test_profiler_api.py": "0dc97c2253626d2f5f62aa646b94cbeb089ee6404ead6141a520f0106225c98a",
+    "openspec/changes/afd-hccl-full-parity/evidence/run_a3_profiler_api_cpu.py": "7dcf4ec232d404c2ee5e99b6f2bb062ee3cb3d2d7b9efb31480982f6f73b20f7",
+    "pyproject.toml": "fc1e68e2f8db25c1a1c9d286f20074e749c03c9834ccf1e0fc9a6045382334b5",
+    "docs/design/module/compatibility_and_patches.md": "1a22e60523d8a780c48b4e7f9708ae3c67363ea0fd394b80b8954fe3dd17c3f6",
+    "docs/design/module/plugin_boundary.md": "db060018cd7f5e09cbb7625eaf5546b084cecb94ad499c05bef0a3643b6ab42d",
+    "docs/npu/DSV41_A5_PROFILER_VALIDATION_ZH.md": "0327c3e8417668d7d58405bb80344404ed42c0eb1b4f550c8f2514889e49914b"
+  },
+  "local_checks": [
+    {
+      "command": [
+        "D:\\openSource\\afd-plugin-dsv41-flash-v030\\.venv\\Scripts\\python.exe",
+        "-m",
+        "ruff",
+        "check",
+        "afd_plugin/compat/npu/profiler_api.py",
+        "tests/unit/fakes/profiler_api.py",
+        "tests/unit/compat/npu/test_profiler_api.py",
+        "openspec/changes/afd-hccl-full-parity/evidence/run_a3_profiler_api_cpu.py"
+      ],
+      "returncode": 0,
+      "stdout": "All checks passed!\n",
+      "stderr": ""
+    },
+    {
+      "command": [
+        "D:\\openSource\\afd-plugin-dsv41-flash-v030\\.venv\\Scripts\\python.exe",
+        "-m",
+        "ruff",
+        "format",
+        "--check",
+        "afd_plugin/compat/npu/profiler_api.py",
+        "tests/unit/fakes/profiler_api.py",
+        "tests/unit/compat/npu/test_profiler_api.py",
+        "openspec/changes/afd-hccl-full-parity/evidence/run_a3_profiler_api_cpu.py"
+      ],
+      "returncode": 0,
+      "stdout": "4 files already formatted\n",
+      "stderr": ""
+    }
+  ],
+  "ast_python_grammar": "3.11 passed for four owned Python files",
+  "local_http_behavior": "not accepted locally: FastAPI unavailable; preliminary collection skipped; actual behavior tested on existing A3 dependencies",
+  "actual_dependency_cpu": {
+    "label": "profiler-api-025",
+    "manifest_sha256": "3fd88c1f933395e50d21d801e369db6377ef4255f38ceb2c0916b725918b5d26",
+    "passed": 62,
+    "failed": 0,
+    "errors": 0,
+    "skipped": 0,
+    "source_pins_checked": 15,
+    "device_probe_started": false
+  },
+  "frozen_profiler_owner_unchanged": {
+    "afd_plugin/compat/npu/profiler.py": "4dcd664757a788f26efbdf1a3dfaf8acbf7a0a007f26bd2e53c1b6a896d1c117",
+    "afd_plugin/v1/worker/npu/attention_model_runner_v2.py": "8c6b6414d3b28a022872981e2772a07bf531567e1c2aad293c08ac8f61dbada2",
+    "afd_plugin/v1/worker/npu/attention_worker.py": "ee49007d1e991c7643240bf697f916b53128cc0f34ad267778ea8885489eb645"
+  }
+}

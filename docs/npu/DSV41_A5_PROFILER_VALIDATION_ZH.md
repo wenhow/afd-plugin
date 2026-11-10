@@ -40,7 +40,51 @@ export AFD_NPU_FFN_PROFILER_SKIP_FIRST=0
 rank 不在 `RANKS` 内也会明确报配置冲突。只使用原生 profiler 配置时，插件
 保留原生 `profile` 行为；原生控制成功也不能证明 F 驻留线程已产生有效 trace。
 
-## 控制接口与当前限制
+## 可选 HTTP 管理入口
+
+代码提供独立的原生 endpoint plugin `afd_npu_profiler`。只有显式列入
+`VLLM_PLUGINS` 才会注册 `GET/POST /afd/profiler`；仅设置 role-env 不会注册
+路由。该入口面向已经按现有说明启动的 API server，不负责启动或连接新的引擎。
+A5 完整模型和真实 HTTP 服务仍需独立验证，以下是该入口的操作方式。
+
+更新分支后，在插件 checkout 中使用现有 Python 更新 editable 安装元数据：
+
+```bash
+afd_python=/usr/local/python3.11.10/bin/python
+"$afd_python" -m pip install --no-deps -e .
+export VLLM_PLUGINS=afd,afd_npu_profiler
+```
+
+保留实际启动配置中已有的其他插件名。例如需要量化补丁时，应继续保留
+`afd_dsv41_mxfp8` 及其对应环境开关；不要用上述示例覆盖整个现有插件列表。
+HTTP entry 和 `afd` general plugin 分别加载，前者不会代替后者注册 AFD workers。
+对应角色的 profiler role-env 必须已启用；非 NPU/非 AFD、role-env 未启用或与
+原生 profiler 配置冲突时，入口初始化会明确报错。
+
+在实际 API server 已启动的环境中，将 URL 指向该角色现有的 server 地址：
+
+```bash
+afd_api=http://127.0.0.1:8000
+curl --fail-with-body "$afd_api/afd/profiler"
+curl --fail-with-body -H 'Content-Type: application/json' \
+  -d '{"is_start":false}' "$afd_api/afd/profiler"
+curl --fail-with-body "$afd_api/afd/profiler"
+curl --fail-with-body -H 'Content-Type: application/json' \
+  -d '{"is_start":true,"profile_prefix":"sample2"}' "$afd_api/afd/profiler"
+```
+
+POST 只返回 `{"accepted":true,"role":"attention"}` 或对应 F 角色，表示已接受
+期望状态。GET 返回 `role` 和实际 worker `workers` 状态列表。请求体中的
+`is_start` 必须是 JSON 布尔值，不能写成字符串；只支持可选字符串
+`profile_prefix`，不接受任意 RPC 方法名。RPC 超时返回 HTTP 504，其他 RPC
+失败返回 HTTP 502；超时后应重新读取状态，不能假定请求一定未应用。
+
+一个 API server 只能管理其既有 EngineClient 所属 executor。A 的 URL 不会
+转发到另一独立 F 服务。若 F 使用 headless 模式，仍没有外部 HTTP 管理入口；
+不要新建一个 Python 引擎来管理已运行的 F 进程。HTTP 线程只发送管理请求，
+不会直接停止后台 profiler、唤醒阻塞 receive 或修改 HCCL wire。
+
+## 进程内控制与状态边界
 
 已有进程内 Python `LLM` 对象时，锁定 vLLM 提供真实公开入口
 `LLM.collective_rpc(method, timeout=None, args=(), kwargs=None)`。在**拥有现有
@@ -53,11 +97,9 @@ status_after_request = llm.collective_rpc("afd_profiler_status", timeout=30)
 ```
 
 这些调用控制该 executor 实际管理的 workers；不会自动找到或控制另一组独立
-F 服务进程。F worker 本身同样实现 `profile` 和 `afd_profiler_status`，但当前
-交付没有可从外部终端连接已运行 F 进程的管理脚本，也没有仅靠 role-env 注册
-的 HTTP 路由。因此不要在另一 Python 进程新造 `llm` 来控制已有服务，也不要
-将上述片段当作独立终端命令。F 外部控制入口和原生 HTTP 路由接入仍待实现；
-这部分暂不要求用户执行。
+F 服务进程。不要在另一 Python 进程新造 `llm` 来控制已有服务，也不要将上述
+片段当作独立终端命令。已有 API server 可使用上面的独立 endpoint plugin；
+headless F 的外部管理入口仍待实现。
 
 状态中 `requested/applied/pending` 分别表示请求、执行线程已应用的状态、尚待
 应用的请求。A 在下次 execute 边界应用，F 在下次服务边界应用；阻塞中的 F

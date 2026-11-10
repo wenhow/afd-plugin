@@ -1,0 +1,29 @@
+{
+  "scope": "Locked source identity for CPU profiler endpoint/native loader seams; no device probe",
+  "inherited_identity": "openspec/changes/afd-hccl-v2-microbatch/evidence/a3-staged-20261109/reject-digest-001/identity.json",
+  "vllm_commit": "ced6857afa0ea7b2e3f0846a62e1394e90f15607",
+  "additional_sources": {
+    "vllm/plugins/__init__.py": "fb6e6ee432c5a4ae207aaffe4b546aca9381f56ee8498b0a3e0d9af2d289d023",
+    "vllm/plugins/endpoint_plugins/interface.py": "9293616ccd3cdf725fa087d3f76a518dba871ef2c796446990fa2a0a5fc159ee",
+    "vllm/engine/protocol.py": "9be92767b2a92bc5522c14b00750c0636950c7b99f82b99ed2bc2780bd3eae7b",
+    "vllm/entrypoints/launchers/api_server/app_state.py": "7a00aa48a9b4d62961e64b33d78c3016e6eccd684c7f8bf5ff221b2ac27eeb10",
+    "vllm/config/device.py": "7b82eee02ceb5842337451a27a3d5729920c47e25e8f6bf3997f5146f9330a9c"
+  },
+  "source_expected": {
+    "vllm/model_executor/model_loader/base_loader.py": "5291c330c4ed5634a9ea1d535364c26162b60251aa2af03fd409b88c34d836e2",
+    "vllm/model_executor/model_loader/utils.py": "aa398e74ee835537403e60186f2e9a81e8741a4b35fec68b47df6537716a45b7",
+    "vllm/distributed/parallel_state.py": "d9b10ad56833ebc08a753e1a050ef0989c30d4134021b7b7b00150b7bd01adc6",
+    "vllm/config/parallel.py": "f012ace89e3fb730a467f729f602679bc145c49f0d10721811c9d818570e7b2b",
+    "vllm/forward_context.py": "cc1473477dcc7b762c3901b25cc7bf35c06a2c42f193136fed553abf6fe33f0e",
+    "vllm_ascend/distributed/parallel_state.py": "b7ea7d6fb74530c50aec718d34266bae952ed96cc5a85766d7e208b952b10445",
+    "vllm_ascend/worker/v2/model_runner.py": "a3471a9f181b45742b8f985c86137cdaafc2871d2ef6f96aa6a45236a242969b",
+    "vllm_ascend/models/deepseek_v41/model.py": "989aec6db1e344dca76159dcbef0d5876874facedaa36b47e993146d5b8a2b9f",
+    "vllm_ascend/models/deepseek_v41/dspark.py": "fcee256905928917154d8dac94d6611bb83d02da441e8aa154a525ef51e6a601",
+    "vllm_ascend/models/deepseek_v41/engram/model_state.py": "677cb13bb86ad80a154e0ff9a43620aa3344e7e93170a05e27aba0cc1f10aa8b",
+    "vllm/plugins/__init__.py": "fb6e6ee432c5a4ae207aaffe4b546aca9381f56ee8498b0a3e0d9af2d289d023",
+    "vllm/plugins/endpoint_plugins/interface.py": "9293616ccd3cdf725fa087d3f76a518dba871ef2c796446990fa2a0a5fc159ee",
+    "vllm/engine/protocol.py": "9be92767b2a92bc5522c14b00750c0636950c7b99f82b99ed2bc2780bd3eae7b",
+    "vllm/entrypoints/launchers/api_server/app_state.py": "7a00aa48a9b4d62961e64b33d78c3016e6eccd684c7f8bf5ff221b2ac27eeb10",
+    "vllm/config/device.py": "7b82eee02ceb5842337451a27a3d5729920c47e25e8f6bf3997f5146f9330a9c"
+  }
+}

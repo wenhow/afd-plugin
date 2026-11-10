@@ -1,0 +1,26 @@
+{
+  "scope": "Independent source review of native opt-in HTTP endpoint contract",
+  "endpoint_source_sha256": "d75cbba9548607feedd65f0c739f6ede827dfdb34bf3b5a1090ee4004cbd5841",
+  "native_source_commit": "ced6857afa0ea7b2e3f0846a62e1394e90f15607",
+  "verified_native_contracts": [
+    "EndpointPlugin factory, attach_router and async init_state exact signatures",
+    "Actual EngineClient.vllm_config and initialized app-state identity",
+    "DeviceConfig.device_type; independent explicit endpoint allowlisting",
+    "Existing executor-local collective_rpc timeout/kwargs contract"
+  ],
+  "reviewed_behavior": [
+    "Strict bool/string body and forbidden extra fields",
+    "Fixed profile/status operations with bounded RPC timeout",
+    "Per-app engine binding, startup config conflict rejection",
+    "Accepted desired state preserves execution-owner pending/applied distinction",
+    "No new backend, thread, mutable global registry or native function patch"
+  ],
+  "cpu_evidence": "openspec/changes/afd-hccl-full-parity/evidence/a3-profiler-cpu-20261110/profiler-api-025/results/summary.json",
+  "actual_dependency_result": "62 passed; API31 and profiler31; 15 source pins match",
+  "not_accepted": [
+    "native serving HTTP-to-worker deployment",
+    "headless F control",
+    "NPU trace through this HTTP entry",
+    "full checkpoint"
+  ]
+}

@@ -547,6 +547,62 @@
         "results\\versions.json": "8aa40a41b53ecde5293ad581f313555c4e948071ce87c879c3b93ac6d8ad2601"
       },
       "closure": "Directed two-module repeat after shared fixture reset its replacement graph owner to unbound. Three production hashes unchanged from 022; no aggregate all-green count claimed."
+    },
+    "profiler-api-025": {
+      "scope": "CPU actual HTTP/ASGI and fixed existing-engine RPC seams; not deployed server/NPU/model/HTTP-to-nativeworker proof",
+      "head_commit": "36f52994217f4caeb4ae20d5b4783892da4b555d",
+      "manifest_sha256": "3fd88c1f933395e50d21d801e369db6377ef4255f38ceb2c0916b725918b5d26",
+      "source_identity_origin": "openspec/changes/afd-hccl-full-parity/evidence/profiler-api-source-identity-20261110.json",
+      "source_pins_checked": 15,
+      "all_source_pins_match": true,
+      "command": [
+        "/mnt/workspace/code/.venvs/afd-v030-dsv41-c0/bin/python",
+        "-B",
+        "-m",
+        "pytest",
+        "-o",
+        "addopts=",
+        "-q",
+        "-rs",
+        "--tb=short",
+        "-p",
+        "no:cacheprovider",
+        "-m",
+        "not npu and not gpu",
+        "--junitxml=/mnt/workspace/tmp/afd-c0-20261104.hVgsIf/c5-control-cpu-20261109-izvg7zf9/results/cpu.xml",
+        "tests/unit/compat/npu/test_profiler_api.py",
+        "tests/unit/compat/npu/test_profiler.py"
+      ],
+      "exit_code": 0,
+      "counts": {
+        "passed": 62,
+        "failed": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "modules": {
+        "tests.unit.compat.npu.test_profiler_api": 31,
+        "tests.unit.compat.npu.test_profiler": 31
+      },
+      "junit_time_seconds": 0.254,
+      "device_probe_started": false,
+      "source_sha256": {
+        "afd_plugin/compat/npu/profiler_api.py": "d75cbba9548607feedd65f0c739f6ede827dfdb34bf3b5a1090ee4004cbd5841",
+        "tests/unit/fakes/profiler_api.py": "a276848da915d0b584d0b4c28c8762d22544b53e86f3c7ca89bb4b5f55e6000d",
+        "tests/unit/compat/npu/test_profiler_api.py": "0dc97c2253626d2f5f62aa646b94cbeb089ee6404ead6141a520f0106225c98a"
+      },
+      "raw_sha256": {
+        "delivery.json": "03d26a67035d759d5939029d6a496e7688f4c062af627e2195ad841b4764dfaf",
+        "identity.json": "48cd66ed406f81f80f0030b663399440a6523a7d2830516b8e914f56f24b9382",
+        "remote-run.log": "6b8cc0c9bf401c1bc2f99137b4441e5ad1fd3e04601356c32d188aba29aaccf1",
+        "results/cpu.stderr.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "results/cpu.stdout.log": "88a11c8572c67c791274a8af87166ad0e6177fd37690c8a0883b3d544a4ad8be",
+        "results/cpu.xml": "81871dfd106b2eccf31c9afd5618c9d2eeb137ca1515cb065a8b1b70de3fb6fa",
+        "results/effective-env.json": "37a563c782e982d45e2137d25c2bcc8a1d2a01d70512889b58506365380cece3",
+        "results/source-check.json": "2c94fff9f2e1737f45c07fb6290fb4c66a7fa703134a862fe4c4760801ed5250",
+        "results/summary.json": "1ecfe9c9f98f2ea59e3ed9a4081c6ba8e67c4f7f291059c8431dd008b7706bc3",
+        "results/versions.json": "8aa40a41b53ecde5293ad581f313555c4e948071ce87c879c3b93ac6d8ad2601"
+      }
     }
   },
   "related_cpu_index": "../../../afd-hccl-v2-multistream/evidence/a3-pipeline-cpu-20261110/validation-summary.json",

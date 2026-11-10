@@ -98,3 +98,38 @@ postcheck and Windows path-retrieval failures remain part of attempt 001.
 The owned-PID supervision and real owner-thread arithmetic/lifecycle paths are
 unchanged. No static blocker was found for a new separately authorized bounded
 run at these exact hashes. No such new device run was launched by this reviewer.
+
+## Fresh component attempt 002
+
+The authorized implementer subsequently ran `role-owner-002` at the reviewed
+`d85e5866` probe / `a86df96d` harness hashes. The reviewer independently read
+the raw outer summary, supervisor and both role reports, then parsed all four
+original traces and kernel CSVs from the full archive in memory. Manifest is
+`d971881105abb8a8d5e950da362a4f3820e82058499ded3c9a282c2db81b933c`;
+the 156,312-byte full result archive has SHA256
+`f09c7cb7ad44546f02b78b5ea4af7398177020224ff865f3e0f206fbc5e559fe`.
+All 339 regular-file hashes match the retrieval manifest, and all 35 mapped
+local raw files match those archive bytes.
+
+Both roles exit zero and record seven exact controlled arithmetic checks,
+six profiler steps, and a normally closed session with `failed=false`.
+Attention's owner equals its main/management thread; F's owner differs from
+its management thread. The F command handshake records stop and restart
+pending while its owner awaits a command, then their application at the next
+owner boundary. Each initial/restart trace has 115 events and two actual
+hardware AI_CORE MatMul tasks, with exact CSV task/name/stream equality:
+
+| Role / round | Original `trace_view.json` SHA256 |
+| --- | --- |
+| Attention initial | `c01c33972f4b1b67af84b8c7ac9c59af0fbabd0b3c7f05e528eecf35c987b530` |
+| Attention restart | `11c9c7439c52ca494a65018f835c8a9b05d7c9e7c4b6f152581991ae0f67861b` |
+| F initial | `053368bd9c99a446e5764bab292bb9de1a19450986d0e47508f3ef02ce85966c` |
+| F restart | `7f5750c16e5de7b1fa47d8dffe65529fc5acb5f9fa88a2cd3e8d48e0e0c055fc` |
+
+The summaries confirm actual snapshot/installed-source checks, eight idle
+boards before/after both roles and the full run, no timeout and no process
+termination. This is passing evidence for the real profiler Session owner,
+controlled NPU arithmetic and two exported traces per role on this A3 setup.
+It does not qualify native A/F worker RPC, HTTP, ModelRunner V2, checkpoint,
+HCCL/Graph/model timeline, A5 portability or overlap/performance. The original
+001 pending outcome remains unchanged. This reviewer launched no device job.

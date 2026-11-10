@@ -1,9 +1,10 @@
 # Profiler external management entry: source contract
 
-This is a read-only next-increment design. No router, external management
-client, extra socket or runtime patch was implemented by this audit. The A/F
-worker session APIs and their CPU evidence remain separate from reachability
-over HTTP and from actual NPU trace acceptance.
+This source audit now has a narrow plugin-owned endpoint implementation.
+It adds no native patch, external headless management client or socket. The
+A/F worker session APIs and their evidence remain separate from HTTP/API
+behavior, a deployed server and actual NPU trace acceptance. Directed actual
+dependency CPU validation for the new endpoint is recorded separately below.
 
 ## Existing call chain and owner
 
@@ -46,9 +47,9 @@ and accepts an arbitrary method name. Enabling that broad endpoint solely for
 profiling is unnecessary. A narrow plugin request/status router can use the
 same engine-client mechanism with fixed worker method names.
 
-## Minimal implementable next increment
+## Implemented endpoint boundary
 
-Use the native `EndpointPlugin` contract. A proposed owner is
+Use the native `EndpointPlugin` contract. The implementation owner is
 `afd_plugin/compat/npu/profiler_api.py`, with a mirrored
 `tests/unit/compat/npu/test_profiler_api.py`, a shared engine-client seam in
 `tests/unit/fakes/profiler_api.py`, and one `pyproject.toml` entry under
@@ -82,19 +83,20 @@ endpoint would hide a configuration error. A missing engine is rejected
 explicitly; the `generate` task requirement also excludes the render server.
 Default applications that do not allowlist the endpoint retain native behavior.
 
-The new router should expose a fixed JSON contract, for example:
+The router exposes a fixed JSON contract:
 
 - `GET /afd/profiler`: await the existing engine client's
   `collective_rpc("afd_profiler_status", timeout=<bounded timeout>)` and return
   each actual worker's status.
 - `POST /afd/profiler`: strictly validate `is_start: bool` and optional
   `profile_prefix: str`; call only `collective_rpc("profile", kwargs=...)`.
-  A successful reply means accepted desired state, with applied/pending status
+  Its response is `{"accepted": true, "role": <actual role>}`. A successful
+  reply means accepted desired state, with applied/pending status
   still determined by the execution owner. It does not promise a captured
   timeline or interrupt a currently executing A model/blocked F receive.
 
 Use the existing app and engine client. A bounded RPC timeout is a named
-constant. The response reports the actual worker status list, including
+constant (30 seconds). GET reports the actual worker status list, including
 requested/applied/pending and each worker's `step_unit`; it must not turn a
 pending request into a claim of trace completion. A second POST can request a
 new desired state while a previous request is pending; the existing session
@@ -119,8 +121,41 @@ freeze startup path, endpoint ownership, request ordering, error/STOP lifecycle
 and external caller contract before development. It should not be smuggled
 into the HCCL data protocol.
 
-No commands for these unimplemented HTTP/headless entries are published to the
-user. The current A5 guide documents environment-driven automatic schedules
-and the already-existing in-process `LLM.collective_rpc` API, along with its
-executor-local scope. Device acceptance still requires actual A/F traces and
-does not follow from HTTP 200, requested/applied state or CPU test success.
+The A5 profiler guide documents the endpoint allowlist, editable metadata
+refresh and requests against an already-running server, with its executor-local
+scope. It also retains the already-existing in-process `LLM.collective_rpc`
+API. No command is supplied for the unimplemented headless management entry.
+Device acceptance still requires actual A/F traces and does not follow from
+HTTP 200, requested/applied state or CPU test success.
+
+The adapter adds one JSON request/response and one collective RPC per HTTP
+operation, with a fixed timeout. It allocates no device resource, introduces
+no per-request background task and stores one immutable client/role binding
+per app. There is no source copy or alignment-table expansion. Remove this
+adapter when native profiling routes can safely select the AFD execution-owned
+role session and expose its actual status without requiring a second profiler.
+
+## Directed CPU validation
+
+`a3-profiler-cpu-20261110/profiler-api-025` passed both full selected modules:
+HTTP/API 31 and existing profiler 31, **62 passed**, no failures, errors or
+skips, JUnit 0.254 s. It checked 15 actual installed upstream source hashes;
+the five additional contracts come from the locked native plugins loader,
+EndpointPlugin interface, EngineClient protocol, app-state initialization and
+DeviceConfig. No dependency was installed and no device probe was started.
+
+The snapshot used HEAD `36f52994217f4caeb4ae20d5b4783892da4b555d` and manifest
+`3fd88c1f933395e50d21d801e369db6377ef4255f38ceb2c0916b725918b5d26`.
+Final runtime is `d75cbba9548607feedd65f0c739f6ede827dfdb34bf3b5a1090ee4004cbd5841`,
+shared fake `a276848da915d0b584d0b4c28c8762d22544b53e86f3c7ca89bb4b5f55e6000d`,
+mirror `0dc97c2253626d2f5f62aa646b94cbeb089ee6404ead6141a520f0106225c98a`.
+The freeze file `profiler-api-final-snapshot-20261110.json` records local Ruff,
+format and Python 3.11 grammar checks and proves the three already-frozen
+profiler/Attention runner/worker production hashes were unchanged.
+
+Actual requests pass through FastAPI/ASGI and strict Pydantic validation.
+Their explicit EngineClient seam consumes the real CPU deferred Session API;
+it does not emulate device execution or claim real worker RPC/server startup.
+Native loader tests exercise the actual locked loader. Local FastAPI absence
+caused a preliminary collection skip, not a passing HTTP validation; the
+existing A3 dependencies supplied the behavior evidence.
