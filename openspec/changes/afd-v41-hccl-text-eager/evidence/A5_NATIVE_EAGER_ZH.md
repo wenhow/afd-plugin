@@ -253,14 +253,12 @@ W2 通过与生产相同的 `scheme.apply_gmm2` 调用，报告 logical/physical
 editable 安装也不自动重编译上游 C++ 扩展，见 [pip 官方说明](https://pip.pypa.io/en/stable/topics/local-project-installs/#editable-installs)。
 探针直接安装补丁，不验证 CLI 的 general-plugin 入口，启动日志仍须确认下述启用消息。
 
-保留现有失败目录，无需为了收集日志重新加载模型。补充完整 `native-server.log` 与
-`environment.txt`，或先执行以下只读命令并回传输出；若尾部只有 EngineCore 汇总，
-继续提供日志中第一个 worker 的完整 traceback：
-
-```bash
-tail -n 300 "$afd_native_run/native-server.log"
-cat "$afd_native_run/environment.txt"
-```
+后续补充的 09:15:11 片段来自 Ctrl+C 后的退出，包含父进程退出、SIGTERM 和
+`Engine core initialization failed. See root cause above` 汇总，未补齐 09:13:40 的
+worker 根异常。退出后的 shared-memory 清理警告也不能用于确定最初失败原因。
+用户说明原 `server.log` 仅保存了 `bash: ger: command not found`；这条 shell 错误
+没有包含模型异常。现改用下面的独立脚本直接重定向 stdout/stderr，避免复制多行命令
+或 `tee` 导致控制台刷屏。保留本次旧日志，新运行使用独立目录。
 
 ## 启动原生 TP8（显式量化修正）
 
@@ -269,47 +267,26 @@ cat "$afd_native_run/environment.txt"
 真实 safetensors、`deepseek_v4_fp8`、Engram `cpu_offload=False`、eager、无 speculation。
 同时保留实际 router/MoE 选择、权重加载和内存日志；组件检查没有覆盖这些路径。
 
-在同一个终端继续：
+用户要求日志全部写入文件。使用
+[`run_dsv41_a5_native_eager.sh`](../../../../tools/diagnostics/run_dsv41_a5_native_eager.sh)
+保留上述 TP8 控制组配置：stdout/stderr 直接写入 `native-server.log`，不使用 `tee`。
+控制台只打印新结果目录；`launcher.log` 记录启动器输出，`launcher-exit-code.txt`
+记录正常/异常或 Ctrl+C 退出码，服务自然退出时另写 `server-exit-code.txt`。
+脚本重新记录 checkpoint header/index、48 个 shard 存在性、实际模块路径及插件入口，
+并保存环境和运行前后 `npu-smi`。这不校验全部权重 payload 或设备空闲状态；
+仍须先完成前文 checkpoint/空闲卡和探针检查，运行期间服务占用 0–7 卡。
+
+在 afd-plugin 源码根目录执行；默认 Python 和模型路径与前文相同，可显式传入：
 
 ```bash
-(
-  set -u
-  set -o pipefail
-  export ASCEND_RT_VISIBLE_DEVICES=0,1,2,3,4,5,6,7
-  export VLLM_USE_V2_MODEL_RUNNER=1
-  export VLLM_PLUGINS=ascend,ascend_model,ascend_model_loader,ascend_kv_connector,ascend_service_profiling,afd_dsv41_mxfp8
-  export AFD_DSV41_MXFP8_SCALE_PATCH=1
-  export VLLM_ASCEND_ENABLE_FLASHCOMM1=0
-  {
-    date -u
-    "$afd_python" -V
-    "$afd_python" -m pip show torch torch-npu vllm vllm-ascend fastapi
-    git rev-parse HEAD
-    git status --short
-    env | sort | sed -n '/^AFD_DSV41_MXFP8_SCALE_PATCH=/p; /^VLLM_PLUGINS=/p'
-    git -C /opt/vllm-ascend rev-parse HEAD
-    git -C /opt/vllm-ascend status --short
-  } > "$afd_native_run/environment.txt" 2>&1
-  "$afd_python" -B -m vllm.entrypoints.cli.main serve "$afd_model" \
-    --host 127.0.0.1 --port 18030 --served-model-name dsv41-native \
-    --tensor-parallel-size 8 --pipeline-parallel-size 1 --data-parallel-size 1 \
-    --prefill-context-parallel-size 1 --decode-context-parallel-size 1 \
-    --no-enable-expert-parallel --no-enable-dbo --ubatch-size 0 \
-    --language-model-only --quantization deepseek_v4_fp8 --load-format safetensors \
-    --engram-config.cpu_offload false \
-    --engram-config.embedding_across_dp false \
-    --engram-config.dp_shared_memory false \
-    --enforce-eager --max-model-len 1024 --max-num-seqs 1 --max-num-batched-tokens 1024 \
-    --gpu-memory-utilization 0.90 --no-async-scheduling --no-enable-prefix-caching \
-    --generation-config vllm \
-    --additional-config '{"enable_flashcomm1":false,"enable_dsa_cp":false}' \
-    2>&1 | tee "$afd_native_run/native-server.log"
-  afd_native_status=$?
-  printf '%s\n' "$afd_native_status" > "$afd_native_run/server-exit-code.txt"
-  npu-smi info > "$afd_native_run/npu-after.log" 2>&1
-  exit "$afd_native_status"
-)
+AFD_PYTHON="$afd_python" AFD_MODEL="$afd_model" bash tools/diagnostics/run_dsv41_a5_native_eager.sh
 ```
+
+将控制台打印的新路径赋给 `afd_native_run`，用于下面的请求和日志回传。
+如果使用默认路径且没有前文变量，可直接运行
+`bash tools/diagnostics/run_dsv41_a5_native_eager.sh`。
+不要用 `cat`/`tail -f` 持续输出日志；发生失败后直接回传该目录的
+`native-server.log`、`launcher.log`、`environment.txt`、`preflight.json` 与退出码文件。
 
 2026-11-09 17:20 用户回传的启动日志停在 `--engram-config` 的
 `Invalid JSON: expected ident at line 2 column 0`，尚未进入模型加载。
@@ -362,5 +339,5 @@ JSON
 `checkpoint-identity.json`、`environment.txt`、`request.json`、`response.json`、
 `server-exit-code.txt` 和 `npu-before/ready/after.log`；没有生成的文件按实际失败阶段说明。
 启动失败时最关键的是 `native-server.log` 中最先出现的 worker 根 traceback，
-可先回传日志尾部 300 行及相关完整异常。完整日志继续保留本地。
+优先回传完整日志文件，避免终端复制截断；完整日志继续保留本地。
 原生通过并核对实际路由/FP4 和资源后，才进入 AFD A4/F4 开发验证。

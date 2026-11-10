@@ -84,14 +84,20 @@
     "AFD numerical equivalence"
   ],
   "next_evidence": [
-    "Complete first worker traceback including terminal exception",
-    "native-server.log tail and environment.txt",
-    "Runtime loaded afd/vllm/Ascend paths and source HEAD",
-    "Startup plugin-enabled log message"
+    "Use the direct-redirection native launcher to capture the complete first worker traceback",
+    "Return native-server.log, launcher.log, environment.txt, preflight.json and exit code files from the fresh results directory"
   ],
   "status": {
     "npu_mxfp4_component": "12 supplied cases passed",
     "native_tp8": "startup failed; root cause pending complete traceback",
     "afd_acceptance": "pending"
+  },
+  "later_user_message": {
+    "shutdown_time": "2026-11-10 09:15:11",
+    "operator_action": "Ctrl+C after worker failure",
+    "engine_summary": "Engine core initialization failed. See root cause above. Failed core proc(s): {}",
+    "shell_log_content_reported": "bash: ger: command not found",
+    "root_exception_supplied": false,
+    "requested_logging": "Direct file redirection; no console log streaming"
   }
 }

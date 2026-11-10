@@ -1,0 +1,13 @@
+{
+  "scope": "CPU shell logging behavior only; stub executables; no NPU, model or checkpoint executed",
+  "syntax_check": "bash -n passed",
+  "help": "passed",
+  "console_line_count": 1,
+  "console_stderr_empty": true,
+  "stdout_and_stderr_in_server_log": true,
+  "server_exit_code": 17,
+  "launcher_exit_code": 17,
+  "before_after_files_recorded": true,
+  "results_directory": "D:\\openSource\\afd-plugin-dsv41-flash-v030\\results\\dsv41-native-tp8.gJqlfD",
+  "source": "tools/diagnostics/run_dsv41_a5_native_eager.sh"
+}
