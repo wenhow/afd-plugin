@@ -1,0 +1,2683 @@
+{
+  "schema_version": 1,
+  "scope": "Actual A3 q3 paired TP1 three-layer cross_layer_v1 Graph/HCCL component with controlled arithmetic; no native checkpoint/draft/sampler",
+  "label": "target-query-cross-tp1-001",
+  "result": "passed",
+  "supervision": {
+    "scope": "native base manager/UBR + HCCL phase/cache; controlled arithmetic",
+    "stage_bank": true,
+    "compute_pipeline": false,
+    "pipeline_hybrid": null,
+    "exchange_order": "cross_layer_v1",
+    "layer_count": 3,
+    "target_query_len": 3,
+    "expected_transactions_per_rank": 27,
+    "graph_axes": {
+      "graph_compute": 1,
+      "graph_hybrid": 1,
+      "attention_three": 1,
+      "ffn_recv": 1,
+      "ffn_cross": 1
+    },
+    "remote": "/mnt/workspace/tmp/afd-c0-20261104.hVgsIf/c5-native-manager-20261109-lcrglq7w",
+    "command": [
+      "/mnt/workspace/code/.venvs/afd-v030-dsv41-c0/bin/python",
+      "-B",
+      "/mnt/workspace/tmp/afd-c0-20261104.hVgsIf/c5-native-manager-20261109-lcrglq7w/snapshot/tests/npu/hccl_graph_manager_probe.py",
+      "--devices",
+      "0,2",
+      "--model",
+      "/mnt/workspace/models/DeepSeek-V4.1-Flash",
+      "--timeout",
+      "300",
+      "--output-dir",
+      "/mnt/workspace/tmp/afd-c0-20261104.hVgsIf/c5-native-manager-20261109-lcrglq7w/results/probe",
+      "--exchange-order",
+      "cross_layer_v1",
+      "--layer-count",
+      "3",
+      "--target-query-len",
+      "3",
+      "--stage-bank",
+      "--graph-compute",
+      "1",
+      "--graph-hybrid",
+      "1",
+      "--attention-three",
+      "1",
+      "--ffn-recv",
+      "1",
+      "--ffn-cross",
+      "1"
+    ],
+    "source_files_match": true,
+    "upstream_files_checked": 31,
+    "returncode": 0,
+    "elapsed_seconds": 30.929282400757074,
+    "timed_out": false,
+    "outer_killed_owned_pids": [],
+    "cpu_repeated": false,
+    "idle_boards_before": 8,
+    "idle_boards_after": 8,
+    "success": true
+  },
+  "inner_supervisor": {
+    "scope": "Bounded native manager/phase/cache component with controlled arithmetic.\n\nUses the real base CudaGraphManager factory, dispatch and replay plus NPUGraph\nHCCL operations. No checkpoint, native model/attention, Engram, production Graph\nselector or full-model microbatch threads participate.\n",
+    "exit_codes": [
+      0,
+      0
+    ],
+    "supervisor_cleanup": [],
+    "stage_bank": true,
+    "compute_pipeline": false,
+    "pipeline_hybrid": null,
+    "exchange_order": "cross_layer_v1",
+    "layer_count": 3,
+    "target_query_len": 3,
+    "expected_transactions_per_rank": 27,
+    "graph_axes": {
+      "graph_compute": 1,
+      "graph_hybrid": 1,
+      "attention_three": 1,
+      "ffn_recv": 1,
+      "ffn_cross": 1
+    },
+    "elapsed_seconds": 28.624334009364247,
+    "status": "passed"
+  },
+  "head_commit": "e18be5ca611bb9597b05f34b51d4e0883e4f1e0b",
+  "snapshot_manifest_sha256": "280493e27b3dee708a40ad0cf24954d7a9d6646a38cab0c7c1e380374e2ab2b2",
+  "source_archive_sha256": "272314e356ec726ace67d351b0c8b28fc2554084a4f22af71a48dee2c633cbda",
+  "source_expected": {
+    "vllm/model_executor/model_loader/base_loader.py": "5291c330c4ed5634a9ea1d535364c26162b60251aa2af03fd409b88c34d836e2",
+    "vllm/model_executor/model_loader/utils.py": "aa398e74ee835537403e60186f2e9a81e8741a4b35fec68b47df6537716a45b7",
+    "vllm/distributed/parallel_state.py": "d9b10ad56833ebc08a753e1a050ef0989c30d4134021b7b7b00150b7bd01adc6",
+    "vllm/config/parallel.py": "f012ace89e3fb730a467f729f602679bc145c49f0d10721811c9d818570e7b2b",
+    "vllm/forward_context.py": "cc1473477dcc7b762c3901b25cc7bf35c06a2c42f193136fed553abf6fe33f0e",
+    "vllm_ascend/distributed/parallel_state.py": "b7ea7d6fb74530c50aec718d34266bae952ed96cc5a85766d7e208b952b10445",
+    "vllm_ascend/worker/v2/model_runner.py": "a3471a9f181b45742b8f985c86137cdaafc2871d2ef6f96aa6a45236a242969b",
+    "vllm_ascend/models/deepseek_v41/model.py": "989aec6db1e344dca76159dcbef0d5876874facedaa36b47e993146d5b8a2b9f",
+    "vllm_ascend/models/deepseek_v41/dspark.py": "fcee256905928917154d8dac94d6611bb83d02da441e8aa154a525ef51e6a601",
+    "vllm_ascend/models/deepseek_v41/engram/model_state.py": "677cb13bb86ad80a154e0ff9a43620aa3344e7e93170a05e27aba0cc1f10aa8b",
+    "torch_npu/dynamo/npugraph_ex/ops/_hcom_send_recv.py": "95a7b9816b91f1fb5d43fe482366351592506985d1440055b6a21ab7b903c8ce",
+    "torch_npu/dynamo/torchair/_ge_concrete_graph/ge_converter/experimental/hcom_send_recv.py": "f34c259696f9b152f8de40235647554b766f7e33296ae44d0dd3f17e697e082e",
+    "torch_npu/dynamo/npugraph_ex/_utils/adjust_traceable_collective_remaps.py": "d1121d36ce556eb70dd4b347d9610891c2987c4b1ffa0e94dc3f4b3e6179af3b",
+    "torch_npu/dynamo/torchair/_utils/adjust_traceable_collective_remaps.py": "b70845eca1168b64db007c90f61f04a744dcb2ed4e91ffa0b6412c7b410d9f35",
+    "torch_npu/dynamo/npugraph_ex/npu_fx_compiler.py": "926818c66e7fae1cc5191ff994935b746c46fcd9e6fba23e1938a0f84fe1382c",
+    "torch_npu/dynamo/torchair/npu_fx_compiler.py": "dcce2b8c6589c3edeb9700efd2ad99c9bf182e3c210e011333b61a091ac4d2f9",
+    "torch_npu/dynamo/torchair/_ge_concrete_graph/fx2ge_converter.py": "f61225241594a18c6af48b6f5d06bcf2e9d762d90e781f730d984112a7ad6d1a",
+    "torch/distributed/distributed_c10d.py": "31155344233ae77360a630bbeacf1b43cfa18f1923cf2103cd5b3142db39ec5c",
+    "torch_npu/distributed/distributed_c10d.py": "6afceb0425ee4229e1bdab21dd1c3965f7e4a599c8f495a42cba70fad997fec7",
+    "vllm/v1/worker/gpu/cudagraph_utils.py": "6e9c042890603535e300a40df8ee159dbed1058a64a83ae50ff0329e332e05ff",
+    "vllm/v1/worker/gpu/ubatch_utils.py": "5092e2e58af0561c8dc12e62847cfc6dda9ca20dfbd33e7f0cd77a83fe87f7c5",
+    "vllm/v1/worker/gpu/model_runner.py": "174c93db921c23cf0396eee4764be25b2bd2d4b6a06e9fa41ce3598b884ce8ce",
+    "vllm/v1/worker/gpu/input_batch.py": "d5dd956eb319bd69dd9e762047833d81ad40b21fce619fcb2133759e73620694",
+    "vllm/v1/worker/ubatch_utils.py": "b34dce551b5195c414e6a3a997c75961cc7a17f24c7c980487fe3d3e2ba7a798",
+    "vllm/v1/worker/ubatching.py": "40391241c564feb5f16c77898ae6ae152ed6e71a4682e2a406387785d8de02d7",
+    "vllm_ascend/worker/v2/aclgraph_utils.py": "b2271eb4aab5876e85370897236a99ece7e9a9541b05f2fc0dd923b32bb8193d",
+    "vllm_ascend/worker/v2/utils.py": "49babc8ae41da35d752dab2d83d4ab1e54d4db148a05aaaeb21ad3061c29b553",
+    "vllm_ascend/compilation/acl_graph.py": "b8ec817e60fd4a8da6c5a68f758b0214daf2d5d641fb06805836d6f9f5baa81d",
+    "vllm/utils/torch_utils.py": "6dc04c5be3efb1379f80f23edae0d53f741b6d3d80e6d4d05774fbc9f4e82752",
+    "torch_npu/npu/streams.py": "241741b356db5006797dbec119007afb33b73b0e1753bfb06ab27c989c5bfac4",
+    "torch_npu/npu/utils.py": "608b5984180706f4179c7d6427242ec9163b840b5d4fb56459f92d359c3a84b0"
+  },
+  "source_checks": {
+    "vllm/model_executor/model_loader/base_loader.py": true,
+    "vllm/model_executor/model_loader/utils.py": true,
+    "vllm/distributed/parallel_state.py": true,
+    "vllm/config/parallel.py": true,
+    "vllm/forward_context.py": true,
+    "vllm_ascend/distributed/parallel_state.py": true,
+    "vllm_ascend/worker/v2/model_runner.py": true,
+    "vllm_ascend/models/deepseek_v41/model.py": true,
+    "vllm_ascend/models/deepseek_v41/dspark.py": true,
+    "vllm_ascend/models/deepseek_v41/engram/model_state.py": true,
+    "torch_npu/dynamo/npugraph_ex/ops/_hcom_send_recv.py": true,
+    "torch_npu/dynamo/torchair/_ge_concrete_graph/ge_converter/experimental/hcom_send_recv.py": true,
+    "torch_npu/dynamo/npugraph_ex/_utils/adjust_traceable_collective_remaps.py": true,
+    "torch_npu/dynamo/torchair/_utils/adjust_traceable_collective_remaps.py": true,
+    "torch_npu/dynamo/npugraph_ex/npu_fx_compiler.py": true,
+    "torch_npu/dynamo/torchair/npu_fx_compiler.py": true,
+    "torch_npu/dynamo/torchair/_ge_concrete_graph/fx2ge_converter.py": true,
+    "torch/distributed/distributed_c10d.py": true,
+    "torch_npu/distributed/distributed_c10d.py": true,
+    "vllm/v1/worker/gpu/cudagraph_utils.py": true,
+    "vllm/v1/worker/gpu/ubatch_utils.py": true,
+    "vllm/v1/worker/gpu/model_runner.py": true,
+    "vllm/v1/worker/gpu/input_batch.py": true,
+    "vllm/v1/worker/ubatch_utils.py": true,
+    "vllm/v1/worker/ubatching.py": true,
+    "vllm_ascend/worker/v2/aclgraph_utils.py": true,
+    "vllm_ascend/worker/v2/utils.py": true,
+    "vllm_ascend/compilation/acl_graph.py": true,
+    "vllm/utils/torch_utils.py": true,
+    "torch_npu/npu/streams.py": true,
+    "torch_npu/npu/utils.py": true
+  },
+  "versions": {
+    "python": "3.12.9",
+    "packages": {
+      "torch": "2.10.0",
+      "torch-npu": "2.10.0.post4",
+      "vllm": "0.30.0+empty",
+      "vllm-ascend": "0.1.dev1+g7e37e29a7",
+      "fastapi": "0.123.10"
+    }
+  },
+  "selected_source_hashes": {
+    "tests/npu/hccl_graph_manager_probe.py": "5fd406ecb6854c292e1fbe2639329959bebd738869c8b58dc15cea8f2e44c15a",
+    "openspec/changes/afd-hccl-v2-graph/evidence/a3-native-manager-20261109/run_a3_graph_manager.py": "dd1e5c473a5bcd4bc2c897340a4b9551412b61cecd3a71c3176d76a12b73b537",
+    "afd_plugin/distributed/hccl_plan.py": "4ae86a77ccd36a2dff905526c66309cd3e1947c7dc1801d7b8177acc9f063c47",
+    "afd_plugin/distributed/hccl_graph.py": "3d410da36df91d875a2c595c6f473e8d15b82b26ee250dea23126b138bce9302",
+    "afd_plugin/connectors/npu/hccl_staged_transport.py": "43e7c1ae034108f44a878d070d934d4d7658cd8fc6ac47cb9e3e22ef6d4b54e4",
+    "afd_plugin/connectors/npu/hccl_graph_stage.py": "6e9d4f938632fadf14a0ea6d984deab2c5a0bd6c849aeede685a4a0212ff439c",
+    "afd_plugin/connectors/npu/hccl_graph_pipeline.py": "94929ab44c1a27271fc544675e64b757ffe0ab3a1331b4fd3b8bfe66242468ae",
+    "afd_plugin/v1/worker/npu/hccl_v41_graph.py": "cb19a7b5caab26fc757f4d8ad85ab9b17a64513bf5353e63efd33677541dd20e",
+    "afd_plugin/v1/worker/npu/hccl_v41_graph_control.py": "c1cac3839e2aea64811fc832e8462eb626c36dc4ac832382a0d2f53966de3ee1"
+  },
+  "selected_source_matches_at_freeze": {
+    "tests/npu/hccl_graph_manager_probe.py": true,
+    "openspec/changes/afd-hccl-v2-graph/evidence/a3-native-manager-20261109/run_a3_graph_manager.py": true,
+    "afd_plugin/distributed/hccl_plan.py": true,
+    "afd_plugin/distributed/hccl_graph.py": true,
+    "afd_plugin/connectors/npu/hccl_staged_transport.py": true,
+    "afd_plugin/connectors/npu/hccl_graph_stage.py": true,
+    "afd_plugin/connectors/npu/hccl_graph_pipeline.py": true,
+    "afd_plugin/v1/worker/npu/hccl_v41_graph.py": true,
+    "afd_plugin/v1/worker/npu/hccl_v41_graph_control.py": true
+  },
+  "role_results": [
+    {
+      "rank": 0,
+      "role": "ffn",
+      "device": "npu:0",
+      "phase_counts": {
+        "warmup": 4,
+        "capture": 4,
+        "replay": 13,
+        "eager": 6
+      },
+      "transactions": [
+        {
+          "id": "capture-1",
+          "phase": "warmup",
+          "reason": "requested",
+          "key": "c45ee328081ca7849f5f23a8cecb72200ff711edf3d98792716084abda8a0a2b",
+          "controlled_valid_tokens": 0,
+          "valid_tokens_by_stage": [
+            0
+          ],
+          "padded_tokens_by_stage": [
+            12
+          ]
+        },
+        {
+          "id": "capture-2",
+          "phase": "capture",
+          "reason": "requested",
+          "key": "c45ee328081ca7849f5f23a8cecb72200ff711edf3d98792716084abda8a0a2b",
+          "controlled_valid_tokens": 0,
+          "valid_tokens_by_stage": [
+            0
+          ],
+          "padded_tokens_by_stage": [
+            12
+          ]
+        },
+        {
+          "id": "capture-3",
+          "phase": "warmup",
+          "reason": "requested",
+          "key": "904b73ce4bdd9d435659321a725815369599a30931303e6445e4419a793dc556",
+          "controlled_valid_tokens": 0,
+          "valid_tokens_by_stage": [
+            0,
+            0
+          ],
+          "padded_tokens_by_stage": [
+            6,
+            6
+          ]
+        },
+        {
+          "id": "capture-4",
+          "phase": "capture",
+          "reason": "requested",
+          "key": "904b73ce4bdd9d435659321a725815369599a30931303e6445e4419a793dc556",
+          "controlled_valid_tokens": 0,
+          "valid_tokens_by_stage": [
+            0,
+            0
+          ],
+          "padded_tokens_by_stage": [
+            6,
+            6
+          ]
+        },
+        {
+          "id": "capture-5",
+          "phase": "warmup",
+          "reason": "requested",
+          "key": "6322a7fff7b4362859b48367adc0f1dcca8568ea8c2c0fc94f59421bfcccf58e",
+          "controlled_valid_tokens": 0,
+          "valid_tokens_by_stage": [
+            0
+          ],
+          "padded_tokens_by_stage": [
+            9
+          ]
+        },
+        {
+          "id": "capture-6",
+          "phase": "capture",
+          "reason": "requested",
+          "key": "6322a7fff7b4362859b48367adc0f1dcca8568ea8c2c0fc94f59421bfcccf58e",
+          "controlled_valid_tokens": 0,
+          "valid_tokens_by_stage": [
+            0
+          ],
+          "padded_tokens_by_stage": [
+            9
+          ]
+        },
+        {
+          "id": "capture-7",
+          "phase": "warmup",
+          "reason": "requested",
+          "key": "f3339a3d5c7265995d51d2ddfc784ee512b633975fd19eed4007171db298631d",
+          "controlled_valid_tokens": 0,
+          "valid_tokens_by_stage": [
+            0,
+            0
+          ],
+          "padded_tokens_by_stage": [
+            4,
+            5
+          ]
+        },
+        {
+          "id": "capture-8",
+          "phase": "capture",
+          "reason": "requested",
+          "key": "f3339a3d5c7265995d51d2ddfc784ee512b633975fd19eed4007171db298631d",
+          "controlled_valid_tokens": 0,
+          "valid_tokens_by_stage": [
+            0,
+            0
+          ],
+          "padded_tokens_by_stage": [
+            4,
+            5
+          ]
+        },
+        {
+          "id": "replay-0-0",
+          "phase": "replay",
+          "reason": "requested",
+          "key": "c45ee328081ca7849f5f23a8cecb72200ff711edf3d98792716084abda8a0a2b",
+          "controlled_valid_tokens": 12,
+          "valid_tokens_by_stage": [
+            12
+          ],
+          "padded_tokens_by_stage": [
+            12
+          ]
+        },
+        {
+          "id": "replay-0-1",
+          "phase": "replay",
+          "reason": "requested",
+          "key": "c45ee328081ca7849f5f23a8cecb72200ff711edf3d98792716084abda8a0a2b",
+          "controlled_valid_tokens": 1,
+          "valid_tokens_by_stage": [
+            1
+          ],
+          "padded_tokens_by_stage": [
+            12
+          ]
+        },
+        {
+          "id": "replay-0-2",
+          "phase": "replay",
+          "reason": "requested",
+          "key": "c45ee328081ca7849f5f23a8cecb72200ff711edf3d98792716084abda8a0a2b",
+          "controlled_valid_tokens": 11,
+          "valid_tokens_by_stage": [
+            11
+          ],
+          "padded_tokens_by_stage": [
+            12
+          ]
+        },
+        {
+          "id": "replay-1-0",
+          "phase": "replay",
+          "reason": "requested",
+          "key": "904b73ce4bdd9d435659321a725815369599a30931303e6445e4419a793dc556",
+          "controlled_valid_tokens": 12,
+          "valid_tokens_by_stage": [
+            6,
+            6
+          ],
+          "padded_tokens_by_stage": [
+            6,
+            6
+          ]
+        },
+        {
+          "id": "replay-1-1",
+          "phase": "replay",
+          "reason": "requested",
+          "key": "904b73ce4bdd9d435659321a725815369599a30931303e6445e4419a793dc556",
+          "controlled_valid_tokens": 1,
+          "valid_tokens_by_stage": [
+            1,
+            0
+          ],
+          "padded_tokens_by_stage": [
+            6,
+            6
+          ]
+        },
+        {
+          "id": "replay-1-2",
+          "phase": "replay",
+          "reason": "requested",
+          "key": "904b73ce4bdd9d435659321a725815369599a30931303e6445e4419a793dc556",
+          "controlled_valid_tokens": 11,
+          "valid_tokens_by_stage": [
+            6,
+            5
+          ],
+          "padded_tokens_by_stage": [
+            6,
+            6
+          ]
+        },
+        {
+          "id": "replay-2-0",
+          "phase": "replay",
+          "reason": "requested",
+          "key": "6322a7fff7b4362859b48367adc0f1dcca8568ea8c2c0fc94f59421bfcccf58e",
+          "controlled_valid_tokens": 9,
+          "valid_tokens_by_stage": [
+            9
+          ],
+          "padded_tokens_by_stage": [
+            9
+          ]
+        },
+        {
+          "id": "replay-2-1",
+          "phase": "replay",
+          "reason": "requested",
+          "key": "6322a7fff7b4362859b48367adc0f1dcca8568ea8c2c0fc94f59421bfcccf58e",
+          "controlled_valid_tokens": 1,
+          "valid_tokens_by_stage": [
+            1
+          ],
+          "padded_tokens_by_stage": [
+            9
+          ]
+        },
+        {
+          "id": "replay-2-2",
+          "phase": "replay",
+          "reason": "requested",
+          "key": "6322a7fff7b4362859b48367adc0f1dcca8568ea8c2c0fc94f59421bfcccf58e",
+          "controlled_valid_tokens": 8,
+          "valid_tokens_by_stage": [
+            8
+          ],
+          "padded_tokens_by_stage": [
+            9
+          ]
+        },
+        {
+          "id": "replay-3-0",
+          "phase": "replay",
+          "reason": "requested",
+          "key": "f3339a3d5c7265995d51d2ddfc784ee512b633975fd19eed4007171db298631d",
+          "controlled_valid_tokens": 9,
+          "valid_tokens_by_stage": [
+            4,
+            5
+          ],
+          "padded_tokens_by_stage": [
+            4,
+            5
+          ]
+        },
+        {
+          "id": "replay-3-1",
+          "phase": "replay",
+          "reason": "requested",
+          "key": "f3339a3d5c7265995d51d2ddfc784ee512b633975fd19eed4007171db298631d",
+          "controlled_valid_tokens": 1,
+          "valid_tokens_by_stage": [
+            1,
+            0
+          ],
+          "padded_tokens_by_stage": [
+            4,
+            5
+          ]
+        },
+        {
+          "id": "replay-3-2",
+          "phase": "replay",
+          "reason": "requested",
+          "key": "f3339a3d5c7265995d51d2ddfc784ee512b633975fd19eed4007171db298631d",
+          "controlled_valid_tokens": 8,
+          "valid_tokens_by_stage": [
+            4,
+            4
+          ],
+          "padded_tokens_by_stage": [
+            4,
+            5
+          ]
+        },
+        {
+          "id": "replay-4-0-ffn-generation-miss",
+          "phase": "eager",
+          "reason": "cache_miss",
+          "key": null,
+          "controlled_valid_tokens": 9,
+          "valid_tokens_by_stage": [
+            4,
+            5
+          ],
+          "padded_tokens_by_stage": [
+            4,
+            5
+          ]
+        },
+        {
+          "id": "replay-4-1-ffn-generation-miss",
+          "phase": "eager",
+          "reason": "cache_miss",
+          "key": null,
+          "controlled_valid_tokens": 9,
+          "valid_tokens_by_stage": [
+            4,
+            5
+          ],
+          "padded_tokens_by_stage": [
+            4,
+            5
+          ]
+        },
+        {
+          "id": "replay-4-2-ffn-generation-miss",
+          "phase": "eager",
+          "reason": "cache_miss",
+          "key": null,
+          "controlled_valid_tokens": 9,
+          "valid_tokens_by_stage": [
+            4,
+            5
+          ],
+          "padded_tokens_by_stage": [
+            4,
+            5
+          ]
+        },
+        {
+          "id": "replay-5-0",
+          "phase": "eager",
+          "reason": "cache_miss",
+          "key": null,
+          "controlled_valid_tokens": 3,
+          "valid_tokens_by_stage": [
+            1,
+            2
+          ],
+          "padded_tokens_by_stage": [
+            1,
+            2
+          ]
+        },
+        {
+          "id": "replay-5-1",
+          "phase": "eager",
+          "reason": "cache_miss",
+          "key": null,
+          "controlled_valid_tokens": 3,
+          "valid_tokens_by_stage": [
+            1,
+            2
+          ],
+          "padded_tokens_by_stage": [
+            1,
+            2
+          ]
+        },
+        {
+          "id": "replay-5-2",
+          "phase": "eager",
+          "reason": "cache_miss",
+          "key": null,
+          "controlled_valid_tokens": 3,
+          "valid_tokens_by_stage": [
+            1,
+            2
+          ],
+          "padded_tokens_by_stage": [
+            1,
+            2
+          ]
+        },
+        {
+          "id": "replay-6-0",
+          "phase": "replay",
+          "reason": "requested",
+          "key": "f3339a3d5c7265995d51d2ddfc784ee512b633975fd19eed4007171db298631d",
+          "controlled_valid_tokens": 6,
+          "valid_tokens_by_stage": [
+            4,
+            2
+          ],
+          "padded_tokens_by_stage": [
+            4,
+            5
+          ]
+        }
+      ],
+      "native_tp_before": [
+        1.0
+      ],
+      "native_tp_after_close": [
+        1.0
+      ],
+      "capture_sizes": [
+        9,
+        12
+      ],
+      "bank_storage": [
+        {
+          "key": "c45ee328081ca7849f5f23a8cecb72200ff711edf3d98792716084abda8a0a2b",
+          "bytes": 1648
+        },
+        {
+          "key": "c45ee328081ca7849f5f23a8cecb72200ff711edf3d98792716084abda8a0a2b",
+          "bytes": 1648
+        },
+        {
+          "key": "904b73ce4bdd9d435659321a725815369599a30931303e6445e4419a793dc556",
+          "bytes": 1652
+        },
+        {
+          "key": "904b73ce4bdd9d435659321a725815369599a30931303e6445e4419a793dc556",
+          "bytes": 1652
+        },
+        {
+          "key": "6322a7fff7b4362859b48367adc0f1dcca8568ea8c2c0fc94f59421bfcccf58e",
+          "bytes": 1237
+        },
+        {
+          "key": "6322a7fff7b4362859b48367adc0f1dcca8568ea8c2c0fc94f59421bfcccf58e",
+          "bytes": 1237
+        },
+        {
+          "key": "f3339a3d5c7265995d51d2ddfc784ee512b633975fd19eed4007171db298631d",
+          "bytes": 1241
+        },
+        {
+          "key": "f3339a3d5c7265995d51d2ddfc784ee512b633975fd19eed4007171db298631d",
+          "bytes": 1241
+        }
+      ],
+      "pipeline_storage": [
+        {
+          "key": "904b73ce4bdd9d435659321a725815369599a30931303e6445e4419a793dc556",
+          "phase": "warmup",
+          "hybrid": true,
+          "attention_three_stream": true,
+          "ffn_recv_stream": true,
+          "ffn_cross_layer": true,
+          "compute_stream": 187651338899792,
+          "positive_steps": 6,
+          "tail_event_pairs": 2,
+          "exchange_order": "cross_layer_v1",
+          "static_wire_actions": [
+            [
+              "input",
+              0,
+              0
+            ],
+            [
+              "input",
+              0,
+              1
+            ],
+            [
+              "output",
+              0,
+              0
+            ],
+            [
+              "input",
+              1,
+              0
+            ],
+            [
+              "output",
+              0,
+              1
+            ],
+            [
+              "input",
+              1,
+              1
+            ],
+            [
+              "output",
+              1,
+              0
+            ],
+            [
+              "input",
+              2,
+              0
+            ],
+            [
+              "output",
+              1,
+              1
+            ],
+            [
+              "input",
+              2,
+              1
+            ],
+            [
+              "output",
+              2,
+              0
+            ],
+            [
+              "output",
+              2,
+              1
+            ]
+          ]
+        },
+        {
+          "key": "904b73ce4bdd9d435659321a725815369599a30931303e6445e4419a793dc556",
+          "phase": "capture",
+          "hybrid": true,
+          "attention_three_stream": true,
+          "ffn_recv_stream": true,
+          "ffn_cross_layer": true,
+          "compute_stream": 187651338932752,
+          "positive_steps": 6,
+          "tail_event_pairs": 2,
+          "exchange_order": "cross_layer_v1",
+          "static_wire_actions": [
+            [
+              "input",
+              0,
+              0
+            ],
+            [
+              "input",
+              0,
+              1
+            ],
+            [
+              "output",
+              0,
+              0
+            ],
+            [
+              "input",
+              1,
+              0
+            ],
+            [
+              "output",
+              0,
+              1
+            ],
+            [
+              "input",
+              1,
+              1
+            ],
+            [
+              "output",
+              1,
+              0
+            ],
+            [
+              "input",
+              2,
+              0
+            ],
+            [
+              "output",
+              1,
+              1
+            ],
+            [
+              "input",
+              2,
+              1
+            ],
+            [
+              "output",
+              2,
+              0
+            ],
+            [
+              "output",
+              2,
+              1
+            ]
+          ]
+        },
+        {
+          "key": "f3339a3d5c7265995d51d2ddfc784ee512b633975fd19eed4007171db298631d",
+          "phase": "warmup",
+          "hybrid": true,
+          "attention_three_stream": true,
+          "ffn_recv_stream": true,
+          "ffn_cross_layer": true,
+          "compute_stream": 187651338949232,
+          "positive_steps": 6,
+          "tail_event_pairs": 2,
+          "exchange_order": "cross_layer_v1",
+          "static_wire_actions": [
+            [
+              "input",
+              0,
+              0
+            ],
+            [
+              "input",
+              0,
+              1
+            ],
+            [
+              "output",
+              0,
+              0
+            ],
+            [
+              "input",
+              1,
+              0
+            ],
+            [
+              "output",
+              0,
+              1
+            ],
+            [
+              "input",
+              1,
+              1
+            ],
+            [
+              "output",
+              1,
+              0
+            ],
+            [
+              "input",
+              2,
+              0
+            ],
+            [
+              "output",
+              1,
+              1
+            ],
+            [
+              "input",
+              2,
+              1
+            ],
+            [
+              "output",
+              2,
+              0
+            ],
+            [
+              "output",
+              2,
+              1
+            ]
+          ]
+        },
+        {
+          "key": "f3339a3d5c7265995d51d2ddfc784ee512b633975fd19eed4007171db298631d",
+          "phase": "capture",
+          "hybrid": true,
+          "attention_three_stream": true,
+          "ffn_recv_stream": true,
+          "ffn_cross_layer": true,
+          "compute_stream": 187651338965712,
+          "positive_steps": 6,
+          "tail_event_pairs": 2,
+          "exchange_order": "cross_layer_v1",
+          "static_wire_actions": [
+            [
+              "input",
+              0,
+              0
+            ],
+            [
+              "input",
+              0,
+              1
+            ],
+            [
+              "output",
+              0,
+              0
+            ],
+            [
+              "input",
+              1,
+              0
+            ],
+            [
+              "output",
+              0,
+              1
+            ],
+            [
+              "input",
+              1,
+              1
+            ],
+            [
+              "output",
+              1,
+              0
+            ],
+            [
+              "input",
+              2,
+              0
+            ],
+            [
+              "output",
+              1,
+              1
+            ],
+            [
+              "input",
+              2,
+              1
+            ],
+            [
+              "output",
+              2,
+              0
+            ],
+            [
+              "output",
+              2,
+              1
+            ]
+          ]
+        }
+      ],
+      "graph_selections": [
+        {
+          "key": "c45ee328081ca7849f5f23a8cecb72200ff711edf3d98792716084abda8a0a2b",
+          "phase": "warmup",
+          "pipeline_allocated": false,
+          "selection": {
+            "role": "ffn",
+            "phase": "graph_warmup",
+            "num_stages": 1,
+            "configured.AFD_HCCL_EAGER_U2_STREAM_OVERLAP": false,
+            "configured.AFD_HCCL_GRAPH_U2_COMPUTE_OVERLAP": true,
+            "configured.AFD_HCCL_GRAPH_U2_HYBRID_DAG": true,
+            "configured.AFD_HCCL_GRAPH_U2_ATTENTION_THREE_STREAM": true,
+            "configured.AFD_HCCL_GRAPH_U2_FFN_RECV_STREAM": true,
+            "configured.AFD_HCCL_GRAPH_U2_FFN_CROSS_LAYER": true,
+            "configured.AFD_HCCL_STAGE_DIAGNOSTICS": false,
+            "configured.AFD_HCCL_FFN_COMPUTE_SYNC_DIAGNOSTICS": false,
+            "effective.AFD_HCCL_EAGER_U2_STREAM_OVERLAP": false,
+            "effective.AFD_HCCL_GRAPH_U2_COMPUTE_OVERLAP": false,
+            "effective.AFD_HCCL_GRAPH_U2_HYBRID_DAG": false,
+            "effective.AFD_HCCL_GRAPH_U2_ATTENTION_THREE_STREAM": false,
+            "effective.AFD_HCCL_GRAPH_U2_FFN_RECV_STREAM": false,
+            "effective.AFD_HCCL_GRAPH_U2_FFN_CROSS_LAYER": false,
+            "effective.AFD_HCCL_STAGE_DIAGNOSTICS": false,
+            "effective.AFD_HCCL_FFN_COMPUTE_SYNC_DIAGNOSTICS": false,
+            "logical.compute_stream": "parent",
+            "logical.send_stream": "parent",
+            "logical.recv_stream": "parent",
+            "physical.compute_stream": "parent",
+            "physical.send_stream": "parent",
+            "physical.recv_stream": "parent",
+            "parent_transport_override": true
+          }
+        },
+        {
+          "key": "c45ee328081ca7849f5f23a8cecb72200ff711edf3d98792716084abda8a0a2b",
+          "phase": "capture",
+          "pipeline_allocated": false,
+          "selection": {
+            "role": "ffn",
+            "phase": "graph_capture",
+            "num_stages": 1,
+            "configured.AFD_HCCL_EAGER_U2_STREAM_OVERLAP": false,
+            "configured.AFD_HCCL_GRAPH_U2_COMPUTE_OVERLAP": true,
+            "configured.AFD_HCCL_GRAPH_U2_HYBRID_DAG": true,
+            "configured.AFD_HCCL_GRAPH_U2_ATTENTION_THREE_STREAM": true,
+            "configured.AFD_HCCL_GRAPH_U2_FFN_RECV_STREAM": true,
+            "configured.AFD_HCCL_GRAPH_U2_FFN_CROSS_LAYER": true,
+            "configured.AFD_HCCL_STAGE_DIAGNOSTICS": false,
+            "configured.AFD_HCCL_FFN_COMPUTE_SYNC_DIAGNOSTICS": false,
+            "effective.AFD_HCCL_EAGER_U2_STREAM_OVERLAP": false,
+            "effective.AFD_HCCL_GRAPH_U2_COMPUTE_OVERLAP": false,
+            "effective.AFD_HCCL_GRAPH_U2_HYBRID_DAG": false,
+            "effective.AFD_HCCL_GRAPH_U2_ATTENTION_THREE_STREAM": false,
+            "effective.AFD_HCCL_GRAPH_U2_FFN_RECV_STREAM": false,
+            "effective.AFD_HCCL_GRAPH_U2_FFN_CROSS_LAYER": false,
+            "effective.AFD_HCCL_STAGE_DIAGNOSTICS": false,
+            "effective.AFD_HCCL_FFN_COMPUTE_SYNC_DIAGNOSTICS": false,
+            "logical.compute_stream": "parent",
+            "logical.send_stream": "parent",
+            "logical.recv_stream": "parent",
+            "physical.compute_stream": "parent",
+            "physical.send_stream": "parent",
+            "physical.recv_stream": "parent",
+            "parent_transport_override": true
+          }
+        },
+        {
+          "key": "904b73ce4bdd9d435659321a725815369599a30931303e6445e4419a793dc556",
+          "phase": "warmup",
+          "pipeline_allocated": true,
+          "selection": {
+            "role": "ffn",
+            "phase": "graph_warmup",
+            "num_stages": 2,
+            "configured.AFD_HCCL_EAGER_U2_STREAM_OVERLAP": false,
+            "configured.AFD_HCCL_GRAPH_U2_COMPUTE_OVERLAP": true,
+            "configured.AFD_HCCL_GRAPH_U2_HYBRID_DAG": true,
+            "configured.AFD_HCCL_GRAPH_U2_ATTENTION_THREE_STREAM": true,
+            "configured.AFD_HCCL_GRAPH_U2_FFN_RECV_STREAM": true,
+            "configured.AFD_HCCL_GRAPH_U2_FFN_CROSS_LAYER": true,
+            "configured.AFD_HCCL_STAGE_DIAGNOSTICS": false,
+            "configured.AFD_HCCL_FFN_COMPUTE_SYNC_DIAGNOSTICS": false,
+            "effective.AFD_HCCL_EAGER_U2_STREAM_OVERLAP": false,
+            "effective.AFD_HCCL_GRAPH_U2_COMPUTE_OVERLAP": true,
+            "effective.AFD_HCCL_GRAPH_U2_HYBRID_DAG": false,
+            "effective.AFD_HCCL_GRAPH_U2_ATTENTION_THREE_STREAM": false,
+            "effective.AFD_HCCL_GRAPH_U2_FFN_RECV_STREAM": true,
+            "effective.AFD_HCCL_GRAPH_U2_FFN_CROSS_LAYER": true,
+            "effective.AFD_HCCL_STAGE_DIAGNOSTICS": false,
+            "effective.AFD_HCCL_FFN_COMPUTE_SYNC_DIAGNOSTICS": false,
+            "logical.compute_stream": "compute",
+            "logical.send_stream": "send",
+            "logical.recv_stream": "recv",
+            "physical.compute_stream": "compute",
+            "physical.send_stream": "parent",
+            "physical.recv_stream": "parent",
+            "parent_transport_override": true
+          }
+        },
+        {
+          "key": "904b73ce4bdd9d435659321a725815369599a30931303e6445e4419a793dc556",
+          "phase": "capture",
+          "pipeline_allocated": true,
+          "selection": {
+            "role": "ffn",
+            "phase": "graph_capture",
+            "num_stages": 2,
+            "configured.AFD_HCCL_EAGER_U2_STREAM_OVERLAP": false,
+            "configured.AFD_HCCL_GRAPH_U2_COMPUTE_OVERLAP": true,
+            "configured.AFD_HCCL_GRAPH_U2_HYBRID_DAG": true,
+            "configured.AFD_HCCL_GRAPH_U2_ATTENTION_THREE_STREAM": true,
+            "configured.AFD_HCCL_GRAPH_U2_FFN_RECV_STREAM": true,
+            "configured.AFD_HCCL_GRAPH_U2_FFN_CROSS_LAYER": true,
+            "configured.AFD_HCCL_STAGE_DIAGNOSTICS": false,
+            "configured.AFD_HCCL_FFN_COMPUTE_SYNC_DIAGNOSTICS": false,
+            "effective.AFD_HCCL_EAGER_U2_STREAM_OVERLAP": false,
+            "effective.AFD_HCCL_GRAPH_U2_COMPUTE_OVERLAP": true,
+            "effective.AFD_HCCL_GRAPH_U2_HYBRID_DAG": false,
+            "effective.AFD_HCCL_GRAPH_U2_ATTENTION_THREE_STREAM": false,
+            "effective.AFD_HCCL_GRAPH_U2_FFN_RECV_STREAM": true,
+            "effective.AFD_HCCL_GRAPH_U2_FFN_CROSS_LAYER": true,
+            "effective.AFD_HCCL_STAGE_DIAGNOSTICS": false,
+            "effective.AFD_HCCL_FFN_COMPUTE_SYNC_DIAGNOSTICS": false,
+            "logical.compute_stream": "compute",
+            "logical.send_stream": "send",
+            "logical.recv_stream": "recv",
+            "physical.compute_stream": "compute",
+            "physical.send_stream": "parent",
+            "physical.recv_stream": "parent",
+            "parent_transport_override": true
+          }
+        },
+        {
+          "key": "6322a7fff7b4362859b48367adc0f1dcca8568ea8c2c0fc94f59421bfcccf58e",
+          "phase": "warmup",
+          "pipeline_allocated": false,
+          "selection": {
+            "role": "ffn",
+            "phase": "graph_warmup",
+            "num_stages": 1,
+            "configured.AFD_HCCL_EAGER_U2_STREAM_OVERLAP": false,
+            "configured.AFD_HCCL_GRAPH_U2_COMPUTE_OVERLAP": true,
+            "configured.AFD_HCCL_GRAPH_U2_HYBRID_DAG": true,
+            "configured.AFD_HCCL_GRAPH_U2_ATTENTION_THREE_STREAM": true,
+            "configured.AFD_HCCL_GRAPH_U2_FFN_RECV_STREAM": true,
+            "configured.AFD_HCCL_GRAPH_U2_FFN_CROSS_LAYER": true,
+            "configured.AFD_HCCL_STAGE_DIAGNOSTICS": false,
+            "configured.AFD_HCCL_FFN_COMPUTE_SYNC_DIAGNOSTICS": false,
+            "effective.AFD_HCCL_EAGER_U2_STREAM_OVERLAP": false,
+            "effective.AFD_HCCL_GRAPH_U2_COMPUTE_OVERLAP": false,
+            "effective.AFD_HCCL_GRAPH_U2_HYBRID_DAG": false,
+            "effective.AFD_HCCL_GRAPH_U2_ATTENTION_THREE_STREAM": false,
+            "effective.AFD_HCCL_GRAPH_U2_FFN_RECV_STREAM": false,
+            "effective.AFD_HCCL_GRAPH_U2_FFN_CROSS_LAYER": false,
+            "effective.AFD_HCCL_STAGE_DIAGNOSTICS": false,
+            "effective.AFD_HCCL_FFN_COMPUTE_SYNC_DIAGNOSTICS": false,
+            "logical.compute_stream": "parent",
+            "logical.send_stream": "parent",
+            "logical.recv_stream": "parent",
+            "physical.compute_stream": "parent",
+            "physical.send_stream": "parent",
+            "physical.recv_stream": "parent",
+            "parent_transport_override": true
+          }
+        },
+        {
+          "key": "6322a7fff7b4362859b48367adc0f1dcca8568ea8c2c0fc94f59421bfcccf58e",
+          "phase": "capture",
+          "pipeline_allocated": false,
+          "selection": {
+            "role": "ffn",
+            "phase": "graph_capture",
+            "num_stages": 1,
+            "configured.AFD_HCCL_EAGER_U2_STREAM_OVERLAP": false,
+            "configured.AFD_HCCL_GRAPH_U2_COMPUTE_OVERLAP": true,
+            "configured.AFD_HCCL_GRAPH_U2_HYBRID_DAG": true,
+            "configured.AFD_HCCL_GRAPH_U2_ATTENTION_THREE_STREAM": true,
+            "configured.AFD_HCCL_GRAPH_U2_FFN_RECV_STREAM": true,
+            "configured.AFD_HCCL_GRAPH_U2_FFN_CROSS_LAYER": true,
+            "configured.AFD_HCCL_STAGE_DIAGNOSTICS": false,
+            "configured.AFD_HCCL_FFN_COMPUTE_SYNC_DIAGNOSTICS": false,
+            "effective.AFD_HCCL_EAGER_U2_STREAM_OVERLAP": false,
+            "effective.AFD_HCCL_GRAPH_U2_COMPUTE_OVERLAP": false,
+            "effective.AFD_HCCL_GRAPH_U2_HYBRID_DAG": false,
+            "effective.AFD_HCCL_GRAPH_U2_ATTENTION_THREE_STREAM": false,
+            "effective.AFD_HCCL_GRAPH_U2_FFN_RECV_STREAM": false,
+            "effective.AFD_HCCL_GRAPH_U2_FFN_CROSS_LAYER": false,
+            "effective.AFD_HCCL_STAGE_DIAGNOSTICS": false,
+            "effective.AFD_HCCL_FFN_COMPUTE_SYNC_DIAGNOSTICS": false,
+            "logical.compute_stream": "parent",
+            "logical.send_stream": "parent",
+            "logical.recv_stream": "parent",
+            "physical.compute_stream": "parent",
+            "physical.send_stream": "parent",
+            "physical.recv_stream": "parent",
+            "parent_transport_override": true
+          }
+        },
+        {
+          "key": "f3339a3d5c7265995d51d2ddfc784ee512b633975fd19eed4007171db298631d",
+          "phase": "warmup",
+          "pipeline_allocated": true,
+          "selection": {
+            "role": "ffn",
+            "phase": "graph_warmup",
+            "num_stages": 2,
+            "configured.AFD_HCCL_EAGER_U2_STREAM_OVERLAP": false,
+            "configured.AFD_HCCL_GRAPH_U2_COMPUTE_OVERLAP": true,
+            "configured.AFD_HCCL_GRAPH_U2_HYBRID_DAG": true,
+            "configured.AFD_HCCL_GRAPH_U2_ATTENTION_THREE_STREAM": true,
+            "configured.AFD_HCCL_GRAPH_U2_FFN_RECV_STREAM": true,
+            "configured.AFD_HCCL_GRAPH_U2_FFN_CROSS_LAYER": true,
+            "configured.AFD_HCCL_STAGE_DIAGNOSTICS": false,
+            "configured.AFD_HCCL_FFN_COMPUTE_SYNC_DIAGNOSTICS": false,
+            "effective.AFD_HCCL_EAGER_U2_STREAM_OVERLAP": false,
+            "effective.AFD_HCCL_GRAPH_U2_COMPUTE_OVERLAP": true,
+            "effective.AFD_HCCL_GRAPH_U2_HYBRID_DAG": false,
+            "effective.AFD_HCCL_GRAPH_U2_ATTENTION_THREE_STREAM": false,
+            "effective.AFD_HCCL_GRAPH_U2_FFN_RECV_STREAM": true,
+            "effective.AFD_HCCL_GRAPH_U2_FFN_CROSS_LAYER": true,
+            "effective.AFD_HCCL_STAGE_DIAGNOSTICS": false,
+            "effective.AFD_HCCL_FFN_COMPUTE_SYNC_DIAGNOSTICS": false,
+            "logical.compute_stream": "compute",
+            "logical.send_stream": "send",
+            "logical.recv_stream": "recv",
+            "physical.compute_stream": "compute",
+            "physical.send_stream": "parent",
+            "physical.recv_stream": "parent",
+            "parent_transport_override": true
+          }
+        },
+        {
+          "key": "f3339a3d5c7265995d51d2ddfc784ee512b633975fd19eed4007171db298631d",
+          "phase": "capture",
+          "pipeline_allocated": true,
+          "selection": {
+            "role": "ffn",
+            "phase": "graph_capture",
+            "num_stages": 2,
+            "configured.AFD_HCCL_EAGER_U2_STREAM_OVERLAP": false,
+            "configured.AFD_HCCL_GRAPH_U2_COMPUTE_OVERLAP": true,
+            "configured.AFD_HCCL_GRAPH_U2_HYBRID_DAG": true,
+            "configured.AFD_HCCL_GRAPH_U2_ATTENTION_THREE_STREAM": true,
+            "configured.AFD_HCCL_GRAPH_U2_FFN_RECV_STREAM": true,
+            "configured.AFD_HCCL_GRAPH_U2_FFN_CROSS_LAYER": true,
+            "configured.AFD_HCCL_STAGE_DIAGNOSTICS": false,
+            "configured.AFD_HCCL_FFN_COMPUTE_SYNC_DIAGNOSTICS": false,
+            "effective.AFD_HCCL_EAGER_U2_STREAM_OVERLAP": false,
+            "effective.AFD_HCCL_GRAPH_U2_COMPUTE_OVERLAP": true,
+            "effective.AFD_HCCL_GRAPH_U2_HYBRID_DAG": false,
+            "effective.AFD_HCCL_GRAPH_U2_ATTENTION_THREE_STREAM": false,
+            "effective.AFD_HCCL_GRAPH_U2_FFN_RECV_STREAM": true,
+            "effective.AFD_HCCL_GRAPH_U2_FFN_CROSS_LAYER": true,
+            "effective.AFD_HCCL_STAGE_DIAGNOSTICS": false,
+            "effective.AFD_HCCL_FFN_COMPUTE_SYNC_DIAGNOSTICS": false,
+            "logical.compute_stream": "compute",
+            "logical.send_stream": "send",
+            "logical.recv_stream": "recv",
+            "physical.compute_stream": "compute",
+            "physical.send_stream": "parent",
+            "physical.recv_stream": "parent",
+            "parent_transport_override": true
+          }
+        }
+      ],
+      "status": "passed"
+    },
+    {
+      "rank": 1,
+      "role": "attention",
+      "device": "npu:2",
+      "phase_counts": {
+        "warmup": 4,
+        "capture": 4,
+        "replay": 13,
+        "eager": 6
+      },
+      "transactions": [
+        {
+          "id": "capture-1",
+          "phase": "warmup",
+          "key": "c45ee328081ca7849f5f23a8cecb72200ff711edf3d98792716084abda8a0a2b"
+        },
+        {
+          "id": "capture-2",
+          "phase": "capture",
+          "key": "c45ee328081ca7849f5f23a8cecb72200ff711edf3d98792716084abda8a0a2b"
+        },
+        {
+          "id": "capture-3",
+          "phase": "warmup",
+          "key": "904b73ce4bdd9d435659321a725815369599a30931303e6445e4419a793dc556"
+        },
+        {
+          "id": "capture-4",
+          "phase": "capture",
+          "key": "904b73ce4bdd9d435659321a725815369599a30931303e6445e4419a793dc556"
+        },
+        {
+          "id": "capture-5",
+          "phase": "warmup",
+          "key": "6322a7fff7b4362859b48367adc0f1dcca8568ea8c2c0fc94f59421bfcccf58e"
+        },
+        {
+          "id": "capture-6",
+          "phase": "capture",
+          "key": "6322a7fff7b4362859b48367adc0f1dcca8568ea8c2c0fc94f59421bfcccf58e"
+        },
+        {
+          "id": "capture-7",
+          "phase": "warmup",
+          "key": "f3339a3d5c7265995d51d2ddfc784ee512b633975fd19eed4007171db298631d"
+        },
+        {
+          "id": "capture-8",
+          "phase": "capture",
+          "key": "f3339a3d5c7265995d51d2ddfc784ee512b633975fd19eed4007171db298631d"
+        },
+        {
+          "id": "replay-0-0",
+          "phase": "replay",
+          "reason": "requested",
+          "native_input_batch_geometry_verified": true,
+          "key": "c45ee328081ca7849f5f23a8cecb72200ff711edf3d98792716084abda8a0a2b",
+          "controlled_valid_tokens": 12,
+          "valid_tokens_by_stage": [
+            12
+          ],
+          "padded_tokens_by_stage": [
+            12
+          ],
+          "native_num_requests": 4,
+          "native_num_tokens": 12,
+          "target_query_len": 3,
+          "short_batch_same_key": false,
+          "case": "captured",
+          "native_stage_geometry": [
+            [
+              0,
+              4,
+              0,
+              12
+            ]
+          ]
+        },
+        {
+          "id": "replay-0-1",
+          "phase": "replay",
+          "reason": "requested",
+          "native_input_batch_geometry_verified": true,
+          "key": "c45ee328081ca7849f5f23a8cecb72200ff711edf3d98792716084abda8a0a2b",
+          "controlled_valid_tokens": 1,
+          "valid_tokens_by_stage": [
+            1
+          ],
+          "padded_tokens_by_stage": [
+            12
+          ],
+          "native_num_requests": 4,
+          "native_num_tokens": 12,
+          "target_query_len": 3,
+          "short_batch_same_key": false,
+          "case": "captured",
+          "native_stage_geometry": [
+            [
+              0,
+              4,
+              0,
+              12
+            ]
+          ]
+        },
+        {
+          "id": "replay-0-2",
+          "phase": "replay",
+          "reason": "requested",
+          "native_input_batch_geometry_verified": true,
+          "key": "c45ee328081ca7849f5f23a8cecb72200ff711edf3d98792716084abda8a0a2b",
+          "controlled_valid_tokens": 11,
+          "valid_tokens_by_stage": [
+            11
+          ],
+          "padded_tokens_by_stage": [
+            12
+          ],
+          "native_num_requests": 4,
+          "native_num_tokens": 12,
+          "target_query_len": 3,
+          "short_batch_same_key": false,
+          "case": "captured",
+          "native_stage_geometry": [
+            [
+              0,
+              4,
+              0,
+              12
+            ]
+          ]
+        },
+        {
+          "id": "replay-1-0",
+          "phase": "replay",
+          "reason": "requested",
+          "native_input_batch_geometry_verified": true,
+          "key": "904b73ce4bdd9d435659321a725815369599a30931303e6445e4419a793dc556",
+          "controlled_valid_tokens": 12,
+          "valid_tokens_by_stage": [
+            6,
+            6
+          ],
+          "padded_tokens_by_stage": [
+            6,
+            6
+          ],
+          "native_num_requests": 4,
+          "native_num_tokens": 12,
+          "target_query_len": 3,
+          "short_batch_same_key": false,
+          "case": "captured",
+          "native_stage_geometry": [
+            [
+              0,
+              2,
+              0,
+              6
+            ],
+            [
+              2,
+              4,
+              6,
+              12
+            ]
+          ]
+        },
+        {
+          "id": "replay-1-1",
+          "phase": "replay",
+          "reason": "requested",
+          "native_input_batch_geometry_verified": true,
+          "key": "904b73ce4bdd9d435659321a725815369599a30931303e6445e4419a793dc556",
+          "controlled_valid_tokens": 1,
+          "valid_tokens_by_stage": [
+            1,
+            0
+          ],
+          "padded_tokens_by_stage": [
+            6,
+            6
+          ],
+          "native_num_requests": 4,
+          "native_num_tokens": 12,
+          "target_query_len": 3,
+          "short_batch_same_key": false,
+          "case": "captured",
+          "native_stage_geometry": [
+            [
+              0,
+              2,
+              0,
+              6
+            ],
+            [
+              2,
+              4,
+              6,
+              12
+            ]
+          ]
+        },
+        {
+          "id": "replay-1-2",
+          "phase": "replay",
+          "reason": "requested",
+          "native_input_batch_geometry_verified": true,
+          "key": "904b73ce4bdd9d435659321a725815369599a30931303e6445e4419a793dc556",
+          "controlled_valid_tokens": 11,
+          "valid_tokens_by_stage": [
+            6,
+            5
+          ],
+          "padded_tokens_by_stage": [
+            6,
+            6
+          ],
+          "native_num_requests": 4,
+          "native_num_tokens": 12,
+          "target_query_len": 3,
+          "short_batch_same_key": false,
+          "case": "captured",
+          "native_stage_geometry": [
+            [
+              0,
+              2,
+              0,
+              6
+            ],
+            [
+              2,
+              4,
+              6,
+              12
+            ]
+          ]
+        },
+        {
+          "id": "replay-2-0",
+          "phase": "replay",
+          "reason": "requested",
+          "native_input_batch_geometry_verified": true,
+          "key": "6322a7fff7b4362859b48367adc0f1dcca8568ea8c2c0fc94f59421bfcccf58e",
+          "controlled_valid_tokens": 9,
+          "valid_tokens_by_stage": [
+            9
+          ],
+          "padded_tokens_by_stage": [
+            9
+          ],
+          "native_num_requests": 3,
+          "native_num_tokens": 9,
+          "target_query_len": 3,
+          "short_batch_same_key": false,
+          "case": "captured",
+          "native_stage_geometry": [
+            [
+              0,
+              3,
+              0,
+              9
+            ]
+          ]
+        },
+        {
+          "id": "replay-2-1",
+          "phase": "replay",
+          "reason": "requested",
+          "native_input_batch_geometry_verified": true,
+          "key": "6322a7fff7b4362859b48367adc0f1dcca8568ea8c2c0fc94f59421bfcccf58e",
+          "controlled_valid_tokens": 1,
+          "valid_tokens_by_stage": [
+            1
+          ],
+          "padded_tokens_by_stage": [
+            9
+          ],
+          "native_num_requests": 3,
+          "native_num_tokens": 9,
+          "target_query_len": 3,
+          "short_batch_same_key": false,
+          "case": "captured",
+          "native_stage_geometry": [
+            [
+              0,
+              3,
+              0,
+              9
+            ]
+          ]
+        },
+        {
+          "id": "replay-2-2",
+          "phase": "replay",
+          "reason": "requested",
+          "native_input_batch_geometry_verified": true,
+          "key": "6322a7fff7b4362859b48367adc0f1dcca8568ea8c2c0fc94f59421bfcccf58e",
+          "controlled_valid_tokens": 8,
+          "valid_tokens_by_stage": [
+            8
+          ],
+          "padded_tokens_by_stage": [
+            9
+          ],
+          "native_num_requests": 3,
+          "native_num_tokens": 9,
+          "target_query_len": 3,
+          "short_batch_same_key": false,
+          "case": "captured",
+          "native_stage_geometry": [
+            [
+              0,
+              3,
+              0,
+              9
+            ]
+          ]
+        },
+        {
+          "id": "replay-3-0",
+          "phase": "replay",
+          "reason": "requested",
+          "native_input_batch_geometry_verified": true,
+          "key": "f3339a3d5c7265995d51d2ddfc784ee512b633975fd19eed4007171db298631d",
+          "controlled_valid_tokens": 9,
+          "valid_tokens_by_stage": [
+            4,
+            5
+          ],
+          "padded_tokens_by_stage": [
+            4,
+            5
+          ],
+          "native_num_requests": 3,
+          "native_num_tokens": 9,
+          "target_query_len": 3,
+          "short_batch_same_key": false,
+          "case": "captured",
+          "native_stage_geometry": [
+            [
+              0,
+              2,
+              0,
+              4
+            ],
+            [
+              1,
+              3,
+              4,
+              9
+            ]
+          ]
+        },
+        {
+          "id": "replay-3-1",
+          "phase": "replay",
+          "reason": "requested",
+          "native_input_batch_geometry_verified": true,
+          "key": "f3339a3d5c7265995d51d2ddfc784ee512b633975fd19eed4007171db298631d",
+          "controlled_valid_tokens": 1,
+          "valid_tokens_by_stage": [
+            1,
+            0
+          ],
+          "padded_tokens_by_stage": [
+            4,
+            5
+          ],
+          "native_num_requests": 3,
+          "native_num_tokens": 9,
+          "target_query_len": 3,
+          "short_batch_same_key": false,
+          "case": "captured",
+          "native_stage_geometry": [
+            [
+              0,
+              2,
+              0,
+              4
+            ],
+            [
+              1,
+              3,
+              4,
+              9
+            ]
+          ]
+        },
+        {
+          "id": "replay-3-2",
+          "phase": "replay",
+          "reason": "requested",
+          "native_input_batch_geometry_verified": true,
+          "key": "f3339a3d5c7265995d51d2ddfc784ee512b633975fd19eed4007171db298631d",
+          "controlled_valid_tokens": 8,
+          "valid_tokens_by_stage": [
+            4,
+            4
+          ],
+          "padded_tokens_by_stage": [
+            4,
+            5
+          ],
+          "native_num_requests": 3,
+          "native_num_tokens": 9,
+          "target_query_len": 3,
+          "short_batch_same_key": false,
+          "case": "captured",
+          "native_stage_geometry": [
+            [
+              0,
+              2,
+              0,
+              4
+            ],
+            [
+              1,
+              3,
+              4,
+              9
+            ]
+          ]
+        },
+        {
+          "id": "replay-4-0-ffn-generation-miss",
+          "phase": "eager",
+          "reason": "cache_miss",
+          "native_input_batch_geometry_verified": true,
+          "key": null,
+          "controlled_valid_tokens": 9,
+          "valid_tokens_by_stage": [
+            4,
+            5
+          ],
+          "padded_tokens_by_stage": [
+            4,
+            5
+          ],
+          "native_num_requests": 3,
+          "native_num_tokens": 9,
+          "target_query_len": 3,
+          "short_batch_same_key": false,
+          "case": "ffn-generation-miss",
+          "native_stage_geometry": [
+            [
+              0,
+              2,
+              0,
+              4
+            ],
+            [
+              1,
+              3,
+              4,
+              9
+            ]
+          ]
+        },
+        {
+          "id": "replay-4-1-ffn-generation-miss",
+          "phase": "eager",
+          "reason": "cache_miss",
+          "native_input_batch_geometry_verified": true,
+          "key": null,
+          "controlled_valid_tokens": 9,
+          "valid_tokens_by_stage": [
+            4,
+            5
+          ],
+          "padded_tokens_by_stage": [
+            4,
+            5
+          ],
+          "native_num_requests": 3,
+          "native_num_tokens": 9,
+          "target_query_len": 3,
+          "short_batch_same_key": false,
+          "case": "ffn-generation-miss",
+          "native_stage_geometry": [
+            [
+              0,
+              2,
+              0,
+              4
+            ],
+            [
+              1,
+              3,
+              4,
+              9
+            ]
+          ]
+        },
+        {
+          "id": "replay-4-2-ffn-generation-miss",
+          "phase": "eager",
+          "reason": "cache_miss",
+          "native_input_batch_geometry_verified": true,
+          "key": null,
+          "controlled_valid_tokens": 9,
+          "valid_tokens_by_stage": [
+            4,
+            5
+          ],
+          "padded_tokens_by_stage": [
+            4,
+            5
+          ],
+          "native_num_requests": 3,
+          "native_num_tokens": 9,
+          "target_query_len": 3,
+          "short_batch_same_key": false,
+          "case": "ffn-generation-miss",
+          "native_stage_geometry": [
+            [
+              0,
+              2,
+              0,
+              4
+            ],
+            [
+              1,
+              3,
+              4,
+              9
+            ]
+          ]
+        },
+        {
+          "id": "replay-5-0",
+          "phase": "eager",
+          "reason": "cache_miss",
+          "native_input_batch_geometry_verified": true,
+          "key": null,
+          "controlled_valid_tokens": 3,
+          "valid_tokens_by_stage": [
+            1,
+            2
+          ],
+          "padded_tokens_by_stage": [
+            1,
+            2
+          ],
+          "native_num_requests": 1,
+          "native_num_tokens": 3,
+          "target_query_len": 3,
+          "short_batch_same_key": false,
+          "case": "request-layout-miss",
+          "native_stage_geometry": [
+            [
+              0,
+              1,
+              0,
+              1
+            ],
+            [
+              0,
+              1,
+              1,
+              3
+            ]
+          ]
+        },
+        {
+          "id": "replay-5-1",
+          "phase": "eager",
+          "reason": "cache_miss",
+          "native_input_batch_geometry_verified": true,
+          "key": null,
+          "controlled_valid_tokens": 3,
+          "valid_tokens_by_stage": [
+            1,
+            2
+          ],
+          "padded_tokens_by_stage": [
+            1,
+            2
+          ],
+          "native_num_requests": 1,
+          "native_num_tokens": 3,
+          "target_query_len": 3,
+          "short_batch_same_key": false,
+          "case": "request-layout-miss",
+          "native_stage_geometry": [
+            [
+              0,
+              1,
+              0,
+              1
+            ],
+            [
+              0,
+              1,
+              1,
+              3
+            ]
+          ]
+        },
+        {
+          "id": "replay-5-2",
+          "phase": "eager",
+          "reason": "cache_miss",
+          "native_input_batch_geometry_verified": true,
+          "key": null,
+          "controlled_valid_tokens": 3,
+          "valid_tokens_by_stage": [
+            1,
+            2
+          ],
+          "padded_tokens_by_stage": [
+            1,
+            2
+          ],
+          "native_num_requests": 1,
+          "native_num_tokens": 3,
+          "target_query_len": 3,
+          "short_batch_same_key": false,
+          "case": "request-layout-miss",
+          "native_stage_geometry": [
+            [
+              0,
+              1,
+              0,
+              1
+            ],
+            [
+              0,
+              1,
+              1,
+              3
+            ]
+          ]
+        },
+        {
+          "id": "replay-6-0",
+          "phase": "replay",
+          "reason": "requested",
+          "native_input_batch_geometry_verified": true,
+          "key": "f3339a3d5c7265995d51d2ddfc784ee512b633975fd19eed4007171db298631d",
+          "controlled_valid_tokens": 6,
+          "valid_tokens_by_stage": [
+            4,
+            2
+          ],
+          "padded_tokens_by_stage": [
+            4,
+            5
+          ],
+          "native_num_requests": 2,
+          "native_num_tokens": 6,
+          "target_query_len": 3,
+          "short_batch_same_key": true,
+          "case": "short-same-key",
+          "native_stage_geometry": [
+            [
+              0,
+              2,
+              0,
+              4
+            ],
+            [
+              1,
+              3,
+              4,
+              9
+            ]
+          ]
+        }
+      ],
+      "native_tp_before": [
+        1.0
+      ],
+      "native_tp_after_close": [
+        1.0
+      ],
+      "capture_sizes": [
+        9,
+        12
+      ],
+      "bank_storage": [
+        {
+          "key": "c45ee328081ca7849f5f23a8cecb72200ff711edf3d98792716084abda8a0a2b",
+          "bytes": 1648
+        },
+        {
+          "key": "c45ee328081ca7849f5f23a8cecb72200ff711edf3d98792716084abda8a0a2b",
+          "bytes": 1648
+        },
+        {
+          "key": "904b73ce4bdd9d435659321a725815369599a30931303e6445e4419a793dc556",
+          "bytes": 1652
+        },
+        {
+          "key": "904b73ce4bdd9d435659321a725815369599a30931303e6445e4419a793dc556",
+          "bytes": 1652
+        },
+        {
+          "key": "6322a7fff7b4362859b48367adc0f1dcca8568ea8c2c0fc94f59421bfcccf58e",
+          "bytes": 1237
+        },
+        {
+          "key": "6322a7fff7b4362859b48367adc0f1dcca8568ea8c2c0fc94f59421bfcccf58e",
+          "bytes": 1237
+        },
+        {
+          "key": "f3339a3d5c7265995d51d2ddfc784ee512b633975fd19eed4007171db298631d",
+          "bytes": 1241
+        },
+        {
+          "key": "f3339a3d5c7265995d51d2ddfc784ee512b633975fd19eed4007171db298631d",
+          "bytes": 1241
+        }
+      ],
+      "pipeline_storage": [
+        {
+          "key": "904b73ce4bdd9d435659321a725815369599a30931303e6445e4419a793dc556",
+          "phase": "warmup",
+          "hybrid": true,
+          "attention_three_stream": true,
+          "ffn_recv_stream": true,
+          "ffn_cross_layer": true,
+          "compute_stream": 187652379327424,
+          "positive_steps": 6,
+          "tail_event_pairs": 2,
+          "exchange_order": "cross_layer_v1",
+          "static_wire_actions": [
+            [
+              "input",
+              0,
+              0
+            ],
+            [
+              "input",
+              0,
+              1
+            ],
+            [
+              "output",
+              0,
+              0
+            ],
+            [
+              "input",
+              1,
+              0
+            ],
+            [
+              "output",
+              0,
+              1
+            ],
+            [
+              "input",
+              1,
+              1
+            ],
+            [
+              "output",
+              1,
+              0
+            ],
+            [
+              "input",
+              2,
+              0
+            ],
+            [
+              "output",
+              1,
+              1
+            ],
+            [
+              "input",
+              2,
+              1
+            ],
+            [
+              "output",
+              2,
+              0
+            ],
+            [
+              "output",
+              2,
+              1
+            ]
+          ]
+        },
+        {
+          "key": "904b73ce4bdd9d435659321a725815369599a30931303e6445e4419a793dc556",
+          "phase": "capture",
+          "hybrid": true,
+          "attention_three_stream": true,
+          "ffn_recv_stream": true,
+          "ffn_cross_layer": true,
+          "compute_stream": 187652379360384,
+          "positive_steps": 6,
+          "tail_event_pairs": 2,
+          "exchange_order": "cross_layer_v1",
+          "static_wire_actions": [
+            [
+              "input",
+              0,
+              0
+            ],
+            [
+              "input",
+              0,
+              1
+            ],
+            [
+              "output",
+              0,
+              0
+            ],
+            [
+              "input",
+              1,
+              0
+            ],
+            [
+              "output",
+              0,
+              1
+            ],
+            [
+              "input",
+              1,
+              1
+            ],
+            [
+              "output",
+              1,
+              0
+            ],
+            [
+              "input",
+              2,
+              0
+            ],
+            [
+              "output",
+              1,
+              1
+            ],
+            [
+              "input",
+              2,
+              1
+            ],
+            [
+              "output",
+              2,
+              0
+            ],
+            [
+              "output",
+              2,
+              1
+            ]
+          ]
+        },
+        {
+          "key": "f3339a3d5c7265995d51d2ddfc784ee512b633975fd19eed4007171db298631d",
+          "phase": "warmup",
+          "hybrid": true,
+          "attention_three_stream": true,
+          "ffn_recv_stream": true,
+          "ffn_cross_layer": true,
+          "compute_stream": 187652379376864,
+          "positive_steps": 6,
+          "tail_event_pairs": 2,
+          "exchange_order": "cross_layer_v1",
+          "static_wire_actions": [
+            [
+              "input",
+              0,
+              0
+            ],
+            [
+              "input",
+              0,
+              1
+            ],
+            [
+              "output",
+              0,
+              0
+            ],
+            [
+              "input",
+              1,
+              0
+            ],
+            [
+              "output",
+              0,
+              1
+            ],
+            [
+              "input",
+              1,
+              1
+            ],
+            [
+              "output",
+              1,
+              0
+            ],
+            [
+              "input",
+              2,
+              0
+            ],
+            [
+              "output",
+              1,
+              1
+            ],
+            [
+              "input",
+              2,
+              1
+            ],
+            [
+              "output",
+              2,
+              0
+            ],
+            [
+              "output",
+              2,
+              1
+            ]
+          ]
+        },
+        {
+          "key": "f3339a3d5c7265995d51d2ddfc784ee512b633975fd19eed4007171db298631d",
+          "phase": "capture",
+          "hybrid": true,
+          "attention_three_stream": true,
+          "ffn_recv_stream": true,
+          "ffn_cross_layer": true,
+          "compute_stream": 187652379393344,
+          "positive_steps": 6,
+          "tail_event_pairs": 2,
+          "exchange_order": "cross_layer_v1",
+          "static_wire_actions": [
+            [
+              "input",
+              0,
+              0
+            ],
+            [
+              "input",
+              0,
+              1
+            ],
+            [
+              "output",
+              0,
+              0
+            ],
+            [
+              "input",
+              1,
+              0
+            ],
+            [
+              "output",
+              0,
+              1
+            ],
+            [
+              "input",
+              1,
+              1
+            ],
+            [
+              "output",
+              1,
+              0
+            ],
+            [
+              "input",
+              2,
+              0
+            ],
+            [
+              "output",
+              1,
+              1
+            ],
+            [
+              "input",
+              2,
+              1
+            ],
+            [
+              "output",
+              2,
+              0
+            ],
+            [
+              "output",
+              2,
+              1
+            ]
+          ]
+        }
+      ],
+      "graph_selections": [
+        {
+          "key": "c45ee328081ca7849f5f23a8cecb72200ff711edf3d98792716084abda8a0a2b",
+          "phase": "warmup",
+          "pipeline_allocated": false,
+          "selection": {
+            "role": "attention",
+            "phase": "graph_warmup",
+            "num_stages": 1,
+            "configured.AFD_HCCL_EAGER_U2_STREAM_OVERLAP": false,
+            "configured.AFD_HCCL_GRAPH_U2_COMPUTE_OVERLAP": true,
+            "configured.AFD_HCCL_GRAPH_U2_HYBRID_DAG": true,
+            "configured.AFD_HCCL_GRAPH_U2_ATTENTION_THREE_STREAM": true,
+            "configured.AFD_HCCL_GRAPH_U2_FFN_RECV_STREAM": true,
+            "configured.AFD_HCCL_GRAPH_U2_FFN_CROSS_LAYER": true,
+            "configured.AFD_HCCL_STAGE_DIAGNOSTICS": false,
+            "configured.AFD_HCCL_FFN_COMPUTE_SYNC_DIAGNOSTICS": false,
+            "effective.AFD_HCCL_EAGER_U2_STREAM_OVERLAP": false,
+            "effective.AFD_HCCL_GRAPH_U2_COMPUTE_OVERLAP": false,
+            "effective.AFD_HCCL_GRAPH_U2_HYBRID_DAG": false,
+            "effective.AFD_HCCL_GRAPH_U2_ATTENTION_THREE_STREAM": false,
+            "effective.AFD_HCCL_GRAPH_U2_FFN_RECV_STREAM": false,
+            "effective.AFD_HCCL_GRAPH_U2_FFN_CROSS_LAYER": false,
+            "effective.AFD_HCCL_STAGE_DIAGNOSTICS": false,
+            "effective.AFD_HCCL_FFN_COMPUTE_SYNC_DIAGNOSTICS": false,
+            "logical.compute_stream": "parent",
+            "logical.send_stream": "parent",
+            "logical.recv_stream": "parent",
+            "physical.compute_stream": "parent",
+            "physical.send_stream": "parent",
+            "physical.recv_stream": "parent",
+            "parent_transport_override": true
+          }
+        },
+        {
+          "key": "c45ee328081ca7849f5f23a8cecb72200ff711edf3d98792716084abda8a0a2b",
+          "phase": "capture",
+          "pipeline_allocated": false,
+          "selection": {
+            "role": "attention",
+            "phase": "graph_capture",
+            "num_stages": 1,
+            "configured.AFD_HCCL_EAGER_U2_STREAM_OVERLAP": false,
+            "configured.AFD_HCCL_GRAPH_U2_COMPUTE_OVERLAP": true,
+            "configured.AFD_HCCL_GRAPH_U2_HYBRID_DAG": true,
+            "configured.AFD_HCCL_GRAPH_U2_ATTENTION_THREE_STREAM": true,
+            "configured.AFD_HCCL_GRAPH_U2_FFN_RECV_STREAM": true,
+            "configured.AFD_HCCL_GRAPH_U2_FFN_CROSS_LAYER": true,
+            "configured.AFD_HCCL_STAGE_DIAGNOSTICS": false,
+            "configured.AFD_HCCL_FFN_COMPUTE_SYNC_DIAGNOSTICS": false,
+            "effective.AFD_HCCL_EAGER_U2_STREAM_OVERLAP": false,
+            "effective.AFD_HCCL_GRAPH_U2_COMPUTE_OVERLAP": false,
+            "effective.AFD_HCCL_GRAPH_U2_HYBRID_DAG": false,
+            "effective.AFD_HCCL_GRAPH_U2_ATTENTION_THREE_STREAM": false,
+            "effective.AFD_HCCL_GRAPH_U2_FFN_RECV_STREAM": false,
+            "effective.AFD_HCCL_GRAPH_U2_FFN_CROSS_LAYER": false,
+            "effective.AFD_HCCL_STAGE_DIAGNOSTICS": false,
+            "effective.AFD_HCCL_FFN_COMPUTE_SYNC_DIAGNOSTICS": false,
+            "logical.compute_stream": "parent",
+            "logical.send_stream": "parent",
+            "logical.recv_stream": "parent",
+            "physical.compute_stream": "parent",
+            "physical.send_stream": "parent",
+            "physical.recv_stream": "parent",
+            "parent_transport_override": true
+          }
+        },
+        {
+          "key": "904b73ce4bdd9d435659321a725815369599a30931303e6445e4419a793dc556",
+          "phase": "warmup",
+          "pipeline_allocated": true,
+          "selection": {
+            "role": "attention",
+            "phase": "graph_warmup",
+            "num_stages": 2,
+            "configured.AFD_HCCL_EAGER_U2_STREAM_OVERLAP": false,
+            "configured.AFD_HCCL_GRAPH_U2_COMPUTE_OVERLAP": true,
+            "configured.AFD_HCCL_GRAPH_U2_HYBRID_DAG": true,
+            "configured.AFD_HCCL_GRAPH_U2_ATTENTION_THREE_STREAM": true,
+            "configured.AFD_HCCL_GRAPH_U2_FFN_RECV_STREAM": true,
+            "configured.AFD_HCCL_GRAPH_U2_FFN_CROSS_LAYER": true,
+            "configured.AFD_HCCL_STAGE_DIAGNOSTICS": false,
+            "configured.AFD_HCCL_FFN_COMPUTE_SYNC_DIAGNOSTICS": false,
+            "effective.AFD_HCCL_EAGER_U2_STREAM_OVERLAP": false,
+            "effective.AFD_HCCL_GRAPH_U2_COMPUTE_OVERLAP": true,
+            "effective.AFD_HCCL_GRAPH_U2_HYBRID_DAG": true,
+            "effective.AFD_HCCL_GRAPH_U2_ATTENTION_THREE_STREAM": true,
+            "effective.AFD_HCCL_GRAPH_U2_FFN_RECV_STREAM": false,
+            "effective.AFD_HCCL_GRAPH_U2_FFN_CROSS_LAYER": false,
+            "effective.AFD_HCCL_STAGE_DIAGNOSTICS": false,
+            "effective.AFD_HCCL_FFN_COMPUTE_SYNC_DIAGNOSTICS": false,
+            "logical.compute_stream": "compute",
+            "logical.send_stream": "send",
+            "logical.recv_stream": "recv",
+            "physical.compute_stream": "compute",
+            "physical.send_stream": "parent",
+            "physical.recv_stream": "parent",
+            "parent_transport_override": true
+          }
+        },
+        {
+          "key": "904b73ce4bdd9d435659321a725815369599a30931303e6445e4419a793dc556",
+          "phase": "capture",
+          "pipeline_allocated": true,
+          "selection": {
+            "role": "attention",
+            "phase": "graph_capture",
+            "num_stages": 2,
+            "configured.AFD_HCCL_EAGER_U2_STREAM_OVERLAP": false,
+            "configured.AFD_HCCL_GRAPH_U2_COMPUTE_OVERLAP": true,
+            "configured.AFD_HCCL_GRAPH_U2_HYBRID_DAG": true,
+            "configured.AFD_HCCL_GRAPH_U2_ATTENTION_THREE_STREAM": true,
+            "configured.AFD_HCCL_GRAPH_U2_FFN_RECV_STREAM": true,
+            "configured.AFD_HCCL_GRAPH_U2_FFN_CROSS_LAYER": true,
+            "configured.AFD_HCCL_STAGE_DIAGNOSTICS": false,
+            "configured.AFD_HCCL_FFN_COMPUTE_SYNC_DIAGNOSTICS": false,
+            "effective.AFD_HCCL_EAGER_U2_STREAM_OVERLAP": false,
+            "effective.AFD_HCCL_GRAPH_U2_COMPUTE_OVERLAP": true,
+            "effective.AFD_HCCL_GRAPH_U2_HYBRID_DAG": true,
+            "effective.AFD_HCCL_GRAPH_U2_ATTENTION_THREE_STREAM": true,
+            "effective.AFD_HCCL_GRAPH_U2_FFN_RECV_STREAM": false,
+            "effective.AFD_HCCL_GRAPH_U2_FFN_CROSS_LAYER": false,
+            "effective.AFD_HCCL_STAGE_DIAGNOSTICS": false,
+            "effective.AFD_HCCL_FFN_COMPUTE_SYNC_DIAGNOSTICS": false,
+            "logical.compute_stream": "compute",
+            "logical.send_stream": "send",
+            "logical.recv_stream": "recv",
+            "physical.compute_stream": "compute",
+            "physical.send_stream": "parent",
+            "physical.recv_stream": "parent",
+            "parent_transport_override": true
+          }
+        },
+        {
+          "key": "6322a7fff7b4362859b48367adc0f1dcca8568ea8c2c0fc94f59421bfcccf58e",
+          "phase": "warmup",
+          "pipeline_allocated": false,
+          "selection": {
+            "role": "attention",
+            "phase": "graph_warmup",
+            "num_stages": 1,
+            "configured.AFD_HCCL_EAGER_U2_STREAM_OVERLAP": false,
+            "configured.AFD_HCCL_GRAPH_U2_COMPUTE_OVERLAP": true,
+            "configured.AFD_HCCL_GRAPH_U2_HYBRID_DAG": true,
+            "configured.AFD_HCCL_GRAPH_U2_ATTENTION_THREE_STREAM": true,
+            "configured.AFD_HCCL_GRAPH_U2_FFN_RECV_STREAM": true,
+            "configured.AFD_HCCL_GRAPH_U2_FFN_CROSS_LAYER": true,
+            "configured.AFD_HCCL_STAGE_DIAGNOSTICS": false,
+            "configured.AFD_HCCL_FFN_COMPUTE_SYNC_DIAGNOSTICS": false,
+            "effective.AFD_HCCL_EAGER_U2_STREAM_OVERLAP": false,
+            "effective.AFD_HCCL_GRAPH_U2_COMPUTE_OVERLAP": false,
+            "effective.AFD_HCCL_GRAPH_U2_HYBRID_DAG": false,
+            "effective.AFD_HCCL_GRAPH_U2_ATTENTION_THREE_STREAM": false,
+            "effective.AFD_HCCL_GRAPH_U2_FFN_RECV_STREAM": false,
+            "effective.AFD_HCCL_GRAPH_U2_FFN_CROSS_LAYER": false,
+            "effective.AFD_HCCL_STAGE_DIAGNOSTICS": false,
+            "effective.AFD_HCCL_FFN_COMPUTE_SYNC_DIAGNOSTICS": false,
+            "logical.compute_stream": "parent",
+            "logical.send_stream": "parent",
+            "logical.recv_stream": "parent",
+            "physical.compute_stream": "parent",
+            "physical.send_stream": "parent",
+            "physical.recv_stream": "parent",
+            "parent_transport_override": true
+          }
+        },
+        {
+          "key": "6322a7fff7b4362859b48367adc0f1dcca8568ea8c2c0fc94f59421bfcccf58e",
+          "phase": "capture",
+          "pipeline_allocated": false,
+          "selection": {
+            "role": "attention",
+            "phase": "graph_capture",
+            "num_stages": 1,
+            "configured.AFD_HCCL_EAGER_U2_STREAM_OVERLAP": false,
+            "configured.AFD_HCCL_GRAPH_U2_COMPUTE_OVERLAP": true,
+            "configured.AFD_HCCL_GRAPH_U2_HYBRID_DAG": true,
+            "configured.AFD_HCCL_GRAPH_U2_ATTENTION_THREE_STREAM": true,
+            "configured.AFD_HCCL_GRAPH_U2_FFN_RECV_STREAM": true,
+            "configured.AFD_HCCL_GRAPH_U2_FFN_CROSS_LAYER": true,
+            "configured.AFD_HCCL_STAGE_DIAGNOSTICS": false,
+            "configured.AFD_HCCL_FFN_COMPUTE_SYNC_DIAGNOSTICS": false,
+            "effective.AFD_HCCL_EAGER_U2_STREAM_OVERLAP": false,
+            "effective.AFD_HCCL_GRAPH_U2_COMPUTE_OVERLAP": false,
+            "effective.AFD_HCCL_GRAPH_U2_HYBRID_DAG": false,
+            "effective.AFD_HCCL_GRAPH_U2_ATTENTION_THREE_STREAM": false,
+            "effective.AFD_HCCL_GRAPH_U2_FFN_RECV_STREAM": false,
+            "effective.AFD_HCCL_GRAPH_U2_FFN_CROSS_LAYER": false,
+            "effective.AFD_HCCL_STAGE_DIAGNOSTICS": false,
+            "effective.AFD_HCCL_FFN_COMPUTE_SYNC_DIAGNOSTICS": false,
+            "logical.compute_stream": "parent",
+            "logical.send_stream": "parent",
+            "logical.recv_stream": "parent",
+            "physical.compute_stream": "parent",
+            "physical.send_stream": "parent",
+            "physical.recv_stream": "parent",
+            "parent_transport_override": true
+          }
+        },
+        {
+          "key": "f3339a3d5c7265995d51d2ddfc784ee512b633975fd19eed4007171db298631d",
+          "phase": "warmup",
+          "pipeline_allocated": true,
+          "selection": {
+            "role": "attention",
+            "phase": "graph_warmup",
+            "num_stages": 2,
+            "configured.AFD_HCCL_EAGER_U2_STREAM_OVERLAP": false,
+            "configured.AFD_HCCL_GRAPH_U2_COMPUTE_OVERLAP": true,
+            "configured.AFD_HCCL_GRAPH_U2_HYBRID_DAG": true,
+            "configured.AFD_HCCL_GRAPH_U2_ATTENTION_THREE_STREAM": true,
+            "configured.AFD_HCCL_GRAPH_U2_FFN_RECV_STREAM": true,
+            "configured.AFD_HCCL_GRAPH_U2_FFN_CROSS_LAYER": true,
+            "configured.AFD_HCCL_STAGE_DIAGNOSTICS": false,
+            "configured.AFD_HCCL_FFN_COMPUTE_SYNC_DIAGNOSTICS": false,
+            "effective.AFD_HCCL_EAGER_U2_STREAM_OVERLAP": false,
+            "effective.AFD_HCCL_GRAPH_U2_COMPUTE_OVERLAP": true,
+            "effective.AFD_HCCL_GRAPH_U2_HYBRID_DAG": true,
+            "effective.AFD_HCCL_GRAPH_U2_ATTENTION_THREE_STREAM": true,
+            "effective.AFD_HCCL_GRAPH_U2_FFN_RECV_STREAM": false,
+            "effective.AFD_HCCL_GRAPH_U2_FFN_CROSS_LAYER": false,
+            "effective.AFD_HCCL_STAGE_DIAGNOSTICS": false,
+            "effective.AFD_HCCL_FFN_COMPUTE_SYNC_DIAGNOSTICS": false,
+            "logical.compute_stream": "compute",
+            "logical.send_stream": "send",
+            "logical.recv_stream": "recv",
+            "physical.compute_stream": "compute",
+            "physical.send_stream": "parent",
+            "physical.recv_stream": "parent",
+            "parent_transport_override": true
+          }
+        },
+        {
+          "key": "f3339a3d5c7265995d51d2ddfc784ee512b633975fd19eed4007171db298631d",
+          "phase": "capture",
+          "pipeline_allocated": true,
+          "selection": {
+            "role": "attention",
+            "phase": "graph_capture",
+            "num_stages": 2,
+            "configured.AFD_HCCL_EAGER_U2_STREAM_OVERLAP": false,
+            "configured.AFD_HCCL_GRAPH_U2_COMPUTE_OVERLAP": true,
+            "configured.AFD_HCCL_GRAPH_U2_HYBRID_DAG": true,
+            "configured.AFD_HCCL_GRAPH_U2_ATTENTION_THREE_STREAM": true,
+            "configured.AFD_HCCL_GRAPH_U2_FFN_RECV_STREAM": true,
+            "configured.AFD_HCCL_GRAPH_U2_FFN_CROSS_LAYER": true,
+            "configured.AFD_HCCL_STAGE_DIAGNOSTICS": false,
+            "configured.AFD_HCCL_FFN_COMPUTE_SYNC_DIAGNOSTICS": false,
+            "effective.AFD_HCCL_EAGER_U2_STREAM_OVERLAP": false,
+            "effective.AFD_HCCL_GRAPH_U2_COMPUTE_OVERLAP": true,
+            "effective.AFD_HCCL_GRAPH_U2_HYBRID_DAG": true,
+            "effective.AFD_HCCL_GRAPH_U2_ATTENTION_THREE_STREAM": true,
+            "effective.AFD_HCCL_GRAPH_U2_FFN_RECV_STREAM": false,
+            "effective.AFD_HCCL_GRAPH_U2_FFN_CROSS_LAYER": false,
+            "effective.AFD_HCCL_STAGE_DIAGNOSTICS": false,
+            "effective.AFD_HCCL_FFN_COMPUTE_SYNC_DIAGNOSTICS": false,
+            "logical.compute_stream": "compute",
+            "logical.send_stream": "send",
+            "logical.recv_stream": "recv",
+            "physical.compute_stream": "compute",
+            "physical.send_stream": "parent",
+            "physical.recv_stream": "parent",
+            "parent_transport_override": true
+          }
+        }
+      ],
+      "status": "passed"
+    }
+  ],
+  "baseline_dynamic_valid_per_key": {
+    "c45ee328081ca7849f5f23a8cecb72200ff711edf3d98792716084abda8a0a2b": [
+      12,
+      1,
+      11
+    ],
+    "904b73ce4bdd9d435659321a725815369599a30931303e6445e4419a793dc556": [
+      12,
+      1,
+      11
+    ],
+    "6322a7fff7b4362859b48367adc0f1dcca8568ea8c2c0fc94f59421bfcccf58e": [
+      9,
+      1,
+      8
+    ],
+    "f3339a3d5c7265995d51d2ddfc784ee512b633975fd19eed4007171db298631d": [
+      9,
+      1,
+      8
+    ]
+  },
+  "short_batch_same_key": {
+    "id": "replay-6-0",
+    "phase": "replay",
+    "reason": "requested",
+    "native_input_batch_geometry_verified": true,
+    "key": "f3339a3d5c7265995d51d2ddfc784ee512b633975fd19eed4007171db298631d",
+    "controlled_valid_tokens": 6,
+    "valid_tokens_by_stage": [
+      4,
+      2
+    ],
+    "padded_tokens_by_stage": [
+      4,
+      5
+    ],
+    "native_num_requests": 2,
+    "native_num_tokens": 6,
+    "target_query_len": 3,
+    "short_batch_same_key": true,
+    "case": "short-same-key",
+    "native_stage_geometry": [
+      [
+        0,
+        2,
+        0,
+        4
+      ],
+      [
+        1,
+        3,
+        4,
+        9
+      ]
+    ]
+  },
+  "request_layout_misses": [
+    {
+      "id": "replay-5-0",
+      "phase": "eager",
+      "reason": "cache_miss",
+      "native_input_batch_geometry_verified": true,
+      "key": null,
+      "controlled_valid_tokens": 3,
+      "valid_tokens_by_stage": [
+        1,
+        2
+      ],
+      "padded_tokens_by_stage": [
+        1,
+        2
+      ],
+      "native_num_requests": 1,
+      "native_num_tokens": 3,
+      "target_query_len": 3,
+      "short_batch_same_key": false,
+      "case": "request-layout-miss",
+      "native_stage_geometry": [
+        [
+          0,
+          1,
+          0,
+          1
+        ],
+        [
+          0,
+          1,
+          1,
+          3
+        ]
+      ]
+    },
+    {
+      "id": "replay-5-1",
+      "phase": "eager",
+      "reason": "cache_miss",
+      "native_input_batch_geometry_verified": true,
+      "key": null,
+      "controlled_valid_tokens": 3,
+      "valid_tokens_by_stage": [
+        1,
+        2
+      ],
+      "padded_tokens_by_stage": [
+        1,
+        2
+      ],
+      "native_num_requests": 1,
+      "native_num_tokens": 3,
+      "target_query_len": 3,
+      "short_batch_same_key": false,
+      "case": "request-layout-miss",
+      "native_stage_geometry": [
+        [
+          0,
+          1,
+          0,
+          1
+        ],
+        [
+          0,
+          1,
+          1,
+          3
+        ]
+      ]
+    },
+    {
+      "id": "replay-5-2",
+      "phase": "eager",
+      "reason": "cache_miss",
+      "native_input_batch_geometry_verified": true,
+      "key": null,
+      "controlled_valid_tokens": 3,
+      "valid_tokens_by_stage": [
+        1,
+        2
+      ],
+      "padded_tokens_by_stage": [
+        1,
+        2
+      ],
+      "native_num_requests": 1,
+      "native_num_tokens": 3,
+      "target_query_len": 3,
+      "short_batch_same_key": false,
+      "case": "request-layout-miss",
+      "native_stage_geometry": [
+        [
+          0,
+          1,
+          0,
+          1
+        ],
+        [
+          0,
+          1,
+          1,
+          3
+        ]
+      ]
+    }
+  ],
+  "normal_stop_completed": true,
+  "probe_oracles_reached_without_error": [
+    "per-layer BF16 recurrence",
+    "independent original FP32 payload",
+    "raw IDs and graph padding masks",
+    "all-row arithmetic outputs including padding",
+    "fixed bank storage addresses/byte budgets across layers/replays",
+    "normal STOP then plugin group close",
+    "native TP before and after plugin close"
+  ],
+  "address_scope_note": "Probe checks addresses at execution; role JSON records storage bytes and pipeline metadata, not every tensor address. No performance/physical stream-overlap conclusion.",
+  "not_executed": [
+    "native model checkpoint",
+    "drafter construction or execution",
+    "native DSpark proposed/accepted/rejected tokens",
+    "sampler equivalence",
+    "native HC/attention/Engram/MoE",
+    "full model coor/runner",
+    "TP2 device",
+    "A5",
+    "GE compilation",
+    "performance"
+  ],
+  "raw_sha256": {
+    "delivery.json": "1f03bc91d519616956b9c4effef6c79c5343eb6de60ec5e78eb1d9491e20fcfc",
+    "identity.json": "566a26ad5a75a6f48e65353aebf75a35968bb15064075c2fff428d762153b0b2",
+    "remote-run.log": "aada69dc896d489a8a2204f23bcac7b296cc512f79fe7905590513aaea2f4344",
+    "results/effective-env.json": "60351e6fb5bf8e1cc8c955b76f4580e1b4e3206d2e62ef170cd87b549f944fdb",
+    "results/npu-after.log": "b28a6d92464bae9a226610d65578757dd291089b28c7337bf6cd077350ba218e",
+    "results/npu-before.log": "794f2021eee7b7b11eefe85f8a9477dceb60c22d139162911f4cafb72dc999b3",
+    "results/owned-processes.json": "32688745ccc74268c232c6c4587eb5f75438835aca0e51b5152649622cea7038",
+    "results/probe/rank-0.json": "5b0e7e19750630be23a1474e85a5f589cc5810eec63821c0acbbfb610675c465",
+    "results/probe/rank-0.log": "db4826f7215db5178768e84facf6475fb91b1d9a40d2d86b3381fb17b3c01b04",
+    "results/probe/rank-1.json": "aa0b33effa36b0eb673f95e22ef9cd6f25e025bbc1d03f6fe2bd6bb0edffa26e",
+    "results/probe/rank-1.log": "aeb77f93b62cd6b03c6dc523bc0b7f95b176242c8d8a70aaa1357cf945d8a5f8",
+    "results/probe/summary.json": "936ba0b54f397a0d92c2cdfabd58f232e0029ba5e8e545a38c95e47c52b5ecc4",
+    "results/probe.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "results/source-check.json": "e0d7473e680b70b65b78dcd78d457e46080ace46e5c564884e28e3b5c7baf30d",
+    "results/summary.json": "db66e0f996d28d0c463512f5967309e24bf61a8588a8a57a9abda0d1139ff881",
+    "results/upstream-identity.json": "d9a3e13bf629d887c075beeeda16dda6ca9e726ebd7a26d561fdca2b6b59acb0",
+    "results/versions.json": "8aa40a41b53ecde5293ad581f313555c4e948071ce87c879c3b93ac6d8ad2601"
+  }
+}

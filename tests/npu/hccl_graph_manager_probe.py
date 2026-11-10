@@ -32,12 +32,14 @@ HIDDEN_SIZE = 16
 CAPACITY = 32
 DEFAULT_LAYER_COUNT = 2
 CAPTURE_SIZES = (4, 8)
+TARGET_REQUEST_BUCKETS = (3, 4)
 GROUP_TIMEOUT_SECONDS = 45
 TOTAL_TIMEOUT_SECONDS = 300
 REAP_TIMEOUT_SECONDS = 10
 ROUTER_DELTA = 0.00031
 ROUTER_SCALE = 4096
 REPLAYS = 3
+BASE_TRANSACTION_COUNT = 26
 GRAPH_AXIS_ARGUMENTS = (
     "graph_compute",
     "graph_hybrid",
@@ -53,6 +55,13 @@ def parse_args():
     parser.add_argument("--model", required=True, help="configuration only; no weights")
     parser.add_argument("--output-dir", type=Path, required=True)
     parser.add_argument("--timeout", type=int, default=TOTAL_TIMEOUT_SECONDS)
+    parser.add_argument(
+        "--target-query-len",
+        type=int,
+        choices=(1, 3),
+        default=1,
+        help="controlled uniform target-query geometry; no native draft model",
+    )
     parser.add_argument(
         "--exchange-order",
         choices=("stage_serial", "bulk_v1", "cross_layer_v1"),
@@ -216,12 +225,19 @@ def run_worker(args):
     from afd_plugin.v1.worker.npu.hccl_v41_graph import (
         HcclV41GraphGeometry,
         HcclV41StageGeometry,
+        preview_hccl_v41_geometry,
     )
     from afd_plugin.v1.worker.npu.hccl_v41_graph_control import HcclV41GraphControl
     from afd_plugin.v1.worker.npu.ubatch_runner import NPUUBatchRunner
     from tests.npu.hccl_staged_probe import build_config
 
     layers = tuple(range(args.layer_count))
+    target_query_len = args.target_query_len
+    capture_sizes = (
+        CAPTURE_SIZES
+        if target_query_len == 1
+        else tuple(target_query_len * rows for rows in TARGET_REQUEST_BUCKETS)
+    )
     device = torch.device("npu", args.devices[args.rank])
     role = "ffn" if args.rank == 0 else "attention"
     settings = (
@@ -251,6 +267,9 @@ def run_worker(args):
         "pipeline_hybrid": args.pipeline_hybrid,
         "exchange_order": args.exchange_order,
         "layer_count": args.layer_count,
+        "target_query_len": target_query_len,
+        "capture_sizes": capture_sizes,
+        "expected_transactions": BASE_TRANSACTION_COUNT + int(target_query_len == 3),
         "graph_axes": (
             {name: vars(args)[name] for name in GRAPH_AXIS_ARGUMENTS}
             if args.graph_axes
@@ -269,6 +288,7 @@ def run_worker(args):
     active = None
     counter = 0
     generation = 0
+    captured_geometries = {}
 
     def native_check():
         value = torch.ones(1, device=device)
@@ -278,10 +298,14 @@ def run_worker(args):
 
     def prepare_geometry(descriptor, real_tokens):
         # Actually construct the native input batch and call its native slice
-        # helper after reservation. These controlled q1 dummy tensors exercise
+        # helper after reservation. These controlled uniform dummy tensors exercise
         # geometry only; no runner/ModelState/history/attention is prepared.
+        assert real_tokens % target_query_len == 0
         batch = InputBatch.make_dummy(
-            real_tokens, real_tokens, input_buffers, max_query_len=1
+            real_tokens // target_query_len,
+            real_tokens,
+            input_buffers,
+            max_query_len=target_query_len,
         )
         batch = replace(
             batch,
@@ -306,6 +330,22 @@ def run_worker(args):
                 for stage in create_ubatch_slices(batch, descriptor.num_ubatches)
             )
         return HcclV41GraphGeometry(descriptor, stages)
+
+    def make_batch_state(real_tokens):
+        assert real_tokens % target_query_len == 0
+        real_requests = real_tokens // target_query_len
+        return BatchReqState(
+            req_ids=[str(index) for index in range(real_requests)],
+            num_tokens=real_tokens,
+            num_scheduled_tokens=np.full(
+                real_requests, target_query_len, dtype=np.int32
+            ),
+            idx_mapping_np=np.arange(real_requests, dtype=np.int32),
+            prefill_len_np=np.zeros(real_requests, dtype=np.int32),
+            num_computed_prefill_tokens_np=np.zeros(real_requests, dtype=np.int32),
+            is_prefilling_np=np.zeros(real_requests, dtype=np.bool_),
+            has_prefill=False,
+        )
 
     def resolve(candidate):
         if candidate.key is None:
@@ -950,8 +990,8 @@ def run_worker(args):
         config = build_config(1, args.model)
         config.parallel_config.ubatch_size = 2
         config.parallel_config.dbo_decode_token_threshold = 1
-        config.compilation_config.cudagraph_capture_sizes = list(CAPTURE_SIZES)
-        config.compilation_config.max_cudagraph_capture_size = max(CAPTURE_SIZES)
+        config.compilation_config.cudagraph_capture_sizes = list(capture_sizes)
+        config.compilation_config.max_cudagraph_capture_size = max(capture_sizes)
         init_ascend_config(config)
         with (
             set_current_vllm_config(config),
@@ -981,6 +1021,7 @@ def run_worker(args):
                     local_counts_version=1,
                     graph_execution_version=1,
                     graph_exchange_order=args.exchange_order,
+                    target_query_len=target_query_len,
                 ),
                 init_method=f"tcp://127.0.0.1:{args.port}",
                 local_device=device.index,
@@ -990,6 +1031,9 @@ def run_worker(args):
             assert (
                 transport.negotiated_capabilities.graph_exchange_order
                 == args.exchange_order
+            )
+            assert (
+                transport.negotiated_capabilities.target_query_len == target_query_len
             )
             cache = HcclGraphCache(lambda: torch.npu.synchronize(device))
             if role == "attention":
@@ -1011,7 +1055,7 @@ def run_worker(args):
                     config,
                     device,
                     CUDAGraphMode.FULL_DECODE_ONLY,
-                    1,
+                    target_query_len,
                     ubatch_runner=ubatches,
                 )
                 input_buffers = InputBuffers(CAPACITY, CAPACITY, device)
@@ -1032,6 +1076,14 @@ def run_worker(args):
                     decision = reservation.decision
                     key = decision.key
                     prepared = prepare_geometry(desc, desc.num_tokens)
+                    captured_geometries[desc] = prepared
+                    if target_query_len == 3 and desc.num_tokens == 9:
+                        assert desc.num_reqs == 3
+                        if desc.num_ubatches == 2:
+                            assert prepared.stages == (
+                                HcclV41StageGeometry(0, 2, 0, 4),
+                                HcclV41StageGeometry(1, 3, 4, 9),
+                            )
                     control.verify_prepared(reservation, prepared)
                     plan = transport.submit_forward(
                         HcclLocalForward(
@@ -1048,44 +1100,73 @@ def run_worker(args):
                     manager.capture(factory, progress_bar_desc="AFD paired component")
                 complete_active()
                 captured = tuple(manager.graphs)
-                assert len(captured) == len(CAPTURE_SIZES) * 2
+                assert len(captured) == len(capture_sizes) * 2
                 assert {desc.num_ubatches for desc in captured} == {1, 2}
                 # Full exact geometry replays, then F generation miss and an A
                 # same-bucket/different-request-layout miss both choose eager
                 # before native controlled InputBatch construction occurs.
-                cases = [(desc, desc.num_tokens, False) for desc in captured]
-                cases.extend([(captured[-1], captured[-1].num_tokens, True)])
+                cases = [(desc, desc.num_tokens, "captured") for desc in captured]
+                cases.extend(
+                    [(captured[-1], captured[-1].num_tokens, "ffn-generation-miss")]
+                )
                 cases.append(
                     (
                         next(
                             desc
                             for desc in captured
-                            if desc.num_tokens == 4 and desc.num_ubatches == 2
+                            if desc.num_tokens == min(capture_sizes)
+                            and desc.num_ubatches == 2
                         ),
-                        2,
-                        False,
+                        2 if target_query_len == 1 else target_query_len,
+                        "request-layout-miss",
                     )
                 )
-                for case_index, (wanted, real_tokens, force_ffn_miss) in enumerate(
-                    cases
-                ):
+                if target_query_len == 3:
+                    cases.append(
+                        (
+                            next(
+                                desc
+                                for desc in captured
+                                if desc.num_tokens == 9 and desc.num_ubatches == 2
+                            ),
+                            2 * target_query_len,
+                            "short-same-key",
+                        )
+                    )
+                for case_index, (wanted, real_tokens, kind) in enumerate(cases):
+                    force_ffn_miss = kind == "ffn-generation-miss"
+                    geometry_miss = kind == "request-layout-miss"
+                    short_replay = kind == "short-same-key"
                     config.parallel_config.dbo_decode_token_threshold = (
                         1 if wanted.num_ubatches == 2 else CAPACITY
                     )
-                    state = BatchReqState(
-                        req_ids=[str(index) for index in range(real_tokens)],
-                        num_tokens=real_tokens,
-                        num_scheduled_tokens=np.ones(real_tokens, dtype=np.int32),
-                        idx_mapping_np=np.arange(real_tokens, dtype=np.int32),
-                        prefill_len_np=np.zeros(real_tokens, dtype=np.int32),
-                        num_computed_prefill_tokens_np=np.zeros(
-                            real_tokens, dtype=np.int32
-                        ),
-                        is_prefilling_np=np.zeros(real_tokens, dtype=np.bool_),
-                        has_prefill=False,
-                    )
+                    state = make_batch_state(real_tokens)
+                    if target_query_len == 3 and geometry_miss:
+                        # Actual R1/T3 is padded to the captured R3/T9 bucket,
+                        # but native clamping moves child 1's request start.
+                        preview = preview_hccl_v41_geometry(
+                            state, wanted, target_query_len=target_query_len
+                        )
+                        assert preview.stages == (
+                            HcclV41StageGeometry(0, 2, 0, 4),
+                            HcclV41StageGeometry(0, 3, 4, 9),
+                        )
+                        assert control.key_for(preview) != control.key_for(
+                            captured_geometries[wanted]
+                        )
                     fixed_replay_key = None
-                    for iteration in range(REPLAYS):
+                    for iteration in range(1 if short_replay else REPLAYS):
+                        if short_replay:
+                            # R2/T6 retains the actual captured request slices;
+                            # unlike R1/T3 it must replay the same bank/key.
+                            preview = preview_hccl_v41_geometry(
+                                state,
+                                wanted,
+                                target_query_len=target_query_len,
+                            )
+                            assert control.key_for(preview) == control.key_for(
+                                captured_geometries[wanted]
+                            )
                         transaction = f"replay-{case_index}-{iteration}"
                         # This flag is an explicit probe schedule communicated
                         # as iteration identity; production has no bypass knob.
@@ -1095,7 +1176,7 @@ def run_worker(args):
                             state,
                             parallel_config=config.parallel_config,
                             allow_ubatching=wanted.num_ubatches == 2,
-                            max_query_len=1,
+                            max_query_len=target_query_len,
                             transaction_id=transaction,
                         )
                         assert reservation is not None
@@ -1107,7 +1188,8 @@ def run_worker(args):
                         if (
                             (args.compute_pipeline or args.graph_axes)
                             and not force_ffn_miss
-                            and real_tokens == wanted.num_tokens
+                            and not geometry_miss
+                            and not short_replay
                         ):
                             # Keep the native dummy's physical request/token
                             # geometry fixed. Only this controlled component's
@@ -1141,8 +1223,14 @@ def run_worker(args):
                             == valid
                         )
                         assert sum(valid) == controlled_valid
-                        if force_ffn_miss or real_tokens != wanted.num_tokens:
+                        if short_replay:
+                            assert controlled_valid == 6
+                            assert valid == (4, 2)
+                            assert decision.padded_tokens == (4, 5)
+                        if force_ffn_miss or geometry_miss:
                             assert decision.phase == "eager"
+                        else:
+                            assert decision.phase == "replay"
                         if decision.phase == "eager":
                             eager(plan, iteration)
                         else:
@@ -1163,6 +1251,20 @@ def run_worker(args):
                                 "controlled_valid_tokens": controlled_valid,
                                 "valid_tokens_by_stage": valid,
                                 "padded_tokens_by_stage": decision.padded_tokens,
+                                "native_num_requests": len(state.req_ids),
+                                "native_num_tokens": real_tokens,
+                                "target_query_len": target_query_len,
+                                "short_batch_same_key": short_replay,
+                                "case": kind,
+                                "native_stage_geometry": [
+                                    [
+                                        stage.request_start,
+                                        stage.request_stop,
+                                        stage.token_start,
+                                        stage.token_stop,
+                                    ]
+                                    for stage in prepared.stages
+                                ],
                             }
                         )
                 transport.stop_attention()
@@ -1174,7 +1276,7 @@ def run_worker(args):
                     target_count = sum(
                         r["id"].startswith("replay-") for r in report["transactions"]
                     )
-                    miss_start = len(CAPTURE_SIZES) * 2 * REPLAYS
+                    miss_start = len(capture_sizes) * 2 * REPLAYS
                     generation = int(miss_start <= target_count < miss_start + REPLAYS)
                     decision = transport.receive_graph_reservation(resolve)
                     if decision is None:
@@ -1235,6 +1337,7 @@ def run_worker(args):
                 manager.graphs.clear()
             transport.close()
             report["native_tp_after_close"] = native_check()
+            assert len(report["transactions"]) == report["expected_transactions"]
             report["status"] = "passed"
     except BaseException as exc:
         if cache is not None:
@@ -1272,6 +1375,9 @@ def run_supervisor(args):
         "pipeline_hybrid": args.pipeline_hybrid,
         "exchange_order": args.exchange_order,
         "layer_count": args.layer_count,
+        "target_query_len": args.target_query_len,
+        "expected_transactions_per_rank": BASE_TRANSACTION_COUNT
+        + int(args.target_query_len == 3),
         "graph_axes": (
             {name: vars(args)[name] for name in GRAPH_AXIS_ARGUMENTS}
             if args.graph_axes
@@ -1299,6 +1405,8 @@ def run_supervisor(args):
                 args.exchange_order,
                 "--layer-count",
                 str(args.layer_count),
+                "--target-query-len",
+                str(args.target_query_len),
             ]
             if args.stage_bank:
                 command.append("--stage-bank")

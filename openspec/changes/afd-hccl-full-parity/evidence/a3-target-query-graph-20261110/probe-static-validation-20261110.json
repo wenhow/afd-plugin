@@ -1,0 +1,124 @@
+{
+  "scope": "Static artifact and prepare-only validation; no torch, SSH or NPU run",
+  "head": "e18be5ca611bb9597b05f34b51d4e0883e4f1e0b",
+  "files": {
+    "tests/npu/hccl_graph_manager_probe.py": "5fd406ecb6854c292e1fbe2639329959bebd738869c8b58dc15cea8f2e44c15a",
+    "openspec/changes/afd-hccl-v2-graph/evidence/a3-native-manager-20261109/run_a3_graph_manager.py": "dd1e5c473a5bcd4bc2c897340a4b9551412b61cecd3a71c3176d76a12b73b537"
+  },
+  "baseline_files": {
+    "tests/npu/hccl_graph_manager_probe.py": "8e64e60927cdaefd692a3bf82d4482317013db24a28807d0baff151939a2b904",
+    "openspec/changes/afd-hccl-v2-graph/evidence/a3-native-manager-20261109/run_a3_graph_manager.py": "1084c6d330902ba1ebc3a99bbb552671081434cdef3fd85f25f54dba791ab734"
+  },
+  "oracle_ast_unchanged": {
+    "payload": "b6cf8f54eb82d15e16592c42e11407297e3c429bdd76cb7fc9fc6319d98ff47d",
+    "verify": "623e26c7995eb396bc4b01153a2a870772f9e94a5397f7eadbe6aed930d261b8",
+    "observe_bank": "1bb85a3e4ac084ac30d66bd7a27d3debed97d47603fdb855d547215de5d1ad3e",
+    "native_check": "a11d9e6773bdddbcce347008a460a5f5e7995315d968dc8f7f2a60084969ff3b",
+    "complete_active": "169ad0d6a469699d537749013bf7c1652648f76681ee11719a368d9fc322b9ae"
+  },
+  "python_3_11_grammar": "2 passed",
+  "ruff_check": "passed",
+  "ruff_format_check": "passed",
+  "diff_check": "passed",
+  "cli": {
+    "q1_default": true,
+    "q3_three_layer_cross": true,
+    "unsupported_query_rejections": [
+      {
+        "artifact": "tests/npu/hccl_graph_manager_probe.py",
+        "value": "0",
+        "returncode": 2
+      },
+      {
+        "artifact": "tests/npu/hccl_graph_manager_probe.py",
+        "value": "2",
+        "returncode": 2
+      },
+      {
+        "artifact": "tests/npu/hccl_graph_manager_probe.py",
+        "value": "-1",
+        "returncode": 2
+      },
+      {
+        "artifact": "tests/npu/hccl_graph_manager_probe.py",
+        "value": "True",
+        "returncode": 2
+      },
+      {
+        "artifact": "openspec/changes/afd-hccl-v2-graph/evidence/a3-native-manager-20261109/run_a3_graph_manager.py",
+        "value": "0",
+        "returncode": 2
+      },
+      {
+        "artifact": "openspec/changes/afd-hccl-v2-graph/evidence/a3-native-manager-20261109/run_a3_graph_manager.py",
+        "value": "2",
+        "returncode": 2
+      },
+      {
+        "artifact": "openspec/changes/afd-hccl-v2-graph/evidence/a3-native-manager-20261109/run_a3_graph_manager.py",
+        "value": "-1",
+        "returncode": 2
+      },
+      {
+        "artifact": "openspec/changes/afd-hccl-v2-graph/evidence/a3-native-manager-20261109/run_a3_graph_manager.py",
+        "value": "True",
+        "returncode": 2
+      }
+    ]
+  },
+  "prepare_only": {
+    "prepare-q1-001": {
+      "identity_sha256": "426f55256408cf2fa204eed6b250d9b6289a3ae8647f883d00d4195eaea89cfe",
+      "snapshot_manifest_sha256": "b91e32a465b9a048acf6cc02e70ff7560969c61fc3a19f0f071ca6dd835530c7",
+      "source_pins": 28,
+      "archive_members": 141,
+      "expected_transactions_per_rank": 26
+    },
+    "prepare-q3-cross-001": {
+      "identity_sha256": "d1061813ab880c640fa8ac3bfe8228bd0f902a58a2c5cca1ab021ff4263cd25e",
+      "snapshot_manifest_sha256": "280493e27b3dee708a40ad0cf24954d7a9d6646a38cab0c7c1e380374e2ab2b2",
+      "source_pins": 31,
+      "archive_members": 142,
+      "expected_transactions_per_rank": 27
+    }
+  },
+  "runtime_expectations_not_executed": {
+    "q1": {
+      "warmup": 4,
+      "capture": 4,
+      "replay": 12,
+      "eager": 6,
+      "total": 26
+    },
+    "q3": {
+      "warmup": 4,
+      "capture": 4,
+      "replay": 13,
+      "eager": 6,
+      "total": 27
+    },
+    "q3_capture_tokens": [
+      9,
+      12
+    ],
+    "q3_short_replay": {
+      "requests": 2,
+      "tokens": 6,
+      "valid": [
+        4,
+        2
+      ],
+      "padded": [
+        4,
+        5
+      ]
+    },
+    "q3_layout_miss": {
+      "requests": 1,
+      "tokens": 3,
+      "cached_second_request_start": 1,
+      "actual_second_request_start": 0
+    }
+  },
+  "device_probe_started": false
+}

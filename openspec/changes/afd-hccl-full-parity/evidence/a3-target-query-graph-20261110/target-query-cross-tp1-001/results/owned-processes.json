@@ -1,0 +1,38 @@
+{
+  "scope": "owned descendants only; start ticks verified before kill",
+  "processes": {
+    "24375": {
+      "start_ticks": "821252479",
+      "pgid": 24375
+    },
+    "24377": {
+      "start_ticks": "821252487",
+      "pgid": 24377
+    },
+    "24376": {
+      "start_ticks": "821252487",
+      "pgid": 24376
+    },
+    "24511": {
+      "start_ticks": "821252719",
+      "pgid": 24377
+    },
+    "24520": {
+      "start_ticks": "821252726",
+      "pgid": 24376
+    },
+    "24527": {
+      "start_ticks": "821252727",
+      "pgid": 24376
+    },
+    "24528": {
+      "start_ticks": "821252727",
+      "pgid": 24376
+    },
+    "24537": {
+      "start_ticks": "821253179",
+      "pgid": 24377
+    }
+  },
+  "killed_pids": []
+}

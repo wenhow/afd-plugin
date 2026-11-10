@@ -48,6 +48,7 @@ INNER_TIMEOUT_SECONDS = 300
 OUTER_TIMEOUT_SECONDS = 340
 SSH_TIMEOUT_SECONDS = 480
 EXPECTED_IDLE_BOARDS = 8
+BASE_TRANSACTION_COUNT = 26
 GRAPH_AXIS_ARGUMENTS = (
     "graph_compute",
     "graph_hybrid",
@@ -176,6 +177,8 @@ def remote_run(args):
         args.exchange_order,
         "--layer-count",
         str(args.layer_count),
+        "--target-query-len",
+        str(args.target_query_len),
     ]
     if args.stage_bank:
         command.append("--stage-bank")
@@ -230,6 +233,9 @@ def remote_run(args):
         "pipeline_hybrid": args.pipeline_hybrid,
         "exchange_order": args.exchange_order,
         "layer_count": args.layer_count,
+        "target_query_len": args.target_query_len,
+        "expected_transactions_per_rank": BASE_TRANSACTION_COUNT
+        + int(args.target_query_len == 3),
         "graph_axes": (
             {name: vars(args)[name] for name in GRAPH_AXIS_ARGUMENTS}
             if args.graph_axes
@@ -276,6 +282,7 @@ def main():
     for name in GRAPH_AXIS_ARGUMENTS:
         parser.add_argument("--" + name.replace("_", "-"), type=int, choices=(0, 1))
     parser.add_argument("--layer-count", type=int, choices=(2, 3), default=2)
+    parser.add_argument("--target-query-len", type=int, choices=(1, 3), default=1)
     parser.add_argument("--prepare-only", action="store_true", help="no SSH or devices")
     parser.add_argument("--evidence-dir", type=Path)
     args = parser.parse_args()
@@ -415,6 +422,9 @@ def main():
         "pipeline_hybrid": args.pipeline_hybrid,
         "exchange_order": args.exchange_order,
         "layer_count": args.layer_count,
+        "target_query_len": args.target_query_len,
+        "expected_transactions_per_rank": BASE_TRANSACTION_COUNT
+        + int(args.target_query_len == 3),
         "graph_axes": (
             {name: vars(args)[name] for name in GRAPH_AXIS_ARGUMENTS}
             if args.graph_axes
@@ -474,6 +484,7 @@ def main():
     )
     remote_command += " --exchange-order " + args.exchange_order
     remote_command += " --layer-count " + str(args.layer_count)
+    remote_command += " --target-query-len " + str(args.target_query_len)
     if args.stage_bank:
         remote_command += " --stage-bank"
     if args.compute_pipeline:
