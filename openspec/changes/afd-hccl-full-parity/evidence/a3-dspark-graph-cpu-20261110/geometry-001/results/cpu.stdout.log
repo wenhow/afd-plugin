@@ -1,0 +1,49 @@
+........................................................................ [ 12%]
+........................................................................ [ 25%]
+........................................................................ [ 38%]
+........................................................................ [ 51%]
+................FFFF.................................................... [ 64%]
+........................................................................ [ 77%]
+........................................................................ [ 90%]
+...................................................                      [100%]
+=================================== FAILURES ===================================
+___ test_target_query_capture_and_replay_retain_native_request_geometry[1-2] ___
+tests/unit/v1/worker/npu/test_hccl_v41_graph_coordinator.py:272: in test_target_query_capture_and_replay_retain_native_request_geometry
+    descriptor = dispatch_runtime(case)
+tests/unit/fakes/hccl_v41_graph_coordinator.py:478: in dispatch_runtime
+    descriptor, sync = native_runner.dispatch_cg_and_sync_dp(
+afd_plugin/compat/patches/npu/hccl_graph_dispatch.py:135: in dispatch_cg_and_sync_dp
+    raise ValueError("native graph dispatch scope requires DP1 rank zero")
+E   ValueError: native graph dispatch scope requires DP1 rank zero
+___ test_target_query_capture_and_replay_retain_native_request_geometry[1-3] ___
+tests/unit/v1/worker/npu/test_hccl_v41_graph_coordinator.py:272: in test_target_query_capture_and_replay_retain_native_request_geometry
+    descriptor = dispatch_runtime(case)
+tests/unit/fakes/hccl_v41_graph_coordinator.py:478: in dispatch_runtime
+    descriptor, sync = native_runner.dispatch_cg_and_sync_dp(
+afd_plugin/compat/patches/npu/hccl_graph_dispatch.py:135: in dispatch_cg_and_sync_dp
+    raise ValueError("native graph dispatch scope requires DP1 rank zero")
+E   ValueError: native graph dispatch scope requires DP1 rank zero
+___ test_target_query_capture_and_replay_retain_native_request_geometry[2-2] ___
+tests/unit/v1/worker/npu/test_hccl_v41_graph_coordinator.py:272: in test_target_query_capture_and_replay_retain_native_request_geometry
+    descriptor = dispatch_runtime(case)
+tests/unit/fakes/hccl_v41_graph_coordinator.py:478: in dispatch_runtime
+    descriptor, sync = native_runner.dispatch_cg_and_sync_dp(
+afd_plugin/compat/patches/npu/hccl_graph_dispatch.py:135: in dispatch_cg_and_sync_dp
+    raise ValueError("native graph dispatch scope requires DP1 rank zero")
+E   ValueError: native graph dispatch scope requires DP1 rank zero
+___ test_target_query_capture_and_replay_retain_native_request_geometry[2-3] ___
+tests/unit/v1/worker/npu/test_hccl_v41_graph_coordinator.py:272: in test_target_query_capture_and_replay_retain_native_request_geometry
+    descriptor = dispatch_runtime(case)
+tests/unit/fakes/hccl_v41_graph_coordinator.py:478: in dispatch_runtime
+    descriptor, sync = native_runner.dispatch_cg_and_sync_dp(
+afd_plugin/compat/patches/npu/hccl_graph_dispatch.py:135: in dispatch_cg_and_sync_dp
+    raise ValueError("native graph dispatch scope requires DP1 rank zero")
+E   ValueError: native graph dispatch scope requires DP1 rank zero
+=============================== warnings summary ===============================
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/torch/jit/_script.py:362: 14 warnings
+  /mnt/workspace/code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/torch/jit/_script.py:362: DeprecationWarning: `torch.jit.script_method` is deprecated. Please switch to `torch.compile` or `torch.export`.
+    warnings.warn(
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+- generated xml file: /mnt/workspace/tmp/afd-c0-20261104.hVgsIf/c5-control-cpu-20261109-8_0nb8i1/results/cpu.xml -
+4 failed, 551 passed, 14 warnings in 6.63s

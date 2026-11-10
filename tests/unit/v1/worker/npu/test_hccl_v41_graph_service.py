@@ -21,6 +21,7 @@ from vllm.forward_context import (
     override_forward_context,
 )
 
+from afd_plugin.compat.npu.runtime_config import DeepseekV41TargetShape
 from afd_plugin.connectors.npu.hccl_graph_cache import HcclGraphCache
 from afd_plugin.connectors.npu.hccl_graph_pipeline import HcclGraphPipelinePolicy
 from afd_plugin.connectors.npu.hccl_overlap import HcclOverlapSettings
@@ -33,6 +34,41 @@ from tests.unit.fakes.hccl_v41_graph_service import make_graph_service_case
 @pytest.fixture
 def case(monkeypatch):
     return make_graph_service_case(service_module, monkeypatch)
+
+
+@pytest.mark.parametrize("query_len", [2, 3])
+def test_isolated_ffn_service_retains_target_width_through_capture_and_replay(
+    monkeypatch, query_len
+):
+    tokens = 3 * query_len
+    rows = (tokens // 2, tokens - tokens // 2)
+    case = make_graph_service_case(
+        service_module, monkeypatch, rows=rows, target_query_len=query_len
+    )
+    for phase in ("warmup", "capture", "replay"):
+        case.transport.queue_parent(phase, identifier=phase, valid=(0, 0))
+        assert case.service.execute_step()
+
+    key = case.transport.base_bank.key
+    entry = case.cache.find(key, 0)
+    assert key.num_reqs == 3 and key.num_tokens == tokens
+    assert key.uniform_token_count == key.max_query_len == query_len
+    assert entry.resources.bank.key == key
+    assert entry.resources.bank.stage_rows == rows
+    assert case.runner.vllm_config.speculative_config is None
+    assert case.runner.vllm_config.engram_config is None
+    assert case.runner.target_shape == DeepseekV41TargetShape(query_len)
+    case.transport.queue_stop()
+    assert case.service.execute_step() is False
+    case.service.close()
+    assert case.cache.closed
+
+
+def test_isolated_ffn_target_width_mismatch_rejects_before_graph_query(case):
+    case.runner.target_shape = DeepseekV41TargetShape(3)
+    with pytest.raises(ValueError, match="isolated FFN"):
+        case.service.execute_step()
+    assert case.transport.transcript == []
 
 
 @pytest.mark.parametrize(

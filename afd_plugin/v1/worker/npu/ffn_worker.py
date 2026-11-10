@@ -199,7 +199,10 @@ class AFDNPUFFNWorker(NPUWorker):
         if transport.role != "ffn":
             raise ValueError("staged HCCL FFN binding requires an FFN transport")
         validate_staged_hccl_binding(
-            self.model_runner.vllm_config, transport, self.device
+            self.model_runner.vllm_config,
+            transport,
+            self.device,
+            target_shape=self.target_shape,
         )
         self._hccl_v41_transport = transport
 

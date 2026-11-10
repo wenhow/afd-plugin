@@ -27,6 +27,21 @@ from afd_plugin.distributed.hccl_plan import (
 from tests.unit.fakes.hccl_graph_control import make_graph_candidate, make_graph_key
 
 
+@pytest.mark.parametrize("query_len", [2, 3, 6])
+def test_uniform_target_key_keeps_request_and_token_axes_distinct(query_len):
+    tokens = 3 * query_len
+    key = make_graph_key(
+        rows=(tokens // 2, tokens - tokens // 2), target_query_len=query_len
+    )
+
+    assert decode_graph_key(graph_key_payload(key)) == key
+    assert key.num_reqs == 3 and key.num_tokens == tokens
+    assert key.max_query_len == key.uniform_token_count == query_len
+    assert key.stage_layouts[0].request_stop >= key.stage_layouts[1].request_start
+    with pytest.raises(ValueError, match="uniform target"):
+        replace(key, num_reqs=key.num_tokens)
+
+
 @pytest.mark.parametrize("rows", [(4,), (2, 2), (0, 4), (4, 0)])
 def test_static_key_round_trip_preserves_empty_stage_pattern(rows):
     key = make_graph_key(rows=rows, metadata_shapes=((1, 4), (2, 0)))

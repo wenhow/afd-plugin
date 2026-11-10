@@ -20,24 +20,41 @@ from afd_plugin.distributed.hccl_plan import (
 )
 
 
-def make_graph_key(*, rows=(2, 2), metadata_shapes=()):
+def make_graph_key(*, rows=(2, 2), metadata_shapes=(), target_query_len=1):
     start = 0
     stages = []
     for count in rows:
-        stages.append(HcclGraphStage(start, start + count, start, start + count))
+        stop = start + count
+        stages.append(
+            HcclGraphStage(
+                start // target_query_len,
+                (stop + target_query_len - 1) // target_query_len,
+                start,
+                stop,
+            )
+        )
         start += count
     return HcclGraphKey(
-        start, start, 1, 1, 0, len(rows), tuple(stages), metadata_shapes
+        start,
+        start // target_query_len,
+        target_query_len,
+        target_query_len,
+        0,
+        len(rows),
+        tuple(stages),
+        metadata_shapes,
     )
 
 
 def make_graph_candidate(
-    *, phase="replay", mode="target", rows=(2, 2), eager_rows=None
+    *, phase="replay", mode="target", rows=(2, 2), eager_rows=None, target_query_len=1
 ):
     return HcclGraphCandidate(
         phase,
         mode,
-        None if phase == "eager" else make_graph_key(rows=rows),
+        None
+        if phase == "eager"
+        else make_graph_key(rows=rows, target_query_len=target_query_len),
         rows if eager_rows is None else eager_rows,
     )
 

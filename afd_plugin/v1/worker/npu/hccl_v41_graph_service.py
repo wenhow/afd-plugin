@@ -172,6 +172,9 @@ class HcclV41GraphService:
         parallel, text = config.parallel_config, config.model_config.hf_text_config
         model_config = config.model_config
         architectures = model_config.hf_config.architectures or ()
+        target_query_len = (
+            1 if runner.target_shape is None else runner.target_shape.target_query_len
+        )
         caps.validate()
         if (
             transport.role != "ffn"
@@ -204,6 +207,7 @@ class HcclV41GraphService:
             or config.model_config.dtype != torch.bfloat16
             or config.engram_config is not None
             or config.speculative_config is not None
+            or target_query_len != caps.target_query_len
             or config.kv_transfer_config is not None
             or config.lora_config is not None
             or parallel.data_parallel_size != 1
@@ -298,6 +302,8 @@ class HcclV41GraphService:
         if candidate.key is not None and (
             candidate.key.num_tokens > caps.max_tokens
             or candidate.key.num_ubatches > caps.max_stages
+            or candidate.key.uniform_token_count != caps.target_query_len
+            or candidate.key.max_query_len != caps.target_query_len
         ):
             raise ValueError("FFN graph key exceeds this bank's session capacity")
         policy = self.pipeline_policy

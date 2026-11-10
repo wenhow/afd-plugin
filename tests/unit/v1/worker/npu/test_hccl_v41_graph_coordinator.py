@@ -4,6 +4,7 @@
 # ruff: noqa: E402
 """Real control/CPU preparation and resource ownership; no device graph claim."""
 
+from contextlib import nullcontext
 from dataclasses import replace
 from functools import partial
 from types import SimpleNamespace
@@ -17,7 +18,12 @@ pytest.importorskip("torch_npu")
 pytest.importorskip("vllm_ascend")
 
 from vllm.config import CUDAGraphMode
-from vllm.forward_context import get_forward_context, override_forward_context
+from vllm.forward_context import (
+    get_forward_context,
+    override_forward_context,
+    set_forward_context,
+)
+from vllm.v1.worker.gpu import model_runner as native_runner
 from vllm.v1.worker.gpu.cudagraph_utils import (
     BatchExecutionDescriptor,
     CudaGraphManager,
@@ -33,16 +39,22 @@ from afd_plugin.connectors.npu.hccl_graph_pipeline import (
 )
 from afd_plugin.connectors.npu.hccl_graph_stage import HcclGraphStageBank
 from afd_plugin.connectors.npu.hccl_overlap import HcclOverlapSettings
+from afd_plugin.model_executor.models import forward_context as context_module
+from afd_plugin.model_executor.models.npu.deepseek_v41 import (
+    HCCL_V41_PARENT_FORWARD_KEY,
+)
 from afd_plugin.v1.worker.npu.hccl_v41_graph_coordinator import HcclV41GraphCoordinator
 from tests.unit.fakes.hccl_graph_pipeline import attach_pipeline
 from tests.unit.fakes.hccl_v41_graph_coordinator import (
     cpu_allocate_bank,
     cpu_retained_capture,
     cpu_runner_capture,
+    cpu_target_manager_capture,
     dispatch_runtime,
     install_runtime_replay_boundary,
     make_coordinator_case,
     native_keys,
+    prepare_native_draft_capture,
     prepare_runtime_full,
     queue_preflight,
     replace_cached_bundle,
@@ -129,6 +141,173 @@ def pipeline_capture_case(capture_case, monkeypatch):
         )
 
     return build
+
+
+@pytest.fixture
+def native_draft_capture_case(capture_case, monkeypatch):
+    # Keep GPUModelRunner.capture_model's real target -> draft lifecycle. Only
+    # device memory/workspace and model-manager factory execution are bounded
+    # CPU collaborators; no CUDA/NPU graph or native draft kernel is simulated.
+    monkeypatch.setattr(native_runner, "freeze_gc_for_cudagraph_capture", nullcontext)
+    monkeypatch.setattr(native_runner, "use_workspace_lane", lambda _: nullcontext())
+    monkeypatch.setattr(native_runner, "lock_workspace", lambda: None)
+    monkeypatch.setattr(
+        native_runner,
+        "compilation_counter",
+        SimpleNamespace(num_gpu_runner_capture_triggers=0),
+    )
+    monkeypatch.setattr(torch.accelerator, "empty_cache", lambda: None)
+    monkeypatch.setattr(torch.accelerator, "get_memory_info", lambda: (1024, 2048))
+
+    def build(*, stages, fail_draft):
+        case = capture_case(stages=stages, target_query_len=3, engram=True)
+        monkeypatch.setattr(
+            NPUModelRunnerV2,
+            "capture_model",
+            native_runner.GPUModelRunner.capture_model,
+        )
+        monkeypatch.setattr(
+            case.manager,
+            "capture",
+            partial(cpu_target_manager_capture, case, case.manager),
+        )
+        return prepare_native_draft_capture(case, fail_draft=fail_draft)
+
+    return build
+
+
+@pytest.mark.parametrize("stages", [1, 2])
+@pytest.mark.parametrize("fail_draft", [False, True])
+def test_native_capture_keeps_draft_local(  # long-test: native lifecycle isolation
+    native_draft_capture_case, stages, fail_draft
+):
+    case = native_draft_capture_case(stages=stages, fail_draft=fail_draft)
+    assert case.coordinator.preflight_capture()
+    previous = SimpleNamespace(additional_kwargs={"caller": "retained"})
+    with override_forward_context(previous):
+        if fail_draft:
+            with pytest.raises(RuntimeError, match="local draft forward failed"):
+                case.coordinator.capture_native()
+        else:
+            assert case.coordinator.capture_native() == 0
+        assert get_forward_context() is previous
+
+    assert case.capture_order == [
+        "target-published",
+        "native-draft-capture-returned",
+        "local-draft-forward",
+        *([] if fail_draft else ["native-kv-reset"]),
+    ]
+    assert not case.draft.query_cudagraph_manager.needs_capture()
+    assert case.draft.query_cudagraph_manager.graphs == {}
+    assert case.draft.vllm_config.model_config.enforce_eager
+    assert case.draft.sample_idx_mapping.tolist() == [-1, -1, -1]
+    context = case.draft_contexts[0]
+    assert context.attn_metadata is case.draft_metadata
+    assert all(context.attn_metadata is not item for item in case.target_metadata)
+    assert context.cudagraph_runtime_mode == CUDAGraphMode.NONE
+    assert HCCL_V41_PARENT_FORWARD_KEY not in (context.additional_kwargs or {})
+    assert context_module.get_afd_metadata_from_forward_context(context) is None
+    assert tuple(case.transport.transcript) == case.target_transcript
+    assert case.transport.plan is None and case.transport.graph_reservation is None
+    assert case.target_produced
+    assert len(case.model_case.producer_parents) == len(case.target_produced)
+    for actual, expected in zip(
+        case.model_case.producer_parents, case.target_produced, strict=True
+    ):
+        for actual_tensor, expected_tensor in zip(actual, expected, strict=True):
+            torch.testing.assert_close(actual_tensor, expected_tensor)
+    entry = case.target_entry
+    assert (
+        case.manager.hidden_states
+        is case.target_output
+        is entry.resources.hidden_states
+    )
+    assert case.target_output.data_ptr() == case.target_storage
+    torch.testing.assert_close(case.target_output, case.target_value)
+    for actual, retained, value in zip(
+        case.manager.aux_hidden_states,
+        case.target_auxiliary,
+        case.target_auxiliary_values,
+        strict=True,
+    ):
+        assert actual is retained
+        torch.testing.assert_close(actual, value)
+    entry.graph.replay()  # A public retained handle must not have been reset by draft.
+    assert not case.cache.is_empty and not case.cache.closed
+    if fail_draft:
+        assert case.cache.terminal and case.transport.terminal
+    else:
+        assert case.cache.find(entry.key, entry.generation) is entry
+        torch.testing.assert_close(
+            case.draft_output, 2 * torch.arange(3)[:, None] + 100
+        )
+    with set_forward_context(case.target_metadata[-1], case.owner.vllm_config):
+        fresh = get_forward_context()
+        assert HCCL_V41_PARENT_FORWARD_KEY not in (fresh.additional_kwargs or {})
+        assert context_module.get_afd_metadata_from_forward_context() is None
+
+
+@pytest.mark.parametrize("query_len", [2, 3])
+@pytest.mark.parametrize("stages", [1, 2])
+def test_target_query_capture_and_replay_retain_native_request_geometry(
+    capture_case, query_len, stages
+):
+    case = capture_case(stages=stages, target_query_len=query_len)
+    assert case.coordinator.preflight_capture()
+    assert case.coordinator.capture_native() == 23
+    entry = case.cache.find(native_keys(case)[0], 0)
+    assert entry.key.num_reqs == 3
+    assert entry.key.num_tokens == 3 * query_len
+    assert entry.key.uniform_token_count == entry.key.max_query_len == query_len
+    assert entry.resources.hidden_states.shape == (3 * query_len, 4)
+    assert len(entry.resources.auxiliary) == 2
+    assert case.capture_generations[0][2].num_reqs == 3
+    assert list(case.capture_generations[0][2].num_scheduled_tokens) == [query_len] * 3
+    case.transport.states[0] = "ready"
+    install_runtime_replay_boundary(case)
+    with case.coordinator.execution_scope(
+        mode="target", valid_tokens=3 * query_len, dummy_run=False
+    ):
+        descriptor = dispatch_runtime(case)
+        prepare_runtime_full(case, descriptor)
+        output, auxiliary = case.manager.run_fullgraph(descriptor)
+
+    assert output is case.manager.hidden_states and len(auxiliary) == 2
+    assert case.transport.plan is None and case.transport.graph_reservation is None
+    assert not case.transport.terminal
+
+
+@pytest.mark.parametrize("foreign", ["native-query", "wire-query", "target-query"])
+def test_target_query_mismatch_rejects_before_capture_protocol(
+    coordinator_case, foreign
+):
+    case = coordinator_case(target_query_len=3)
+    if foreign == "native-query":
+        case.owner.decode_query_len = 1
+    elif foreign == "wire-query":
+        case.transport.negotiated_capabilities = replace(
+            case.transport.negotiated_capabilities, target_query_len=2
+        )
+    else:
+        case.owner.vllm_config.speculative_config.num_speculative_tokens = 3
+    with pytest.raises(ValueError, match="target query"):
+        HcclV41GraphCoordinator(
+            case.owner,
+            case.control,
+            case.session,
+            next_transaction_id=case.next_transaction_id,
+        )
+    assert case.transport.transcript == []
+
+
+def test_changed_target_query_rejects_before_native_factory(coordinator_case):
+    case = coordinator_case(target_query_len=3)
+    assert case.coordinator.preflight_capture()
+    case.owner.vllm_config.speculative_config.num_speculative_tokens = 3
+    with pytest.raises(ValueError, match="ownership changed"):
+        case.coordinator.capture_native()
+    assert case.transport.terminal and len(sent(case, "GRAPH_QUERY")) == 1
 
 
 @pytest.mark.parametrize("stages", [1, 2])

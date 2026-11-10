@@ -18,6 +18,19 @@ from tests.unit.fakes.hccl_graph_stage import (
 )
 
 
+@pytest.mark.parametrize("role", ["attention", "ffn"])
+def test_stage_bank_rejects_static_key_for_another_target_query(role):
+    bank = make_graph_stage_bank(role=role)
+    with pytest.raises(ValueError, match="session layout"):
+        HcclGraphStageBank(
+            role=role,
+            role_rank=bank.role_rank,
+            capabilities=replace(bank.capabilities, target_query_len=3),
+            key=bank.key,
+            exchanges=bank.exchanges,
+        )
+
+
 @pytest.mark.parametrize("rows", [(2,), (2, 3)])
 @pytest.mark.parametrize("order", ["bulk_v1", "cross_layer_v1"])
 def test_bulk_bank_uses_split_packets_only_for_u2_and_preserves_storage(rows, order):

@@ -145,6 +145,19 @@ failed preparation requires external supervision. Graph phases use tensor-only
 operations and commit their complete schedule once outside capture/replay.
 Version zero preserves the previous v3 bytes and factory selection.
 
+An explicit Graph session can also negotiate a fixed target query width via
+`target_query_len` (default one). The original Attention configuration, native
+decode width, immutable pre-isolation FFN target shape, graph keys and stage
+banks must agree before preparation or data traffic. Uniform FULL descriptors
+retain `tokens = requests * query_width`; native token-midpoint U2 slices may
+split a request. A shorter batch replays only when its complete padded native
+request/token layout matches the retained key. Draft execution remains local
+to Attention and cannot inherit target HCCL context or mutate retained target
+resources. This explicit component contract does not select Graph in the
+normal connector factory or qualify full-model DSpark execution. Separate CPU
+and device records live in the
+[combination evidence](../../../openspec/changes/afd-hccl-full-parity/evidence/).
+
 The explicit model-capture preflight also binds the complete ordered native
 capture-key sequence and its profiling prefix through an optional
 `capture_sequence_digest`. It is allowed only for a zero-row warmup preflight;

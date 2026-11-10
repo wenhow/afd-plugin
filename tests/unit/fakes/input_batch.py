@@ -44,10 +44,17 @@ def make_ascend_speculative_batch(real=5, padded=8):
     return batch
 
 
-def make_ascend_decode_batch(rows=8):
+def make_ascend_decode_batch(rows=8, *, target_query_len=1):
     """Real native uniform-query dummy geometry on CPU, without graph capture."""
-    buffers = AscendInputBuffers(rows, rows, torch.device("cpu"))
-    batch = AscendInputBatch.make_dummy(rows, rows, buffers)
+    assert rows % target_query_len == 0
+    num_reqs = rows // target_query_len
+    buffers = AscendInputBuffers(num_reqs, rows, torch.device("cpu"))
+    batch = AscendInputBatch.make_dummy(
+        num_reqs,
+        rows,
+        buffers,
+        max_query_len=None if target_query_len == 1 else target_query_len,
+    )
     batch.input_ids.copy_(torch.arange(rows))
     batch.positions.copy_(torch.arange(rows))
     return batch

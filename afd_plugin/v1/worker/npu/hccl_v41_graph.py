@@ -27,7 +27,7 @@ from vllm.v1.worker.ubatch_utils import (
 
 from afd_plugin.distributed.hccl_plan import HcclPlanCapabilities
 
-DECODE_QUERY_LEN = 1
+DEFAULT_TARGET_QUERY_LEN = 1
 SUPPORTED_UBATCHES = (1, 2)
 BF16_ELEMENT_BYTES = 2
 FP32_ELEMENT_BYTES = 4
@@ -86,24 +86,34 @@ def _batch_dimensions(batch_state: BatchReqState) -> tuple[int, int]:
     return num_reqs, batch_state.num_tokens
 
 
-def _uniform_decode(batch_state: BatchReqState) -> bool:
+def _uniform_decode(batch_state: BatchReqState, target_query_len: int) -> bool:
     return not batch_state.has_prefill and bool(
-        np.all(batch_state.num_scheduled_tokens == DECODE_QUERY_LEN)
+        np.all(batch_state.num_scheduled_tokens == target_query_len)
     )
 
 
-def _validate_full_descriptor(descriptor: BatchExecutionDescriptor) -> None:
+def _validate_target_query_len(target_query_len: int) -> None:
+    if type(target_query_len) is not int or target_query_len <= 0:
+        raise ValueError("target query length must be a positive integer")
+
+
+def _validate_full_descriptor(
+    descriptor: BatchExecutionDescriptor, target_query_len: int
+) -> None:
+    _validate_target_query_len(target_query_len)
     if (
         descriptor.cg_mode != CUDAGraphMode.FULL
-        or descriptor.uniform_token_count != DECODE_QUERY_LEN
-        or descriptor.max_query_len not in (None, DECODE_QUERY_LEN)
+        or descriptor.uniform_token_count != target_query_len
+        or descriptor.max_query_len not in (None, target_query_len)
         or descriptor.num_active_loras != 0
         or descriptor.num_tokens <= 0
-        or descriptor.num_reqs != descriptor.num_tokens
+        or descriptor.num_reqs is None
+        or descriptor.num_reqs <= 0
+        or descriptor.num_tokens != descriptor.num_reqs * target_query_len
         or descriptor.num_ubatches not in SUPPORTED_UBATCHES
         or descriptor.num_tokens < descriptor.num_ubatches
     ):
-        raise ValueError("graph geometry requires a FULL uniform query-one descriptor")
+        raise ValueError("graph geometry requires a FULL uniform target descriptor")
 
 
 # Native source: gpu/ubatch_utils.py:create_ubatch_slices @ ced6857a:49-75.
@@ -138,20 +148,23 @@ def _stage_geometry(
 
 
 def preview_hccl_v41_geometry(
-    batch_state: BatchReqState, descriptor: BatchExecutionDescriptor
+    batch_state: BatchReqState,
+    descriptor: BatchExecutionDescriptor,
+    *,
+    target_query_len: int = DEFAULT_TARGET_QUERY_LEN,
 ) -> HcclV41GraphGeometry:
-    """Preview the exact native layout in the supported spec-off/CP1 scope.
+    """Preview the exact native layout in the fixed target-query/CP1 scope.
 
-    FULL requires uniform query-one decode. Eager descriptors use native actual
+    FULL requires the agreed uniform target width. Eager uses native actual
     dimensions; graph-padding retained after a mode-only replacement is rejected.
     """
     num_reqs, num_tokens = _batch_dimensions(batch_state)
     if descriptor.num_ubatches not in SUPPORTED_UBATCHES:
         raise ValueError("graph geometry supports native U1 or U2")
     if descriptor.cg_mode == CUDAGraphMode.FULL:
-        _validate_full_descriptor(descriptor)
-        if not _uniform_decode(batch_state):
-            raise ValueError("FULL graph geometry requires query-one decode inputs")
+        _validate_full_descriptor(descriptor, target_query_len)
+        if not _uniform_decode(batch_state, target_query_len):
+            raise ValueError("FULL graph geometry requires uniform target inputs")
         padded_requests = descriptor.num_reqs
         assert padded_requests is not None
         if descriptor.num_tokens < num_tokens or padded_requests < num_reqs:
@@ -200,16 +213,18 @@ def eager_hccl_v41_geometry(
 
 def capture_hccl_v41_geometry(
     descriptor: BatchExecutionDescriptor,
+    *,
+    target_query_len: int = DEFAULT_TARGET_QUERY_LEN,
 ) -> HcclV41GraphGeometry:
-    """Preview native FULL q1 dummy capture without constructing device inputs.
+    """Preview native FULL target dummy capture without device inputs.
 
     InputBatch.make_dummy @ ced6857a:138-148 divides tokens across requests;
-    when num_tokens == num_reqs each scheduled count is exactly one.
+    for a uniform target descriptor each scheduled count is exactly target q.
     """
-    _validate_full_descriptor(descriptor)
+    _validate_full_descriptor(descriptor, target_query_len)
     num_reqs = descriptor.num_reqs
     assert num_reqs is not None
-    scheduled = np.ones(num_reqs, dtype=np.int32)
+    scheduled = np.full(num_reqs, target_query_len, dtype=np.int32)
     return HcclV41GraphGeometry(
         descriptor,
         _stage_geometry(
@@ -251,8 +266,10 @@ def validate_hccl_v41_capture_coverage(
         BF16_ELEMENT_BYTES + FP32_ELEMENT_BYTES + BF16_ELEMENT_BYTES
     ) * capabilities.hidden_size
     for descriptor in descriptors:
-        geometry = capture_hccl_v41_geometry(descriptor)
-        canonical = replace(descriptor, max_query_len=DECODE_QUERY_LEN)
+        geometry = capture_hccl_v41_geometry(
+            descriptor, target_query_len=capabilities.target_query_len
+        )
+        canonical = replace(descriptor, max_query_len=capabilities.target_query_len)
         if canonical in seen:
             raise ValueError("native capture descriptors repeat the same graph layout")
         if (
@@ -285,6 +302,7 @@ def dispatch_hccl_v41_graph(
     need_eager: bool = False,
     max_query_len: int | None = None,
     num_active_loras: int = 0,
+    target_query_len: int = DEFAULT_TARGET_QUERY_LEN,
 ) -> HcclV41GraphDispatch:
     """Use native thresholds and an actual U-specific manager cache lookup.
 
@@ -292,6 +310,7 @@ def dispatch_hccl_v41_graph(
     A local NONE result is a cache miss, not a peer descriptor mismatch. Global
     fallback uses ``eager`` and never renames a padded FULL descriptor to NONE.
     """
+    _validate_target_query_len(target_query_len)
     num_reqs, num_tokens = _batch_dimensions(batch_state)
     if (
         parallel_config.data_parallel_size != 1
@@ -301,7 +320,7 @@ def dispatch_hccl_v41_graph(
     configured_ubatches = get_num_ubatches(parallel_config)
     if configured_ubatches not in SUPPORTED_UBATCHES:
         raise ValueError("local graph dispatch supports native U1 or U2")
-    uniform_decode = _uniform_decode(batch_state)
+    uniform_decode = _uniform_decode(batch_state, target_query_len)
     num_ubatches = 1
     if (
         allow_ubatching
@@ -326,7 +345,7 @@ def dispatch_hccl_v41_graph(
     descriptor = manager.dispatch(
         num_reqs,
         num_tokens,
-        DECODE_QUERY_LEN,
+        target_query_len,
         num_active_loras=num_active_loras,
         max_query_len=max_query_len,
         num_ubatches=num_ubatches,
@@ -334,10 +353,12 @@ def dispatch_hccl_v41_graph(
     if descriptor.cg_mode != CUDAGraphMode.FULL:
         return HcclV41GraphDispatch(eager, eager)
     try:
-        _validate_full_descriptor(descriptor)
+        _validate_full_descriptor(descriptor, target_query_len)
     except ValueError:
         # A native varlen/unsupported candidate is an early eager fallback;
         # current input/metadata preparation has not started yet.
         return HcclV41GraphDispatch(eager, eager)
-    candidate = preview_hccl_v41_geometry(batch_state, descriptor)
+    candidate = preview_hccl_v41_geometry(
+        batch_state, descriptor, target_query_len=target_query_len
+    )
     return HcclV41GraphDispatch(candidate, eager)

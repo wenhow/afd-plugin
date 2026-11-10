@@ -1,0 +1,14 @@
+{
+  "command": [
+    "ssh",
+    "-F",
+    "C:/Users/zq/.atomgitdevenv/.ssh/config",
+    "-o",
+    "BatchMode=yes",
+    "-o",
+    "ConnectTimeout=15",
+    "devenvc_rissvg.4ff038c993bf40219c03182f786a9def.atomgit.0",
+    "python3 -B /mnt/workspace/tmp/afd-c0-20261104.hVgsIf/c5-control-cpu-20261109-8_0nb8i1/run_a3_graph_cpu.py --remote-root /mnt/workspace/tmp/afd-c0-20261104.hVgsIf/c5-control-cpu-20261109-8_0nb8i1 --targets tests/unit/distributed/test_hccl_graph.py tests/unit/connectors/npu/test_hccl_graph_stage.py tests/unit/v1/worker/npu/test_hccl_v41_graph.py tests/unit/v1/worker/npu/test_hccl_v41_graph_control.py tests/unit/v1/worker/npu/test_hccl_v41_graph_service.py tests/unit/v1/worker/npu/test_hccl_v41_graph_coordinator.py tests/unit/v1/worker/npu/test_hccl_v41_ffn_graph.py tests/unit/v1/worker/npu/test_ffn_model_runner.py tests/unit/v1/worker/npu/test_ffn_worker.py"
+  ],
+  "returncode": 1
+}

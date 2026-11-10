@@ -34,6 +34,9 @@ from vllm_ascend.worker.v2.aclgraph_utils import (
 )
 from vllm_ascend.worker.v2.model_runner import NPUModelRunner as NPUModelRunnerV2
 
+from afd_plugin.compat.npu.runtime_config import (
+    validate_deepseek_v41_graph_speculation,
+)
 from afd_plugin.compat.patches.npu.hccl_graph_capture import use_hccl_graph_capture
 from afd_plugin.compat.patches.npu.hccl_graph_dispatch import (
     HcclGraphDispatchArguments,
@@ -143,6 +146,13 @@ class HcclV41GraphCoordinator:
         manager = owner.cudagraph_manager
         transport = control.transport
         capabilities = transport.negotiated_capabilities
+        target_shape = validate_deepseek_v41_graph_speculation(owner.vllm_config)
+        if (
+            target_shape is None
+            or target_shape.target_query_len != capabilities.target_query_len
+            or owner.decode_query_len != capabilities.target_query_len
+        ):
+            raise ValueError("native graph target query must match the HCCL session")
         text = owner.vllm_config.model_config.hf_text_config
         if (
             not isinstance(manager, ModelAclGraphManager)
@@ -154,7 +164,6 @@ class HcclV41GraphCoordinator:
             or owner.vllm_config.model_config.enforce_eager
             or owner.vllm_config.compilation_config.cudagraph_mode
             != CUDAGraphMode.FULL_DECODE_ONLY
-            or owner.vllm_config.speculative_config is not None
         ):
             raise ValueError(
                 "native graph coordinator requires its FULL_DECODE_ONLY owners"
@@ -210,6 +219,7 @@ class HcclV41GraphCoordinator:
         self.control, self.session = control, session
         self.transport = transport
         self._capabilities = capabilities
+        self._target_shape = target_shape
         self.next_transaction_id = next_transaction_id
         # Scheduling is a capture constant. Changing it requires a fresh
         # session/cache; a generation miss does not permit same-key recapture.
@@ -258,6 +268,9 @@ class HcclV41GraphCoordinator:
         if (
             owner.cudagraph_manager is not manager
             or self.transport.negotiated_capabilities != self._capabilities
+            or validate_deepseek_v41_graph_speculation(owner.vllm_config)
+            != self._target_shape
+            or owner.decode_query_len != self._capabilities.target_query_len
             or owner.hccl_v41_transport is not self.transport
             or manager.model_runner is not owner
             or manager.ubatch_runner is not self.ubatch_runner

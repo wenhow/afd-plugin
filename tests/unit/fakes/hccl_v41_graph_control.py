@@ -131,14 +131,19 @@ def make_attention_graph_control_case(
     peer_states=None,
     capabilities=None,
 ):
+    target_query_len = 1 if capabilities is None else capabilities.target_query_len
     descriptor = descriptor or BatchExecutionDescriptor(
         CUDAGraphMode.FULL,
         sum(rows),
-        sum(rows),
-        uniform_token_count=1,
+        sum(rows) // target_query_len,
+        uniform_token_count=target_query_len,
         num_ubatches=len(rows),
     )
-    key = make_graph_key(rows=rows, metadata_shapes=metadata_shapes)
+    key = make_graph_key(
+        rows=rows,
+        metadata_shapes=metadata_shapes,
+        target_query_len=target_query_len,
+    )
     graph = ReplayGraph()
     cache = HcclGraphCache(DeviceCompletion().synchronize)
     if cached or pending:

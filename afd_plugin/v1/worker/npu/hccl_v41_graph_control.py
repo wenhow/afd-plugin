@@ -73,6 +73,7 @@ class HcclV41GraphControl(Generic[ResourcesT]):
         self.cache = cache
         self.generation = generation
         self.metadata_shapes = metadata_shapes
+        self.target_query_len = transport.negotiated_capabilities.target_query_len
         self._current_reservation: HcclV41GraphReservation | None = None
 
     def _generation(self) -> int:
@@ -85,13 +86,17 @@ class HcclV41GraphControl(Generic[ResourcesT]):
         descriptor = geometry.descriptor
         if descriptor.cg_mode != CUDAGraphMode.FULL:
             raise ValueError("static graph key requires a native FULL descriptor")
+        if descriptor.uniform_token_count != self.target_query_len:
+            raise ValueError("static graph key must retain the session target query")
         assert descriptor.num_reqs is not None
         assert descriptor.uniform_token_count is not None
         return HcclGraphKey(
             descriptor.num_tokens,
             descriptor.num_reqs,
             descriptor.uniform_token_count,
-            1 if descriptor.max_query_len is None else descriptor.max_query_len,
+            self.target_query_len
+            if descriptor.max_query_len is None
+            else descriptor.max_query_len,
             descriptor.num_active_loras,
             descriptor.num_ubatches,
             tuple(
@@ -155,6 +160,7 @@ class HcclV41GraphControl(Generic[ResourcesT]):
                 need_eager=need_eager or mode == "profile",
                 max_query_len=max_query_len,
                 num_active_loras=num_active_loras,
+                target_query_len=self.target_query_len,
             )
 
         def resolve(candidate: HcclGraphCandidate) -> HcclGraphReport:
@@ -175,7 +181,9 @@ class HcclV41GraphControl(Generic[ResourcesT]):
                     "native batch reservation requires replay or eager phase"
                 )
             authoritative = preview_hccl_v41_geometry(
-                batch_state, self._descriptor(candidate.key)
+                batch_state,
+                self._descriptor(candidate.key),
+                target_query_len=self.target_query_len,
             )
             if self.key_for(authoritative) != candidate.key:
                 raise ValueError(
@@ -236,7 +244,9 @@ class HcclV41GraphControl(Generic[ResourcesT]):
         def resolve(candidate: HcclGraphCandidate) -> HcclGraphReport:
             nonlocal geometry, generation
             generation = self._generation()
-            geometry = capture_hccl_v41_geometry(descriptor)
+            geometry = capture_hccl_v41_geometry(
+                descriptor, target_query_len=self.target_query_len
+            )
             key = self.key_for(geometry)
             if (
                 candidate.phase != ("warmup" if warmup else "capture")
@@ -253,9 +263,9 @@ class HcclV41GraphControl(Generic[ResourcesT]):
                     "restart before recapture"
                 )
             if self.manager is not None and any(
-                captured.max_query_len in (None, 1)
-                and replace(captured, max_query_len=1)
-                == replace(descriptor, max_query_len=1)
+                captured.max_query_len in (None, self.target_query_len)
+                and replace(captured, max_query_len=self.target_query_len)
+                == replace(descriptor, max_query_len=self.target_query_len)
                 for captured in self.manager.graphs
             ):
                 raise ValueError(
@@ -268,7 +278,9 @@ class HcclV41GraphControl(Generic[ResourcesT]):
                 raise ValueError("warmup must be a boolean")
             candidate = None
             if self.transport.is_coordinator:
-                geometry = capture_hccl_v41_geometry(descriptor)
+                geometry = capture_hccl_v41_geometry(
+                    descriptor, target_query_len=self.target_query_len
+                )
                 candidate = HcclGraphCandidate(
                     "warmup" if warmup else "capture",
                     mode,

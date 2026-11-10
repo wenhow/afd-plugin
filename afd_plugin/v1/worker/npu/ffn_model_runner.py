@@ -314,7 +314,9 @@ class AFDNPUFFNModelRunner:
             )
         ):
             raise RuntimeError("bind one idle eager FFN session before service startup")
-        validate_staged_hccl_binding(self.vllm_config, transport, self.device)
+        validate_staged_hccl_binding(
+            self.vllm_config, transport, self.device, target_shape=self.target_shape
+        )
         if self.hccl_v41_diagnostics is not None:
             self.hccl_v41_diagnostics.require_settings(session.settings)
         self.hccl_v41_eager_session = session
@@ -333,7 +335,9 @@ class AFDNPUFFNModelRunner:
         ):
             raise ValueError("FFN diagnostics require their exact eager transport")
         binding.require_idle(transport)
-        validate_staged_hccl_binding(self.vllm_config, transport, self.device)
+        validate_staged_hccl_binding(
+            self.vllm_config, transport, self.device, target_shape=self.target_shape
+        )
         if self.hccl_v41_eager_session is not None:
             binding.require_settings(self.hccl_v41_eager_session.settings)
         self.hccl_v41_diagnostics = binding

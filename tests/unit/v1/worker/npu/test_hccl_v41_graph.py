@@ -19,6 +19,7 @@ from vllm.v1.worker.gpu.cudagraph_utils import (
 )
 from vllm.v1.worker.gpu.ubatch_utils import create_ubatch_slices
 
+from afd_plugin.distributed.hccl_plan import HcclPlanCapabilities
 from afd_plugin.v1.worker.npu.hccl_v41_graph import (
     HcclV41StageGeometry,
     capture_hccl_v41_geometry,
@@ -56,6 +57,128 @@ def parallel_config():
         dbo_decode_token_threshold=4,
         dbo_prefill_token_threshold=6,
     )
+
+
+@pytest.mark.parametrize("query_len", [2, 3])
+@pytest.mark.parametrize("requests", [1, 3])
+@pytest.mark.parametrize("num_ubatches", [1, 2])
+def test_target_width_preview_uses_actual_native_request_slicing(
+    query_len, requests, num_ubatches
+):
+    descriptor = BatchExecutionDescriptor(
+        CUDAGraphMode.FULL,
+        3 * query_len,
+        3,
+        uniform_token_count=query_len,
+        num_ubatches=num_ubatches,
+    )
+    state = make_batch_req_state((query_len,) * requests)
+    expected = create_ubatch_slices(
+        SimpleNamespace(
+            num_scheduled_tokens=state.num_scheduled_tokens,
+            num_tokens_after_padding=descriptor.num_tokens,
+            num_reqs_after_padding=descriptor.num_reqs,
+            num_reqs=requests,
+        ),
+        num_ubatches,
+    )
+
+    geometry = preview_hccl_v41_geometry(state, descriptor, target_query_len=query_len)
+
+    assert geometry.stages == tuple(
+        HcclV41StageGeometry(
+            stage.request_slice.start,
+            stage.request_slice.stop,
+            stage.token_slice.start,
+            stage.token_slice.stop,
+        )
+        for stage in expected
+    )
+    if query_len == 3 and requests == 3 and num_ubatches == 2:
+        assert geometry.stages == (
+            HcclV41StageGeometry(0, 2, 0, 4),
+            HcclV41StageGeometry(1, 3, 4, 9),
+        )
+
+
+@pytest.mark.parametrize("query_len", [2, 3])
+@pytest.mark.parametrize("num_ubatches", [1, 2])
+def test_target_capture_matches_native_uniform_dummy_and_dispatch(
+    query_len, num_ubatches, parallel_config
+):
+    descriptor = BatchExecutionDescriptor(
+        CUDAGraphMode.FULL,
+        3 * query_len,
+        3,
+        uniform_token_count=query_len,
+        num_ubatches=num_ubatches,
+    )
+    state = make_batch_req_state((query_len,) * 3)
+    manager = make_native_graph_manager((descriptor,))
+    selected = dispatch_hccl_v41_graph(
+        manager,
+        state,
+        parallel_config=parallel_config,
+        allow_ubatching=num_ubatches == 2,
+        target_query_len=query_len,
+    )
+    captured = capture_hccl_v41_geometry(descriptor, target_query_len=query_len)
+
+    assert selected.candidate == captured
+    assert selected.eager.descriptor.num_reqs == 3
+    assert selected.eager.descriptor.num_tokens == 3 * query_len
+
+
+@pytest.mark.parametrize("scheduled", [(1, 3), (2, 3), (1, 1)])
+def test_variable_target_width_falls_back_before_native_preparation(
+    scheduled, parallel_config
+):
+    selected = dispatch_hccl_v41_graph(
+        None,
+        make_batch_req_state(scheduled),
+        parallel_config=parallel_config,
+        allow_ubatching=True,
+        target_query_len=3,
+    )
+    assert selected.candidate is selected.eager
+    assert selected.eager.descriptor.num_tokens == sum(scheduled)
+    assert selected.eager.descriptor.num_reqs == len(scheduled)
+
+
+@pytest.mark.parametrize("query_len", [2, 3])
+def test_capture_coverage_requires_descriptors_for_the_agreed_target(query_len):
+    descriptor = BatchExecutionDescriptor(
+        CUDAGraphMode.FULL,
+        3 * query_len,
+        3,
+        uniform_token_count=query_len,
+        num_ubatches=2,
+    )
+    caps = HcclPlanCapabilities(
+        4,
+        128,
+        16,
+        (0, 1),
+        1,
+        1,
+        1,
+        local_counts_version=1,
+        graph_execution_version=1,
+        target_query_len=query_len,
+    )
+    coverage = validate_hccl_v41_capture_coverage((descriptor,), caps)
+
+    assert coverage.geometries == (
+        capture_hccl_v41_geometry(descriptor, target_query_len=query_len),
+    )
+    with pytest.raises(ValueError, match="uniform target"):
+        validate_hccl_v41_capture_coverage(
+            (descriptor,), replace(caps, target_query_len=1)
+        )
+    with pytest.raises(ValueError, match="repeat the same"):
+        validate_hccl_v41_capture_coverage(
+            (descriptor, replace(descriptor, max_query_len=query_len)), caps
+        )
 
 
 @pytest.mark.parametrize("num_ubatches", [1, 2])
@@ -156,7 +279,7 @@ def test_capture_preview_matches_real_uniform_dummy_vector(
     ],
 )
 def test_capture_rejects_unsupported_descriptor(full_descriptor, changes):
-    with pytest.raises(ValueError, match="FULL uniform query-one"):
+    with pytest.raises(ValueError, match="FULL uniform target"):
         capture_hccl_v41_geometry(replace(full_descriptor, **changes))
 
 

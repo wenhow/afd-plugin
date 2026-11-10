@@ -6,7 +6,7 @@ No graph or NPU kernel is simulated. The host capture boundary executes CPU
 arithmetic once per factory phase and records an inert retained graph handle.
 """
 
-from contextlib import nullcontext
+from contextlib import contextmanager, nullcontext
 from copy import copy
 from dataclasses import replace
 from itertools import count
@@ -15,12 +15,14 @@ from types import MethodType, SimpleNamespace
 import torch
 from torch import nn
 from vllm.config import CUDAGraphMode
-from vllm.forward_context import set_forward_context
+from vllm.forward_context import get_forward_context, set_forward_context
 from vllm.v1.worker.gpu import model_runner as native_runner
 from vllm.v1.worker.gpu.cudagraph_utils import (
     BatchExecutionDescriptor,
     CudaGraphManager,
 )
+from vllm.v1.worker.gpu.spec_decode.dflash.cudagraph import DFlashCudaGraphManager
+from vllm.v1.worker.gpu.spec_decode.dflash.speculator import DFlashSpeculator
 from vllm_ascend.worker.v2.aclgraph_utils import ModelAclGraphManager, ModelWithContext
 
 from afd_plugin.connectors.npu.hccl_graph_cache import HcclGraphCache
@@ -51,6 +53,7 @@ from tests.unit.fakes.graph_capture import cpu_capture_boundary
 from tests.unit.fakes.hccl_graph_stage import make_graph_stage_bank
 from tests.unit.fakes.hccl_v41_graph_control import make_attention_graph_control_case
 from tests.unit.fakes.input_batch import make_ascend_decode_batch, make_hccl_ubatch_seam
+from tests.unit.fakes.vllm_config import v41_dspark_config
 
 
 def make_coordinator_case(
@@ -60,15 +63,26 @@ def make_coordinator_case(
     prefix=None,
     role_rank=0,
     exchange_order="stage_serial",
+    target_query_len=1,
+    engram=False,
 ):
+    tokens = 4 if target_query_len == 1 else 3 * target_query_len
     descriptor = BatchExecutionDescriptor(
-        CUDAGraphMode.FULL, 4, 4, uniform_token_count=1, num_ubatches=stages
+        CUDAGraphMode.FULL,
+        tokens,
+        tokens // target_query_len,
+        uniform_token_count=target_query_len,
+        num_ubatches=stages,
     )
     descriptors = (descriptor,) if descriptors is None else tuple(descriptors)
+    geometry = capture_hccl_v41_geometry(descriptor, target_query_len=target_query_len)
+    rows = tuple(stage.token_stop - stage.token_start for stage in geometry.stages)
+    scheduled = (target_query_len,) * descriptor.num_reqs
+    capacity = max((8, *(item.num_tokens for item in descriptors)))
     capabilities = HcclPlanCapabilities(
         4,
         128,
-        8,
+        capacity,
         (0, 1),
         1,
         1,
@@ -76,6 +90,7 @@ def make_coordinator_case(
         local_counts_version=1,
         graph_execution_version=1,
         graph_exchange_order=exchange_order,
+        target_query_len=target_query_len,
     )
     case = make_attention_graph_control_case(
         descriptor=descriptor,
@@ -83,12 +98,14 @@ def make_coordinator_case(
         cached=False,
         peer_states={0: "missing"},
         capabilities=capabilities,
+        rows=rows,
+        scheduled=scheduled,
     )
     if role_rank:
         capabilities = HcclPlanCapabilities(
             4,
             128,
-            8,
+            capacity,
             (0, 1),
             2,
             2,
@@ -96,6 +113,7 @@ def make_coordinator_case(
             local_counts_version=1,
             graph_execution_version=1,
             graph_exchange_order=exchange_order,
+            target_query_len=target_query_len,
         )
         case = make_attention_graph_control_case(
             descriptor=descriptor,
@@ -103,8 +121,10 @@ def make_coordinator_case(
             cached=False,
             role_rank=role_rank,
             capabilities=capabilities,
+            rows=rows,
+            scheduled=scheduled,
         )
-    model_case = make_graph_model_case((2, 2), engram=False)
+    model_case = make_graph_model_case(rows, engram=engram)
     wrapper = AFDDeepseekV41AttentionForCausalLM.__new__(
         AFDDeepseekV41AttentionForCausalLM
     )
@@ -118,6 +138,19 @@ def make_coordinator_case(
         HcclV41UBatchRunner, model_state=state, max_num_reqs=8
     )
     config = runner.vllm_config
+    if target_query_len > 1:
+        original = v41_dspark_config(tensor_parallel_size=capabilities.native_tp_size)
+        config.speculative_config = original.speculative_config
+        config.speculative_config.num_speculative_tokens = target_query_len - 1
+        config.model_config.model = original.model_config.model
+        vars(config.model_config.hf_text_config).update(
+            vars(original.model_config.hf_text_config)
+        )
+        config.model_config.hf_text_config.dspark_target_layer_ids = [1, 2]
+        draft = config.speculative_config.draft_model_config.hf_text_config
+        draft.dspark_target_layer_ids = [1, 2]
+    config.model_config.hf_config.model_type = "deepseek_v41"
+    config.model_config.hf_config.architectures = ["DeepseekV41ForCausalLM"]
     config.model_config.enforce_eager = False
     config.model_config.dtype = torch.bfloat16
     config.model_config.hf_text_config.hidden_size = capabilities.hidden_size
@@ -139,6 +172,7 @@ def make_coordinator_case(
     manager.ubatch_runner = runner if stages == 2 else None
     owner = SimpleNamespace(
         vllm_config=config,
+        decode_query_len=target_query_len,
         parallel_config=config.parallel_config,
         model=wrapper,
         model_state=state,
@@ -168,7 +202,7 @@ def make_coordinator_case(
     case.runtime_metadata = []
     owner.gather_batch_req_state = lambda output, dummy: (
         None if dummy else case.native_state,
-        None if dummy or case.native_state is None else 1,
+        None if dummy or case.native_state is None else target_query_len,
     )
     return case
 
@@ -226,7 +260,9 @@ def cpu_allocate_bank(case, transport, key, *, device):
     for index, endpoint in enumerate(endpoints):
         endpoint.group = transport.data_groups[index]
     original = make_graph_stage_bank(
-        rows=key.padded_tokens, endpoint_factory=lambda index: endpoints[index]
+        rows=key.padded_tokens,
+        endpoint_factory=lambda index: endpoints[index],
+        target_query_len=key.uniform_token_count,
     )
     return HcclGraphStageBank(
         role="attention",
@@ -249,9 +285,20 @@ def cpu_runner_capture(case, owner, *, profile_only=False):
     def factory(descriptor, warmup):
         if case.boundary_failure == "prepare":
             raise RuntimeError("native preparation failed")
-        batch = make_ascend_decode_batch(descriptor.num_tokens)
+        batch = make_ascend_decode_batch(
+            descriptor.num_tokens, target_query_len=descriptor.uniform_token_count
+        )
         slots = torch.zeros(1, descriptor.num_tokens, dtype=torch.int32)
         inputs = {"input_ids": batch.input_ids, "positions": batch.positions}
+        if case.model_case.model.has_engram:
+            inputs.update(
+                (name, case.model_case.graph_inputs[name])
+                for name in (
+                    "lookback_token_ids",
+                    "engram_query_start_loc",
+                    "engram_valid_token_count",
+                )
+            )
         if descriptor.num_ubatches == 2:
             prepared = owner.ubatch_runner.prepare(
                 batch, (), slots, CUDAGraphMode.FULL, True
@@ -304,6 +351,105 @@ def cpu_runner_capture(case, owner, *, profile_only=False):
     return 17 if profile_only else 23
 
 
+def cpu_target_manager_capture(case, manager, *args, **kwargs):
+    """Replace only the model-manager factory/device boundary, not native order."""
+    if manager is not case.manager:
+        raise AssertionError("target capture must use its retained manager")
+    cpu_runner_capture(case, case.owner)
+
+
+def prepare_native_draft_capture(case, *, fail_draft=False):
+    """Exercise native outer capture and a local NONE-manager draft boundary.
+
+    DFlash's real NONE-manager capture has no factory forward. The explicit
+    real _run_model call below additionally checks context isolation while the
+    target capture hooks are still scoped. It is not a simulated device graph
+    or a claim that native NONE capture itself executes that forward.
+    """
+    owner = case.owner
+    owner.model_state.supports_mm_inputs = False
+    owner.lora_config = None
+    owner.maybe_setup_dummy_loras = lambda _: nullcontext()
+    owner.use_aux_hidden_state_outputs = True
+    owner.adaptive_verification = None
+    owner._draft_workspace_lane = "cpu-draft-workspace"
+    case.capture_order = []
+    owner.kv_connector = SimpleNamespace(
+        reset_capture_state=lambda: case.capture_order.append("native-kv-reset")
+    )
+    case.target_metadata = []
+    producer = case.model_case.model.captured_engram_inputs
+
+    @contextmanager
+    def observed_producer(*args):
+        case.target_metadata.append(get_forward_context().attn_metadata)
+        with producer(*args) as produced:
+            yield produced
+
+    case.model_case.model.captured_engram_inputs = observed_producer
+    draft_config = copy(owner.vllm_config)
+    draft_config.model_config = copy(
+        owner.vllm_config.speculative_config.draft_model_config
+    )
+    draft_config.model_config.enforce_eager = True
+    draft_config.speculative_config = None
+    draft_manager = DFlashCudaGraphManager.__new__(DFlashCudaGraphManager)
+    draft_manager.cudagraph_mode = CUDAGraphMode.NONE
+    draft_manager._capture_descs = {}
+    draft_manager.host_descriptors = ()
+    draft_manager.capture_failure = None
+    draft_manager.graphs = {}
+    draft = DFlashSpeculator.__new__(DFlashSpeculator)
+    draft.vllm_config = draft_config
+    draft.query_cudagraph_manager = draft_manager
+    draft.sample_indices = torch.ones(3, dtype=torch.int64)
+    draft.sample_pos = torch.ones(3, dtype=torch.int64)
+    draft.sample_idx_mapping = torch.zeros(3, dtype=torch.int64)
+    draft.input_buffers = SimpleNamespace(
+        input_ids=torch.arange(3), positions=torch.arange(3)
+    )
+    draft.block_tables, draft.attn_groups = owner.block_tables, []
+    draft.kv_cache_config, draft.max_model_len = owner.kv_cache_config, 32
+    draft._group_causal = True
+    case.draft_metadata = {"draft-only": SimpleNamespace()}
+    case.draft_contexts = []
+    case.draft_output = None
+
+    def local_draft(input_ids, positions, inputs_embeds):
+        case.draft_contexts.append(get_forward_context())
+        case.capture_order.append("local-draft-forward")
+        if fail_draft:
+            raise RuntimeError("local draft forward failed")
+        return input_ids[:, None] + positions[:, None] + 100
+
+    draft.model = local_draft
+
+    def capture():
+        # Public ready-cache lookup must already succeed before native calls
+        # speculator.capture. Preserve its resources for post-failure checks.
+        entry = case.cache.find(native_keys(case)[0], 0)
+        if entry is None:
+            raise AssertionError("draft started before target capture was published")
+        case.target_entry = entry
+        case.target_output = entry.resources.hidden_states
+        case.target_value = case.target_output.clone()
+        case.target_auxiliary = tuple(entry.resources.auxiliary)
+        case.target_auxiliary_values = tuple(t.clone() for t in case.target_auxiliary)
+        case.target_storage = case.target_output.data_ptr()
+        case.target_transcript = tuple(case.transport.transcript)
+        case.target_produced = tuple(case.model_case.producer_parents)
+        case.capture_order.append("target-published")
+        DFlashSpeculator.capture(draft)
+        case.capture_order.append("native-draft-capture-returned")
+        case.draft_output = DFlashSpeculator._run_model(
+            draft, 3, case.draft_metadata, None, None
+        )
+
+    draft.capture = capture
+    owner.speculator = case.draft = draft
+    return case
+
+
 def cpu_retained_capture(
     manager, create_forward_fn, progress_bar_desc="Capturing CUDA graphs"
 ):
@@ -314,7 +460,12 @@ def cpu_retained_capture(
 
 def native_keys(case):
     return tuple(
-        case.control.key_for(capture_hccl_v41_geometry(descriptor))
+        case.control.key_for(
+            capture_hccl_v41_geometry(
+                descriptor,
+                target_query_len=case.transport.negotiated_capabilities.target_query_len,
+            )
+        )
         for descriptor in case.manager.host_descriptors
     )
 
@@ -329,12 +480,12 @@ def dispatch_runtime(case, *, dummy=False, need_eager=False, tokens=None):
         requests,
         rows,
         uniform,
-        1,
-        0,
+        dp_size=case.owner.parallel_config.data_parallel_size,
+        dp_rank=case.owner.parallel_config.data_parallel_rank,
         need_eager=need_eager,
         parallel_config=case.owner.parallel_config,
         allow_ubatching=case.owner.ubatch_runner is not None,
-        uniform_decode=uniform == 1,
+        uniform_decode=uniform == case.owner.decode_query_len,
     )
     if sync is not None:
         raise AssertionError("DP1 must preserve native None synchronization")
@@ -343,7 +494,9 @@ def dispatch_runtime(case, *, dummy=False, need_eager=False, tokens=None):
 
 def prepare_runtime_full(case, descriptor):
     """Run actual selected native CPU U1/U2 preparation for a replay."""
-    batch = make_ascend_decode_batch(descriptor.num_tokens)
+    batch = make_ascend_decode_batch(
+        descriptor.num_tokens, target_query_len=descriptor.uniform_token_count
+    )
     batch.is_padding.fill_(False)
     slots = torch.zeros(1, descriptor.num_tokens, dtype=torch.int32)
     if descriptor.num_ubatches == 2:

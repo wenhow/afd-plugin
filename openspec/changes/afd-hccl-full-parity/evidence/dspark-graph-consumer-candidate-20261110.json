@@ -1,0 +1,43 @@
+{
+  "scope": "Phase-two target-q Graph consumer candidate; static source freeze, actual CPU pending",
+  "actual_head": "06b9d620379944eb30ec41e99746f8e6f5ef6637",
+  "production_guard_opened": false,
+  "runtime_file_count": 8,
+  "files": {
+    "afd_plugin/distributed/hccl_graph.py": "3d410da36df91d875a2c595c6f473e8d15b82b26ee250dea23126b138bce9302",
+    "afd_plugin/connectors/npu/hccl_graph_stage.py": "6e9d4f938632fadf14a0ea6d984deab2c5a0bd6c849aeede685a4a0212ff439c",
+    "afd_plugin/v1/worker/npu/hccl_v41_graph.py": "cb19a7b5caab26fc757f4d8ad85ab9b17a64513bf5353e63efd33677541dd20e",
+    "afd_plugin/v1/worker/npu/hccl_v41_graph_control.py": "c1cac3839e2aea64811fc832e8462eb626c36dc4ac832382a0d2f53966de3ee1",
+    "afd_plugin/v1/worker/npu/hccl_v41_graph_coordinator.py": "1bec79e6cc1c9ec03ad18e2b26cb33537dfbd09d013711fff874974e02c3583f",
+    "afd_plugin/v1/worker/npu/hccl_v41_graph_service.py": "5cd4e932b15584166ac55900751d4d7cd2eea00b9a8d8a65938e9c2139daf8d4",
+    "afd_plugin/v1/worker/npu/ffn_worker.py": "6b55fd75e9f82cfcebda08b7f149735a871aded253db25b118e5eb2748381121",
+    "afd_plugin/v1/worker/npu/ffn_model_runner.py": "44e03cf92e93680f797f75734720cd70d6cd6959d51a3e28a15aed273173eb1d",
+    "tests/unit/distributed/test_hccl_graph.py": "e32b76267aa45c438f6971bb480dbec44a69050ac570836e5fe411ecc2e52947",
+    "tests/unit/connectors/npu/test_hccl_graph_stage.py": "c5e80bcef709e0f34ee3627bbe882fdc9537f916bf0fcaa0c473a56c1fdbbd91",
+    "tests/unit/v1/worker/npu/test_hccl_v41_graph.py": "8eaf4fca87d0a45eadf31de8d1986b132a9d8282e0b29f237fdc62c8286c818d",
+    "tests/unit/v1/worker/npu/test_hccl_v41_graph_control.py": "7cd16e9c01a8a956659f219aec22e865452a57ab6a454a59ca1c723df483fdc7",
+    "tests/unit/v1/worker/npu/test_hccl_v41_graph_service.py": "7b3d1c0e528ccec6562bddbd29cd50129a777f07fc96135153f37e82122e8d95",
+    "tests/unit/v1/worker/npu/test_hccl_v41_graph_coordinator.py": "634cf4e1f98860105b43374f512d08b744d601277cd00111ade29f5000ba9ecf",
+    "tests/unit/fakes/hccl_graph_control.py": "3272ec1a3f7737245d0274127057dd105fc5453c953bcf7d3d1eea28b2dbcf02",
+    "tests/unit/fakes/hccl_graph_stage.py": "474f7858ebff77efea706901ef9f7127aafac9b716f3cff6cba5707fc43b21c8",
+    "tests/unit/fakes/input_batch.py": "f4fc8c9edd5de24c3266879f6e99d8810df48c1527d99e528d44a27edb90cd5f",
+    "tests/unit/fakes/hccl_v41_ffn_graph.py": "d1ed6300c8571d72efe79c94fff6cb9b2a80b09302051c12431cb3485542d906",
+    "tests/unit/fakes/hccl_v41_graph_control.py": "a7910c34c8457072c1518e78be98f57826ba1251957536f4660dae3eb50144a3",
+    "tests/unit/fakes/hccl_v41_graph_coordinator.py": "fc609cef519b4624c688a78189db8eaa4acd3676c628af0ea9b9e4192587e029",
+    "tests/unit/fakes/hccl_v41_graph_service.py": "3237dd8d7506e1b4d37642b60a3c163c514813ac11e1964fe89a1d31f3699f23"
+  },
+  "later_test_only_handoff": [
+    "tests/unit/v1/worker/npu/test_hccl_v41_graph_coordinator.py",
+    "tests/unit/fakes/hccl_v41_graph_coordinator.py"
+  ],
+  "checks": {
+    "ruff": "21 files passed",
+    "python_3_11_grammar": "all plugin/unit files passed",
+    "local_graph_key_mirror": "65 passed; no runtime deps"
+  },
+  "not_executed": [
+    "NPU",
+    "full model",
+    "DSpark acceptance/rejection"
+  ]
+}

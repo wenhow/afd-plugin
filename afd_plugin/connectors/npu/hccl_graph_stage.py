@@ -66,6 +66,8 @@ class HcclGraphStageBank:
         if (
             key.num_tokens > capabilities.max_tokens
             or key.num_ubatches > capabilities.max_stages
+            or key.uniform_token_count != capabilities.target_query_len
+            or key.max_query_len != capabilities.target_query_len
             or len(exchanges) != key.num_ubatches
         ):
             raise ValueError("graph stage bank key exceeds the session layout")

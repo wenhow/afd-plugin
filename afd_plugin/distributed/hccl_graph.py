@@ -96,12 +96,11 @@ class HcclGraphKey:
             _integer(name, value, minimum=1)
         _integer("num_active_loras", self.num_active_loras)
         if (
-            self.uniform_token_count != 1
-            or self.max_query_len != 1
+            self.uniform_token_count != self.max_query_len
             or self.num_active_loras != 0
-            or self.num_tokens != self.num_reqs
+            or self.num_tokens != self.num_reqs * self.uniform_token_count
         ):
-            raise ValueError("graph key requires uniform q=1 decode without LoRA")
+            raise ValueError("graph key requires uniform target decode without LoRA")
         if (
             not isinstance(self.stage_layouts, tuple)
             or not 1 <= self.num_ubatches <= MAX_HCCL_STAGES

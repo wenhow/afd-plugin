@@ -28,6 +28,56 @@ from tests.unit.fakes.hccl_graph_control import make_graph_candidate, make_graph
 from tests.unit.fakes.hccl_v41_graph_control import make_attention_graph_control_case
 
 
+@pytest.mark.parametrize("query_len", [2, 3])
+def test_target_query_reservation_retains_native_request_and_token_geometry(query_len):
+    caps = replace(
+        make_attention_graph_control_case().transport.negotiated_capabilities,
+        target_query_len=query_len,
+    )
+    tokens = 3 * query_len
+    case = make_attention_graph_control_case(
+        capabilities=caps,
+        rows=(tokens // 2, tokens - tokens // 2),
+        scheduled=(query_len,) * 3,
+    )
+    result = case.control.reserve_batch(
+        case.batch,
+        parallel_config=case.parallel,
+        allow_ubatching=True,
+        transaction_id="target-q",
+    )
+
+    assert result.decision.phase == "replay"
+    assert result.decision.key.max_query_len == query_len
+    assert result.decision.key.uniform_token_count == query_len
+    assert result.geometry.descriptor.num_reqs == 3
+    assert result.geometry.descriptor.num_tokens == tokens
+    assert result.geometry.descriptor.max_query_len is None
+    assert result.decision.key.stage_layouts == case.key.stage_layouts
+
+
+@pytest.mark.parametrize("query_len", [2, 3])
+def test_target_capture_normalizes_native_optional_query_to_session_width(query_len):
+    caps = replace(
+        make_attention_graph_control_case().transport.negotiated_capabilities,
+        target_query_len=query_len,
+    )
+    tokens = 3 * query_len
+    case = make_attention_graph_control_case(
+        capabilities=caps,
+        rows=(tokens // 2, tokens - tokens // 2),
+        scheduled=(query_len,) * 3,
+        cached=False,
+        peer_states={0: "missing", 1: "missing", 3: "missing"},
+    )
+    result = case.control.reserve_capture(
+        case.descriptor, warmup=True, transaction_id="capture-q"
+    )
+    assert result.decision.key.max_query_len == query_len
+    assert result.decision.key.num_reqs == 3
+    assert result.decision.padded_tokens == case.key.padded_tokens
+
+
 @pytest.fixture
 def reserved_case():
     case = make_attention_graph_control_case()

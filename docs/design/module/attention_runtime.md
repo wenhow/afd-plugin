@@ -145,7 +145,9 @@ previews request and token bounds from the actual ordered native `BatchReqState`
 It uses native threshold selection and dispatches the manager with the selected
 U value; it never renames a U1 cache hit to U2. An all-peer miss uses a fresh
 eager descriptor before input/Engram preparation. Captured dummy geometry is
-limited to FULL uniform query-one decode. Equal parent token buckets alone do
+limited to FULL uniform decode at the session's fixed target query width
+(one by default, or a validated DSpark N+1 with eager local draft). Native U2
+may split one request between stages. Equal parent token buckets alone do
 not establish matching child request/metadata shapes. Native Graph model
 execution and state preparation require their own integration and acceptance.
 

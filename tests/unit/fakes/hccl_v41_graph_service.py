@@ -17,6 +17,7 @@ from vllm.config import CompilationMode, CUDAGraphMode
 from vllm.forward_context import ForwardContext, override_forward_context
 from vllm_ascend.ascend_forward_context import _EXTRA_CTX
 
+from afd_plugin.compat.npu.runtime_config import DeepseekV41TargetShape
 from afd_plugin.connectors.npu.hccl_graph_cache import HcclGraphCache
 from afd_plugin.connectors.npu.hccl_graph_pipeline import HcclGraphPipelinePolicy
 from afd_plugin.distributed.hccl import HcclStageLayout
@@ -124,6 +125,7 @@ class ServiceGraphBanks:
             role_rank=transport.role_rank,
             endpoint_factory=endpoint,
             exchange_order=caps.graph_exchange_order,
+            target_query_len=caps.target_query_len,
         )
         bank = SimpleNamespace(
             layer_indices=caps.layer_indices,
@@ -256,6 +258,7 @@ class FFNGraphControlPeer(ScriptedStagedControlPeer):
             mode="warmup" if phase in ("warmup", "capture") else "target",
             rows=self.base_bank.stage_rows,
             eager_rows=(0,) * len(valid) if fallback else None,
+            target_query_len=self.negotiated_capabilities.target_query_len,
         )
         if capture_sequence_digest is not None:
             candidate = replace(
@@ -322,7 +325,9 @@ class FFNGraphControlPeer(ScriptedStagedControlPeer):
 
     def queue_rejection(self, phase, *, error, capture_sequence_digest=None, rows=None):
         candidate = make_graph_candidate(
-            phase=phase, rows=self.base_bank.stage_rows if rows is None else rows
+            phase=phase,
+            rows=self.base_bank.stage_rows if rows is None else rows,
+            target_query_len=self.negotiated_capabilities.target_query_len,
         )
         if capture_sequence_digest is not None:
             candidate = replace(
@@ -354,10 +359,15 @@ def make_graph_service_case(
     rows=(2, 2),
     diagnostic_sink=None,
     exchange_order="stage_serial",
+    target_query_len=1,
 ):
     events = []
     model_case = make_ffn_graph_case(
-        rows=rows, valid=rows, exchange_order=exchange_order, build_driver=False
+        rows=rows,
+        valid=rows,
+        exchange_order=exchange_order,
+        build_driver=False,
+        target_query_len=target_query_len,
     )
     transport = FFNGraphControlPeer(model_case.bank, events)
     config = hccl_vllm_config(
@@ -380,6 +390,7 @@ def make_graph_service_case(
     runner.hccl_v41_eager_session = None
     runner.hccl_v41_diagnostics = None
     runner.prof = None
+    runner.target_shape = DeepseekV41TargetShape(target_query_len)
     api, banks = GraphServiceAPI(events), ServiceGraphBanks()
     cache = HcclGraphCache(api.synchronize)
     bodies = ServiceGraphBodies(api)
