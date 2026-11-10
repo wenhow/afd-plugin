@@ -139,6 +139,13 @@ a generic MoE model API.
 
 ## Role-aware module construction
 
+The old V4 Ascend gate-on-FFN boundary preserves the native norm's independent
+FP32 router input alongside the rounded activations and raw token IDs. The F
+compute hook forwards that optional input to native MoE; omitting it retains
+the native default. The [CPU role roundtrip](../../../tests/unit/model_executor/models/npu/test_deepseek_v4.py)
+checks observable payloads and output using an arithmetic MoE peer. It does not
+qualify device MoE, connector support, or ordinary MTP execution.
+
 Non-AFD workers use the pinned vLLM model implementation directly. When an AFD
 worker selects an AFD alias, `AFDDeepseekV2DecoderLayer` constructs only the
 components needed for the selected role while retaining layer normalization
