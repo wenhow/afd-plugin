@@ -1,0 +1,185 @@
+{
+  "status": "Revised source frozen; fresh A3 role-owner-002 component passed; original 001 remains failed/pending",
+  "scope": "Actual plugin deferred role-profiler sessions on Attention-main / FFN-owner threads, controlled real NPU matmul and exported NPU trace evidence; no native model runners/checkpoint/RPC/HCCL",
+  "head_commit": "5aebfc5e954d20da18bff754a2008c44bd7e31bc",
+  "candidate_source_sha256": {
+    "tests/npu/afd_profiler_probe.py": "d85e58662c08a813f39e2c5a0c9af8e2a990710c19b5a162831640ca532cacf9",
+    "afd_plugin/compat/npu/profiler.py": "4dcd664757a788f26efbdf1a3dfaf8acbf7a0a007f26bd2e53c1b6a896d1c117",
+    "tests/npu/hccl_eager_backend_probe.py": "86ddf59910776a8b50b3dc76b5e56484f4d207e9eff9e8a2d375f271fdf91b34",
+    "tests/npu/hccl_staged_probe.py": "96112b8192e2f1ff1a186b46f3f4d2f71910e1c15fd5ea4c7fe9821c744b796d",
+    "openspec/changes/afd-hccl-full-parity/evidence/run_a3_profiler.py": "a86df96db3c004e929f78a429e0c2ec6c93186c263a04bf0db5be0e536b42a0b",
+    "docs/design/module/execution_platforms.md": "97089c11a3e4f00100ba2943ea23912f45eb493673c142c42dafcb91cbff1cac"
+  },
+  "api_signatures": {
+    "create_deferred_afd_npu_profiler": "role: AFDNPUProfilerRole, *, role_rank: int=0",
+    "afd_npu_profiler_owner": "profiler: AFDNPUProfiler | None",
+    "afd_npu_profiler_execute": "profiler: AFDNPUProfiler | None"
+  },
+  "example_command": [
+    "python",
+    "-B",
+    "tests\\npu\\afd_profiler_probe.py",
+    "--device",
+    "0",
+    "--role-rank",
+    "0",
+    "--timeout",
+    "300",
+    "--output-dir",
+    "/mnt/workspace/tmp/afd-profiler-probe-001"
+  ],
+  "supervision": {
+    "roles": "Attention then FFN in independent, serial child processes, same explicitly selected device",
+    "output_directory": "must be fresh; first failed result retained, no automatic retry",
+    "preflight": "stdlib metadata/source hashes, then npu-smi, before any torch imports",
+    "idle_boards_required": 8,
+    "idle_sampling": "before / after Attention / after FFN / final; each raw text retained",
+    "timeout_seconds": 300,
+    "owner_queue_timeout_seconds": 90,
+    "termination": "only observed child/descendant PID with matching /proc start ticks; foreign processes never signalled",
+    "environment": "preserve CANN PYTHONPATH/LD_LIBRARY_PATH and installed packages; prepend exact checkout source, set only per-role profiler schedule/directory/rank environment",
+    "no_dependencies_installed": true
+  },
+  "lifecycle": {
+    "factory": "real create_deferred_afd_npu_profiler(role, role_rank=rank) freezes env on management thread without constructing backend",
+    "attention": "afd_npu_profiler_execute on process main execute thread, three successful initial matmul steps, stop request applied at next execute, restart(prefix=restart), three steps, afd_npu_profiler_owner finish on main thread",
+    "ffn": "one background owner creates NPU tensors and backend; Queue commands gate before_step -> matmul -> step; management records stop/restart requested/applied/pending/step fields while no next command can reach owner; next released step applies request; finish only on owner",
+    "queue_contract": "synchronization is by bounded Queue.get/put, not sleeps, latency limits or a fabricated connector receive",
+    "schedule": {
+      "wait": 0,
+      "warmup": 1,
+      "active": 2,
+      "repeat": 1,
+      "skip_first": 0
+    },
+    "oracle": "64x64 FP32 matmul of small exact integers; CPU matmul output compared with zero tolerance on every step; CPU transfer/synchronization intentional, not a performance test",
+    "step_semantics": "three recorded execute/parent steps each cycle; unprofiled stop-boundary arithmetic does not advance profiler steps; final steps=6"
+  },
+  "trace_evidence": {
+    "installed_raw_source_record": "openspec\\changes\\afd-hccl-v2-multistream\\evidence\\torch-npu-profiler-source-20261110.json",
+    "raw_source_record_sha256": "ed59db8ad535c2327c96d56372dc1678e87b711e86ea09f88fa058fa03cf5bea",
+    "torch_npu_version": "2.10.0.post4",
+    "profiler_py_sha256": "1a04902572383b74a401449e73929b2c4ce728d6c81bb59341876b03c7a82168",
+    "source_contract": "profiler.py:180-196 tensorboard_trace_handler default async_mode=False, forwarded into analyse; deeper C++/analysis completion is not inferred",
+    "collection": "After owner finish, identify Ascend Hardware process_name + matching NPU label pid; select ph=X / AI_CORE / MatMul device events. Match Name/TaskID/StreamID multiset against the actual device AI_CORE kernel_details.csv rows, require two active events per initial/restart phase. CPU labels/aten record_function events cannot qualify.",
+    "naming": [
+      "attention_rank<rank>_*",
+      "restart_attention_rank<rank>_*",
+      "ffn_rank<rank>_*",
+      "restart_ffn_rank<rank>_*"
+    ],
+    "missing_or_unrecognized_trace": "pending-or-unproven, including malformed trace/CSV; child rc2 and supervisor not successful; no fake trace or assumed complete export",
+    "limits": "does not prove global C++ TLS, every auxiliary thread, native FFN daemon/RPC receive, or full request timeline"
+  },
+  "static_validation": {
+    "ruff_check": "passed",
+    "ruff_format_check": "passed",
+    "python_3_11_grammar": "passed",
+    "help_returncode": 0,
+    "help_torch_imported": false,
+    "help_torch_npu_imported": false,
+    "device_started": false,
+    "unit_tests_added": false,
+    "harness_ruff_check": "passed",
+    "harness_ruff_format_check": "passed",
+    "harness_python_3_11_grammar": "passed",
+    "harness_help_no_torch": "passed",
+    "revised_detector_offline_001": "passed both original trace/CSV pairs, 24 mapped raw files SHA256 match; original overall outcome remains false"
+  },
+  "result_files": [
+    "source-preflight.json",
+    "npu-before.txt",
+    "attention.log",
+    "attention/role.json",
+    "attention/traces/**",
+    "npu-attention.txt",
+    "ffn.log",
+    "ffn/role.json",
+    "ffn/traces/**",
+    "npu-ffn.txt",
+    "npu-after.txt",
+    "result.json"
+  ],
+  "acceptance_pending": [
+    "native A/F model-runner and FFN-service integration timeline",
+    "HTTP/executor RPC profiling integration",
+    "A5 installed-source collection/review and hardware validation",
+    "performance/overhead measurement if requested"
+  ],
+  "not_covered": [
+    "native A/F model constructor or forward",
+    "native HC/Engram/MoE",
+    "HCCL send/recv or abort",
+    "HTTP/executor RPC routing",
+    "Graph capture/replay",
+    "C++ profiler global/thread-local implementation",
+    "performance or profiler overhead benchmark"
+  ],
+  "a5_portable": false,
+  "a5_requirement": "collect and review actual installed torch_npu profiler sources before changing the A3-only gate; current batch guide remains unchanged",
+  "immutable_harness": {
+    "path": "openspec/changes/afd-hccl-full-parity/evidence/run_a3_profiler.py",
+    "prepare_only_command": [
+      ".venv/Scripts/python.exe",
+      "-B",
+      "openspec/changes/afd-hccl-full-parity/evidence/run_a3_profiler.py",
+      "--prepare-only",
+      "--label",
+      "archive-precheck-002",
+      "--device",
+      "0"
+    ],
+    "expected_installed_sources": {
+      "torch_npu/profiler/profiler.py": "1a04902572383b74a401449e73929b2c4ce728d6c81bb59341876b03c7a82168"
+    },
+    "expected_plugin_profiler_sha256": "4dcd664757a788f26efbdf1a3dfaf8acbf7a0a007f26bd2e53c1b6a896d1c117",
+    "checks": "archive unique-member/hash/manifest check before prepare identity; remote file hashes and exact installed profiler gate; standalone metadata-only subprocess before npu-smi/device startup",
+    "outer_timeout_seconds": 340,
+    "ssh_timeout_seconds": 420,
+    "prepare_only_no_ssh": true,
+    "prepare_only_no_torch": true,
+    "prepare_only_no_device": true,
+    "validation_owner": "docs/design/module/execution_platforms.md",
+    "postcheck": "Finally reuses retained CANN environment. Before environment preparation succeeds, postcheck is explicitly not started instead of a fake zero-idle result.",
+    "retrieval": "Full raw tar saved under .tmp with SHA256/member hashes; core metadata retains paths, selected trace/CSV/profiler metadata use short names with original-member mapping; other CANN internal binary files remain in the complete archive."
+  },
+  "historical_attempt_role_owner_001": {
+    "scope": "Original first failure preserved, never rewritten into pass",
+    "identity": "a3-profiler-device-20261110/role-owner-001/identity.json",
+    "executed_probe_sha256": "2bed9af7772764447222464478bc542c80a03f0946c1cfad28487b198d8ff57d",
+    "executed_harness_sha256": "ad1050550381625d95247a3fab3ac07d0b3ce2f9d76cffc34b3d3d24265854e7",
+    "harness_success": false,
+    "attention_returncode": 2,
+    "attention_trace_state": "pending-or-unproven",
+    "ffn_executed": false,
+    "first_cause": "Trace hardware events have no cat field; original kernel-category-only detector failed to recognize actual AI_CORE MatMul events.",
+    "independent_harness_defects": [
+      "outer finally omitted retained CANN env, npu-smi returned127 missing libc_sec.so",
+      "ordinary Windows extractall exceeded MAX_PATH"
+    ],
+    "independent_recovery": "retained CANN read-only npu-smi rc0/eight idle; original raw and pending result preserved; no device rerun/kill",
+    "offline_evidence": "a3-profiler-device-20261110/role-owner-001/offline-detector-recovery-002.json",
+    "offline_result": "new detector parses both unchanged 115-event traces, two AI_CORE MatMul events each, exact task/stream/name CSV match; no torch import/device execution"
+  },
+  "actual_validation": {
+    "run": "a3-profiler-device-20261110/role-owner-002",
+    "source_manifest_sha256": "d971881105abb8a8d5e950da362a4f3820e82058499ded3c9a282c2db81b933c",
+    "summary_success": true,
+    "elapsed_seconds": 66.39699542615563,
+    "role_returncodes": {
+      "attention": 0,
+      "ffn": 0
+    },
+    "per_role_exact_matmul_checks": 7,
+    "per_role_profile_steps": 6,
+    "initial_restart_device_matmul_events_per_trace": 2,
+    "all_four_trace_csv_task_multisets_match": true,
+    "owner_threads": "Attention main; FFN background distinct from management",
+    "ffn_queue_pending_then_next_step_apply": true,
+    "idle_boards_before": 8,
+    "idle_boards_after": 8,
+    "timeout_or_kill": false,
+    "independent_verification": "a3-profiler-device-20261110/role-owner-002/independent-verification.json",
+    "original_001_rewritten": false
+  }
+}

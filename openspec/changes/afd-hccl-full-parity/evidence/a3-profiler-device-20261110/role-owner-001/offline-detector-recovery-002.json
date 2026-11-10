@@ -1,0 +1,206 @@
+{
+  "scope": "Offline parsing/recovery of unchanged original 001 trace/archive; no device rerun",
+  "original_outcome": "failed/pending, Attention rc2, FFN unexecuted; not rewritten",
+  "new_source_sha256": {
+    "tests/npu/afd_profiler_probe.py": "d85e58662c08a813f39e2c5a0c9af8e2a990710c19b5a162831640ca532cacf9",
+    "openspec/changes/afd-hccl-full-parity/evidence/run_a3_profiler.py": "a86df96db3c004e929f78a429e0c2ec6c93186c263a04bf0db5be0e536b42a0b"
+  },
+  "archive_sha256": "fee716ee670a5108b53b15388f766a9823e46957f0ab167aea9923c000bd5a8a",
+  "trace_results": {
+    "initial": {
+      "npu_matmul_kernel_events": 2,
+      "csv_matches_trace": true,
+      "events": 115,
+      "hardware_process_ids": [
+        4292955552
+      ],
+      "kernel_examples": [
+        {
+          "name": "aclnnMatmul_MatMulCommon_MatMulV2",
+          "pid": 4292955552,
+          "tid": 46,
+          "ts": "1794286843088170.219",
+          "dur": 4.06,
+          "ph": "X",
+          "args": {
+            "Model Id": 4294967295,
+            "Task Type": "AI_CORE",
+            "Physic Stream Id": 46,
+            "Task Id": 4,
+            "Batch Id": 0,
+            "Subtask Id": 4294967295,
+            "connection_id": 13
+          }
+        },
+        {
+          "name": "aclnnMatmul_MatMulCommon_MatMulV2",
+          "pid": 4292955552,
+          "tid": 46,
+          "ts": "1794286843088634.697",
+          "dur": 4.341,
+          "ph": "X",
+          "args": {
+            "Model Id": 4294967295,
+            "Task Type": "AI_CORE",
+            "Physic Stream Id": 46,
+            "Task Id": 5,
+            "Batch Id": 0,
+            "Subtask Id": 4294967295,
+            "connection_id": 23
+          }
+        }
+      ],
+      "csv_kernel_rows": [
+        {
+          "Step Id": "1",
+          "Device_id": "0",
+          "Model ID": "4294967295",
+          "Task ID": "4",
+          "Stream ID": "46",
+          "Name": "aclnnMatmul_MatMulCommon_MatMulV2",
+          "Type": "MatMulV2",
+          "OP State": "dynamic",
+          "Accelerator Core": "AI_CORE",
+          "Start Time(us)": "1794286843088170.219\t",
+          "Duration(us)": "4.060",
+          "Wait Time(us)": "0",
+          "Block Num": "4",
+          "Mix Block Num": "0",
+          "HF32 Eligible": "NO",
+          "Input Shapes": "\"64,64;64,64\"",
+          "Input Data Types": "FLOAT;FLOAT",
+          "Input Formats": "ND;ND",
+          "Output Shapes": "\"64,64\"",
+          "Output Data Types": "FLOAT",
+          "Output Formats": "ND",
+          "Context ID": "N/A"
+        },
+        {
+          "Step Id": "2",
+          "Device_id": "0",
+          "Model ID": "4294967295",
+          "Task ID": "5",
+          "Stream ID": "46",
+          "Name": "aclnnMatmul_MatMulCommon_MatMulV2",
+          "Type": "MatMulV2",
+          "OP State": "dynamic",
+          "Accelerator Core": "AI_CORE",
+          "Start Time(us)": "1794286843088634.697\t",
+          "Duration(us)": "4.341",
+          "Wait Time(us)": "460.440000",
+          "Block Num": "4",
+          "Mix Block Num": "0",
+          "HF32 Eligible": "NO",
+          "Input Shapes": "\"64,64;64,64\"",
+          "Input Data Types": "FLOAT;FLOAT",
+          "Input Formats": "ND;ND",
+          "Output Shapes": "\"64,64\"",
+          "Output Data Types": "FLOAT",
+          "Output Formats": "ND",
+          "Context ID": "N/A"
+        }
+      ]
+    },
+    "restart": {
+      "npu_matmul_kernel_events": 2,
+      "csv_matches_trace": true,
+      "events": 115,
+      "hardware_process_ids": [
+        4292955552
+      ],
+      "kernel_examples": [
+        {
+          "name": "aclnnMatmul_MatMulCommon_MatMulV2",
+          "pid": 4292955552,
+          "tid": 46,
+          "ts": "1794286847744962.889",
+          "dur": 1.6,
+          "ph": "X",
+          "args": {
+            "Model Id": 4294967295,
+            "Task Type": "AI_CORE",
+            "Physic Stream Id": 46,
+            "Task Id": 8,
+            "Batch Id": 0,
+            "Subtask Id": 4294967295,
+            "connection_id": 13
+          }
+        },
+        {
+          "name": "aclnnMatmul_MatMulCommon_MatMulV2",
+          "pid": 4292955552,
+          "tid": 46,
+          "ts": "1794286847745507.810",
+          "dur": 1.541,
+          "ph": "X",
+          "args": {
+            "Model Id": 4294967295,
+            "Task Type": "AI_CORE",
+            "Physic Stream Id": 46,
+            "Task Id": 9,
+            "Batch Id": 0,
+            "Subtask Id": 4294967295,
+            "connection_id": 23
+          }
+        }
+      ],
+      "csv_kernel_rows": [
+        {
+          "Step Id": "1",
+          "Device_id": "0",
+          "Model ID": "4294967295",
+          "Task ID": "8",
+          "Stream ID": "46",
+          "Name": "aclnnMatmul_MatMulCommon_MatMulV2",
+          "Type": "MatMulV2",
+          "OP State": "dynamic",
+          "Accelerator Core": "AI_CORE",
+          "Start Time(us)": "1794286847744962.889\t",
+          "Duration(us)": "1.600",
+          "Wait Time(us)": "0",
+          "Block Num": "4",
+          "Mix Block Num": "0",
+          "HF32 Eligible": "NO",
+          "Input Shapes": "\"64,64;64,64\"",
+          "Input Data Types": "FLOAT;FLOAT",
+          "Input Formats": "ND;ND",
+          "Output Shapes": "\"64,64\"",
+          "Output Data Types": "FLOAT",
+          "Output Formats": "ND",
+          "Context ID": "N/A"
+        },
+        {
+          "Step Id": "2",
+          "Device_id": "0",
+          "Model ID": "4294967295",
+          "Task ID": "9",
+          "Stream ID": "46",
+          "Name": "aclnnMatmul_MatMulCommon_MatMulV2",
+          "Type": "MatMulV2",
+          "OP State": "dynamic",
+          "Accelerator Core": "AI_CORE",
+          "Start Time(us)": "1794286847745507.810\t",
+          "Duration(us)": "1.541",
+          "Wait Time(us)": "543.150000",
+          "Block Num": "4",
+          "Mix Block Num": "0",
+          "HF32 Eligible": "NO",
+          "Input Shapes": "\"64,64;64,64\"",
+          "Input Data Types": "FLOAT;FLOAT",
+          "Input Formats": "ND;ND",
+          "Output Shapes": "\"64,64\"",
+          "Output Data Types": "FLOAT",
+          "Output Formats": "ND",
+          "Context ID": "N/A"
+        }
+      ]
+    }
+  },
+  "recovery_regular_files": 176,
+  "recovery_mapped_files": 24,
+  "all_mapped_raw_hashes_match": true,
+  "python_3_11_grammar_pass": true,
+  "torch_imported": false,
+  "torch_npu_imported": false,
+  "device_execution": false
+}

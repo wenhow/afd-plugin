@@ -1,0 +1,30 @@
+{
+  "scope": "actual profiler session / controlled NPU matmul; no native runner",
+  "remote": "/mnt/workspace/tmp/afd-c0-20261104.hVgsIf/c7-profiler-20261110-tul5nq1j",
+  "success": false,
+  "device_probe_started": true,
+  "device": 0,
+  "role_rank": 0,
+  "outer_timed_out": false,
+  "outer_killed_owned_pids": [],
+  "snapshot_files_match": true,
+  "installed_source_files_match": true,
+  "idle_boards_before": 8,
+  "command": [
+    "/mnt/workspace/code/.venvs/afd-v030-dsv41-c0/bin/python",
+    "-B",
+    "/mnt/workspace/tmp/afd-c0-20261104.hVgsIf/c7-profiler-20261110-tul5nq1j/snapshot/tests/npu/afd_profiler_probe.py",
+    "--device",
+    "0",
+    "--role-rank",
+    "0",
+    "--timeout",
+    "300",
+    "--output-dir",
+    "/mnt/workspace/tmp/afd-c0-20261104.hVgsIf/c7-profiler-20261110-tul5nq1j/results/probe"
+  ],
+  "returncode": 1,
+  "profiler_component_passed": false,
+  "idle_boards_after": 0,
+  "elapsed_seconds": 44.18358483724296
+}

@@ -1,0 +1,24 @@
+{
+  "scope": "Independent raw-byte check of controlled A3 NPU profiler components",
+  "source_pins_match": {
+    "tests/npu/afd_profiler_probe.py": "d85e58662c08a813f39e2c5a0c9af8e2a990710c19b5a162831640ca532cacf9",
+    "openspec/changes/afd-hccl-full-parity/evidence/run_a3_profiler.py": "a86df96db3c004e929f78a429e0c2ec6c93186c263a04bf0db5be0e536b42a0b",
+    "afd_plugin/compat/npu/profiler.py": "4dcd664757a788f26efbdf1a3dfaf8acbf7a0a007f26bd2e53c1b6a896d1c117"
+  },
+  "actual_hardware_matmul_events_by_cycle": {
+    "attention-initial": 2,
+    "attention-restart": 2,
+    "ffn-initial": 2,
+    "ffn-restart": 2
+  },
+  "archive_members_verified": 339,
+  "mapped_raw_files_verified": 35,
+  "old_failed_attempt_preserved": true,
+  "not_accepted": [
+    "native model runners",
+    "HTTP or executor RPC",
+    "HCCL",
+    "A5 portability",
+    "full checkpoint or performance"
+  ]
+}

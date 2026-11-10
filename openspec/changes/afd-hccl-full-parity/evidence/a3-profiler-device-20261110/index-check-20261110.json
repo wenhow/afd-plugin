@@ -1,0 +1,12 @@
+{
+  "scope": "Local read-only raw hash verification, no device execution",
+  "raw_integrity": {
+    "role-owner-001": true,
+    "role-owner-002": true
+  },
+  "all_match": true,
+  "raw_files": 70,
+  "complete_archives_match": true,
+  "original_001_success": false,
+  "fresh_002_success": true
+}

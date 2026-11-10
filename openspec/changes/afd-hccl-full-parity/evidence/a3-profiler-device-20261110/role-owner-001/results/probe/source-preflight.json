@@ -1,0 +1,15 @@
+{
+  "torch_imported": false,
+  "torch_npu_imported": false,
+  "torch_npu_version": "2.10.0.post4",
+  "installed_profiler_path": "/mnt/workspace/code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/torch_npu/profiler/profiler.py",
+  "installed_profiler_sha256": "1a04902572383b74a401449e73929b2c4ce728d6c81bb59341876b03c7a82168",
+  "trace_handler_default_async_mode": false,
+  "trace_export_boundary": "installed handler calls analyse(async_mode=False); only actual parsed trace files qualify export, absence remains pending",
+  "source_sha256": {
+    "tests/npu/afd_profiler_probe.py": "2bed9af7772764447222464478bc542c80a03f0946c1cfad28487b198d8ff57d",
+    "afd_plugin/compat/npu/profiler.py": "4dcd664757a788f26efbdf1a3dfaf8acbf7a0a007f26bd2e53c1b6a896d1c117",
+    "tests/npu/hccl_eager_backend_probe.py": "86ddf59910776a8b50b3dc76b5e56484f4d207e9eff9e8a2d375f271fdf91b34",
+    "tests/npu/hccl_staged_probe.py": "96112b8192e2f1ff1a186b46f3f4d2f71910e1c15fd5ea4c7fe9821c744b796d"
+  }
+}

@@ -1,0 +1,7 @@
+[W1110 13:29:51.443985775 NPUCachingAllocator.cpp:202] Warning: The current CANN and HDK(driver) versions require processing for 32 padding size, with memory allocation. (function operator())
+[2026-11-10 13:29:52] [INFO] [2787] profiler.py: Start parsing profiling data in sync mode at: /mnt/workspace/tmp/afd-c0-20261104.hVgsIf/c7-profiler-20261110-sggvz8ge/results/probe/attention/traces/attention_rank0_2629_20261110132952118_ascend_pt
+|/-[2026-11-10 13:29:54] [INFO] [2796] profiler.py: CANN profiling data parsed in a total time of 0:00:02.020169
+\[2026-11-10 13:29:55] [INFO] [2787] profiler.py: All profiling data parsed in a total time of 0:00:03.075336
+[2026-11-10 13:29:57] [INFO] [3100] profiler.py: Start parsing profiling data in sync mode at: /mnt/workspace/tmp/afd-c0-20261104.hVgsIf/c7-profiler-20261110-sggvz8ge/results/probe/attention/traces/restart_attention_rank0_2629_20261110132956787_ascend_pt
+|/-[2026-11-10 13:29:59] [INFO] [3109] profiler.py: CANN profiling data parsed in a total time of 0:00:02.020893
+\[2026-11-10 13:30:00] [INFO] [3100] profiler.py: All profiling data parsed in a total time of 0:00:03.088408

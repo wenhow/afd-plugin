@@ -1,0 +1,548 @@
+{
+  "scope": "Independent immutable profiler attempts; never combine original failed attempt with successful fresh run",
+  "runs": {
+    "role-owner-001": {
+      "scope": "Actual plugin role-profiler session and controlled matmul; no native runner/RPC/model acceptance",
+      "identity_manifest_sha256": "80b8fb29bc87e4f4622c62bbd50a5e4655f41dc24aa78e95afec95f61fdc90e4",
+      "head_commit": "5aebfc5e954d20da18bff754a2008c44bd7e31bc",
+      "source_sha256": {
+        "tests/npu/afd_profiler_probe.py": "2bed9af7772764447222464478bc542c80a03f0946c1cfad28487b198d8ff57d",
+        "openspec/changes/afd-hccl-full-parity/evidence/run_a3_profiler.py": "ad1050550381625d95247a3fab3ac07d0b3ce2f9d76cffc34b3d3d24265854e7",
+        "afd_plugin/compat/npu/profiler.py": "4dcd664757a788f26efbdf1a3dfaf8acbf7a0a007f26bd2e53c1b6a896d1c117"
+      },
+      "source_current_matches": {
+        "tests/npu/afd_profiler_probe.py": false,
+        "openspec/changes/afd-hccl-full-parity/evidence/run_a3_profiler.py": false,
+        "afd_plugin/compat/npu/profiler.py": true
+      },
+      "installed_source_expected": {
+        "torch_npu/profiler/profiler.py": "1a04902572383b74a401449e73929b2c4ce728d6c81bb59341876b03c7a82168"
+      },
+      "summary": {
+        "scope": "actual profiler session / controlled NPU matmul; no native runner",
+        "remote": "/mnt/workspace/tmp/afd-c0-20261104.hVgsIf/c7-profiler-20261110-tul5nq1j",
+        "success": false,
+        "device_probe_started": true,
+        "device": 0,
+        "role_rank": 0,
+        "outer_timed_out": false,
+        "outer_killed_owned_pids": [],
+        "snapshot_files_match": true,
+        "installed_source_files_match": true,
+        "idle_boards_before": 8,
+        "command": [
+          "/mnt/workspace/code/.venvs/afd-v030-dsv41-c0/bin/python",
+          "-B",
+          "/mnt/workspace/tmp/afd-c0-20261104.hVgsIf/c7-profiler-20261110-tul5nq1j/snapshot/tests/npu/afd_profiler_probe.py",
+          "--device",
+          "0",
+          "--role-rank",
+          "0",
+          "--timeout",
+          "300",
+          "--output-dir",
+          "/mnt/workspace/tmp/afd-c0-20261104.hVgsIf/c7-profiler-20261110-tul5nq1j/results/probe"
+        ],
+        "returncode": 1,
+        "profiler_component_passed": false,
+        "idle_boards_after": 0,
+        "elapsed_seconds": 44.18358483724296
+      },
+      "probe_original_success": false,
+      "executed_roles": [
+        "attention"
+      ],
+      "raw_artifact_sha256": {
+        "identity.json": "1bfdaa303bc75d711ebba9c8760fcb8147761aed5a8b2767901d00ce248230d7",
+        "offline-detector-recovery-002.json": "a9ec8b7658ebc14181c8224bfc4188b08821c0f58bbda001a0a8eefc9aadb18b",
+        "post-retrieval-readonly.log": "ad60052e75333cfc2e0acea77ced6e5b0e9057fa9aa87a8496ba4e9d72c4f48e",
+        "post-retrieval-with-cann-readonly.log": "7aab69f5a575f954f6f8d553f8949f34aafdde96418c7b213c82b53743e59868",
+        "remote-run.log": "387326a0a4cfc827dbdf5f3c59048b72c7f45a551130c82827223ada21a41a0c",
+        "results/effective-env.json": "cea096db330337423af73f7e15b1000295b74788a18659c801c6fb09920f6937",
+        "results/installed-source-identity.json": "4d1c45797470973a414b5bb44fe7fc220be50693552fe91a97cd438eae5e6526",
+        "results/npu-after.log": "daf5722b8e182cbb3cca94e2bf37c72c231f06cb166cdacdd96b02d002474090",
+        "results/npu-before.log": "4c22cddbe5f4a4e7d4d36d2d8d3b76ab5ce3db4c2f478e4caebfa7213b1e4451",
+        "results/owned-processes.json": "36b42c4df033e9751c8cac9e6a93f7e7b71e292e84fa1befbdf693f9d23a8a6a",
+        "results/probe/attention/role.json": "8c895176b85c5a47daea94476e13330d39e1c7f15eaf9955e394050e861c8a2f",
+        "results/probe/attention.log": "4151e9d0c92bca9a8dd85df80d2b08a2793cdfb60c375d070908f94c5bbf3df3",
+        "results/probe/npu-after.txt": "61bc363df96ed7bd9e4478b7bc40802d17f8647f57d017cf7bb19e6b8f367236",
+        "results/probe/npu-attention.txt": "4118030c78bfaf3300862d7ea99ac92c967db96411fd4e6fecea2eadc155960f",
+        "results/probe/npu-before.txt": "ac0a7a51a76ff67ff27f561e7d40deadda98cd5673dfe78917cb83cff994481c",
+        "results/probe/result.json": "afa41fadf6809ee744612867fe67d6a7eddfa5873c56e9abf9c79f412d7402a6",
+        "results/probe/source-preflight.json": "1d0c59e9b08c751a75a874c41d3215cb19261b221e5ddb03b4e35104d392879c",
+        "results/probe.log": "afa41fadf6809ee744612867fe67d6a7eddfa5873c56e9abf9c79f412d7402a6",
+        "results/source-check.json": "7a209434d225f3de69b0bf635cccd85ef2dfe47440d4aabaf7425dd8bbbcdf09",
+        "results/standalone-no-torch-preflight.json": "5f542e23eb08e7520a088c9862a081ef2517ad0b58ecd3da1acb3c769dcd9afc",
+        "results/summary.json": "7dc496326497daa6c948dcdc200bd6fb423a26f03a1bb0405fc8a82440f92d53",
+        "retrieval-recovery.json": "c0512e63691a7df59af7540eb9ff58603aeeac30dc051e6a7999ed4f93f7d8e4",
+        "trace-evidence/initial-kernel_details.csv": "480c73099e7e9e9dcf69c8958c808a8b215e83915af9c9ffe8b7aa36678a5d02",
+        "trace-evidence/initial-profiler_info.json": "4c6a617b322d532772a5d01c4fa60e559cf43e88e3ec6f8877b95b5b5b229a96",
+        "trace-evidence/initial-profiler_metadata.json": "d37b01632d666b03e05338cecbbbe36b6c022916dff00ccdbdc09df2a5dcd864",
+        "trace-evidence/initial-trace_view.json": "c9b2a0f35c3c60204ef0a0c6e28edac02c387c4b9e9372433f57d934efe221ab",
+        "trace-evidence/restart-kernel_details.csv": "175441553584a4f77fc024f6b17bea393bf87af82559a3049762a50ec68cc0cb",
+        "trace-evidence/restart-profiler_info.json": "108c7777873a1d9de0593ef48e4f9cf9b817f42753ebee7617e90765a15c9164",
+        "trace-evidence/restart-profiler_metadata.json": "439fcc43b4552429c9446e6db813fe13111dc535bc02916aacb89f3d78e48481",
+        "trace-evidence/restart-trace_view.json": "b5bd488bc4a5ae3d49836561bf0ee1f0ae9ab0ac6b2d84e0b44fd330aba1a420"
+      },
+      "closure": "Original false/pending unchanged; offline trace detector/csv interpretation and retained-CANN eight-idle postcheck are independent facts. FFN unexecuted.",
+      "preserved_complete_archive": {
+        "path": ".tmp/profiler-role-owner-001-results.tar.gz",
+        "sha256": "fee716ee670a5108b53b15388f766a9823e46957f0ab167aea9923c000bd5a8a",
+        "bytes": 79564
+      }
+    },
+    "role-owner-002": {
+      "scope": "Actual plugin role-profiler session and controlled matmul; no native runner/RPC/model acceptance",
+      "identity_manifest_sha256": "d971881105abb8a8d5e950da362a4f3820e82058499ded3c9a282c2db81b933c",
+      "head_commit": "5aebfc5e954d20da18bff754a2008c44bd7e31bc",
+      "source_sha256": {
+        "tests/npu/afd_profiler_probe.py": "d85e58662c08a813f39e2c5a0c9af8e2a990710c19b5a162831640ca532cacf9",
+        "openspec/changes/afd-hccl-full-parity/evidence/run_a3_profiler.py": "a86df96db3c004e929f78a429e0c2ec6c93186c263a04bf0db5be0e536b42a0b",
+        "afd_plugin/compat/npu/profiler.py": "4dcd664757a788f26efbdf1a3dfaf8acbf7a0a007f26bd2e53c1b6a896d1c117"
+      },
+      "source_current_matches": {
+        "tests/npu/afd_profiler_probe.py": true,
+        "openspec/changes/afd-hccl-full-parity/evidence/run_a3_profiler.py": true,
+        "afd_plugin/compat/npu/profiler.py": true
+      },
+      "installed_source_expected": {
+        "torch_npu/profiler/profiler.py": "1a04902572383b74a401449e73929b2c4ce728d6c81bb59341876b03c7a82168"
+      },
+      "summary": {
+        "scope": "actual profiler session / controlled NPU matmul; no native runner",
+        "remote": "/mnt/workspace/tmp/afd-c0-20261104.hVgsIf/c7-profiler-20261110-sggvz8ge",
+        "success": true,
+        "device_probe_started": true,
+        "device": 0,
+        "role_rank": 0,
+        "outer_timed_out": false,
+        "outer_killed_owned_pids": [],
+        "snapshot_files_match": true,
+        "installed_source_files_match": true,
+        "idle_boards_before": 8,
+        "command": [
+          "/mnt/workspace/code/.venvs/afd-v030-dsv41-c0/bin/python",
+          "-B",
+          "/mnt/workspace/tmp/afd-c0-20261104.hVgsIf/c7-profiler-20261110-sggvz8ge/snapshot/tests/npu/afd_profiler_probe.py",
+          "--device",
+          "0",
+          "--role-rank",
+          "0",
+          "--timeout",
+          "300",
+          "--output-dir",
+          "/mnt/workspace/tmp/afd-c0-20261104.hVgsIf/c7-profiler-20261110-sggvz8ge/results/probe"
+        ],
+        "returncode": 0,
+        "profiler_component_passed": true,
+        "idle_boards_after": 8,
+        "elapsed_seconds": 66.39699542615563
+      },
+      "probe_original_success": true,
+      "executed_roles": [
+        "attention",
+        "ffn"
+      ],
+      "raw_artifact_sha256": {
+        "delivery.json": "99a5f93df69591cdad1c5bc7445fab6e7bbce2d0fcc2160531c15fe6e40e8a26",
+        "identity.json": "53e3c0364451d7a71db7aaf5b9708e58d38614a28b6fd7d5f796fccf62eb43bb",
+        "independent-verification.json": "8d645b2e9ceef1d6bee7736c0e7df8388b4d791ce0abd84bd71a0151b1fb36c1",
+        "remote-run.log": "675f7376147bfe4ef17e3d150eb06e161647596c507c8dcb5669255075fcc193",
+        "results/effective-env.json": "a25530c1bda99ff9eedfbabd6ebd159f218a41988796ef1e6f1f6db8602c951d",
+        "results/installed-source-identity.json": "4d1c45797470973a414b5bb44fe7fc220be50693552fe91a97cd438eae5e6526",
+        "results/npu-after.log": "6e8dc54611c2c34008bac454e2a7a365503a36d6975014e442ff59235e5f22a5",
+        "results/npu-before.log": "2d3c1669424a97e77b74ee29b5c32ac45df7e1162567df537391eaebe94324b4",
+        "results/owned-processes.json": "c66b83ce0a9139c07f932a9e98b1533cb6240fdbb42a5d68479d4d06d1364f1d",
+        "results/probe/attention/role.json": "3454e1fb1e35f30803a769a39260072e3fc391c2430a0ec56d1712f1bb993ab3",
+        "results/probe/attention.log": "47e16d969d650a1c071f17ca6f24d64bf9a575784bfb1a534b3cf939259b6196",
+        "results/probe/ffn/role.json": "ee30b704af91a35bdf5992f51d4b261091434e6b91fb61f21c8a6e75ad2ac6bc",
+        "results/probe/ffn.log": "6781ec804f2b2f1e40d3aaa9180352187cb7627c345811e84ae36670af8fa05c",
+        "results/probe/npu-after.txt": "ee1aea3cf46c0533c5d3ed78dbba5d328617ce380fb2a5032f1fb05de10e2dc3",
+        "results/probe/npu-attention.txt": "a9d529366154dc5bde6d1dfd205919e96651a5b606a3ec893f53a172fff1e7ae",
+        "results/probe/npu-before.txt": "de5b7a24bbed6b4849a2cb0dab6d4d0ab03627647c4a4fe7f83740d501b8ea9f",
+        "results/probe/npu-ffn.txt": "a313ccb1689f1f9e1f3f94dcf91ffc00e31b27a943bce39d7628c14f5d1ab5c2",
+        "results/probe/result.json": "c50eb20cdec4b6322a2b1ff90e7aa5f489f0de9ae582c54240a7a9238f038a06",
+        "results/probe/source-preflight.json": "046eb673131bea9ddf5dd602782d364ba14fc226144f903a22c79c8b7c8ecb62",
+        "results/probe.log": "c50eb20cdec4b6322a2b1ff90e7aa5f489f0de9ae582c54240a7a9238f038a06",
+        "results/source-check.json": "7a209434d225f3de69b0bf635cccd85ef2dfe47440d4aabaf7425dd8bbbcdf09",
+        "results/standalone-no-torch-preflight.json": "5f542e23eb08e7520a088c9862a081ef2517ad0b58ecd3da1acb3c769dcd9afc",
+        "results/summary.json": "6c7521c79e4b6dc3f665a8a4522c1cb646f1bbdc15f1c79de93f639bd66a6138",
+        "retrieval.json": "b52a9129a2c2d1b499d8e2160bd76d07a9b6849fb9392b08b494e1ae22a36940",
+        "trace-evidence/attention-initial-kernel_details.csv": "456dcfdc3820e34215c50d0e53bf24e4f2e9181ba62d2e5dcc0a03235d4c824c",
+        "trace-evidence/attention-initial-profiler_info.json": "114371954445281627898951653dec2a9780e78154c12915715015967b046eb3",
+        "trace-evidence/attention-initial-profiler_metadata.json": "8a52fe25b9acaf10f6e743a5c6f00439834e0b10d6259d49746961acca3feddd",
+        "trace-evidence/attention-initial-trace_view.json": "c01c33972f4b1b67af84b8c7ac9c59af0fbabd0b3c7f05e528eecf35c987b530",
+        "trace-evidence/attention-restart-kernel_details.csv": "97e3e73e6d04dbd5422c3451aa7716fae1e1bec467fd0106677e1a52098a09c1",
+        "trace-evidence/attention-restart-profiler_info.json": "673a9c1101137c964b098db16ca8e209c94ea50e9fed6917c29c13ea2497072c",
+        "trace-evidence/attention-restart-profiler_metadata.json": "da2bfc8ef75ab15de62008213743727406565547d32cb7c4d13ec23c7e79ec90",
+        "trace-evidence/attention-restart-trace_view.json": "11c9c7439c52ca494a65018f835c8a9b05d7c9e7c4b6f152581991ae0f67861b",
+        "trace-evidence/ffn-initial-kernel_details.csv": "9acce484e01f0a32811d14ac52ea82ffb613d0a09ecc24fe34a8111a0d6ed728",
+        "trace-evidence/ffn-initial-profiler_info.json": "6e7ba5ccab687a0d2d7efa17ea656f395bdb690854da62eb6c898149bef20dbf",
+        "trace-evidence/ffn-initial-profiler_metadata.json": "c15bd1f62d120aa17e7fe8178a80f655910bab254c8f384f3e3b6bbbcd39da1d",
+        "trace-evidence/ffn-initial-trace_view.json": "053368bd9c99a446e5764bab292bb9de1a19450986d0e47508f3ef02ce85966c",
+        "trace-evidence/ffn-restart-kernel_details.csv": "0a55cbadccf9b26a674ea752bd6d2f67b12943a3a2052696e2f7cb1f5c69639a",
+        "trace-evidence/ffn-restart-profiler_info.json": "79d714da7d9cd2a6d4ded2f3102a3c315d52a8e4089cb038f8cf705886dbfc7c",
+        "trace-evidence/ffn-restart-profiler_metadata.json": "5f2b74fc7fae1ebe98aa1bb89081309a1e63eda0c40a773a7f88022a74ebcfd5",
+        "trace-evidence/ffn-restart-trace_view.json": "7f5750c16e5de7b1fa47d8dffe65529fc5acb5f9fa88a2cd3e8d48e0e0c055fc"
+      },
+      "verification": {
+        "scope": "Independent raw verification of real role-profiler session and controlled NPU matmul only",
+        "head_commit": "5aebfc5e954d20da18bff754a2008c44bd7e31bc",
+        "snapshot_manifest_sha256": "d971881105abb8a8d5e950da362a4f3820e82058499ded3c9a282c2db81b933c",
+        "probe_sha256": "d85e58662c08a813f39e2c5a0c9af8e2a990710c19b5a162831640ca532cacf9",
+        "harness_sha256": "a86df96db3c004e929f78a429e0c2ec6c93186c263a04bf0db5be0e536b42a0b",
+        "plugin_profiler_sha256": "4dcd664757a788f26efbdf1a3dfaf8acbf7a0a007f26bd2e53c1b6a896d1c117",
+        "installed_source_expected": {
+          "torch_npu/profiler/profiler.py": "1a04902572383b74a401449e73929b2c4ce728d6c81bb59341876b03c7a82168"
+        },
+        "summary_success": true,
+        "idle_boards_before": 8,
+        "idle_boards_after": 8,
+        "timeout_or_kill": false,
+        "roles": {
+          "attention": {
+            "returncode": 0,
+            "owner_thread_id": 281472882477280,
+            "management_thread_id": 281472882477280,
+            "owner_is_management": true,
+            "matmul_exact_checks": 7,
+            "profile_steps": 6,
+            "closed": true,
+            "failed": false,
+            "trace_state": "complete",
+            "trace_cycles": [
+              {
+                "original_path": "attention_rank0_2629_20261110132952118_ascend_pt/ASCEND_PROFILER_OUTPUT/trace_view.json",
+                "events": 115,
+                "hardware_process_ids": [
+                  2692512
+                ],
+                "matmul_device_events": 2,
+                "csv_matches_trace": true
+              },
+              {
+                "original_path": "restart_attention_rank0_2629_20261110132956787_ascend_pt/ASCEND_PROFILER_OUTPUT/trace_view.json",
+                "events": 115,
+                "hardware_process_ids": [
+                  2692512
+                ],
+                "matmul_device_events": 2,
+                "csv_matches_trace": true
+              }
+            ],
+            "status_records": [
+              {
+                "event": "deferred-before-owner",
+                "caller_thread_id": 281472882477280,
+                "enabled": true,
+                "selected": true,
+                "requested": true,
+                "applied": false,
+                "pending": true,
+                "request_id": 0,
+                "applied_request_id": null,
+                "steps": 0,
+                "owner_thread_id": null,
+                "profile_prefix": null,
+                "closed": false,
+                "failed": false,
+                "error": null
+              },
+              {
+                "event": "initial-running",
+                "caller_thread_id": 281472882477280,
+                "enabled": true,
+                "selected": true,
+                "requested": true,
+                "applied": true,
+                "pending": false,
+                "request_id": 0,
+                "applied_request_id": 0,
+                "steps": 3,
+                "owner_thread_id": 281472882477280,
+                "profile_prefix": null,
+                "closed": false,
+                "failed": false,
+                "error": null
+              },
+              {
+                "event": "stop-requested",
+                "caller_thread_id": 281472882477280,
+                "enabled": true,
+                "selected": true,
+                "requested": false,
+                "applied": true,
+                "pending": true,
+                "request_id": 1,
+                "applied_request_id": 0,
+                "steps": 3,
+                "owner_thread_id": 281472882477280,
+                "profile_prefix": null,
+                "closed": false,
+                "failed": false,
+                "error": null
+              },
+              {
+                "event": "stop-applied",
+                "caller_thread_id": 281472882477280,
+                "enabled": true,
+                "selected": true,
+                "requested": false,
+                "applied": false,
+                "pending": false,
+                "request_id": 1,
+                "applied_request_id": 1,
+                "steps": 3,
+                "owner_thread_id": 281472882477280,
+                "profile_prefix": null,
+                "closed": false,
+                "failed": false,
+                "error": null
+              },
+              {
+                "event": "restart-requested",
+                "caller_thread_id": 281472882477280,
+                "enabled": true,
+                "selected": true,
+                "requested": true,
+                "applied": false,
+                "pending": true,
+                "request_id": 2,
+                "applied_request_id": 1,
+                "steps": 3,
+                "owner_thread_id": 281472882477280,
+                "profile_prefix": "restart",
+                "closed": false,
+                "failed": false,
+                "error": null
+              },
+              {
+                "event": "restart-running",
+                "caller_thread_id": 281472882477280,
+                "enabled": true,
+                "selected": true,
+                "requested": true,
+                "applied": true,
+                "pending": false,
+                "request_id": 2,
+                "applied_request_id": 2,
+                "steps": 6,
+                "owner_thread_id": 281472882477280,
+                "profile_prefix": "restart",
+                "closed": false,
+                "failed": false,
+                "error": null
+              },
+              {
+                "event": "owner-finished",
+                "caller_thread_id": 281472882477280,
+                "enabled": true,
+                "selected": true,
+                "requested": false,
+                "applied": false,
+                "pending": false,
+                "request_id": 2,
+                "applied_request_id": 2,
+                "steps": 6,
+                "owner_thread_id": 281472882477280,
+                "profile_prefix": "restart",
+                "closed": true,
+                "failed": false,
+                "error": null
+              }
+            ]
+          },
+          "ffn": {
+            "returncode": 0,
+            "owner_thread_id": 281473072271744,
+            "management_thread_id": 281473108404448,
+            "owner_is_management": false,
+            "matmul_exact_checks": 7,
+            "profile_steps": 6,
+            "closed": true,
+            "failed": false,
+            "trace_state": "complete",
+            "trace_cycles": [
+              {
+                "original_path": "ffn_rank0_3380_20261110133015634_ascend_pt/ASCEND_PROFILER_OUTPUT/trace_view.json",
+                "events": 115,
+                "hardware_process_ids": [
+                  3461536
+                ],
+                "matmul_device_events": 2,
+                "csv_matches_trace": true
+              },
+              {
+                "original_path": "restart_ffn_rank0_3380_20261110133019347_ascend_pt/ASCEND_PROFILER_OUTPUT/trace_view.json",
+                "events": 115,
+                "hardware_process_ids": [
+                  3461536
+                ],
+                "matmul_device_events": 2,
+                "csv_matches_trace": true
+              }
+            ],
+            "status_records": [
+              {
+                "event": "deferred-before-owner",
+                "caller_thread_id": 281473108404448,
+                "enabled": true,
+                "selected": true,
+                "requested": true,
+                "applied": false,
+                "pending": true,
+                "request_id": 0,
+                "applied_request_id": null,
+                "steps": 0,
+                "owner_thread_id": null,
+                "profile_prefix": null,
+                "closed": false,
+                "failed": false,
+                "error": null
+              },
+              {
+                "event": "owner-awaiting-next-command",
+                "caller_thread_id": 281473108404448,
+                "enabled": true,
+                "selected": true,
+                "requested": true,
+                "applied": true,
+                "pending": false,
+                "request_id": 0,
+                "applied_request_id": 0,
+                "steps": 3,
+                "owner_thread_id": 281473072271744,
+                "profile_prefix": null,
+                "closed": false,
+                "failed": false,
+                "error": null
+              },
+              {
+                "event": "queued-stop-pending",
+                "caller_thread_id": 281473108404448,
+                "enabled": true,
+                "selected": true,
+                "requested": false,
+                "applied": true,
+                "pending": true,
+                "request_id": 1,
+                "applied_request_id": 0,
+                "steps": 3,
+                "owner_thread_id": 281473072271744,
+                "profile_prefix": null,
+                "closed": false,
+                "failed": false,
+                "error": null
+              },
+              {
+                "event": "queued-stop-applied",
+                "caller_thread_id": 281473108404448,
+                "enabled": true,
+                "selected": true,
+                "requested": false,
+                "applied": false,
+                "pending": false,
+                "request_id": 1,
+                "applied_request_id": 1,
+                "steps": 3,
+                "owner_thread_id": 281473072271744,
+                "profile_prefix": null,
+                "closed": false,
+                "failed": false,
+                "error": null
+              },
+              {
+                "event": "queued-restart-pending",
+                "caller_thread_id": 281473108404448,
+                "enabled": true,
+                "selected": true,
+                "requested": true,
+                "applied": false,
+                "pending": true,
+                "request_id": 2,
+                "applied_request_id": 1,
+                "steps": 3,
+                "owner_thread_id": 281473072271744,
+                "profile_prefix": "restart",
+                "closed": false,
+                "failed": false,
+                "error": null
+              },
+              {
+                "event": "queued-restart-applied",
+                "caller_thread_id": 281473108404448,
+                "enabled": true,
+                "selected": true,
+                "requested": true,
+                "applied": true,
+                "pending": false,
+                "request_id": 2,
+                "applied_request_id": 2,
+                "steps": 6,
+                "owner_thread_id": 281473072271744,
+                "profile_prefix": "restart",
+                "closed": false,
+                "failed": false,
+                "error": null
+              },
+              {
+                "event": "owner-finished",
+                "caller_thread_id": 281473108404448,
+                "enabled": true,
+                "selected": true,
+                "requested": false,
+                "applied": false,
+                "pending": false,
+                "request_id": 2,
+                "applied_request_id": 2,
+                "steps": 6,
+                "owner_thread_id": 281473072271744,
+                "profile_prefix": "restart",
+                "closed": true,
+                "failed": false,
+                "error": null
+              }
+            ]
+          }
+        },
+        "archive_sha256": "f09c7cb7ad44546f02b78b5ea4af7398177020224ff865f3e0f206fbc5e559fe",
+        "archive_bytes": 156312,
+        "archive_regular_files": 339,
+        "mapped_raw_files": 35,
+        "all_archive_member_hashes_match": true,
+        "all_mapped_raw_hashes_match": true,
+        "not_accepted": [
+          "native A/F model runner or FFN service",
+          "HTTP/executor RPC",
+          "HCCL",
+          "HC/Engram/MoE",
+          "Graph",
+          "performance",
+          "global C++ profiler TLS semantics",
+          "A5 portability"
+        ]
+      },
+      "preserved_complete_archive": {
+        "path": ".tmp/profiler-role-owner-002-results.tar.gz",
+        "sha256": "f09c7cb7ad44546f02b78b5ea4af7398177020224ff865f3e0f206fbc5e559fe",
+        "bytes": 156312
+      }
+    }
+  },
+  "prepare_only": {
+    "archive-precheck-001": {
+      "identity": "archive-precheck-001/identity.json",
+      "identity_sha256": "0a10262faad97192aa6bfd3271fb322eff5f250dc4a7457235c2b6b35f451f00",
+      "device_execution": false
+    },
+    "archive-precheck-002": {
+      "identity": "archive-precheck-002/identity.json",
+      "identity_sha256": "fb3b740fd0a65e5de2dbeff5b6878a13de1b8c3e5a19e902b346a24f5aabab47",
+      "device_execution": false
+    }
+  },
+  "current_head": "2a609faf1197f0135bcaa205fdb279ad8b65c514",
+  "a5_portable": false,
+  "a5_requirement": "Collect and review installed torch_npu profiler source before using this A3-pinned probe",
+  "native_model_runner_or_full_model_acceptance": false
+}
