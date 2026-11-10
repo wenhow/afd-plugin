@@ -1,0 +1,591 @@
+{
+  "scope": "CPU module seams with actual installed dependencies; no device probe",
+  "remote": "/mnt/workspace/tmp/afd-c0-20261104.hVgsIf/c5-control-cpu-20261109-2ufdqx98",
+  "command": [
+    "/mnt/workspace/code/.venvs/afd-v030-dsv41-c0/bin/python",
+    "-B",
+    "-m",
+    "pytest",
+    "-o",
+    "addopts=",
+    "-q",
+    "-rs",
+    "--tb=short",
+    "-p",
+    "no:cacheprovider",
+    "-m",
+    "not npu and not gpu",
+    "--junitxml=/mnt/workspace/tmp/afd-c0-20261104.hVgsIf/c5-control-cpu-20261109-2ufdqx98/results/cpu.xml",
+    "tests/unit/connectors/npu/test_hccl_eager_pipeline.py",
+    "tests/unit/connectors/npu/test_hccl_staged_transport.py"
+  ],
+  "returncode": 1,
+  "source_files_match": true,
+  "snapshot_exclusions": [],
+  "device_probe_started": false,
+  "success": false
+}
+FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF.F...FFFFFF........................ [ 54%]
+.............................................................            [100%]
+=================================== FAILURES ===================================
+_ test_two_stage_parent_returns_independent_fp32_and_raw_ids_without_padding_rewrite[rows0-valid0-1] _
+tests/unit/connectors/npu/test_hccl_eager_pipeline.py:46: in test_two_stage_parent_returns_independent_fp32_and_raw_ids_without_padding_rewrite
+    attention, ffn = open_eager_pair(case)
+tests/unit/fakes/hccl_eager_pipeline.py:226: in open_eager_pair
+    case.attention.begin_forward(case.plan)
+afd_plugin/connectors/npu/hccl_staged_transport.py:832: in begin_forward
+    self._collect_replies("ACCEPT", plan)
+afd_plugin/connectors/npu/hccl_staged_transport.py:926: in _collect_replies
+    self._reject_peers(error)
+afd_plugin/connectors/npu/hccl_staged_transport.py:1287: in _reject_peers
+    raise RuntimeError(reason)
+E   RuntimeError: ACCEPT has missing or unexpected payload fields
+_ test_two_stage_parent_returns_independent_fp32_and_raw_ids_without_padding_rewrite[rows0-valid0-2] _
+tests/unit/connectors/npu/test_hccl_eager_pipeline.py:46: in test_two_stage_parent_returns_independent_fp32_and_raw_ids_without_padding_rewrite
+    attention, ffn = open_eager_pair(case)
+tests/unit/fakes/hccl_eager_pipeline.py:226: in open_eager_pair
+    case.attention.begin_forward(case.plan)
+afd_plugin/connectors/npu/hccl_staged_transport.py:832: in begin_forward
+    self._collect_replies("ACCEPT", plan)
+afd_plugin/connectors/npu/hccl_staged_transport.py:926: in _collect_replies
+    self._reject_peers(error)
+afd_plugin/connectors/npu/hccl_staged_transport.py:1287: in _reject_peers
+    raise RuntimeError(reason)
+E   RuntimeError: ACCEPT has missing or unexpected payload fields
+_ test_two_stage_parent_returns_independent_fp32_and_raw_ids_without_padding_rewrite[rows1-valid1-1] _
+tests/unit/connectors/npu/test_hccl_eager_pipeline.py:46: in test_two_stage_parent_returns_independent_fp32_and_raw_ids_without_padding_rewrite
+    attention, ffn = open_eager_pair(case)
+tests/unit/fakes/hccl_eager_pipeline.py:226: in open_eager_pair
+    case.attention.begin_forward(case.plan)
+afd_plugin/connectors/npu/hccl_staged_transport.py:832: in begin_forward
+    self._collect_replies("ACCEPT", plan)
+afd_plugin/connectors/npu/hccl_staged_transport.py:926: in _collect_replies
+    self._reject_peers(error)
+afd_plugin/connectors/npu/hccl_staged_transport.py:1287: in _reject_peers
+    raise RuntimeError(reason)
+E   RuntimeError: ACCEPT has missing or unexpected payload fields
+_ test_two_stage_parent_returns_independent_fp32_and_raw_ids_without_padding_rewrite[rows1-valid1-2] _
+tests/unit/connectors/npu/test_hccl_eager_pipeline.py:46: in test_two_stage_parent_returns_independent_fp32_and_raw_ids_without_padding_rewrite
+    attention, ffn = open_eager_pair(case)
+tests/unit/fakes/hccl_eager_pipeline.py:226: in open_eager_pair
+    case.attention.begin_forward(case.plan)
+afd_plugin/connectors/npu/hccl_staged_transport.py:832: in begin_forward
+    self._collect_replies("ACCEPT", plan)
+afd_plugin/connectors/npu/hccl_staged_transport.py:926: in _collect_replies
+    self._reject_peers(error)
+afd_plugin/connectors/npu/hccl_staged_transport.py:1287: in _reject_peers
+    raise RuntimeError(reason)
+E   RuntimeError: ACCEPT has missing or unexpected payload fields
+_ test_two_stage_parent_returns_independent_fp32_and_raw_ids_without_padding_rewrite[rows2-valid2-1] _
+tests/unit/connectors/npu/test_hccl_eager_pipeline.py:46: in test_two_stage_parent_returns_independent_fp32_and_raw_ids_without_padding_rewrite
+    attention, ffn = open_eager_pair(case)
+tests/unit/fakes/hccl_eager_pipeline.py:226: in open_eager_pair
+    case.attention.begin_forward(case.plan)
+afd_plugin/connectors/npu/hccl_staged_transport.py:832: in begin_forward
+    self._collect_replies("ACCEPT", plan)
+afd_plugin/connectors/npu/hccl_staged_transport.py:926: in _collect_replies
+    self._reject_peers(error)
+afd_plugin/connectors/npu/hccl_staged_transport.py:1287: in _reject_peers
+    raise RuntimeError(reason)
+E   RuntimeError: ACCEPT has missing or unexpected payload fields
+_ test_two_stage_parent_returns_independent_fp32_and_raw_ids_without_padding_rewrite[rows2-valid2-2] _
+tests/unit/connectors/npu/test_hccl_eager_pipeline.py:46: in test_two_stage_parent_returns_independent_fp32_and_raw_ids_without_padding_rewrite
+    attention, ffn = open_eager_pair(case)
+tests/unit/fakes/hccl_eager_pipeline.py:226: in open_eager_pair
+    case.attention.begin_forward(case.plan)
+afd_plugin/connectors/npu/hccl_staged_transport.py:832: in begin_forward
+    self._collect_replies("ACCEPT", plan)
+afd_plugin/connectors/npu/hccl_staged_transport.py:926: in _collect_replies
+    self._reject_peers(error)
+afd_plugin/connectors/npu/hccl_staged_transport.py:1287: in _reject_peers
+    raise RuntimeError(reason)
+E   RuntimeError: ACCEPT has missing or unexpected payload fields
+_ test_two_stage_parent_returns_independent_fp32_and_raw_ids_without_padding_rewrite[rows3-valid3-1] _
+tests/unit/connectors/npu/test_hccl_eager_pipeline.py:46: in test_two_stage_parent_returns_independent_fp32_and_raw_ids_without_padding_rewrite
+    attention, ffn = open_eager_pair(case)
+tests/unit/fakes/hccl_eager_pipeline.py:226: in open_eager_pair
+    case.attention.begin_forward(case.plan)
+afd_plugin/connectors/npu/hccl_staged_transport.py:832: in begin_forward
+    self._collect_replies("ACCEPT", plan)
+afd_plugin/connectors/npu/hccl_staged_transport.py:926: in _collect_replies
+    self._reject_peers(error)
+afd_plugin/connectors/npu/hccl_staged_transport.py:1287: in _reject_peers
+    raise RuntimeError(reason)
+E   RuntimeError: ACCEPT has missing or unexpected payload fields
+_ test_two_stage_parent_returns_independent_fp32_and_raw_ids_without_padding_rewrite[rows3-valid3-2] _
+tests/unit/connectors/npu/test_hccl_eager_pipeline.py:46: in test_two_stage_parent_returns_independent_fp32_and_raw_ids_without_padding_rewrite
+    attention, ffn = open_eager_pair(case)
+tests/unit/fakes/hccl_eager_pipeline.py:226: in open_eager_pair
+    case.attention.begin_forward(case.plan)
+afd_plugin/connectors/npu/hccl_staged_transport.py:832: in begin_forward
+    self._collect_replies("ACCEPT", plan)
+afd_plugin/connectors/npu/hccl_staged_transport.py:926: in _collect_replies
+    self._reject_peers(error)
+afd_plugin/connectors/npu/hccl_staged_transport.py:1287: in _reject_peers
+    raise RuntimeError(reason)
+E   RuntimeError: ACCEPT has missing or unexpected payload fields
+_________ test_both_attention_stages_are_posted_before_any_output_wait _________
+tests/unit/connectors/npu/test_hccl_eager_pipeline.py:64: in test_both_attention_stages_are_posted_before_any_output_wait
+    attention, _ = open_eager_pair(case)
+tests/unit/fakes/hccl_eager_pipeline.py:226: in open_eager_pair
+    case.attention.begin_forward(case.plan)
+afd_plugin/connectors/npu/hccl_staged_transport.py:832: in begin_forward
+    self._collect_replies("ACCEPT", plan)
+afd_plugin/connectors/npu/hccl_staged_transport.py:926: in _collect_replies
+    self._reject_peers(error)
+afd_plugin/connectors/npu/hccl_staged_transport.py:1287: in _reject_peers
+    raise RuntimeError(reason)
+E   RuntimeError: ACCEPT has missing or unexpected payload fields
+________ test_ffn_loan_preserves_bf16_original_fp32_and_raw_padding_ids ________
+tests/unit/connectors/npu/test_hccl_eager_pipeline.py:82: in test_ffn_loan_preserves_bf16_original_fp32_and_raw_padding_ids
+    attention, ffn = open_eager_pair(case)
+tests/unit/fakes/hccl_eager_pipeline.py:226: in open_eager_pair
+    case.attention.begin_forward(case.plan)
+afd_plugin/connectors/npu/hccl_staged_transport.py:832: in begin_forward
+    self._collect_replies("ACCEPT", plan)
+afd_plugin/connectors/npu/hccl_staged_transport.py:926: in _collect_replies
+    self._reject_peers(error)
+afd_plugin/connectors/npu/hccl_staged_transport.py:1287: in _reject_peers
+    raise RuntimeError(reason)
+E   RuntimeError: ACCEPT has missing or unexpected payload fields
+____ test_stage_reuse_waits_old_native_consumer_and_works_before_next_posts ____
+tests/unit/connectors/npu/test_hccl_eager_pipeline.py:95: in test_stage_reuse_waits_old_native_consumer_and_works_before_next_posts
+    attention, ffn = open_eager_pair(case)
+tests/unit/fakes/hccl_eager_pipeline.py:226: in open_eager_pair
+    case.attention.begin_forward(case.plan)
+afd_plugin/connectors/npu/hccl_staged_transport.py:832: in begin_forward
+    self._collect_replies("ACCEPT", plan)
+afd_plugin/connectors/npu/hccl_staged_transport.py:926: in _collect_replies
+    self._reject_peers(error)
+afd_plugin/connectors/npu/hccl_staged_transport.py:1287: in _reject_peers
+    raise RuntimeError(reason)
+E   RuntimeError: ACCEPT has missing or unexpected payload fields
+_________ test_output_loan_rejects_unissued_or_consumed_ticket[forged] _________
+tests/unit/connectors/npu/test_hccl_eager_pipeline.py:111: in test_output_loan_rejects_unissued_or_consumed_ticket
+    attention, ffn = open_eager_pair(case)
+tests/unit/fakes/hccl_eager_pipeline.py:226: in open_eager_pair
+    case.attention.begin_forward(case.plan)
+afd_plugin/connectors/npu/hccl_staged_transport.py:832: in begin_forward
+    self._collect_replies("ACCEPT", plan)
+afd_plugin/connectors/npu/hccl_staged_transport.py:926: in _collect_replies
+    self._reject_peers(error)
+afd_plugin/connectors/npu/hccl_staged_transport.py:1287: in _reject_peers
+    raise RuntimeError(reason)
+E   RuntimeError: ACCEPT has missing or unexpected payload fields
+________ test_output_loan_rejects_unissued_or_consumed_ticket[foreign] _________
+tests/unit/connectors/npu/test_hccl_eager_pipeline.py:111: in test_output_loan_rejects_unissued_or_consumed_ticket
+    attention, ffn = open_eager_pair(case)
+tests/unit/fakes/hccl_eager_pipeline.py:226: in open_eager_pair
+    case.attention.begin_forward(case.plan)
+afd_plugin/connectors/npu/hccl_staged_transport.py:832: in begin_forward
+    self._collect_replies("ACCEPT", plan)
+afd_plugin/connectors/npu/hccl_staged_transport.py:926: in _collect_replies
+    self._reject_peers(error)
+afd_plugin/connectors/npu/hccl_staged_transport.py:1287: in _reject_peers
+    raise RuntimeError(reason)
+E   RuntimeError: ACCEPT has missing or unexpected payload fields
+_________ test_output_loan_rejects_unissued_or_consumed_ticket[stale] __________
+tests/unit/connectors/npu/test_hccl_eager_pipeline.py:111: in test_output_loan_rejects_unissued_or_consumed_ticket
+    attention, ffn = open_eager_pair(case)
+tests/unit/fakes/hccl_eager_pipeline.py:226: in open_eager_pair
+    case.attention.begin_forward(case.plan)
+afd_plugin/connectors/npu/hccl_staged_transport.py:832: in begin_forward
+    self._collect_replies("ACCEPT", plan)
+afd_plugin/connectors/npu/hccl_staged_transport.py:926: in _collect_replies
+    self._reject_peers(error)
+afd_plugin/connectors/npu/hccl_staged_transport.py:1287: in _reject_peers
+    raise RuntimeError(reason)
+E   RuntimeError: ACCEPT has missing or unexpected payload fields
+_______ test_output_loan_rejects_unissued_or_consumed_ticket[duplicate] ________
+tests/unit/connectors/npu/test_hccl_eager_pipeline.py:111: in test_output_loan_rejects_unissued_or_consumed_ticket
+    attention, ffn = open_eager_pair(case)
+tests/unit/fakes/hccl_eager_pipeline.py:226: in open_eager_pair
+    case.attention.begin_forward(case.plan)
+afd_plugin/connectors/npu/hccl_staged_transport.py:832: in begin_forward
+    self._collect_replies("ACCEPT", plan)
+afd_plugin/connectors/npu/hccl_staged_transport.py:926: in _collect_replies
+    self._reject_peers(error)
+afd_plugin/connectors/npu/hccl_staged_transport.py:1287: in _reject_peers
+    raise RuntimeError(reason)
+E   RuntimeError: ACCEPT has missing or unexpected payload fields
+______ test_post_rejects_wrong_layer_stage_without_network_traffic[step0] ______
+tests/unit/connectors/npu/test_hccl_eager_pipeline.py:143: in test_post_rejects_wrong_layer_stage_without_network_traffic
+    attention, _ = open_eager_pair(case)
+tests/unit/fakes/hccl_eager_pipeline.py:226: in open_eager_pair
+    case.attention.begin_forward(case.plan)
+afd_plugin/connectors/npu/hccl_staged_transport.py:832: in begin_forward
+    self._collect_replies("ACCEPT", plan)
+afd_plugin/connectors/npu/hccl_staged_transport.py:926: in _collect_replies
+    self._reject_peers(error)
+afd_plugin/connectors/npu/hccl_staged_transport.py:1287: in _reject_peers
+    raise RuntimeError(reason)
+E   RuntimeError: ACCEPT has missing or unexpected payload fields
+______ test_post_rejects_wrong_layer_stage_without_network_traffic[step1] ______
+tests/unit/connectors/npu/test_hccl_eager_pipeline.py:143: in test_post_rejects_wrong_layer_stage_without_network_traffic
+    attention, _ = open_eager_pair(case)
+tests/unit/fakes/hccl_eager_pipeline.py:226: in open_eager_pair
+    case.attention.begin_forward(case.plan)
+afd_plugin/connectors/npu/hccl_staged_transport.py:832: in begin_forward
+    self._collect_replies("ACCEPT", plan)
+afd_plugin/connectors/npu/hccl_staged_transport.py:926: in _collect_replies
+    self._reject_peers(error)
+afd_plugin/connectors/npu/hccl_staged_transport.py:1287: in _reject_peers
+    raise RuntimeError(reason)
+E   RuntimeError: ACCEPT has missing or unexpected payload fields
+______ test_post_rejects_wrong_layer_stage_without_network_traffic[step2] ______
+tests/unit/connectors/npu/test_hccl_eager_pipeline.py:143: in test_post_rejects_wrong_layer_stage_without_network_traffic
+    attention, _ = open_eager_pair(case)
+tests/unit/fakes/hccl_eager_pipeline.py:226: in open_eager_pair
+    case.attention.begin_forward(case.plan)
+afd_plugin/connectors/npu/hccl_staged_transport.py:832: in begin_forward
+    self._collect_replies("ACCEPT", plan)
+afd_plugin/connectors/npu/hccl_staged_transport.py:926: in _collect_replies
+    self._reject_peers(error)
+afd_plugin/connectors/npu/hccl_staged_transport.py:1287: in _reject_peers
+    raise RuntimeError(reason)
+E   RuntimeError: ACCEPT has missing or unexpected payload fields
+______ test_post_rejects_wrong_layer_stage_without_network_traffic[step3] ______
+tests/unit/connectors/npu/test_hccl_eager_pipeline.py:143: in test_post_rejects_wrong_layer_stage_without_network_traffic
+    attention, _ = open_eager_pair(case)
+tests/unit/fakes/hccl_eager_pipeline.py:226: in open_eager_pair
+    case.attention.begin_forward(case.plan)
+afd_plugin/connectors/npu/hccl_staged_transport.py:832: in begin_forward
+    self._collect_replies("ACCEPT", plan)
+afd_plugin/connectors/npu/hccl_staged_transport.py:926: in _collect_replies
+    self._reject_peers(error)
+afd_plugin/connectors/npu/hccl_staged_transport.py:1287: in _reject_peers
+    raise RuntimeError(reason)
+E   RuntimeError: ACCEPT has missing or unexpected payload fields
+____ test_active_ticket_owner_excludes_other_parent_lifecycles[serial_send] ____
+tests/unit/connectors/npu/test_hccl_eager_pipeline.py:157: in test_active_ticket_owner_excludes_other_parent_lifecycles
+    open_eager_pair(case)
+tests/unit/fakes/hccl_eager_pipeline.py:226: in open_eager_pair
+    case.attention.begin_forward(case.plan)
+afd_plugin/connectors/npu/hccl_staged_transport.py:832: in begin_forward
+    self._collect_replies("ACCEPT", plan)
+afd_plugin/connectors/npu/hccl_staged_transport.py:926: in _collect_replies
+    self._reject_peers(error)
+afd_plugin/connectors/npu/hccl_staged_transport.py:1287: in _reject_peers
+    raise RuntimeError(reason)
+E   RuntimeError: ACCEPT has missing or unexpected payload fields
+___ test_active_ticket_owner_excludes_other_parent_lifecycles[serial_finish] ___
+tests/unit/connectors/npu/test_hccl_eager_pipeline.py:157: in test_active_ticket_owner_excludes_other_parent_lifecycles
+    open_eager_pair(case)
+tests/unit/fakes/hccl_eager_pipeline.py:226: in open_eager_pair
+    case.attention.begin_forward(case.plan)
+afd_plugin/connectors/npu/hccl_staged_transport.py:832: in begin_forward
+    self._collect_replies("ACCEPT", plan)
+afd_plugin/connectors/npu/hccl_staged_transport.py:926: in _collect_replies
+    self._reject_peers(error)
+afd_plugin/connectors/npu/hccl_staged_transport.py:1287: in _reject_peers
+    raise RuntimeError(reason)
+E   RuntimeError: ACCEPT has missing or unexpected payload fields
+___ test_active_ticket_owner_excludes_other_parent_lifecycles[graph_finish] ____
+tests/unit/connectors/npu/test_hccl_eager_pipeline.py:157: in test_active_ticket_owner_excludes_other_parent_lifecycles
+    open_eager_pair(case)
+tests/unit/fakes/hccl_eager_pipeline.py:226: in open_eager_pair
+    case.attention.begin_forward(case.plan)
+afd_plugin/connectors/npu/hccl_staged_transport.py:832: in begin_forward
+    self._collect_replies("ACCEPT", plan)
+afd_plugin/connectors/npu/hccl_staged_transport.py:926: in _collect_replies
+    self._reject_peers(error)
+afd_plugin/connectors/npu/hccl_staged_transport.py:1287: in _reject_peers
+    raise RuntimeError(reason)
+E   RuntimeError: ACCEPT has missing or unexpected payload fields
+_______ test_active_ticket_owner_excludes_other_parent_lifecycles[close] _______
+tests/unit/connectors/npu/test_hccl_eager_pipeline.py:157: in test_active_ticket_owner_excludes_other_parent_lifecycles
+    open_eager_pair(case)
+tests/unit/fakes/hccl_eager_pipeline.py:226: in open_eager_pair
+    case.attention.begin_forward(case.plan)
+afd_plugin/connectors/npu/hccl_staged_transport.py:832: in begin_forward
+    self._collect_replies("ACCEPT", plan)
+afd_plugin/connectors/npu/hccl_staged_transport.py:926: in _collect_replies
+    self._reject_peers(error)
+afd_plugin/connectors/npu/hccl_staged_transport.py:1287: in _reject_peers
+    raise RuntimeError(reason)
+E   RuntimeError: ACCEPT has missing or unexpected payload fields
+____ test_active_ticket_owner_excludes_other_parent_lifecycles[second_open] ____
+tests/unit/connectors/npu/test_hccl_eager_pipeline.py:157: in test_active_ticket_owner_excludes_other_parent_lifecycles
+    open_eager_pair(case)
+tests/unit/fakes/hccl_eager_pipeline.py:226: in open_eager_pair
+    case.attention.begin_forward(case.plan)
+afd_plugin/connectors/npu/hccl_staged_transport.py:832: in begin_forward
+    self._collect_replies("ACCEPT", plan)
+afd_plugin/connectors/npu/hccl_staged_transport.py:926: in _collect_replies
+    self._reject_peers(error)
+afd_plugin/connectors/npu/hccl_staged_transport.py:1287: in _reject_peers
+    raise RuntimeError(reason)
+E   RuntimeError: ACCEPT has missing or unexpected payload fields
+_______ test_active_ticket_owner_excludes_other_parent_lifecycles[stop] ________
+tests/unit/connectors/npu/test_hccl_eager_pipeline.py:157: in test_active_ticket_owner_excludes_other_parent_lifecycles
+    open_eager_pair(case)
+tests/unit/fakes/hccl_eager_pipeline.py:226: in open_eager_pair
+    case.attention.begin_forward(case.plan)
+afd_plugin/connectors/npu/hccl_staged_transport.py:832: in begin_forward
+    self._collect_replies("ACCEPT", plan)
+afd_plugin/connectors/npu/hccl_staged_transport.py:926: in _collect_replies
+    self._reject_peers(error)
+afd_plugin/connectors/npu/hccl_staged_transport.py:1287: in _reject_peers
+    raise RuntimeError(reason)
+E   RuntimeError: ACCEPT has missing or unexpected payload fields
+____ test_finish_requires_every_native_consumer_and_output[missing_outputs] ____
+tests/unit/connectors/npu/test_hccl_eager_pipeline.py:179: in test_finish_requires_every_native_consumer_and_output
+    attention, ffn = open_eager_pair(case)
+tests/unit/fakes/hccl_eager_pipeline.py:226: in open_eager_pair
+    case.attention.begin_forward(case.plan)
+afd_plugin/connectors/npu/hccl_staged_transport.py:832: in begin_forward
+    self._collect_replies("ACCEPT", plan)
+afd_plugin/connectors/npu/hccl_staged_transport.py:926: in _collect_replies
+    self._reject_peers(error)
+afd_plugin/connectors/npu/hccl_staged_transport.py:1287: in _reject_peers
+    raise RuntimeError(reason)
+E   RuntimeError: ACCEPT has missing or unexpected payload fields
+_______ test_finish_requires_every_native_consumer_and_output[open_loan] _______
+tests/unit/connectors/npu/test_hccl_eager_pipeline.py:179: in test_finish_requires_every_native_consumer_and_output
+    attention, ffn = open_eager_pair(case)
+tests/unit/fakes/hccl_eager_pipeline.py:226: in open_eager_pair
+    case.attention.begin_forward(case.plan)
+afd_plugin/connectors/npu/hccl_staged_transport.py:832: in begin_forward
+    self._collect_replies("ACCEPT", plan)
+afd_plugin/connectors/npu/hccl_staged_transport.py:926: in _collect_replies
+    self._reject_peers(error)
+afd_plugin/connectors/npu/hccl_staged_transport.py:1287: in _reject_peers
+    raise RuntimeError(reason)
+E   RuntimeError: ACCEPT has missing or unexpected payload fields
+__ test_finish_requires_every_native_consumer_and_output[ffn_output_missing] ___
+tests/unit/connectors/npu/test_hccl_eager_pipeline.py:179: in test_finish_requires_every_native_consumer_and_output
+    attention, ffn = open_eager_pair(case)
+tests/unit/fakes/hccl_eager_pipeline.py:226: in open_eager_pair
+    case.attention.begin_forward(case.plan)
+afd_plugin/connectors/npu/hccl_staged_transport.py:832: in begin_forward
+    self._collect_replies("ACCEPT", plan)
+afd_plugin/connectors/npu/hccl_staged_transport.py:926: in _collect_replies
+    self._reject_peers(error)
+afd_plugin/connectors/npu/hccl_staged_transport.py:1287: in _reject_peers
+    raise RuntimeError(reason)
+E   RuntimeError: ACCEPT has missing or unexpected payload fields
+___ test_work_failure_is_terminal_and_retains_owner_for_external_supervision ___
+tests/unit/connectors/npu/test_hccl_eager_pipeline.py:199: in test_work_failure_is_terminal_and_retains_owner_for_external_supervision
+    attention, ffn = open_eager_pair(case)
+tests/unit/fakes/hccl_eager_pipeline.py:226: in open_eager_pair
+    case.attention.begin_forward(case.plan)
+afd_plugin/connectors/npu/hccl_staged_transport.py:832: in begin_forward
+    self._collect_replies("ACCEPT", plan)
+afd_plugin/connectors/npu/hccl_staged_transport.py:926: in _collect_replies
+    self._reject_peers(error)
+afd_plugin/connectors/npu/hccl_staged_transport.py:1287: in _reject_peers
+    raise RuntimeError(reason)
+E   RuntimeError: ACCEPT has missing or unexpected payload fields
+_______ test_terminal_owner_keeps_original_inputs_and_continuation_alive _______
+tests/unit/connectors/npu/test_hccl_eager_pipeline.py:218: in test_terminal_owner_keeps_original_inputs_and_continuation_alive
+    attention, _ = open_eager_pair(case)
+tests/unit/fakes/hccl_eager_pipeline.py:226: in open_eager_pair
+    case.attention.begin_forward(case.plan)
+afd_plugin/connectors/npu/hccl_staged_transport.py:832: in begin_forward
+    self._collect_replies("ACCEPT", plan)
+afd_plugin/connectors/npu/hccl_staged_transport.py:926: in _collect_replies
+    self._reject_peers(error)
+afd_plugin/connectors/npu/hccl_staged_transport.py:1287: in _reject_peers
+    raise RuntimeError(reason)
+E   RuntimeError: ACCEPT has missing or unexpected payload fields
+_______ test_ffn_output_cannot_be_sent_twice_or_before_native_input_loan _______
+tests/unit/connectors/npu/test_hccl_eager_pipeline.py:233: in test_ffn_output_cannot_be_sent_twice_or_before_native_input_loan
+    attention, ffn = open_eager_pair(case)
+tests/unit/fakes/hccl_eager_pipeline.py:226: in open_eager_pair
+    case.attention.begin_forward(case.plan)
+afd_plugin/connectors/npu/hccl_staged_transport.py:832: in begin_forward
+    self._collect_replies("ACCEPT", plan)
+afd_plugin/connectors/npu/hccl_staged_transport.py:926: in _collect_replies
+    self._reject_peers(error)
+afd_plugin/connectors/npu/hccl_staged_transport.py:1287: in _reject_peers
+    raise RuntimeError(reason)
+E   RuntimeError: ACCEPT has missing or unexpected payload fields
+_____ test_consumer_exception_preserves_original_error_and_stream_context ______
+tests/unit/connectors/npu/test_hccl_eager_pipeline.py:249: in test_consumer_exception_preserves_original_error_and_stream_context
+    attention, ffn = open_eager_pair(case)
+tests/unit/fakes/hccl_eager_pipeline.py:226: in open_eager_pair
+    case.attention.begin_forward(case.plan)
+afd_plugin/connectors/npu/hccl_staged_transport.py:832: in begin_forward
+    self._collect_replies("ACCEPT", plan)
+afd_plugin/connectors/npu/hccl_staged_transport.py:926: in _collect_replies
+    self._reject_peers(error)
+afd_plugin/connectors/npu/hccl_staged_transport.py:1287: in _reject_peers
+    raise RuntimeError(reason)
+E   RuntimeError: ACCEPT has missing or unexpected payload fields
+______ test_attention_validation_preserves_shape_precision_and_ids[shape] ______
+tests/unit/connectors/npu/test_hccl_eager_pipeline.py:271: in test_attention_validation_preserves_shape_precision_and_ids
+    attention, _ = open_eager_pair(case)
+tests/unit/fakes/hccl_eager_pipeline.py:226: in open_eager_pair
+    case.attention.begin_forward(case.plan)
+afd_plugin/connectors/npu/hccl_staged_transport.py:832: in begin_forward
+    self._collect_replies("ACCEPT", plan)
+afd_plugin/connectors/npu/hccl_staged_transport.py:926: in _collect_replies
+    self._reject_peers(error)
+afd_plugin/connectors/npu/hccl_staged_transport.py:1287: in _reject_peers
+    raise RuntimeError(reason)
+E   RuntimeError: ACCEPT has missing or unexpected payload fields
+______ test_attention_validation_preserves_shape_precision_and_ids[dtype] ______
+tests/unit/connectors/npu/test_hccl_eager_pipeline.py:271: in test_attention_validation_preserves_shape_precision_and_ids
+    attention, _ = open_eager_pair(case)
+tests/unit/fakes/hccl_eager_pipeline.py:226: in open_eager_pair
+    case.attention.begin_forward(case.plan)
+afd_plugin/connectors/npu/hccl_staged_transport.py:832: in begin_forward
+    self._collect_replies("ACCEPT", plan)
+afd_plugin/connectors/npu/hccl_staged_transport.py:926: in _collect_replies
+    self._reject_peers(error)
+afd_plugin/connectors/npu/hccl_staged_transport.py:1287: in _reject_peers
+    raise RuntimeError(reason)
+E   RuntimeError: ACCEPT has missing or unexpected payload fields
+____ test_attention_validation_preserves_shape_precision_and_ids[ids_range] ____
+tests/unit/connectors/npu/test_hccl_eager_pipeline.py:271: in test_attention_validation_preserves_shape_precision_and_ids
+    attention, _ = open_eager_pair(case)
+tests/unit/fakes/hccl_eager_pipeline.py:226: in open_eager_pair
+    case.attention.begin_forward(case.plan)
+afd_plugin/connectors/npu/hccl_staged_transport.py:832: in begin_forward
+    self._collect_replies("ACCEPT", plan)
+afd_plugin/connectors/npu/hccl_staged_transport.py:926: in _collect_replies
+    self._reject_peers(error)
+afd_plugin/connectors/npu/hccl_staged_transport.py:1287: in _reject_peers
+    raise RuntimeError(reason)
+E   RuntimeError: ACCEPT has missing or unexpected payload fields
+___ test_attention_validation_preserves_shape_precision_and_ids[ids_padding] ___
+tests/unit/connectors/npu/test_hccl_eager_pipeline.py:271: in test_attention_validation_preserves_shape_precision_and_ids
+    attention, _ = open_eager_pair(case)
+tests/unit/fakes/hccl_eager_pipeline.py:226: in open_eager_pair
+    case.attention.begin_forward(case.plan)
+afd_plugin/connectors/npu/hccl_staged_transport.py:832: in begin_forward
+    self._collect_replies("ACCEPT", plan)
+afd_plugin/connectors/npu/hccl_staged_transport.py:926: in _collect_replies
+    self._reject_peers(error)
+afd_plugin/connectors/npu/hccl_staged_transport.py:1287: in _reject_peers
+    raise RuntimeError(reason)
+E   RuntimeError: ACCEPT has missing or unexpected payload fields
+_________ test_warmup_gate_is_explicit_and_only_idle_once[not_warmed] __________
+tests/unit/connectors/npu/test_hccl_eager_pipeline.py:290: in test_warmup_gate_is_explicit_and_only_idle_once
+    peer.begin_forward(case.plan)
+afd_plugin/connectors/npu/hccl_staged_transport.py:832: in begin_forward
+    self._collect_replies("ACCEPT", plan)
+afd_plugin/connectors/npu/hccl_staged_transport.py:926: in _collect_replies
+    self._reject_peers(error)
+afd_plugin/connectors/npu/hccl_staged_transport.py:1287: in _reject_peers
+    raise RuntimeError(reason)
+E   RuntimeError: ACCEPT has missing or unexpected payload fields
+_________ test_warmup_gate_is_explicit_and_only_idle_once[active_plan] _________
+tests/unit/connectors/npu/test_hccl_eager_pipeline.py:301: in test_warmup_gate_is_explicit_and_only_idle_once
+    peer.begin_forward(case.plan)
+afd_plugin/connectors/npu/hccl_staged_transport.py:832: in begin_forward
+    self._collect_replies("ACCEPT", plan)
+afd_plugin/connectors/npu/hccl_staged_transport.py:926: in _collect_replies
+    self._reject_peers(error)
+afd_plugin/connectors/npu/hccl_staged_transport.py:1287: in _reject_peers
+    raise RuntimeError(reason)
+E   RuntimeError: ACCEPT has missing or unexpected payload fields
+___________ test_warmup_does_not_authorize_a_replacement_stage_group ___________
+tests/unit/connectors/npu/test_hccl_eager_pipeline.py:343: in test_warmup_does_not_authorize_a_replacement_stage_group
+    case.attention.begin_forward(case.plan)
+afd_plugin/connectors/npu/hccl_staged_transport.py:832: in begin_forward
+    self._collect_replies("ACCEPT", plan)
+afd_plugin/connectors/npu/hccl_staged_transport.py:926: in _collect_replies
+    self._reject_peers(error)
+afd_plugin/connectors/npu/hccl_staged_transport.py:1287: in _reject_peers
+    raise RuntimeError(reason)
+E   RuntimeError: ACCEPT has missing or unexpected payload fields
+________ test_eager_owner_rejects_foreign_current_stream_before_posting ________
+tests/unit/connectors/npu/test_hccl_eager_pipeline.py:354: in test_eager_owner_rejects_foreign_current_stream_before_posting
+    attention, _ = open_eager_pair(case)
+tests/unit/fakes/hccl_eager_pipeline.py:226: in open_eager_pair
+    case.attention.begin_forward(case.plan)
+afd_plugin/connectors/npu/hccl_staged_transport.py:832: in begin_forward
+    self._collect_replies("ACCEPT", plan)
+afd_plugin/connectors/npu/hccl_staged_transport.py:926: in _collect_replies
+    self._reject_peers(error)
+afd_plugin/connectors/npu/hccl_staged_transport.py:1287: in _reject_peers
+    raise RuntimeError(reason)
+E   RuntimeError: ACCEPT has missing or unexpected payload fields
+_________ test_only_actual_target_parent_may_open_eager_owner[profile] _________
+tests/unit/connectors/npu/test_hccl_eager_pipeline.py:369: in test_only_actual_target_parent_may_open_eager_owner
+    open_eager_pair(case)
+tests/unit/fakes/hccl_eager_pipeline.py:226: in open_eager_pair
+    case.attention.begin_forward(case.plan)
+afd_plugin/connectors/npu/hccl_staged_transport.py:832: in begin_forward
+    self._collect_replies("ACCEPT", plan)
+afd_plugin/connectors/npu/hccl_staged_transport.py:926: in _collect_replies
+    self._reject_peers(error)
+afd_plugin/connectors/npu/hccl_staged_transport.py:1287: in _reject_peers
+    raise RuntimeError(reason)
+E   RuntimeError: ACCEPT has missing or unexpected payload fields
+
+During handling of the above exception, another exception occurred:
+tests/unit/connectors/npu/test_hccl_eager_pipeline.py:368: in test_only_actual_target_parent_may_open_eager_owner
+    with pytest.raises(RuntimeError, match="target U2"):
+E   AssertionError: Regex pattern did not match.
+E    Regex: 'target U2'
+E    Input: 'ACCEPT has missing or unexpected payload fields'
+__________ test_only_actual_target_parent_may_open_eager_owner[dummy] __________
+tests/unit/connectors/npu/test_hccl_eager_pipeline.py:369: in test_only_actual_target_parent_may_open_eager_owner
+    open_eager_pair(case)
+tests/unit/fakes/hccl_eager_pipeline.py:226: in open_eager_pair
+    case.attention.begin_forward(case.plan)
+afd_plugin/connectors/npu/hccl_staged_transport.py:832: in begin_forward
+    self._collect_replies("ACCEPT", plan)
+afd_plugin/connectors/npu/hccl_staged_transport.py:926: in _collect_replies
+    self._reject_peers(error)
+afd_plugin/connectors/npu/hccl_staged_transport.py:1287: in _reject_peers
+    raise RuntimeError(reason)
+E   RuntimeError: ACCEPT has missing or unexpected payload fields
+
+During handling of the above exception, another exception occurred:
+tests/unit/connectors/npu/test_hccl_eager_pipeline.py:368: in test_only_actual_target_parent_may_open_eager_owner
+    with pytest.raises(RuntimeError, match="target U2"):
+E   AssertionError: Regex pattern did not match.
+E    Regex: 'target U2'
+E    Input: 'ACCEPT has missing or unexpected payload fields'
+_________ test_only_actual_target_parent_may_open_eager_owner[warmup] __________
+tests/unit/connectors/npu/test_hccl_eager_pipeline.py:369: in test_only_actual_target_parent_may_open_eager_owner
+    open_eager_pair(case)
+tests/unit/fakes/hccl_eager_pipeline.py:226: in open_eager_pair
+    case.attention.begin_forward(case.plan)
+afd_plugin/connectors/npu/hccl_staged_transport.py:832: in begin_forward
+    self._collect_replies("ACCEPT", plan)
+afd_plugin/connectors/npu/hccl_staged_transport.py:926: in _collect_replies
+    self._reject_peers(error)
+afd_plugin/connectors/npu/hccl_staged_transport.py:1287: in _reject_peers
+    raise RuntimeError(reason)
+E   RuntimeError: ACCEPT has missing or unexpected payload fields
+
+During handling of the above exception, another exception occurred:
+tests/unit/connectors/npu/test_hccl_eager_pipeline.py:368: in test_only_actual_target_parent_may_open_eager_owner
+    with pytest.raises(RuntimeError, match="target U2"):
+E   AssertionError: Regex pattern did not match.
+E    Regex: 'target U2'
+E    Input: 'ACCEPT has missing or unexpected payload fields'
+____________ test_native_u1_parent_keeps_existing_serial_lifecycle _____________
+tests/unit/connectors/npu/test_hccl_eager_pipeline.py:376: in test_native_u1_parent_keeps_existing_serial_lifecycle
+    open_eager_pair(case)
+tests/unit/fakes/hccl_eager_pipeline.py:226: in open_eager_pair
+    case.attention.begin_forward(case.plan)
+afd_plugin/connectors/npu/hccl_staged_transport.py:832: in begin_forward
+    self._collect_replies("ACCEPT", plan)
+afd_plugin/connectors/npu/hccl_staged_transport.py:926: in _collect_replies
+    self._reject_peers(error)
+afd_plugin/connectors/npu/hccl_staged_transport.py:1287: in _reject_peers
+    raise RuntimeError(reason)
+E   RuntimeError: ACCEPT has missing or unexpected payload fields
+
+During handling of the above exception, another exception occurred:
+tests/unit/connectors/npu/test_hccl_eager_pipeline.py:375: in test_native_u1_parent_keeps_existing_serial_lifecycle
+    with pytest.raises(RuntimeError, match="target U2"):
+E   AssertionError: Regex pattern did not match.
+E    Regex: 'target U2'
+E    Input: 'ACCEPT has missing or unexpected payload fields'
+=============================== warnings summary ===============================
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/torch/jit/_script.py:362: 14 warnings
+  /mnt/workspace/code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/torch/jit/_script.py:362: DeprecationWarning: `torch.jit.script_method` is deprecated. Please switch to `torch.compile` or `torch.export`.
+    warnings.warn(
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+- generated xml file: /mnt/workspace/tmp/afd-c0-20261104.hVgsIf/c5-control-cpu-20261109-2ufdqx98/results/cpu.xml -
+44 failed, 89 passed, 14 warnings in 2.87s
+
+
+Warning: Permanently added '[127.0.0.1]:43078' (ED25519) to the list of known hosts.

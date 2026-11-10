@@ -18,17 +18,114 @@ from vllm.forward_context import (  # noqa: E402
     override_forward_context,
 )
 
+from afd_plugin.model_executor.models.npu import (  # noqa: E402
+    deepseek_v41_staged as module,
+)
 from afd_plugin.model_executor.models.npu.deepseek_v41_staged import (  # noqa: E402
     DeepseekV41EngramInputs,
     run_deepseek_v41_stages,
 )
 from tests.unit.fakes.deepseek_v41 import contract_ffn, make_staged_case  # noqa: E402
 from tests.unit.fakes.hccl import StagedModelPeer  # noqa: E402
+from tests.unit.fakes.hccl_eager_model import make_eager_model_case  # noqa: E402
 
 
 @pytest.fixture
 def case():
     return make_staged_case()
+
+
+@pytest.mark.parametrize("split", [(2, 3), (0, 3), (3, 0), (0, 0)])
+@pytest.mark.parametrize("engram", [False, True])
+def test_eager_loans_preserve_native_hc_aux_and_parent_token_order(
+    monkeypatch, split, engram
+):
+    setup = make_eager_model_case(monkeypatch, module, split=split, engram=engram)
+    case = setup.case
+    if sum(split):
+        expected = case.model(**case.parent_inputs)
+        expected_mtp = case.mtp_rows.clone()
+    else:
+        empty = torch.empty((0, 4), dtype=torch.bfloat16)
+        expected = (empty, [empty, empty])
+        expected_mtp = torch.empty((0, 8), dtype=torch.bfloat16)
+
+    output = run_deepseek_v41_stages(
+        case.model,
+        case.stages,
+        case.contexts,
+        case.slices,
+        setup.peer,
+        pipeline=setup.pipeline,
+        compute_stream=setup.runtime.compute,
+    )
+
+    torch.testing.assert_close(output, expected, rtol=0, atol=0)
+    torch.testing.assert_close(case.mtp_rows, expected_mtp, rtol=0, atol=0)
+    assert not setup.pipeline.outputs
+    assert setup.runtime.current == setup.runtime.parent
+    assert not setup.pipeline.finished  # The execution owner completes the parent.
+
+
+def test_eager_posts_both_stages_before_consuming_the_first_output(monkeypatch):
+    setup = make_eager_model_case(monkeypatch, module, valid=(1, 1))
+    case = setup.case
+    original_ids = case.parent_inputs["input_ids"].clone()
+
+    run_deepseek_v41_stages(
+        case.model,
+        case.stages,
+        case.contexts,
+        case.slices,
+        setup.peer,
+        pipeline=setup.pipeline,
+        compute_stream=setup.runtime.compute,
+    )
+
+    assert [message[:3] for message in setup.pipeline.messages] == [
+        ("post", 0, 0),
+        ("post", 0, 1),
+        ("consume", 0, 0),
+        ("post", 1, 0),
+        ("consume", 0, 1),
+        ("post", 1, 1),
+        ("consume", 1, 0),
+        ("consume", 1, 1),
+    ]
+    torch.testing.assert_close(case.parent_inputs["input_ids"], original_ids)
+    for kind, _, _stage, *payload in setup.pipeline.messages:
+        if kind == "post":
+            hidden, fp32, ids = payload
+            assert hidden.dtype == torch.bfloat16 and fp32.dtype == torch.float32
+            assert torch.any(fp32 != hidden.float())
+            assert ids[1:].count_nonzero() == 0
+
+
+def test_eager_output_failure_restores_native_bindings_and_marks_owner_terminal(
+    monkeypatch,
+):
+    setup = make_eager_model_case(monkeypatch, module, fail_step=(0, 1))
+    case = setup.case
+    parent = SimpleNamespace(cudagraph_runtime_mode=CUDAGraphMode.NONE, ubatch_idx=-1)
+    original = case.model.shared_attention_state
+
+    with override_forward_context(parent):
+        with pytest.raises(RuntimeError, match="injected eager output failure"):
+            run_deepseek_v41_stages(
+                case.model,
+                case.stages,
+                case.contexts,
+                case.slices,
+                setup.peer,
+                pipeline=setup.pipeline,
+                compute_stream=setup.runtime.compute,
+            )
+        assert get_forward_context() is parent
+
+    assert setup.peer.terminal and setup.pipeline.failed
+    assert setup.runtime.current == setup.runtime.parent
+    assert case.model.shared_attention_state is original
+    assert all(layer.self_attn.shared_state is original for layer in case.model.layers)
 
 
 def test_interleaved_continuations_preserve_native_hc_and_delayed_pre_mix(case):

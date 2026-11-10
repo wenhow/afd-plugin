@@ -1,0 +1,142 @@
+.................................................FFFFFFFFFFFFF.......... [ 46%]
+........................................................................ [ 92%]
+............                                                             [100%]
+=================================== FAILURES ===================================
+_ test_eager_session_warms_only_enabled_family_and_opens_target_u2[False-attention] _
+tests/unit/v1/worker/npu/test_hccl_v41_eager.py:21: in test_eager_session_warms_only_enabled_family_and_opens_target_u2
+    case = make_eager_session_case(role=role, enabled=enabled)
+tests/unit/fakes/hccl_v41_eager.py:53: in make_eager_session_case
+    session = HcclV41EagerSession(
+afd_plugin/v1/worker/npu/hccl_v41_eager.py:42: in __init__
+    validate_staged_hccl_binding(vllm_config, transport, device)
+afd_plugin/connectors/npu/hccl_config.py:141: in validate_staged_hccl_binding
+    or vllm_config.parallel_config.rank != transport.role_rank
+E   AttributeError: 'types.SimpleNamespace' object has no attribute 'rank'
+_ test_eager_session_warms_only_enabled_family_and_opens_target_u2[False-ffn] __
+tests/unit/v1/worker/npu/test_hccl_v41_eager.py:21: in test_eager_session_warms_only_enabled_family_and_opens_target_u2
+    case = make_eager_session_case(role=role, enabled=enabled)
+tests/unit/fakes/hccl_v41_eager.py:53: in make_eager_session_case
+    session = HcclV41EagerSession(
+afd_plugin/v1/worker/npu/hccl_v41_eager.py:42: in __init__
+    validate_staged_hccl_binding(vllm_config, transport, device)
+afd_plugin/connectors/npu/hccl_config.py:141: in validate_staged_hccl_binding
+    or vllm_config.parallel_config.rank != transport.role_rank
+E   AttributeError: 'types.SimpleNamespace' object has no attribute 'rank'
+_ test_eager_session_warms_only_enabled_family_and_opens_target_u2[True-attention] _
+tests/unit/v1/worker/npu/test_hccl_v41_eager.py:21: in test_eager_session_warms_only_enabled_family_and_opens_target_u2
+    case = make_eager_session_case(role=role, enabled=enabled)
+tests/unit/fakes/hccl_v41_eager.py:53: in make_eager_session_case
+    session = HcclV41EagerSession(
+afd_plugin/v1/worker/npu/hccl_v41_eager.py:42: in __init__
+    validate_staged_hccl_binding(vllm_config, transport, device)
+afd_plugin/connectors/npu/hccl_config.py:141: in validate_staged_hccl_binding
+    or vllm_config.parallel_config.rank != transport.role_rank
+E   AttributeError: 'types.SimpleNamespace' object has no attribute 'rank'
+__ test_eager_session_warms_only_enabled_family_and_opens_target_u2[True-ffn] __
+tests/unit/v1/worker/npu/test_hccl_v41_eager.py:21: in test_eager_session_warms_only_enabled_family_and_opens_target_u2
+    case = make_eager_session_case(role=role, enabled=enabled)
+tests/unit/fakes/hccl_v41_eager.py:53: in make_eager_session_case
+    session = HcclV41EagerSession(
+afd_plugin/v1/worker/npu/hccl_v41_eager.py:42: in __init__
+    validate_staged_hccl_binding(vllm_config, transport, device)
+afd_plugin/connectors/npu/hccl_config.py:141: in validate_staged_hccl_binding
+    or vllm_config.parallel_config.rank != transport.role_rank
+E   AttributeError: 'types.SimpleNamespace' object has no attribute 'rank'
+__ test_native_u1_and_preparation_parents_preserve_serial_execution[target-1] __
+tests/unit/v1/worker/npu/test_hccl_v41_eager.py:49: in test_native_u1_and_preparation_parents_preserve_serial_execution
+    case = make_eager_session_case()
+tests/unit/fakes/hccl_v41_eager.py:53: in make_eager_session_case
+    session = HcclV41EagerSession(
+afd_plugin/v1/worker/npu/hccl_v41_eager.py:42: in __init__
+    validate_staged_hccl_binding(vllm_config, transport, device)
+afd_plugin/connectors/npu/hccl_config.py:141: in validate_staged_hccl_binding
+    or vllm_config.parallel_config.rank != transport.role_rank
+E   AttributeError: 'types.SimpleNamespace' object has no attribute 'rank'
+_ test_native_u1_and_preparation_parents_preserve_serial_execution[profile-2] __
+tests/unit/v1/worker/npu/test_hccl_v41_eager.py:49: in test_native_u1_and_preparation_parents_preserve_serial_execution
+    case = make_eager_session_case()
+tests/unit/fakes/hccl_v41_eager.py:53: in make_eager_session_case
+    session = HcclV41EagerSession(
+afd_plugin/v1/worker/npu/hccl_v41_eager.py:42: in __init__
+    validate_staged_hccl_binding(vllm_config, transport, device)
+afd_plugin/connectors/npu/hccl_config.py:141: in validate_staged_hccl_binding
+    or vllm_config.parallel_config.rank != transport.role_rank
+E   AttributeError: 'types.SimpleNamespace' object has no attribute 'rank'
+__ test_native_u1_and_preparation_parents_preserve_serial_execution[warmup-2] __
+tests/unit/v1/worker/npu/test_hccl_v41_eager.py:49: in test_native_u1_and_preparation_parents_preserve_serial_execution
+    case = make_eager_session_case()
+tests/unit/fakes/hccl_v41_eager.py:53: in make_eager_session_case
+    session = HcclV41EagerSession(
+afd_plugin/v1/worker/npu/hccl_v41_eager.py:42: in __init__
+    validate_staged_hccl_binding(vllm_config, transport, device)
+afd_plugin/connectors/npu/hccl_config.py:141: in validate_staged_hccl_binding
+    or vllm_config.parallel_config.rank != transport.role_rank
+E   AttributeError: 'types.SimpleNamespace' object has no attribute 'rank'
+__ test_native_u1_and_preparation_parents_preserve_serial_execution[dummy-2] ___
+tests/unit/v1/worker/npu/test_hccl_v41_eager.py:49: in test_native_u1_and_preparation_parents_preserve_serial_execution
+    case = make_eager_session_case()
+tests/unit/fakes/hccl_v41_eager.py:53: in make_eager_session_case
+    session = HcclV41EagerSession(
+afd_plugin/v1/worker/npu/hccl_v41_eager.py:42: in __init__
+    validate_staged_hccl_binding(vllm_config, transport, device)
+afd_plugin/connectors/npu/hccl_config.py:141: in validate_staged_hccl_binding
+    or vllm_config.parallel_config.rank != transport.role_rank
+E   AttributeError: 'types.SimpleNamespace' object has no attribute 'rank'
+_ test_eager_selection_rejects_unusable_session_before_data_posting[uninitialized] _
+tests/unit/v1/worker/npu/test_hccl_v41_eager.py:59: in test_eager_selection_rejects_unusable_session_before_data_posting
+    case = make_eager_session_case()
+tests/unit/fakes/hccl_v41_eager.py:53: in make_eager_session_case
+    session = HcclV41EagerSession(
+afd_plugin/v1/worker/npu/hccl_v41_eager.py:42: in __init__
+    validate_staged_hccl_binding(vllm_config, transport, device)
+afd_plugin/connectors/npu/hccl_config.py:141: in validate_staged_hccl_binding
+    or vllm_config.parallel_config.rank != transport.role_rank
+E   AttributeError: 'types.SimpleNamespace' object has no attribute 'rank'
+__ test_eager_selection_rejects_unusable_session_before_data_posting[closed] ___
+tests/unit/v1/worker/npu/test_hccl_v41_eager.py:59: in test_eager_selection_rejects_unusable_session_before_data_posting
+    case = make_eager_session_case()
+tests/unit/fakes/hccl_v41_eager.py:53: in make_eager_session_case
+    session = HcclV41EagerSession(
+afd_plugin/v1/worker/npu/hccl_v41_eager.py:42: in __init__
+    validate_staged_hccl_binding(vllm_config, transport, device)
+afd_plugin/connectors/npu/hccl_config.py:141: in validate_staged_hccl_binding
+    or vllm_config.parallel_config.rank != transport.role_rank
+E   AttributeError: 'types.SimpleNamespace' object has no attribute 'rank'
+_ test_eager_selection_rejects_unusable_session_before_data_posting[terminal] __
+tests/unit/v1/worker/npu/test_hccl_v41_eager.py:59: in test_eager_selection_rejects_unusable_session_before_data_posting
+    case = make_eager_session_case()
+tests/unit/fakes/hccl_v41_eager.py:53: in make_eager_session_case
+    session = HcclV41EagerSession(
+afd_plugin/v1/worker/npu/hccl_v41_eager.py:42: in __init__
+    validate_staged_hccl_binding(vllm_config, transport, device)
+afd_plugin/connectors/npu/hccl_config.py:141: in validate_staged_hccl_binding
+    or vllm_config.parallel_config.rank != transport.role_rank
+E   AttributeError: 'types.SimpleNamespace' object has no attribute 'rank'
+__ test_eager_selection_rejects_unusable_session_before_data_posting[no_plan] __
+tests/unit/v1/worker/npu/test_hccl_v41_eager.py:59: in test_eager_selection_rejects_unusable_session_before_data_posting
+    case = make_eager_session_case()
+tests/unit/fakes/hccl_v41_eager.py:53: in make_eager_session_case
+    session = HcclV41EagerSession(
+afd_plugin/v1/worker/npu/hccl_v41_eager.py:42: in __init__
+    validate_staged_hccl_binding(vllm_config, transport, device)
+afd_plugin/connectors/npu/hccl_config.py:141: in validate_staged_hccl_binding
+    or vllm_config.parallel_config.rank != transport.role_rank
+E   AttributeError: 'types.SimpleNamespace' object has no attribute 'rank'
+__ test_eager_session_initialization_requires_an_idle_transport_and_runs_once __
+tests/unit/v1/worker/npu/test_hccl_v41_eager.py:74: in test_eager_session_initialization_requires_an_idle_transport_and_runs_once
+    case = make_eager_session_case()
+tests/unit/fakes/hccl_v41_eager.py:53: in make_eager_session_case
+    session = HcclV41EagerSession(
+afd_plugin/v1/worker/npu/hccl_v41_eager.py:42: in __init__
+    validate_staged_hccl_binding(vllm_config, transport, device)
+afd_plugin/connectors/npu/hccl_config.py:141: in validate_staged_hccl_binding
+    or vllm_config.parallel_config.rank != transport.role_rank
+E   AttributeError: 'types.SimpleNamespace' object has no attribute 'rank'
+=============================== warnings summary ===============================
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/torch/jit/_script.py:362: 14 warnings
+  /mnt/workspace/code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/torch/jit/_script.py:362: DeprecationWarning: `torch.jit.script_method` is deprecated. Please switch to `torch.compile` or `torch.export`.
+    warnings.warn(
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+- generated xml file: /mnt/workspace/tmp/afd-c0-20261104.hVgsIf/c5-control-cpu-20261109-hpqy45o7/results/cpu.xml -
+13 failed, 143 passed, 14 warnings in 2.84s

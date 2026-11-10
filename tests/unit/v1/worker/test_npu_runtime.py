@@ -305,6 +305,8 @@ def _new_ffn_worker():
     worker = object.__new__(AFDNPUFFNWorker)
     worker._hccl_v41_transport = None
     worker._ffn_loop_error = None
+    worker.profiler_config = None
+    worker.profiler = None
     # Most tests exercise the daemon loop rather than CPU placement. Tests for
     # the startup binding path explicitly reset this guard.
     worker._cpu_binding_attempted = True
@@ -1083,6 +1085,7 @@ def test_npu_ffn_worker_start_binds_physical_npu_once_before_daemon(
     worker.local_rank = 3
     worker.model_runner = SimpleNamespace(
         connector=SimpleNamespace(is_initialized=True, control_plane=object()),
+        prof=None,
     )
     events: list[tuple[str, object]] = []
     monkeypatch.setattr(
@@ -1148,6 +1151,7 @@ def test_npu_ffn_worker_cpu_binding_failure_does_not_abort_daemon_start(
     worker.local_rank = 5
     worker.model_runner = SimpleNamespace(
         connector=SimpleNamespace(is_initialized=True, control_plane=object()),
+        prof=None,
     )
     thread_starts: list[bool] = []
     monkeypatch.setattr(
@@ -1193,6 +1197,7 @@ def test_npu_ffn_worker_loop_error_is_propagated(caplog):
     worker._ffn_loop_error = None
     worker.model_runner = SimpleNamespace(
         connector=SimpleNamespace(is_initialized=True, control_plane=object()),
+        prof=None,
     )
 
     expected_error = RuntimeError("boom")
@@ -1224,6 +1229,7 @@ def test_npu_ffn_worker_ignores_receive_error_during_shutdown(caplog):
     worker._ffn_loop_error = None
     worker.model_runner = SimpleNamespace(
         connector=SimpleNamespace(is_initialized=True, control_plane=object()),
+        prof=None,
     )
 
     def stop_while_receiving():
@@ -1347,6 +1353,7 @@ def test_npu_ffn_worker_uses_connector_driven_loop_for_async_connector(monkeypat
     worker._ffn_shutdown_event = event
     worker.device = SimpleNamespace(type="cpu")
     worker.model_runner = object.__new__(ffn_worker.AsyncNPUFFNModelRunner)
+    worker.model_runner.prof = None
     worker.model_runner.connector = _AsyncRecordingConnector()
     worker.model_runner.effective_mode = "eager"
     worker.model_runner.execute_connector_driven_step = execute_connector_driven_step
@@ -1523,9 +1530,12 @@ def test_npu_ffn_connector_uses_model_device_index_for_dp_worker(monkeypatch):
         "fail_if_unsupported_npu_afd_features",
         lambda *_args, **_kwargs: None,
     )
-    monkeypatch.setattr(ffn_model_runner, "create_afd_npu_profiler", lambda _role: None)
+    monkeypatch.setattr(
+        ffn_model_runner, "create_deferred_afd_npu_profiler", lambda _role, **_: None
+    )
     monkeypatch.setattr(ffn_model_runner, "_use_npu_aclgraph", lambda _config: False)
     config = _vllm_config(role="ffn")
+    config.parallel_config.rank = 7
     config.model_config.hf_text_config.num_hidden_layers = 43
 
     runner = ffn_model_runner.AFDNPUFFNModelRunner(

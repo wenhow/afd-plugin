@@ -1,0 +1,84 @@
+{
+  "scope": "existing transport HCCL data-group primitive gate, idle session",
+  "operation": "irecv",
+  "role": "attention",
+  "device": "npu:2",
+  "pid": 4149058,
+  "model_weights_loaded": false,
+  "accepted_parent_or_cursor_modified": false,
+  "abort_or_device_recovery_exercised": false,
+  "payloads": {
+    "bf16": {
+      "shape": [
+        8,
+        16
+      ],
+      "dtype": "torch.bfloat16",
+      "work_type": "torch.distributed.distributed_c10d.Work",
+      "work_wait_documentation": "wait(self: torch._C._distributed_c10d.Work, timeout: datetime.timedelta = datetime.timedelta(0)) -> bool\n\n\n              Returns:\n                  true/false.\n\n              Example::\n                 try:\n                     work.wait(timeout)\n                 except:\n                     # some handling\n\n              .. warning ::\n                  In normal cases, users do not need to set the timeout.\n                  calling wait() is the same as calling synchronize():\n                  Letting the current stream block on the completion of the NCCL work.\n                  However, if timeout is set, it will block the CPU thread until the NCCL work is completed\n                  or timed out. If timeout, exception will be thrown.\n            \n",
+      "wait_result": true,
+      "received_payload_exact": true,
+      "source_reuse_exact": false,
+      "consumer_exact": true,
+      "consumer_event_complete": true
+    },
+    "fp32": {
+      "shape": [
+        8,
+        16
+      ],
+      "dtype": "torch.float32",
+      "work_type": "torch.distributed.distributed_c10d.Work",
+      "work_wait_documentation": "wait(self: torch._C._distributed_c10d.Work, timeout: datetime.timedelta = datetime.timedelta(0)) -> bool\n\n\n              Returns:\n                  true/false.\n\n              Example::\n                 try:\n                     work.wait(timeout)\n                 except:\n                     # some handling\n\n              .. warning ::\n                  In normal cases, users do not need to set the timeout.\n                  calling wait() is the same as calling synchronize():\n                  Letting the current stream block on the completion of the NCCL work.\n                  However, if timeout is set, it will block the CPU thread until the NCCL work is completed\n                  or timed out. If timeout, exception will be thrown.\n            \n",
+      "wait_result": true,
+      "received_payload_exact": true,
+      "source_reuse_exact": false,
+      "consumer_exact": true,
+      "consumer_event_complete": true
+    },
+    "ids": {
+      "shape": [
+        8
+      ],
+      "dtype": "torch.int32",
+      "work_type": "torch.distributed.distributed_c10d.Work",
+      "work_wait_documentation": "wait(self: torch._C._distributed_c10d.Work, timeout: datetime.timedelta = datetime.timedelta(0)) -> bool\n\n\n              Returns:\n                  true/false.\n\n              Example::\n                 try:\n                     work.wait(timeout)\n                 except:\n                     # some handling\n\n              .. warning ::\n                  In normal cases, users do not need to set the timeout.\n                  calling wait() is the same as calling synchronize():\n                  Letting the current stream block on the completion of the NCCL work.\n                  However, if timeout is set, it will block the CPU thread until the NCCL work is completed\n                  or timed out. If timeout, exception will be thrown.\n            \n",
+      "wait_result": true,
+      "received_payload_exact": true,
+      "source_reuse_exact": false,
+      "consumer_exact": true,
+      "consumer_event_complete": true
+    }
+  },
+  "success": true,
+  "native_tp_before": [
+    1.0
+  ],
+  "endpoint": {
+    "group_type": "torch.distributed.distributed_c10d.ProcessGroup",
+    "backend": "hccl",
+    "afd_group_rank": 1,
+    "native_default_rank": 0,
+    "group_peer": 0,
+    "stage_group": 0,
+    "functions": {
+      "isend": {
+        "module": "torch.distributed.distributed_c10d",
+        "signature": "(tensor: torch.Tensor, dst: int | None = None, group: torch.distributed.distributed_c10d.ProcessGroup | None = None, tag: int = 0, group_dst: int | None = None) -> torch.distributed.distributed_c10d.Work | None",
+        "source_file": "/mnt/workspace/code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/torch/distributed/distributed_c10d.py",
+        "source_sha256": "31155344233ae77360a630bbeacf1b43cfa18f1923cf2103cd5b3142db39ec5c"
+      },
+      "irecv": {
+        "module": "torch.distributed.distributed_c10d",
+        "signature": "(tensor: torch.Tensor, src: int | None = None, group: torch.distributed.distributed_c10d.ProcessGroup | None = None, tag: int = 0, group_src: int | None = None) -> torch.distributed.distributed_c10d.Work | None",
+        "source_file": "/mnt/workspace/code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/torch/distributed/distributed_c10d.py",
+        "source_sha256": "31155344233ae77360a630bbeacf1b43cfa18f1923cf2103cd5b3142db39ec5c"
+      }
+    }
+  },
+  "stop_acknowledged": true,
+  "plugin_closed": true,
+  "native_tp_after_plugin_close": [
+    1.0
+  ]
+}

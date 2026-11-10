@@ -65,7 +65,14 @@ class PipelineCase:
 
 
 def make_pipeline_case(
-    monkeypatch, module, *, role="attention", rows=(2, 3), hybrid=True
+    monkeypatch,
+    module,
+    *,
+    role="attention",
+    rows=(2, 3),
+    hybrid=None,
+    policy=None,
+    selection=None,
 ):
     runtime = HostStreamRecorder(torch.device("cpu"))
     bank = make_graph_stage_bank(
@@ -73,10 +80,27 @@ def make_pipeline_case(
         rows=rows,
         endpoint_factory=lambda stage: PipelineEndpoint(runtime, stage, role),
     )
-    return attach_pipeline(monkeypatch, module, bank, hybrid=hybrid, runtime=runtime)
+    return attach_pipeline(
+        monkeypatch,
+        module,
+        bank,
+        hybrid=hybrid,
+        policy=policy,
+        selection=selection,
+        runtime=runtime,
+    )
 
 
-def attach_pipeline(monkeypatch, module, bank, *, hybrid=True, runtime=None):
+def attach_pipeline(
+    monkeypatch,
+    module,
+    bank,
+    *,
+    hybrid=None,
+    policy=None,
+    selection=None,
+    runtime=None,
+):
     """Compose the same event seam with a caller's actual existing bank."""
     runtime = HostStreamRecorder(bank.device) if runtime is None else runtime
     events = {
@@ -99,7 +123,13 @@ def attach_pipeline(monkeypatch, module, bank, *, hybrid=True, runtime=None):
         if count
     }
     pipeline = HcclGraphComputePipeline(
-        bank, runtime.compute, events, tails, hybrid=hybrid
+        bank,
+        runtime.compute,
+        events,
+        tails,
+        hybrid=hybrid,
+        policy=policy,
+        selection=selection,
     )
     if hasattr(module.torch, "npu"):
         monkeypatch.setattr(module.torch.npu, "current_stream", runtime.current_stream)
@@ -145,39 +175,47 @@ def run_attention_arithmetic(case):
     return tuple(hidden.values())
 
 
+def run_ffn_layer(case, layer):
+    """One actual CPU payload frontier, reusable by negative join seam tests."""
+    bank, pipeline = case.bank, case.pipeline
+    outputs = []
+    for stage, rows in enumerate(bank.stage_rows):
+        if not rows:
+            continue
+        buffers = bank.buffers(stage)
+        endpoint = bank.exchanges[stage].endpoint
+        endpoint.incoming.extend(
+            (
+                torch.full_like(buffers.hidden_states, layer + stage + 1),
+                torch.full_like(buffers.hidden_states_fp32, 0.00031),
+                torch.arange(rows, dtype=torch.int32),
+            )
+        )
+        with pipeline.ffn_receive(layer, stage):
+            inputs = bank.receive_inputs(stage)
+        with pipeline.compute(
+            layer,
+            stage,
+            inputs=(
+                inputs.hidden_states,
+                inputs.hidden_states_fp32,
+                inputs.input_ids,
+            ),
+        ):
+            output = inputs.hidden_states + inputs.hidden_states_fp32.to(torch.bfloat16)
+        with pipeline.ffn_send(layer, stage, tensors=(output,)):
+            bank.send_output(stage, output)
+        outputs.append(output)
+    return tuple(outputs)
+
+
 def run_ffn_arithmetic(case):
     bank, pipeline = case.bank, case.pipeline
     outputs = []
     with pipeline.run():
         for layer in bank.layer_indices:
-            for stage, rows in enumerate(bank.stage_rows):
-                if not rows:
-                    continue
-                buffers = bank.buffers(stage)
-                endpoint = bank.exchanges[stage].endpoint
-                endpoint.incoming.extend(
-                    (
-                        torch.full_like(buffers.hidden_states, layer + stage + 1),
-                        torch.full_like(buffers.hidden_states_fp32, 0.00031),
-                        torch.arange(rows, dtype=torch.int32),
-                    )
-                )
-                with pipeline.ffn_receive(layer, stage):
-                    inputs = bank.receive_inputs(stage)
-                with pipeline.compute(
-                    layer,
-                    stage,
-                    inputs=(
-                        inputs.hidden_states,
-                        inputs.hidden_states_fp32,
-                        inputs.input_ids,
-                    ),
-                ):
-                    output = inputs.hidden_states + inputs.hidden_states_fp32.to(
-                        torch.bfloat16
-                    )
-                with pipeline.ffn_send(layer, stage, tensors=(output,)):
-                    bank.send_output(stage, output)
-                outputs.append(output)
+            outputs.extend(run_ffn_layer(case, layer))
+            if not pipeline.policy.ffn_cross_layer:
+                pipeline.join_layer(layer)
         pipeline.join(outputs=tuple(outputs))
     return tuple(outputs)

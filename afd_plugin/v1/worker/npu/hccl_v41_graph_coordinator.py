@@ -13,7 +13,7 @@ from __future__ import annotations
 from collections.abc import Callable, Iterator
 from contextlib import ExitStack, contextmanager
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any, Literal, cast
 
 import torch
 from vllm.config import CUDAGraphMode, set_current_vllm_config
@@ -43,6 +43,7 @@ from afd_plugin.compat.patches.npu.hccl_graph_replay import use_hccl_graph_repla
 from afd_plugin.compat.patches.npu.hccl_v41_u1_graph import (
     use_hccl_v41_u1_preparation,
 )
+from afd_plugin.connectors.npu.hccl_diagnostics import HcclStageDiagnostics
 from afd_plugin.connectors.npu.hccl_graph_cache import (
     HcclGraphCacheEntry,
     HcclReplayGraph,
@@ -52,6 +53,11 @@ from afd_plugin.connectors.npu.hccl_graph_pipeline import (
     HcclGraphPipelinePolicy,
 )
 from afd_plugin.connectors.npu.hccl_graph_stage import HcclGraphStageBank
+from afd_plugin.connectors.npu.hccl_overlap import (
+    HcclOverlapSelection,
+    HcclOverlapSettings,
+    select_hccl_overlap,
+)
 from afd_plugin.distributed.hccl_graph import (
     HcclGraphCandidate,
     HcclGraphReport,
@@ -99,6 +105,7 @@ class HcclV41GraphResources:
     auxiliary: tuple[torch.Tensor, ...]
     intermediate_tensors: IntermediateTensors | None
     pipeline: HcclGraphComputePipeline | None = None
+    overlap_settings: HcclOverlapSettings | None = None
 
 
 class HcclV41GraphCoordinator:
@@ -120,7 +127,11 @@ class HcclV41GraphCoordinator:
         *,
         next_transaction_id: Callable[[], str],
         pipeline_policy: HcclGraphPipelinePolicy | None = None,
+        overlap_settings: HcclOverlapSettings | None = None,
+        diagnostic_sink: Callable[[dict[str, str | int | bool]], None] | None = None,
     ) -> None:
+        if pipeline_policy is not None and overlap_settings is not None:
+            raise ValueError("choose graph pipeline policy or overlap settings")
         manager = owner.cudagraph_manager
         transport = control.transport
         capabilities = transport.negotiated_capabilities
@@ -194,6 +205,8 @@ class HcclV41GraphCoordinator:
         # Scheduling is a capture constant. Changing it requires a fresh
         # session/cache; a generation miss does not permit same-key recapture.
         self._pipeline_policy = pipeline_policy
+        self._overlap_settings = overlap_settings
+        self._diagnostic_sink = diagnostic_sink
         self.current_execution: HcclV41GraphExecution | None = None
         self._u1_context: ForwardContext | None = None
         self._preflight_done = self._capture_enabled = self._capture_started = False
@@ -202,6 +215,24 @@ class HcclV41GraphCoordinator:
     @property
     def pipeline_policy(self) -> HcclGraphPipelinePolicy | None:
         return self._pipeline_policy
+
+    @property
+    def overlap_settings(self) -> HcclOverlapSettings | None:
+        return self._overlap_settings
+
+    def _pipeline_selection(
+        self,
+        bank: HcclGraphStageBank,
+        phase: Literal["graph_warmup", "graph_capture", "graph_replay"],
+    ) -> HcclOverlapSelection | None:
+        if self.overlap_settings is None:
+            return None
+        return select_hccl_overlap(
+            self.overlap_settings,
+            role="attention",
+            phase=phase,
+            num_stages=len(bank.stage_rows),
+        )
 
     def _require_storage(self) -> None:
         owner, manager = self.owner, self.manager
@@ -412,6 +443,7 @@ class HcclV41GraphCoordinator:
             tuple(manager.aux_hidden_states),
             manager.intermediate_tensors,
             pipeline=execution.pipeline,
+            overlap_settings=self.overlap_settings,
         )
 
     def _finish_phase(self) -> None:
@@ -456,11 +488,38 @@ class HcclV41GraphCoordinator:
         bank = HcclGraphStageBank.allocate(
             self.transport, reservation.decision.key, device=self.owner.device
         )
-        pipeline = (
-            HcclGraphComputePipeline.allocate(bank, hybrid=self.pipeline_policy.hybrid)
-            if self.pipeline_policy is not None
-            else None
+        selection = self._pipeline_selection(
+            bank,
+            "graph_warmup"
+            if reservation.decision.phase == "warmup"
+            else "graph_capture",
         )
+        policy = (
+            self.pipeline_policy
+            if selection is None
+            else HcclGraphPipelinePolicy.from_selection(selection)
+        )
+        pipeline = None
+        if policy is not None:
+            pipeline = (
+                HcclGraphComputePipeline.allocate(bank, selection=selection)
+                if selection is not None
+                else HcclGraphComputePipeline.allocate(bank, policy=policy)
+            )
+        if selection is not None and (
+            selection.settings.stage_diagnostics
+            or selection.settings.ffn_compute_sync_diagnostics
+        ):
+            HcclStageDiagnostics(
+                selection,
+                world_rank=self.transport.world_rank,
+                role_rank=self.transport.role_rank,
+                emit=self._diagnostic_sink,
+            ).bind_execution(
+                layer_indices=bank.layer_indices,
+                actual_compute_stream="compute" if pipeline is not None else "parent",
+                is_warmup=reservation.decision.phase == "warmup",
+            )
         execution = HcclV41GraphExecution(
             self.owner.vllm_config,
             self.owner.model,
@@ -567,9 +626,15 @@ class HcclV41GraphCoordinator:
         resources = entry.resources
         captured = resources.execution
         pipeline = captured.pipeline
-        policy = self.pipeline_policy
+        selection = self._pipeline_selection(resources.bank, "graph_replay")
+        policy = (
+            self.pipeline_policy
+            if selection is None
+            else HcclGraphPipelinePolicy.from_selection(selection)
+        )
         if (
             captured.bank is not resources.bank
+            or resources.overlap_settings != self.overlap_settings
             or pipeline is not resources.pipeline
             or (pipeline is None) != (policy is None)
             or (
@@ -577,7 +642,7 @@ class HcclV41GraphCoordinator:
                 and (
                     policy is None
                     or pipeline.bank is not resources.bank
-                    or pipeline.hybrid != policy.hybrid
+                    or pipeline.policy != policy
                 )
             )
             or captured.parent_body is None

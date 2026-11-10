@@ -1,0 +1,522 @@
+{
+  "scope": "read-only CLI argument/parser and local-link check; no runtime/NPU job/model or A5 execution",
+  "guide_sha256": "0009ad1c1bbcbb0d2cf75c325f0bea93aadbc28ae3b62ba08b91bea2b2177798",
+  "guide_unchanged": true,
+  "unique_cases": 14,
+  "links_verified": [
+    "../../openspec/changes/afd-v41-hccl-text-eager/evidence/A5_NATIVE_EAGER_ZH.md",
+    "../../openspec/changes/afd-hccl-v2-microbatch/evidence/a3-forward-counts-20261109/README.md",
+    "../../openspec/changes/afd-hccl-v2-graph/evidence/graph-component-independent-review-20261109.md",
+    "../../openspec/changes/afd-hccl-v2-graph/evidence/a3-native-manager-20261109/native-manager-006/results/probe/summary.json",
+    "../../openspec/changes/afd-hccl-v2-graph/evidence/a3-native-manager-20261109/native-manager-bank-007/interpretation.json",
+    "../../openspec/changes/afd-hccl-v2-multistream/evidence/a3-eager-backend-20261110/README.md",
+    "../../openspec/changes/afd-hccl-v2-multistream/evidence/a3-graph-axes-20261110/README.md",
+    "../../openspec/changes/afd-hccl-v2-multistream/evidence/a3-eager-pipeline-20261110/README.md"
+  ],
+  "parsed_commands": [
+    {
+      "case": "c4-1a1f",
+      "script": "tests/npu/hccl_staged_probe.py",
+      "script_sha256": "96112b8192e2f1ff1a186b46f3f4d2f71910e1c15fd5ea4c7fe9821c744b796d",
+      "arguments": [
+        "--model",
+        "$afd_model",
+        "--topology",
+        "1a1f",
+        "--devices",
+        "0,1",
+        "--local-counts-service",
+        "--output-dir",
+        "$afd_batch_run/c4-1a1f"
+      ],
+      "parsed": {
+        "topology": "1a1f",
+        "model": "$afd_model",
+        "devices": [
+          0,
+          1
+        ],
+        "output_dir": "$afd_batch_run\\c4-1a1f",
+        "timeout": 240,
+        "local_counts_service": true,
+        "reject_hidden_size": false,
+        "reject_plan_digest": false,
+        "role": null,
+        "role_rank": null,
+        "port": null,
+        "attention_size": 1,
+        "ffn_size": 1,
+        "tp_size": 1
+      }
+    },
+    {
+      "case": "c4-2a2f-tp2",
+      "script": "tests/npu/hccl_staged_probe.py",
+      "script_sha256": "96112b8192e2f1ff1a186b46f3f4d2f71910e1c15fd5ea4c7fe9821c744b796d",
+      "arguments": [
+        "--model",
+        "$afd_model",
+        "--topology",
+        "2a2f-tp2",
+        "--devices",
+        "0,1,2,3",
+        "--local-counts-service",
+        "--output-dir",
+        "$afd_batch_run/c4-2a2f-tp2"
+      ],
+      "parsed": {
+        "topology": "2a2f-tp2",
+        "model": "$afd_model",
+        "devices": [
+          0,
+          1,
+          2,
+          3
+        ],
+        "output_dir": "$afd_batch_run\\c4-2a2f-tp2",
+        "timeout": 240,
+        "local_counts_service": true,
+        "reject_hidden_size": false,
+        "reject_plan_digest": false,
+        "role": null,
+        "role_rank": null,
+        "port": null,
+        "attention_size": 2,
+        "ffn_size": 2,
+        "tp_size": 2
+      }
+    },
+    {
+      "case": "c5-static-graph",
+      "script": "tests/npu/hccl_graph_probe.py",
+      "script_sha256": "691d1bd3ed6e318f1f3d82f109b08b193a15bf78d80dab4f412e1a2610e24b35",
+      "arguments": [
+        "--devices",
+        "0,1",
+        "--output-dir",
+        "$afd_batch_run/c5-static-graph"
+      ],
+      "parsed": {
+        "devices": [
+          0,
+          1
+        ],
+        "output_dir": "$afd_batch_run\\c5-static-graph",
+        "timeout": 240,
+        "rank": null,
+        "port": null
+      }
+    },
+    {
+      "case": "c5-native-manager",
+      "script": "tests/npu/hccl_graph_manager_probe.py",
+      "script_sha256": "1d7f7b1ef445dd852026d66919bc75c20e62b429e95c66e5ac47e2e286213365",
+      "arguments": [
+        "--model",
+        "$afd_model",
+        "--devices",
+        "0,1",
+        "--stage-bank",
+        "--output-dir",
+        "$afd_batch_run/c5-native-manager"
+      ],
+      "parsed": {
+        "devices": [
+          0,
+          1
+        ],
+        "model": "$afd_model",
+        "output_dir": "$afd_batch_run\\c5-native-manager",
+        "timeout": 300,
+        "stage_bank": true,
+        "compute_pipeline": false,
+        "pipeline_hybrid": null,
+        "graph_compute": null,
+        "graph_hybrid": null,
+        "attention_three": null,
+        "ffn_recv": null,
+        "ffn_cross": null,
+        "rank": null,
+        "port": null,
+        "graph_axes": false
+      }
+    },
+    {
+      "case": "c6-pipeline-hybrid1",
+      "script": "tests/npu/hccl_graph_manager_probe.py",
+      "script_sha256": "1d7f7b1ef445dd852026d66919bc75c20e62b429e95c66e5ac47e2e286213365",
+      "arguments": [
+        "--model",
+        "$afd_model",
+        "--devices",
+        "0,1",
+        "--stage-bank",
+        "--compute-pipeline",
+        "--pipeline-hybrid",
+        "1",
+        "--output-dir",
+        "$afd_batch_run/c6-pipeline-hybrid1"
+      ],
+      "parsed": {
+        "devices": [
+          0,
+          1
+        ],
+        "model": "$afd_model",
+        "output_dir": "$afd_batch_run\\c6-pipeline-hybrid1",
+        "timeout": 300,
+        "stage_bank": true,
+        "compute_pipeline": true,
+        "pipeline_hybrid": 1,
+        "graph_compute": null,
+        "graph_hybrid": null,
+        "attention_three": null,
+        "ffn_recv": null,
+        "ffn_cross": null,
+        "rank": null,
+        "port": null,
+        "graph_axes": false
+      }
+    },
+    {
+      "case": "c6-pipeline-hybrid0",
+      "script": "tests/npu/hccl_graph_manager_probe.py",
+      "script_sha256": "1d7f7b1ef445dd852026d66919bc75c20e62b429e95c66e5ac47e2e286213365",
+      "arguments": [
+        "--model",
+        "$afd_model",
+        "--devices",
+        "0,1",
+        "--stage-bank",
+        "--compute-pipeline",
+        "--pipeline-hybrid",
+        "0",
+        "--output-dir",
+        "$afd_batch_run/c6-pipeline-hybrid0"
+      ],
+      "parsed": {
+        "devices": [
+          0,
+          1
+        ],
+        "model": "$afd_model",
+        "output_dir": "$afd_batch_run\\c6-pipeline-hybrid0",
+        "timeout": 300,
+        "stage_bank": true,
+        "compute_pipeline": true,
+        "pipeline_hybrid": 0,
+        "graph_compute": null,
+        "graph_hybrid": null,
+        "attention_three": null,
+        "ffn_recv": null,
+        "ffn_cross": null,
+        "rank": null,
+        "port": null,
+        "graph_axes": false
+      }
+    },
+    {
+      "case": "c6-eager-isend",
+      "script": "tests/npu/hccl_eager_backend_probe.py",
+      "script_sha256": "86ddf59910776a8b50b3dc76b5e56484f4d207e9eff9e8a2d375f271fdf91b34",
+      "arguments": [
+        "--model",
+        "$afd_model",
+        "--devices",
+        "0,1",
+        "--operation",
+        "isend",
+        "--output-dir",
+        "$afd_batch_run/c6-eager-isend"
+      ],
+      "parsed": {
+        "operation": "isend",
+        "devices": [
+          0,
+          1
+        ],
+        "model": "$afd_model",
+        "output_dir": "$afd_batch_run\\c6-eager-isend",
+        "gate_window": 5,
+        "timeout": 240,
+        "role": null,
+        "port": null
+      }
+    },
+    {
+      "case": "c6-eager-irecv",
+      "script": "tests/npu/hccl_eager_backend_probe.py",
+      "script_sha256": "86ddf59910776a8b50b3dc76b5e56484f4d207e9eff9e8a2d375f271fdf91b34",
+      "arguments": [
+        "--model",
+        "$afd_model",
+        "--devices",
+        "0,1",
+        "--operation",
+        "irecv",
+        "--output-dir",
+        "$afd_batch_run/c6-eager-irecv"
+      ],
+      "parsed": {
+        "operation": "irecv",
+        "devices": [
+          0,
+          1
+        ],
+        "model": "$afd_model",
+        "output_dir": "$afd_batch_run\\c6-eager-irecv",
+        "gate_window": 5,
+        "timeout": 240,
+        "role": null,
+        "port": null
+      }
+    },
+    {
+      "case": "c6-axes11111",
+      "script": "tests/npu/hccl_graph_manager_probe.py",
+      "script_sha256": "1d7f7b1ef445dd852026d66919bc75c20e62b429e95c66e5ac47e2e286213365",
+      "arguments": [
+        "--model",
+        "$afd_model",
+        "--devices",
+        "0,1",
+        "--stage-bank",
+        "--graph-compute",
+        "1",
+        "--graph-hybrid",
+        "1",
+        "--attention-three",
+        "1",
+        "--ffn-recv",
+        "1",
+        "--ffn-cross",
+        "1",
+        "--output-dir",
+        "$afd_batch_run/c6-axes11111"
+      ],
+      "parsed": {
+        "devices": [
+          0,
+          1
+        ],
+        "model": "$afd_model",
+        "output_dir": "$afd_batch_run\\c6-axes11111",
+        "timeout": 300,
+        "stage_bank": true,
+        "compute_pipeline": false,
+        "pipeline_hybrid": null,
+        "graph_compute": 1,
+        "graph_hybrid": 1,
+        "attention_three": 1,
+        "ffn_recv": 1,
+        "ffn_cross": 1,
+        "rank": null,
+        "port": null,
+        "graph_axes": true
+      }
+    },
+    {
+      "case": "c6-axes00000",
+      "script": "tests/npu/hccl_graph_manager_probe.py",
+      "script_sha256": "1d7f7b1ef445dd852026d66919bc75c20e62b429e95c66e5ac47e2e286213365",
+      "arguments": [
+        "--model",
+        "$afd_model",
+        "--devices",
+        "0,1",
+        "--stage-bank",
+        "--graph-compute",
+        "0",
+        "--graph-hybrid",
+        "0",
+        "--attention-three",
+        "0",
+        "--ffn-recv",
+        "0",
+        "--ffn-cross",
+        "0",
+        "--output-dir",
+        "$afd_batch_run/c6-axes00000"
+      ],
+      "parsed": {
+        "devices": [
+          0,
+          1
+        ],
+        "model": "$afd_model",
+        "output_dir": "$afd_batch_run\\c6-axes00000",
+        "timeout": 300,
+        "stage_bank": true,
+        "compute_pipeline": false,
+        "pipeline_hybrid": null,
+        "graph_compute": 0,
+        "graph_hybrid": 0,
+        "attention_three": 0,
+        "ffn_recv": 0,
+        "ffn_cross": 0,
+        "rank": null,
+        "port": null,
+        "graph_axes": true
+      }
+    },
+    {
+      "case": "c6-axes10000",
+      "script": "tests/npu/hccl_graph_manager_probe.py",
+      "script_sha256": "1d7f7b1ef445dd852026d66919bc75c20e62b429e95c66e5ac47e2e286213365",
+      "arguments": [
+        "--model",
+        "$afd_model",
+        "--devices",
+        "0,1",
+        "--stage-bank",
+        "--graph-compute",
+        "1",
+        "--graph-hybrid",
+        "0",
+        "--attention-three",
+        "0",
+        "--ffn-recv",
+        "0",
+        "--ffn-cross",
+        "0",
+        "--output-dir",
+        "$afd_batch_run/c6-axes10000"
+      ],
+      "parsed": {
+        "devices": [
+          0,
+          1
+        ],
+        "model": "$afd_model",
+        "output_dir": "$afd_batch_run\\c6-axes10000",
+        "timeout": 300,
+        "stage_bank": true,
+        "compute_pipeline": false,
+        "pipeline_hybrid": null,
+        "graph_compute": 1,
+        "graph_hybrid": 0,
+        "attention_three": 0,
+        "ffn_recv": 0,
+        "ffn_cross": 0,
+        "rank": null,
+        "port": null,
+        "graph_axes": true
+      }
+    },
+    {
+      "case": "c6-axes10010",
+      "script": "tests/npu/hccl_graph_manager_probe.py",
+      "script_sha256": "1d7f7b1ef445dd852026d66919bc75c20e62b429e95c66e5ac47e2e286213365",
+      "arguments": [
+        "--model",
+        "$afd_model",
+        "--devices",
+        "0,1",
+        "--stage-bank",
+        "--graph-compute",
+        "1",
+        "--graph-hybrid",
+        "0",
+        "--attention-three",
+        "0",
+        "--ffn-recv",
+        "1",
+        "--ffn-cross",
+        "0",
+        "--output-dir",
+        "$afd_batch_run/c6-axes10010"
+      ],
+      "parsed": {
+        "devices": [
+          0,
+          1
+        ],
+        "model": "$afd_model",
+        "output_dir": "$afd_batch_run\\c6-axes10010",
+        "timeout": 300,
+        "stage_bank": true,
+        "compute_pipeline": false,
+        "pipeline_hybrid": null,
+        "graph_compute": 1,
+        "graph_hybrid": 0,
+        "attention_three": 0,
+        "ffn_recv": 1,
+        "ffn_cross": 0,
+        "rank": null,
+        "port": null,
+        "graph_axes": true
+      }
+    },
+    {
+      "case": "c6-eager-owner-tp1",
+      "script": "tests/npu/hccl_eager_pipeline_probe.py",
+      "script_sha256": "d45ab50581e863d94372435cd0ed3265ebb38533c640e376aa60dbb4d5b747d7",
+      "arguments": [
+        "--model",
+        "$afd_model",
+        "--tp-size",
+        "1",
+        "--devices",
+        "0,1",
+        "--output-dir",
+        "$afd_batch_run/c6-eager-owner-tp1"
+      ],
+      "parsed": {
+        "tp_size": 1,
+        "devices": [
+          0,
+          1
+        ],
+        "model": "$afd_model",
+        "output_dir": "$afd_batch_run\\c6-eager-owner-tp1",
+        "timeout": 240,
+        "role": null,
+        "role_rank": null,
+        "port": null
+      }
+    },
+    {
+      "case": "c6-eager-owner-tp2",
+      "script": "tests/npu/hccl_eager_pipeline_probe.py",
+      "script_sha256": "d45ab50581e863d94372435cd0ed3265ebb38533c640e376aa60dbb4d5b747d7",
+      "arguments": [
+        "--model",
+        "$afd_model",
+        "--tp-size",
+        "2",
+        "--devices",
+        "0,1,2,3",
+        "--output-dir",
+        "$afd_batch_run/c6-eager-owner-tp2"
+      ],
+      "parsed": {
+        "tp_size": 2,
+        "devices": [
+          0,
+          1,
+          2,
+          3
+        ],
+        "model": "$afd_model",
+        "output_dir": "$afd_batch_run\\c6-eager-owner-tp2",
+        "timeout": 240,
+        "role": null,
+        "role_rank": null,
+        "port": null
+      }
+    }
+  ],
+  "eager_owner_expected_parents": 6,
+  "eager_owner_expected_checked_steps": 16,
+  "torch_imported": false,
+  "schema_observations": {
+    "owner_result": "result.json, success, exit_codes, killed_owned_pids, workers",
+    "owner_worker": "attention-*.json / ffn-*.json, success, parents, checked_steps, normal_stop, native_tp_before, native_tp_after_plugin_close",
+    "tp1_native_collective": [
+      1.0
+    ],
+    "tp2_native_collective": [
+      2.0
+    ]
+  }
+}

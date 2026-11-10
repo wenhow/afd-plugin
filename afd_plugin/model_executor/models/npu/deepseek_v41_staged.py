@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: Copyright contributors to the AFD plugin project
-"""Explicit synchronous V4.1 stage execution, outside production admission.
+"""Explicit V4.1 eager stage execution, outside production admission.
 
 The caller owns parent input/Engram preparation, transaction acceptance and
 retirement. This entry never calls a model pre-hook or prepares child history.
@@ -9,6 +9,7 @@ It requires eager, non-SP, PP1 execution and a complete accepted target plan.
 
 from __future__ import annotations
 
+from contextlib import nullcontext
 from dataclasses import dataclass
 
 import torch
@@ -16,9 +17,16 @@ from vllm.config import CUDAGraphMode
 from vllm.forward_context import ForwardContext, override_forward_context
 from vllm_ascend.models.deepseek_v41.model import AscendParallelEngramEmbedding
 
+from afd_plugin.compat.npu.stream import use_npu_current_stream
+from afd_plugin.connectors.npu.hccl_eager_pipeline import (
+    HcclAttentionTicket,
+    HcclEagerPipeline,
+)
 from afd_plugin.connectors.npu.hccl_staged_transport import HcclStagedTransport
 from afd_plugin.model_executor.models.npu.deepseek_v41 import (
+    AFDDeepseekV41AttentionDecoderLayer,
     AFDDeepseekV41AttentionModel,
+    DeepseekV41FFNContinuation,
 )
 from afd_plugin.model_executor.models.npu.deepseek_v41_stage_state import (
     DeepseekV41StageAttentionStates,
@@ -73,6 +81,8 @@ class _StageExecution:
     transfer_ids: torch.Tensor
     mask_ready_event: torch.npu.Event | None
     auxiliary: list[torch.Tensor]
+    ticket: HcclAttentionTicket | None = None
+    continuation: DeepseekV41FFNContinuation | None = None
 
 
 # Upstream: DeepseekV41Model.forward, model.py:1561-1651 @ 7e37e29a.
@@ -81,6 +91,8 @@ class _StageExecution:
 # Patch functionality: retain native HC/Engram/aux timing with stage views and
 # explicit decoder continuations. New API receives native child contexts and
 # already-produced Engram views; no native forward signature is changed.
+# Optional pipeline/compute_stream explicitly select delayed eager loans;
+# their transport owns all wire storage and completion. Defaults stay serial.
 # The SP/PP/Graph paths are excluded, not replaced. Parent request history,
 # readiness production, native TP and final ModelState cleanup stay upstream.
 # Removal: use upstream stage-aware model/decoder hooks when available.
@@ -90,6 +102,9 @@ def run_deepseek_v41_stages(
     contexts: tuple[ForwardContext, ...],
     token_slices: tuple[slice, ...],
     transport: HcclStagedTransport,
+    *,
+    pipeline: HcclEagerPipeline | None = None,
+    compute_stream: torch.npu.Stream | None = None,
 ) -> torch.Tensor | tuple[torch.Tensor, list[torch.Tensor]]:
     # ### PATCH START: admit an explicit accepted eager parent
     plan = transport.plan
@@ -106,6 +121,18 @@ def run_deepseek_v41_stages(
         raise ValueError("V4.1 stages require the complete PP1 target layer plan")
     if not len(stages) == len(contexts) == len(token_slices) == len(plan.stages):
         raise ValueError("V4.1 stages must match native child contexts and plan")
+    if (pipeline is None) != (compute_stream is None):
+        raise ValueError("eager pipeline and compute stream must be supplied together")
+    if pipeline is not None and (
+        pipeline.transport is not transport
+        or pipeline.plan is not plan
+        or pipeline.finished
+        or pipeline.failed
+        or compute_stream.device != pipeline.parent_stream.device
+        or torch.npu.current_stream(pipeline.parent_stream.device)
+        != pipeline.parent_stream
+    ):
+        raise ValueError("eager stages require their active exact parent and streams")
     bindings = DeepseekV41StageAttentionStates(model, token_slices)
     for stage_idx, (stage, context, token_slice) in enumerate(
         zip(stages, contexts, token_slices, strict=True)
@@ -133,9 +160,43 @@ def run_deepseek_v41_stages(
         ):
             raise ValueError("V4.1 Engram inputs must be parent token views")
 
+    if pipeline is not None:
+        # The native parent prepared input/metadata once. Keep its buffers
+        # alive through side compute; Engram readiness is still waited at the
+        # native first consumer rather than synchronizing its producer here.
+        ready = torch.npu.Event()
+        ready.record(pipeline.parent_stream)
+        ready.wait(compute_stream)
+        parent_state = model.shared_attention_state
+        tensors = (
+            parent_state.topk_indices,
+            parent_state.candidates,
+            parent_state.candidate_lengths,
+            parent_state.topk_lengths,
+            model._mtp_hidden_buffer,
+        )
+        for tensor in tensors:
+            if tensor is not None:
+                tensor.record_stream(compute_stream)
+        for stage in stages:
+            for tensor in (
+                stage.input_ids,
+                stage.positions,
+                stage.engram.mask,
+                *stage.engram.lookups.values(),
+            ):
+                tensor.record_stream(compute_stream)
+            if stage.inputs_embeds is not None:
+                stage.inputs_embeds.record_stream(compute_stream)
+
     executions = []
     for stage_idx, (stage, context) in enumerate(zip(stages, contexts, strict=True)):
-        with override_forward_context(context):
+        with (
+            override_forward_context(context),
+            use_npu_current_stream(compute_stream)
+            if compute_stream is not None
+            else nullcontext(),
+        ):
             if stage.inputs_embeds is not None:
                 hidden_states = stage.inputs_embeds
             elif stage.input_ids.numel():
@@ -163,59 +224,41 @@ def run_deepseek_v41_stages(
     # ### PATCH END: admit an explicit accepted eager parent
 
     # ### PATCH START: layer-major replaces native full-stage model calls
-    for layer in layers:
-        for stage_idx, (stage, context, execution) in enumerate(
-            zip(stages, contexts, executions, strict=True)
-        ):
-            with override_forward_context(context), bindings.bind(stage_idx):
-                hidden_states = execution.hidden_states
-                if layer.layer_idx + 1 in model.aux_hidden_state_layers:
-                    # Native aux observes layer entry, before Engram injection.
-                    execution.auxiliary.append(hidden_states.mean(dim=1))
-                if layer.engram is not None and stage.engram.mask.numel():
-                    if execution.mask_ready_event is not None:
-                        AscendParallelEngramEmbedding.wait_lookup(
-                            execution.mask_ready_event, external=False
+    if pipeline is not None:
+        _run_pipelined_stages(
+            model,
+            layers,
+            stages,
+            contexts,
+            executions,
+            bindings,
+            pipeline,
+            compute_stream,
+        )
+    else:
+        for layer in layers:
+            for stage_idx, (stage, context, execution) in enumerate(
+                zip(stages, contexts, executions, strict=True)
+            ):
+                with override_forward_context(context), bindings.bind(stage_idx):
+                    x, x_fp32, continuation = _prepare_stage(
+                        model, layer, stage, execution
+                    )
+                    if any(plan.stages[stage_idx].attention_padded_tokens):
+                        transport.send_layer_inputs(
+                            layer.layer_idx,
+                            stage_idx,
+                            x.contiguous(),
+                            x_fp32.contiguous(),
+                            execution.transfer_ids,
                         )
-                        execution.mask_ready_event = None
-                    if (
-                        stage.engram.pending is not None
-                        and layer.layer_idx in stage.engram.pending
-                    ):
-                        AscendParallelEngramEmbedding.wait_lookup(
-                            stage.engram.pending[layer.layer_idx], external=False
+                        ffn_output = transport.receive_layer_output(
+                            layer.layer_idx, stage_idx
                         )
-                    hidden_states[:] = layer.engram(
-                        hidden_states,
-                        stage.engram.lookups[layer.layer_idx],
-                        stage.engram.mask,
-                        model.engram_rotation if model.engram_rotated else None,
-                    )
-                rows = hidden_states.shape[0]
-                if rows:
-                    x, x_fp32, continuation = layer.prepare_remote_ffn(
-                        stage.positions, hidden_states, execution.pre_mix
-                    )
-                else:
-                    # A locally empty stage can still participate in a global
-                    # fanout/aggregate step; avoid calling HC kernels on zero rows.
-                    x = hidden_states.new_empty((0, model.config.hidden_size))
-                    x_fp32 = x.float()
-                if any(plan.stages[stage_idx].attention_padded_tokens):
-                    transport.send_layer_inputs(
-                        layer.layer_idx,
-                        stage_idx,
-                        x.contiguous(),
-                        x_fp32.contiguous(),
-                        execution.transfer_ids,
-                    )
-                    ffn_output = transport.receive_layer_output(
-                        layer.layer_idx, stage_idx
-                    )
-                    if rows:
-                        execution.hidden_states, execution.pre_mix = (
-                            layer.complete_remote_ffn(ffn_output, continuation)
-                        )
+                        if continuation is not None:
+                            execution.hidden_states, execution.pre_mix = (
+                                layer.complete_remote_ffn(ffn_output, continuation)
+                            )
     # ### PATCH END: layer-major replaces native full-stage model calls
 
     # ### PATCH START: reconstruct parent coordinates before final native collapse
@@ -240,3 +283,154 @@ def run_deepseek_v41_stages(
     if aux_hidden_states:
         return hidden_states, aux_hidden_states
     return hidden_states
+
+
+# Upstream: DeepseekV41Model.forward @ Ascend 7e37e29a:1612-1645.
+# Reason/functionality: share the exact aux-before-Engram and decoder-entry
+# contract between serial and delayed eager schedules. This new helper returns
+# the native HC continuation instead of invoking remote MoE inside the layer.
+# Parent producer/history/retirement stay native; remove with stage hooks.
+def _prepare_stage(
+    model: AFDDeepseekV41AttentionModel,
+    layer: AFDDeepseekV41AttentionDecoderLayer,
+    stage: DeepseekV41StageInputs,
+    execution: _StageExecution,
+) -> tuple[torch.Tensor, torch.Tensor, DeepseekV41FFNContinuation | None]:
+    """Shared native layer entry for serial and delayed eager schedules."""
+    # ### PATCH START: retain native layer entry across a remote MoE seam
+    hidden_states = execution.hidden_states
+    if layer.layer_idx + 1 in model.aux_hidden_state_layers:
+        execution.auxiliary.append(hidden_states.mean(dim=1))
+    if layer.engram is not None and stage.engram.mask.numel():
+        if execution.mask_ready_event is not None:
+            AscendParallelEngramEmbedding.wait_lookup(
+                execution.mask_ready_event, external=False
+            )
+            execution.mask_ready_event = None
+        if stage.engram.pending is not None and layer.layer_idx in stage.engram.pending:
+            AscendParallelEngramEmbedding.wait_lookup(
+                stage.engram.pending[layer.layer_idx], external=False
+            )
+        hidden_states[:] = layer.engram(
+            hidden_states,
+            stage.engram.lookups[layer.layer_idx],
+            stage.engram.mask,
+            model.engram_rotation if model.engram_rotated else None,
+        )
+    if hidden_states.shape[0]:
+        return layer.prepare_remote_ffn(
+            stage.positions, hidden_states, execution.pre_mix
+        )
+    # Preserve C4's zero-row global stage and avoid zero-row HC kernels.
+    x = hidden_states.new_empty((0, model.config.hidden_size))
+    return x, x.float(), None
+    # ### PATCH END: retain native layer entry across a remote MoE seam
+
+
+def _continuation_tensors(execution: _StageExecution) -> tuple[torch.Tensor, ...]:
+    continuation = execution.continuation
+    return (
+        execution.hidden_states,
+        execution.pre_mix,
+        *execution.auxiliary,
+        *(
+            (
+                continuation.residual,
+                continuation.post,
+                continuation.comb,
+                continuation.pre_mix,
+            )
+            if continuation is not None
+            else ()
+        ),
+    )
+
+
+# Upstream model forward @ Ascend 7e37e29a:1561-1651. Reason: eagerly finishing
+# each remote MoE before posting the next stage precludes U2 in-flight work.
+# Functionality: delay each HC continuation to its next actual stage consumer,
+# retaining native auxiliary/Engram/shared-Attention semantics on one compute
+# stream. This is a new internal schedule, not a changed upstream signature.
+# Transport owns Work/event/storage and COMPLETE; native ModelState owns history
+# and retirement. Remove with upstream stage/remote-expert scheduling hooks.
+def _run_pipelined_stages(
+    model: AFDDeepseekV41AttentionModel,
+    layers: tuple[AFDDeepseekV41AttentionDecoderLayer, ...],
+    stages: tuple[DeepseekV41StageInputs, ...],
+    contexts: tuple[ForwardContext, ...],
+    executions: list[_StageExecution],
+    bindings: DeepseekV41StageAttentionStates,
+    pipeline: HcclEagerPipeline,
+    compute_stream: torch.npu.Stream,
+) -> None:
+    # ### PATCH START: delayed HC consumers with bounded eager wire tickets
+    try:
+        for layer_index, layer in enumerate(layers):
+            for stage_idx, (stage, context, execution) in enumerate(
+                zip(stages, contexts, executions, strict=True)
+            ):
+                if execution.ticket is not None:
+                    with (
+                        override_forward_context(context),
+                        bindings.bind(stage_idx),
+                        pipeline.attention_output(
+                            execution.ticket,
+                            consumer_stream=compute_stream,
+                            retain=_continuation_tensors(execution),
+                        ) as output,
+                    ):
+                        if execution.continuation is not None:
+                            execution.hidden_states, execution.pre_mix = layers[
+                                layer_index - 1
+                            ].complete_remote_ffn(output, execution.continuation)
+                    execution.ticket = execution.continuation = None
+                with (
+                    override_forward_context(context),
+                    bindings.bind(stage_idx),
+                    use_npu_current_stream(compute_stream),
+                ):
+                    x, fp32, execution.continuation = _prepare_stage(
+                        model, layer, stage, execution
+                    )
+                    x, fp32 = x.contiguous(), fp32.contiguous()
+                if any(pipeline.plan.stages[stage_idx].attention_padded_tokens):
+                    execution.ticket = pipeline.post_attention(
+                        layer.layer_idx,
+                        stage_idx,
+                        x,
+                        fp32,
+                        execution.transfer_ids,
+                        producer_stream=compute_stream,
+                        retain=_continuation_tensors(execution),
+                    )
+        for stage_idx, (context, execution) in enumerate(
+            zip(contexts, executions, strict=True)
+        ):
+            if execution.ticket is None:
+                continue
+            with (
+                override_forward_context(context),
+                bindings.bind(stage_idx),
+                pipeline.attention_output(
+                    execution.ticket,
+                    consumer_stream=compute_stream,
+                    retain=_continuation_tensors(execution),
+                ) as output,
+            ):
+                if execution.continuation is not None:
+                    execution.hidden_states, execution.pre_mix = layers[
+                        -1
+                    ].complete_remote_ffn(output, execution.continuation)
+            execution.ticket = execution.continuation = None
+        # Collapse/MTP/native retirement must see all stage computations. A
+        # device dependency plus allocator ownership replaces a host sync here.
+        done = torch.npu.Event()
+        done.record(compute_stream)
+        done.wait(pipeline.parent_stream)
+        for execution in executions:
+            for tensor in _continuation_tensors(execution):
+                tensor.record_stream(pipeline.parent_stream)
+    except BaseException:
+        pipeline.fail()
+        raise
+    # ### PATCH END: delayed HC consumers with bounded eager wire tickets

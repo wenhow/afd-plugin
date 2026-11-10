@@ -1,0 +1,161 @@
+{
+  "scope": "actual eager ticket owner component; no model/MoE/overlap acceptance",
+  "sessions": {
+    "owner-tp1-001": {
+      "identity": "openspec/changes/afd-hccl-v2-multistream/evidence/a3-eager-pipeline-20261110/owner-tp1-001/identity.json",
+      "snapshot_manifest_sha256": "ccf53188e398340b70e4975fc2b856e1ddce8f0a06056438f12b2199d591ea54",
+      "head_commit": "8a6eeb2a81506621f8571784179a46e3f4680d95",
+      "production": {
+        "afd_plugin/connectors/npu/hccl_eager_pipeline.py": "b758b9e8cb398cebdf91c8bd36087b060e2d10e7cbfc6636ff0ba385e0cb6e31",
+        "afd_plugin/connectors/npu/hccl_staged_transport.py": "ae4c38de38cb90d5e511fe0c7d0dbd6fda9fc318292f2d10784d33b3c8d422f1",
+        "tests/npu/hccl_eager_pipeline_probe.py": "d45ab50581e863d94372435cd0ed3265ebb38533c640e376aa60dbb4d5b747d7"
+      },
+      "source_files_match": true,
+      "upstream_files_checked": 33,
+      "idle_before": 8,
+      "idle_after": 8,
+      "success": true,
+      "exit_codes": {
+        "ffn-0": 0,
+        "attention-0": 0
+      },
+      "killed_owned_pids": [],
+      "timed_out": false,
+      "rank_summaries": {
+        "ffn-0": {
+          "parents": 6,
+          "positive_layer_stage_checks": 16,
+          "native_tp_before": [
+            1.0
+          ],
+          "native_tp_after_plugin_close": [
+            1.0
+          ],
+          "normal_stop": true
+        },
+        "attention-0": {
+          "parents": 6,
+          "positive_layer_stage_checks": 16,
+          "native_tp_before": [
+            1.0
+          ],
+          "native_tp_after_plugin_close": [
+            1.0
+          ],
+          "normal_stop": true
+        }
+      },
+      "raw_sha256": {
+        "delivery.json": "68998dcf4103ede9be4879a7ccb4181b8c1404498a6285eb6f362693a69dfbcd",
+        "identity.json": "575948db61d3008a8f48361d5e4b8ecb297ddc6d79d183e334e01e008cdba364",
+        "remote-run.log": "fa4ea49fad7d335b304b6cbc821c8d9c8bc64d5dec8ebfbbe05184f57dd8b31e",
+        "results/effective-env.json": "b3e4db4973ebca4a0c26f93529d9077f25f6c38844b570cb77717a5f4f7d4f9e",
+        "results/npu-after.log": "db6cc77ad75a980fc541d570f7fe94619c9dc1a067fdb2fda33ed21e2a6ace2f",
+        "results/npu-before.log": "686d8c1e235fa92b94d2e2839edec115ec0e9031e9abaad45001ecd7227825b6",
+        "results/owned-processes.json": "f48410e5a43aa733ae2ac6737e4f7ef1a761c7bd98442c3a2002a5a5ca77edf6",
+        "results/probe/attention-0.json": "e30742505a8dee95970997c28a29c923a18855afdb923d63cdaaff12c1f1af37",
+        "results/probe/attention-0.log": "71d6befb0ae04f3791bc8375c83c25503842f3b446b1efb477d2b79772898a36",
+        "results/probe/ffn-0.json": "6bc6488a04ca72596ad46f6a0a6fcfcee9b893f0d80e7519bb3f6bb6254b666a",
+        "results/probe/ffn-0.log": "ea5a16ea211f6a3eb6b098f0427c7ed32b25a360dd30315ffebc4ac72d004adc",
+        "results/probe/result.json": "54f0a954c73b363f6fa333ecc5f628123c3e6b4d06c05c8670ed4cb5655dc4df",
+        "results/probe.log": "54f0a954c73b363f6fa333ecc5f628123c3e6b4d06c05c8670ed4cb5655dc4df",
+        "results/source-check.json": "6398402f60cffcb87fdf4bd7672cfbcea23a9c056619b540256c3b90894d6cda",
+        "results/standalone-no-torch-preflight.json": "5f542e23eb08e7520a088c9862a081ef2517ad0b58ecd3da1acb3c769dcd9afc",
+        "results/summary.json": "70281c386e74d341b2a6b118c2a4514831b8b58593dcffe76e5a727373d228ef",
+        "results/upstream-identity.json": "ccce1aa67235ce2f18e6302767e4b640fc6304ce311c80e4d62d573e901b889d"
+      }
+    },
+    "owner-tp2-001": {
+      "identity": "openspec/changes/afd-hccl-v2-multistream/evidence/a3-eager-pipeline-20261110/owner-tp2-001/identity.json",
+      "snapshot_manifest_sha256": "4c58361ff41090bc58e5d87e1f69f124753be97c703a5c36102f540157ce27c7",
+      "head_commit": "b7f86e1792ce43c2f56f4c27141106acf44e2607",
+      "production": {
+        "afd_plugin/connectors/npu/hccl_eager_pipeline.py": "b758b9e8cb398cebdf91c8bd36087b060e2d10e7cbfc6636ff0ba385e0cb6e31",
+        "afd_plugin/connectors/npu/hccl_staged_transport.py": "ae4c38de38cb90d5e511fe0c7d0dbd6fda9fc318292f2d10784d33b3c8d422f1",
+        "tests/npu/hccl_eager_pipeline_probe.py": "d45ab50581e863d94372435cd0ed3265ebb38533c640e376aa60dbb4d5b747d7"
+      },
+      "source_files_match": true,
+      "upstream_files_checked": 33,
+      "idle_before": 8,
+      "idle_after": 8,
+      "success": true,
+      "exit_codes": {
+        "ffn-0": 0,
+        "ffn-1": 0,
+        "attention-0": 0,
+        "attention-1": 0
+      },
+      "killed_owned_pids": [],
+      "timed_out": false,
+      "rank_summaries": {
+        "ffn-0": {
+          "parents": 6,
+          "positive_layer_stage_checks": 16,
+          "native_tp_before": [
+            2.0
+          ],
+          "native_tp_after_plugin_close": [
+            2.0
+          ],
+          "normal_stop": true
+        },
+        "ffn-1": {
+          "parents": 6,
+          "positive_layer_stage_checks": 16,
+          "native_tp_before": [
+            2.0
+          ],
+          "native_tp_after_plugin_close": [
+            2.0
+          ],
+          "normal_stop": true
+        },
+        "attention-0": {
+          "parents": 6,
+          "positive_layer_stage_checks": 16,
+          "native_tp_before": [
+            2.0
+          ],
+          "native_tp_after_plugin_close": [
+            2.0
+          ],
+          "normal_stop": true
+        },
+        "attention-1": {
+          "parents": 6,
+          "positive_layer_stage_checks": 16,
+          "native_tp_before": [
+            2.0
+          ],
+          "native_tp_after_plugin_close": [
+            2.0
+          ],
+          "normal_stop": true
+        }
+      },
+      "raw_sha256": {
+        "delivery.json": "a6d7af6441cc64f1c35371075d740d4e0972aad92c32cea224d6f7444fe7f11b",
+        "identity.json": "4c93e6fddfde15f27baee40738afc80f5e720e2379cfffa6a54b4eb0ca0f6e2d",
+        "remote-run.log": "dd508ebb496dc2ed493e5801cf3336ad4e5420fae9b11b36f96bb3c03e57c7d8",
+        "results/effective-env.json": "d3e0196ec68bc49e7206c709fc0bea731359e7c387a9d00c5a4e61810933f45b",
+        "results/npu-after.log": "0f0792bdbf1c73c02a899c3d9d7bdbcdb53a5d1a0c8ade07d6cc03ccd17e31f6",
+        "results/npu-before.log": "f40bfc9c0b5e9cfc9d3cff618d047ac7b8ed6af87ba657c6d2254e04a69c30ed",
+        "results/owned-processes.json": "a576322886bb738a5955b87901c748a18bc62ede81c6878f1cdbcd6408670205",
+        "results/probe/attention-0.json": "d121886d01d5cad55f2189fa90833c7dea2b5e079814f26c1097f64ac0a9b2a7",
+        "results/probe/attention-0.log": "71504e4d22736d065d181fa4badb8424b0688937342d9cfc71ff2c566344ba10",
+        "results/probe/attention-1.json": "776eece308f60bb601f8b204339c2f7daa7f32645a1e297bfac56df06f3fea7d",
+        "results/probe/attention-1.log": "d22a359aff5c58c5e31fe579fa1ac8402576f05f2f73260a7734a640564fffad",
+        "results/probe/ffn-0.json": "b51bcb54b7aebbbb53eb802a14423d7e5b71d06557ad03957d927269b65316f8",
+        "results/probe/ffn-0.log": "cf91462c496c1d231a79f7f0a8f79c3a9b7330c339fd1f07decd5555d1e16fb0",
+        "results/probe/ffn-1.json": "266cd4d66b2590500850467814035abb16e20f53d265f8ecec00c91303b1e76d",
+        "results/probe/ffn-1.log": "858d28977b19f28cddcf97b52579891905d10dd4febddd93e2b7914760a37314",
+        "results/probe/result.json": "daf647b43729043c91d1ad90b11f8db0cbe537ac79b321d1664e934c7a990dab",
+        "results/probe.log": "daf647b43729043c91d1ad90b11f8db0cbe537ac79b321d1664e934c7a990dab",
+        "results/source-check.json": "6398402f60cffcb87fdf4bd7672cfbcea23a9c056619b540256c3b90894d6cda",
+        "results/standalone-no-torch-preflight.json": "5f542e23eb08e7520a088c9862a081ef2517ad0b58ecd3da1acb3c769dcd9afc",
+        "results/summary.json": "142be8d5dbaa8bad6db2265ac821f3c032bad838a8962ba1073163fc838ec689",
+        "results/upstream-identity.json": "ccce1aa67235ce2f18e6302767e4b640fc6304ce311c80e4d62d573e901b889d"
+      }
+    }
+  }
+}

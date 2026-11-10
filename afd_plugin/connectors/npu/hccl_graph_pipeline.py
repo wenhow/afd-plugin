@@ -19,6 +19,7 @@ import torch
 
 from afd_plugin.compat.npu.stream import use_npu_current_stream
 from afd_plugin.connectors.npu.hccl_graph_stage import HcclGraphStageBank
+from afd_plugin.connectors.npu.hccl_overlap import HcclOverlapSelection
 
 
 @dataclass(frozen=True, slots=True)
@@ -26,10 +27,45 @@ class HcclGraphPipelinePolicy:
     """One session's capture-constant compute DAG; None selects no pipeline."""
 
     hybrid: bool = True
+    attention_three_stream: bool = True
+    ffn_recv_stream: bool = True
+    ffn_cross_layer: bool = True
 
     def __post_init__(self) -> None:
-        if type(self.hybrid) is not bool:
-            raise ValueError("graph pipeline hybrid policy must be bool")
+        if any(
+            type(value) is not bool
+            for value in (
+                self.hybrid,
+                self.attention_three_stream,
+                self.ffn_recv_stream,
+                self.ffn_cross_layer,
+            )
+        ):
+            raise ValueError("graph pipeline policy values must be bool")
+        if self.ffn_cross_layer and not self.ffn_recv_stream:
+            raise ValueError("graph FFN cross-layer policy requires receive stream")
+
+    @classmethod
+    def from_selection(
+        cls, selection: HcclOverlapSelection
+    ) -> HcclGraphPipelinePolicy | None:
+        """Keep fixed settings while deriving each actual descriptor's eligibility.
+
+        Unused role-specific fields remain configured values, so a retained
+        policy does not lose the session's other axes. The selection exposes
+        their effective role/mode gates separately.
+        """
+        if selection.phase == "eager":
+            raise ValueError("graph pipeline selection must describe a Graph phase")
+        if not selection.graph_u2_compute_overlap:
+            return None
+        settings = selection.settings
+        return cls(
+            hybrid=settings.graph_u2_hybrid_dag,
+            attention_three_stream=settings.graph_u2_attention_three_stream,
+            ffn_recv_stream=settings.graph_u2_ffn_recv_stream,
+            ffn_cross_layer=settings.graph_u2_ffn_cross_layer,
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -75,9 +111,12 @@ class HcclGraphComputePipeline:
         step_events: Mapping[tuple[int, int], HcclGraphPipelineEvents],
         tail_events: Mapping[int, HcclGraphPipelineTailEvents],
         *,
-        hybrid: bool = True,
+        hybrid: bool | None = None,
+        policy: HcclGraphPipelinePolicy | None = None,
+        selection: HcclOverlapSelection | None = None,
     ) -> None:
-        if type(hybrid) is not bool or compute_stream.device != bank.device:
+        selected = self._select_policy(bank, hybrid, policy, selection)
+        if compute_stream.device != bank.device:
             raise ValueError(
                 "pipeline requires a same-device compute stream and bool mode"
             )
@@ -106,7 +145,8 @@ class HcclGraphComputePipeline:
         )
         if len({id(event) for event in events}) != len(events):
             raise ValueError("pipeline dependency events must not alias")
-        self.bank, self._compute_stream, self._hybrid = bank, compute_stream, hybrid
+        self.bank, self._compute_stream, self._policy = bank, compute_stream, selected
+        self._selection = selection
         self.step_events = MappingProxyType(dict(step_events))
         self.tail_events = MappingProxyType(dict(tail_events))
         self._steps, self._stages = steps, stages
@@ -124,6 +164,7 @@ class HcclGraphComputePipeline:
         self._computed: set[tuple[int, int]] = set()
         self._sent: set[tuple[int, int]] = set()
         self._finalized: set[int] = set()
+        self._joined_layers: set[int] = set()
         self._held: dict[int | None, tuple[torch.Tensor, ...]] = {}
 
     @property
@@ -132,13 +173,90 @@ class HcclGraphComputePipeline:
 
     @property
     def hybrid(self) -> bool:
-        return self._hybrid
+        return self.policy.hybrid
+
+    @property
+    def policy(self) -> HcclGraphPipelinePolicy:
+        return self._policy
+
+    @property
+    def selection(self) -> HcclOverlapSelection | None:
+        return self._selection
+
+    @property
+    def logical_send_stream(self) -> str:
+        if self.selection is not None:
+            return self.selection.logical_send_stream
+        return (
+            "send"
+            if self.bank.role == "ffn" or self.policy.attention_three_stream
+            else "parent"
+        )
+
+    @property
+    def logical_recv_stream(self) -> str:
+        if self.selection is not None:
+            return self.selection.logical_recv_stream
+        selected = (
+            self.policy.attention_three_stream
+            if self.bank.role == "attention"
+            else self.policy.ffn_recv_stream
+        )
+        return "recv" if selected else "parent"
+
+    def communication_plan(self) -> dict[str, str | bool]:
+        """Report donor logical choices and the actual Graph parent override.
+
+        No dedicated communication streams are allocated to represent logical
+        choices that warmup/capture override. This record is host diagnostics,
+        not evidence of three physical streams or actual communication overlap.
+        """
+        return {
+            "logical.send_stream": self.logical_send_stream,
+            "logical.recv_stream": self.logical_recv_stream,
+            "physical.send_stream": "parent",
+            "physical.recv_stream": "parent",
+            "parent_transport_override": True,
+        }
+
+    @staticmethod
+    def _select_policy(
+        bank: HcclGraphStageBank,
+        hybrid: bool | None,
+        policy: HcclGraphPipelinePolicy | None,
+        selection: HcclOverlapSelection | None,
+    ) -> HcclGraphPipelinePolicy:
+        if sum(value is not None for value in (hybrid, policy, selection)) > 1:
+            raise ValueError(
+                "pass one graph pipeline policy, selection or legacy hybrid"
+            )
+        if selection is not None:
+            if (
+                selection.role != bank.role
+                or selection.num_stages != len(bank.stage_rows)
+                or selection.physical_send_stream != "parent"
+                or selection.physical_recv_stream != "parent"
+            ):
+                raise ValueError("graph pipeline selection must match this bank/parent")
+            selected = HcclGraphPipelinePolicy.from_selection(selection)
+            if selected is None:
+                raise ValueError("graph pipeline selection requires active U2 compute")
+            return selected
+        if policy is not None:
+            return policy
+        return HcclGraphPipelinePolicy(hybrid=True if hybrid is None else hybrid)
 
     @classmethod
     def allocate(
-        cls, bank: HcclGraphStageBank, *, hybrid: bool = True
+        cls,
+        bank: HcclGraphStageBank,
+        *,
+        hybrid: bool | None = None,
+        policy: HcclGraphPipelinePolicy | None = None,
+        selection: HcclOverlapSelection | None = None,
     ) -> HcclGraphComputePipeline:
         """Create real NPU owners outside capture; no groups or buffers change."""
+        cls._select_policy(bank, hybrid, policy, selection)
         if bank.device.type != "npu" or bank.device.index is None:
             raise ValueError("allocate pipeline on an indexed NPU bank")
         if torch.npu.is_current_stream_capturing():
@@ -165,6 +283,8 @@ class HcclGraphComputePipeline:
             events,
             tails,
             hybrid=hybrid,
+            policy=policy,
+            selection=selection,
         )
 
     @contextmanager
@@ -197,6 +317,7 @@ class HcclGraphComputePipeline:
         self._computed.clear()
         self._sent.clear()
         self._finalized.clear()
+        self._joined_layers.clear()
         try:
             yield
             self._require_parent(allow_joined=True)
@@ -219,6 +340,16 @@ class HcclGraphComputePipeline:
         if torch.npu.current_stream(self.bank.device) != self._parent:
             raise RuntimeError("pipeline communication must stay on the parent stream")
         return self._parent
+
+    def _communication_stream(self, *, send: bool) -> torch.npu.Stream:
+        """Resolve logical choice under the donor's Graph transport override."""
+        parent = self._require_parent()
+        logical = self.logical_send_stream if send else self.logical_recv_stream
+        if logical == "parent":
+            return parent
+        # Warmup and capture override dedicated logical send/receive choices.
+        # Preserve their diagnostics without creating unused physical streams.
+        return parent
 
     def _require_step(self, layer_idx: int, stage_idx: int) -> tuple[int, int]:
         step = (layer_idx, stage_idx)
@@ -309,7 +440,7 @@ class HcclGraphComputePipeline:
         self, layer_idx: int, stage_idx: int, *, tensors: tuple[torch.Tensor, ...] = ()
     ) -> Iterator[None]:
         """Join the actual producer before BF16/FP32/IDs copies and parent HCCL."""
-        parent = self._require_parent()
+        send_stream = self._communication_stream(send=True)
         step = self._require_step(layer_idx, stage_idx)
         self._require_wire_step(step)
         if self.bank.role != "attention" or step not in self._computed:
@@ -319,12 +450,11 @@ class HcclGraphComputePipeline:
         if any((layer_idx, stage) not in self._computed for stage in self._stages):
             raise RuntimeError("enqueue every stage compute before this layer exchange")
         events = self.step_events[step]
-        events.compute_done.wait(parent)
-        self._retain_on(tensors, parent, stage_idx)
+        events.compute_done.wait(send_stream)
+        self._retain_on(tensors, send_stream, stage_idx)
         try:
             yield
-            self._require_parent()
-            events.receive_done.record(parent)
+            events.receive_done.record(self._communication_stream(send=False))
             self._received.add(step)
             self._wire_index += 1
         except BaseException:
@@ -334,7 +464,7 @@ class HcclGraphComputePipeline:
     @contextmanager
     def ffn_receive(self, layer_idx: int, stage_idx: int) -> Iterator[None]:
         """Fence the previous use of this stage's bank before receiving again."""
-        parent = self._require_parent()
+        parent = self._communication_stream(send=False)
         step = self._require_step(layer_idx, stage_idx)
         self._require_wire_step(step)
         if self.bank.role != "ffn" or step in self._received:
@@ -344,7 +474,15 @@ class HcclGraphComputePipeline:
             previous = (self.bank.layer_indices[index - 1], stage_idx)
             if previous not in self._sent:
                 raise RuntimeError("FFN stage reuse requires its preceding send")
-            self.step_events[previous].send_done.wait(parent)
+            if (
+                not self.policy.ffn_cross_layer
+                and previous[0] not in self._joined_layers
+            ):
+                raise RuntimeError(
+                    "FFN receive requires its selected preceding layer join"
+                )
+            if self.policy.ffn_recv_stream:
+                self.step_events[previous].send_done.wait(parent)
         try:
             yield
             self._require_parent()
@@ -359,7 +497,7 @@ class HcclGraphComputePipeline:
         self, layer_idx: int, stage_idx: int, *, tensors: tuple[torch.Tensor, ...] = ()
     ) -> Iterator[None]:
         """Join native MoE before its output copy/mask/send on the parent."""
-        parent = self._require_parent()
+        parent = self._communication_stream(send=True)
         step = self._require_step(layer_idx, stage_idx)
         self._require_wire_step(step)
         if self.bank.role != "ffn" or step not in self._computed:
@@ -413,6 +551,25 @@ class HcclGraphComputePipeline:
             self._failed = True
             raise
 
+    def join_layer(self, layer_idx: int) -> None:
+        """Apply the donor's non-cross-layer FFN send frontier on the parent."""
+        parent = self._require_parent()
+        if (
+            self.bank.role != "ffn"
+            or self.policy.ffn_cross_layer
+            or layer_idx not in self.bank.layer_indices
+            or layer_idx in self._joined_layers
+            or any((layer_idx, stage) not in self._sent for stage in self._stages)
+            or self._wire_index
+            != (self.bank.layer_indices.index(layer_idx) + 1) * len(self._stages)
+            or self._joined_layers
+            != set(self.bank.layer_indices[: self.bank.layer_indices.index(layer_idx)])
+        ):
+            raise RuntimeError("FFN layer join requires its complete selected frontier")
+        for stage in self._stages:
+            self.step_events[(layer_idx, stage)].send_done.wait(parent)
+        self._joined_layers.add(layer_idx)
+
     def join(self, *, outputs: tuple[torch.Tensor, ...] = ()) -> None:
         """Make every final side task an ancestor of parent output consumption."""
         parent = self._require_parent()
@@ -425,6 +582,10 @@ class HcclGraphComputePipeline:
                 raise RuntimeError("pipeline join requires every final continuation")
             events = tuple(self.tail_events[stage].done for stage in self._stages)
         else:
+            if not self.policy.ffn_cross_layer and self._joined_layers != set(
+                self.bank.layer_indices
+            ):
+                raise RuntimeError("FFN final join requires every selected layer join")
             events = tuple(
                 self.step_events[(self.bank.layer_indices[-1], stage)].send_done
                 for stage in self._stages

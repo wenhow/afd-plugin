@@ -1,0 +1,142 @@
+{
+  "scope": "CPU seams only; independent immutable runs, not one aggregate run",
+  "runs": {
+    "dspark-target-u2-001": {
+      "head_commit": "8a6eeb2a81506621f8571784179a46e3f4680d95",
+      "manifest_sha256": "3b943f32745203010be1416db6d6e6c48cc47260f37b3bc275b583291b9baf94",
+      "summary": {
+        "scope": "CPU module seams with actual installed dependencies; no device probe",
+        "remote": "/mnt/workspace/tmp/afd-c0-20261104.hVgsIf/c5-control-cpu-20261109-wspwm1a6",
+        "command": [
+          "/mnt/workspace/code/.venvs/afd-v030-dsv41-c0/bin/python",
+          "-B",
+          "-m",
+          "pytest",
+          "-o",
+          "addopts=",
+          "-q",
+          "-rs",
+          "--tb=short",
+          "-p",
+          "no:cacheprovider",
+          "-m",
+          "not npu and not gpu",
+          "--junitxml=/mnt/workspace/tmp/afd-c0-20261104.hVgsIf/c5-control-cpu-20261109-wspwm1a6/results/cpu.xml",
+          "tests/unit/compat/npu/test_runtime_config.py",
+          "tests/unit/connectors/npu/test_hccl_config.py",
+          "tests/unit/connectors/npu/test_hccl_staged.py",
+          "tests/unit/v1/worker/npu/test_hccl_v41_execution.py"
+        ],
+        "returncode": 1,
+        "source_files_match": true,
+        "snapshot_exclusions": [],
+        "device_probe_started": false,
+        "success": false
+      },
+      "junit": {
+        "name": "pytest",
+        "errors": "0",
+        "failures": "4",
+        "skipped": "0",
+        "tests": "218",
+        "time": "2.189",
+        "timestamp": "2026-11-10T08:18:50.759678+08:00",
+        "hostname": "4ff038c993bf40219c03182f786a9def"
+      },
+      "module_cases": {
+        "tests.unit.compat.npu.test_runtime_config": 44,
+        "tests.unit.connectors.npu.test_hccl_config": 124,
+        "tests.unit.connectors.npu.test_hccl_staged": 26,
+        "tests.unit.v1.worker.npu.test_hccl_v41_execution": 24
+      },
+      "upstream_pins_total": 10,
+      "upstream_pins_all_match": true,
+      "current_runtime_matches_snapshot": {
+        "afd_plugin/compat/npu/runtime_config.py": true,
+        "afd_plugin/connectors/npu/hccl_config.py": true,
+        "afd_plugin/v1/worker/npu/hccl_v41_execution.py": true,
+        "afd_plugin/model_executor/models/npu/deepseek_v41_staged.py": true
+      },
+      "raw_artifact_sha256": {
+        "identity.json": "46787a40b5fd773b2de79b9cdff651de5d5e202004a1e050a2ca0d22cce11e76",
+        "delivery.json": "313639ae935678ad22bb81c090cf00d9f7d592355cdcc15cf9c149b848f9f88b",
+        "results/summary.json": "95b87d44e92756b3c548eea77685510792599cc920a28bfd97abde8d73a27f1e",
+        "results/cpu.xml": "ebc2ede44220bdf74421107bbc02650097e51a141d681a58cbd06081b21f5a3e",
+        "results/source-check.json": "26217f98782ba8d3091010cf6a886fd9dc1195b125b41e89642960e0311108cd",
+        "results/versions.json": "8aa40a41b53ecde5293ad581f313555c4e948071ce87c879c3b93ac6d8ad2601"
+      }
+    },
+    "dspark-selector-002": {
+      "head_commit": "8a6eeb2a81506621f8571784179a46e3f4680d95",
+      "manifest_sha256": "4e4b82e4b50b2c69e9bfa78f3a1207d51641725812408676ec1f41204454e75f",
+      "summary": {
+        "scope": "CPU module seams with actual installed dependencies; no device probe",
+        "remote": "/mnt/workspace/tmp/afd-c0-20261104.hVgsIf/c5-control-cpu-20261109-_vjp1_3l",
+        "command": [
+          "/mnt/workspace/code/.venvs/afd-v030-dsv41-c0/bin/python",
+          "-B",
+          "-m",
+          "pytest",
+          "-o",
+          "addopts=",
+          "-q",
+          "-rs",
+          "--tb=short",
+          "-p",
+          "no:cacheprovider",
+          "-m",
+          "not npu and not gpu",
+          "--junitxml=/mnt/workspace/tmp/afd-c0-20261104.hVgsIf/c5-control-cpu-20261109-_vjp1_3l/results/cpu.xml",
+          "tests/unit/connectors/npu/test_hccl_staged.py"
+        ],
+        "returncode": 0,
+        "source_files_match": true,
+        "snapshot_exclusions": [],
+        "device_probe_started": false,
+        "success": true
+      },
+      "junit": {
+        "name": "pytest",
+        "errors": "0",
+        "failures": "0",
+        "skipped": "0",
+        "tests": "26",
+        "time": "0.187",
+        "timestamp": "2026-11-10T08:25:38.611981+08:00",
+        "hostname": "4ff038c993bf40219c03182f786a9def"
+      },
+      "module_cases": {
+        "tests.unit.connectors.npu.test_hccl_staged": 26
+      },
+      "upstream_pins_total": 10,
+      "upstream_pins_all_match": true,
+      "current_runtime_matches_snapshot": {
+        "afd_plugin/compat/npu/runtime_config.py": true,
+        "afd_plugin/connectors/npu/hccl_config.py": true,
+        "afd_plugin/v1/worker/npu/hccl_v41_execution.py": true,
+        "afd_plugin/model_executor/models/npu/deepseek_v41_staged.py": true
+      },
+      "raw_artifact_sha256": {
+        "identity.json": "3f3b6a2022316f518638b14103d98a57d9c1ba2b2bef24db611d5e04ebf28d32",
+        "delivery.json": "6382a9ea32dfb5c31955cee9304fcfa6373d260aa1d574e363a699a3553b1893",
+        "results/summary.json": "ea233cf2f2d58c3d889f0e62e924ae60919545cc68bf235106a7283f079831e2",
+        "results/cpu.xml": "5993f22697237cdb0d8c3d0299ed00cd0ef7f094b595977fefb8a2e64755c8ef",
+        "results/source-check.json": "26217f98782ba8d3091010cf6a886fd9dc1195b125b41e89642960e0311108cd",
+        "results/versions.json": "8aa40a41b53ecde5293ad581f313555c4e948071ce87c879c3b93ac6d8ad2601"
+      }
+    }
+  },
+  "failure_resolution": "Four new TP2 selector cases used caller rank zero with native/role rank one. Fix the fixture caller rank; complete affected selector module passes in 002. No production change for the correction.",
+  "current_runtime_sha256": {
+    "afd_plugin/compat/npu/runtime_config.py": "304e31b3275378571b161282907aeb4a09dc422ee13ee03f90dbd335f5e99805",
+    "afd_plugin/connectors/npu/hccl_config.py": "ceb1f99377f84eff6e223cb14e218c7862e99af3d1114e6013ac71b769683bc7",
+    "afd_plugin/v1/worker/npu/hccl_v41_execution.py": "a5fa30c78f3bb6696662f2c708bd6a9e7c71f150c81d43e293735ca550b1f200",
+    "afd_plugin/model_executor/models/npu/deepseek_v41_staged.py": "62d47c8686f4257047a5290803f88231bdcc83c1ef526a314df60d7a53b12322"
+  },
+  "acceptance_pending": [
+    "Native DSpark draft/target/rejection NPU output and acceptance statistics",
+    "PD history transfer and target geometry on paired/heterogeneous layouts",
+    "Graph DSpark and adaptive U2 verification remain rejected",
+    "Full checkpoint comparison and performance"
+  ]
+}

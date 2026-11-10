@@ -1,0 +1,19 @@
+{
+  "scope": "documentation command count and links only",
+  "component_count": 12,
+  "components": [
+    "c4-1a1f",
+    "c4-2a2f-tp2",
+    "c5-static-graph",
+    "c5-native-manager",
+    "c6-pipeline-hybrid1",
+    "c6-pipeline-hybrid0",
+    "c6-eager-isend",
+    "c6-eager-irecv",
+    "c6-axes11111",
+    "c6-axes00000",
+    "c6-axes10000",
+    "c6-axes10010"
+  ],
+  "links_resolve": true
+}

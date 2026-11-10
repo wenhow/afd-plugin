@@ -18,7 +18,7 @@ from afd_plugin.compat.npu import (
     fail_if_unsupported_npu_afd_features,
 )
 from afd_plugin.compat.npu.profiler import (
-    create_afd_npu_profiler,
+    create_deferred_afd_npu_profiler,
     step_afd_npu_profiler,
     stop_afd_npu_profiler,
 )
@@ -30,6 +30,7 @@ from afd_plugin.connectors import (
     AFDForwardContextMetadata,
     AFDTransferContext,
 )
+from afd_plugin.connectors.npu.hccl_config import validate_staged_hccl_binding
 from afd_plugin.connectors.npu.hccl_protocol import HcclForwardPlan
 from afd_plugin.connectors.npu.hccl_staged import (
     HcclStagedAFDConnector,
@@ -44,6 +45,8 @@ from afd_plugin.v1.worker.cuda_graph import (
     graph_run_mode,
 )
 from afd_plugin.v1.worker.ffn_metadata import _set_moe_layer_index
+from afd_plugin.v1.worker.npu.hccl_v41_eager import HcclV41EagerSession
+from afd_plugin.v1.worker.npu.hccl_v41_ffn_eager import execute_hccl_v41_eager_parent
 from afd_plugin.v1.worker.npu.hccl_v41_ffn_runner import execute_hccl_v41_parent
 from afd_plugin.validation import validate_npu_model_runner_v2_config
 
@@ -102,9 +105,12 @@ class AFDNPUFFNModelRunner:
         self.graph_pool = (
             current_platform.get_global_graph_pool() if self.use_aclgraph else None
         )
-        self.prof = create_afd_npu_profiler("ffn")
+        self.prof = create_deferred_afd_npu_profiler(
+            "ffn", role_rank=vllm_config.parallel_config.rank
+        )
         self._is_shutdown = False
         self.hccl_v41_graph_service: HcclV41GraphService | None = None
+        self.hccl_v41_eager_session: HcclV41EagerSession | None = None
 
     @staticmethod
     def parse_config(vllm_config: VllmConfig) -> AFDConfig:
@@ -213,13 +219,39 @@ class AFDNPUFFNModelRunner:
                 if service.runner is not self or service.transport is not transport:
                     raise ValueError("FFN graph execution requires its bound session")
                 return service.execute_step()
+            session = self.hccl_v41_eager_session
+            if session is not None and session.transport is not transport:
+                raise ValueError("FFN eager execution requires its bound session")
             if transport.receive_forward() is None:
                 return False
-            execute_hccl_v41_parent(self, transport)
+            pipeline = None if session is None else session.open_parent()
+            if pipeline is None:
+                execute_hccl_v41_parent(self, transport)
+            else:
+                execute_hccl_v41_eager_parent(
+                    self, transport, pipeline, compute_stream=session.compute_stream
+                )
             return True
         except BaseException:
             transport.terminal = True
             raise
+
+    def bind_hccl_v41_eager_session(self, session: HcclV41EagerSession) -> None:
+        """Bind one caller-warmed eager schedule before the service receives."""
+        transport = session.transport
+        if (
+            self.hccl_v41_eager_session is not None
+            or self.hccl_v41_graph_service is not None
+            or not session.initialized
+            or transport.role != "ffn"
+            or (
+                isinstance(self.connector, HcclStagedAFDConnector)
+                and self.connector.transport is not transport
+            )
+        ):
+            raise RuntimeError("bind one idle eager FFN session before service startup")
+        validate_staged_hccl_binding(self.vllm_config, transport, self.device)
+        self.hccl_v41_eager_session = session
 
     def execute_hccl_step(self, plan: HcclForwardPlan) -> None:
         """Execute the accepted U1 plan without CAMP2P token/layout inference.

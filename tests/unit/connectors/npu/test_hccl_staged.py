@@ -17,6 +17,7 @@ from vllm.distributed import parallel_state
 from afd_plugin.compat.npu.feature_validation import (
     fail_if_unsupported_npu_afd_features,
 )
+from afd_plugin.compat.npu.runtime_config import get_npu_ffn_config
 from afd_plugin.config import parse_afd_config
 from afd_plugin.connectors.metadata import AFDTransferContext, AFDTransferMetadata
 from afd_plugin.connectors.npu import hccl_staged as adapter_module
@@ -30,7 +31,7 @@ from tests.unit.fakes.hccl import (
     hccl_layer_tensors,
     make_staged_connector_pair,
 )
-from tests.unit.fakes.vllm_config import hccl_vllm_config, v41_dspark_config
+from tests.unit.fakes.vllm_config import hccl_vllm_config
 
 
 @pytest.fixture
@@ -95,12 +96,12 @@ def test_runtime_selector_preserves_native_tp_coordinate(
     assert connector.transport.init_method == f"tcp://{afd.host}:{afd.port}"
 
 
-def test_dspark_component_keeps_the_existing_u1_connector(runtime):
-    native = v41_dspark_config()
-    runtime.speculative_config = native.speculative_config
-    runtime.model_config.model = native.model_config.model
-    vars(runtime.model_config.hf_text_config).update(
-        vars(native.model_config.hf_text_config)
+def test_dspark_component_keeps_the_existing_u1_connector():
+    runtime = hccl_vllm_config(
+        dtype=torch.bfloat16,
+        compilation_mode=CompilationMode.NONE,
+        cudagraph_mode=CUDAGraphMode.NONE,
+        dspark=True,
     )
     afd = parse_afd_config(runtime)
 
@@ -109,6 +110,70 @@ def test_dspark_component_keeps_the_existing_u1_connector(runtime):
     assert not uses_staged_hccl_runtime(runtime, afd)
     assert isinstance(connector, P2pHcclAFDConnector)
     assert not connector.is_initialized
+
+
+@pytest.mark.parametrize("role", ["attention", "ffn"])
+@pytest.mark.parametrize("tp_size", [1, 2])
+@pytest.mark.parametrize("enable_dbo", [False, True])
+def test_dspark_u2_selects_the_same_target_protocol_after_ffn_role_isolation(
+    monkeypatch, role, tp_size, enable_dbo
+):
+    config = hccl_vllm_config(
+        dtype=torch.bfloat16,
+        compilation_mode=CompilationMode.NONE,
+        cudagraph_mode=CUDAGraphMode.NONE,
+        role=role,
+        tensor_parallel_size=tp_size,
+        dspark=True,
+        num_ubatches=2,
+    )
+    config.parallel_config.enable_dbo = enable_dbo
+    config.parallel_config.rank = tp_size - 1
+    source_spec = config.speculative_config
+    if role == "ffn":
+        config = get_npu_ffn_config(config)
+    monkeypatch.setattr(
+        parallel_state, "get_tensor_model_parallel_rank", lambda: tp_size - 1
+    )
+    afd = parse_afd_config(config, expected_role=role)
+
+    validate_npu_model_runner_v2_config(config, expected_role=role, device_type="npu")
+    connector = adapter_module.create_npu_runtime_connector(tp_size - 1, 3, config, afd)
+
+    assert isinstance(connector, adapter_module.HcclStagedAFDConnector)
+    assert not connector.is_initialized
+    assert connector.transport.role == role
+    assert connector.transport.role_rank == tp_size - 1
+    assert connector.transport.negotiated_capabilities.native_tp_size == tp_size
+    assert (config.speculative_config is source_spec) == (role == "attention")
+    with pytest.raises(RuntimeError, match="acceptance are pending"):
+        fail_if_unsupported_npu_afd_features(config)
+
+
+@pytest.mark.parametrize("boundary", ["method", "checkpoint", "adaptive"])
+def test_dspark_u2_selector_rejects_invalid_draft_instead_of_using_legacy_u1(boundary):
+    config = hccl_vllm_config(
+        dtype=torch.bfloat16,
+        compilation_mode=CompilationMode.NONE,
+        cudagraph_mode=CUDAGraphMode.NONE,
+        dspark=True,
+        num_ubatches=2,
+    )
+    if boundary == "method":
+        config.speculative_config.method = "mtp"
+    elif boundary == "checkpoint":
+        config.speculative_config.draft_model_config.model = "foreign-model"
+    else:
+        config.speculative_config.enable_adaptive_verification = True
+    reason = {
+        "method": "method='dspark'",
+        "checkpoint": "same target checkpoint",
+        "adaptive": "U2 requires adaptive verification off",
+    }[boundary]
+    with pytest.raises(ValueError, match=reason):
+        adapter_module.create_npu_runtime_connector(
+            0, 0, config, parse_afd_config(config)
+        )
 
 
 @pytest.fixture

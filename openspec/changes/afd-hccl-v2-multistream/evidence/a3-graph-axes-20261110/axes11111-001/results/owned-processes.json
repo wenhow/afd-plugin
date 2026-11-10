@@ -1,0 +1,26 @@
+{
+  "scope": "owned descendants only; start ticks verified before kill",
+  "processes": {
+    "4153995": {
+      "start_ticks": "818132380",
+      "pgid": 4153995
+    },
+    "4153997": {
+      "start_ticks": "818132388",
+      "pgid": 4153997
+    },
+    "4153996": {
+      "start_ticks": "818132387",
+      "pgid": 4153996
+    },
+    "4154133": {
+      "start_ticks": "818132630",
+      "pgid": 4153997
+    },
+    "4154132": {
+      "start_ticks": "818132630",
+      "pgid": 4153996
+    }
+  },
+  "killed_pids": []
+}

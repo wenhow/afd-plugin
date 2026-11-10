@@ -177,6 +177,8 @@ def make_hccl_runner(runner_type, connector, model):
     runner.vllm_config = connector.vllm_config
     runner.model = model
     runner.hccl_v41_graph_service = None
+    runner.hccl_v41_eager_session = None
+    runner.prof = None
     return runner
 
 
@@ -184,6 +186,7 @@ def make_hccl_worker(worker_type, runner):
     """Bypass native worker/device construction to exercise its serving lifecycle."""
     worker = object.__new__(worker_type)
     worker.model_runner = runner
+    runner.prof = None
     worker.vllm_config = runner.vllm_config
     worker.device = torch.device("cpu")
     worker.local_rank = 0
@@ -193,6 +196,8 @@ def make_hccl_worker(worker_type, runner):
     worker._hccl_stop_received = False
     worker._hccl_v41_transport = None
     worker._cpu_binding_attempted = True
+    worker.profiler_config = None
+    worker.profiler = None
     return worker
 
 

@@ -104,16 +104,20 @@ def validate_staged_hccl_runtime(
 
 
 def uses_staged_hccl_runtime(vllm_config: VllmConfig, afd_config: AFDConfig) -> bool:
-    """Select the text target service independently of model admission."""
-    return (
+    """Select the U2 target service on both sides of draft role isolation."""
+    selected = (
         afd_config.connector == HCCL_P2P_CONNECTOR
         and is_deepseek_v41_model(vllm_config)
-        and vllm_config.speculative_config is None
         and (
             vllm_config.parallel_config.enable_dbo
             or vllm_config.parallel_config.use_ubatching
         )
     )
+    if selected:
+        # A retains the validated native drafter, while F's private config has
+        # already removed it. Neither side may silently fall back to legacy U1.
+        validate_deepseek_v41_speculation(vllm_config)
+    return selected
 
 
 def validate_staged_hccl_binding(
@@ -256,8 +260,8 @@ def _validate_hccl_runtime(
             "P2pHcclAFDConnector requires compilation and graph modes NONE"
         )
     if vllm_config.speculative_config is not None:
-        if staged:
-            raise ValueError("staged HCCL requires speculation off")
+        if graph:
+            raise ValueError("graph HCCL requires speculation off")
         if afd_config.role != "attention":
             raise ValueError("P2pHcclAFDConnector requires speculation off on FFN")
         validate_deepseek_v41_speculation(vllm_config)

@@ -1,0 +1,585 @@
+{"event": "warmup-complete", "pid": 4147238, "role": "attention", "observed_seconds": 18.724485233426094}
+{"event": "gate-ready", "pid": 4147238, "payload": "bf16", "role": "attention", "observed_seconds": 18.72485626116395}
+{"event": "warmup-complete", "pid": 4147237, "role": "ffn", "observed_seconds": 18.725741466507316}
+{"event": "gate-ready", "pid": 4147237, "payload": "bf16", "role": "ffn", "observed_seconds": 18.726023791357875}
+{"event": "post-enter", "pid": 4147238, "payload": "bf16", "role": "attention", "observed_seconds": 18.726305777207017}
+{"event": "post-return", "pid": 4147238, "payload": "bf16", "role": "attention", "observed_seconds": 18.72633841726929}
+{"event": "wait-enter", "pid": 4147238, "payload": "bf16", "role": "attention", "observed_seconds": 18.726605432108045}
+{"event": "wait-return", "pid": 4147238, "payload": "bf16", "result": true, "role": "attention", "observed_seconds": 18.726634942926466}
+{"event": "consumer-enqueued", "pid": 4147238, "payload": "bf16", "pending": true, "role": "attention", "observed_seconds": 18.726662872359157}
+{"event": "consumer-observed", "pid": 4147238, "payload": "bf16", "pending": true, "role": "attention", "observed_seconds": 23.743177911266685}
+{"event": "match-enter", "pid": 4147237, "payload": "bf16", "role": "ffn", "observed_seconds": 23.744752319529653}
+{"event": "match-return", "pid": 4147237, "payload": "bf16", "role": "ffn", "observed_seconds": 23.74482062086463}
+{"event": "gate-drained", "pid": 4147237, "payload": "bf16", "role": "ffn", "observed_seconds": 23.74580574873835}
+{"event": "gate-ready", "pid": 4147237, "payload": "fp32", "role": "ffn", "observed_seconds": 23.74617147538811}
+{"event": "gate-drained", "pid": 4147238, "payload": "bf16", "role": "attention", "observed_seconds": 23.746223877184093}
+{"event": "gate-ready", "pid": 4147238, "payload": "fp32", "role": "attention", "observed_seconds": 23.74657050240785}
+{"event": "post-enter", "pid": 4147238, "payload": "fp32", "role": "attention", "observed_seconds": 23.746901178732514}
+{"event": "post-return", "pid": 4147238, "payload": "fp32", "role": "attention", "observed_seconds": 23.74719019420445}
+{"event": "wait-enter", "pid": 4147238, "payload": "fp32", "role": "attention", "observed_seconds": 23.747487128712237}
+{"event": "wait-return", "pid": 4147238, "payload": "fp32", "result": true, "role": "attention", "observed_seconds": 23.7475207997486}
+{"event": "consumer-enqueued", "pid": 4147238, "payload": "fp32", "pending": true, "role": "attention", "observed_seconds": 23.74781692493707}
+{"event": "consumer-observed", "pid": 4147238, "payload": "fp32", "pending": true, "role": "attention", "observed_seconds": 28.765560385771096}
+{"event": "match-enter", "pid": 4147237, "payload": "fp32", "role": "ffn", "observed_seconds": 28.766462451778352}
+{"event": "match-return", "pid": 4147237, "payload": "fp32", "role": "ffn", "observed_seconds": 28.766740776598454}
+{"event": "gate-drained", "pid": 4147238, "payload": "fp32", "role": "attention", "observed_seconds": 28.768050611019135}
+{"event": "gate-drained", "pid": 4147237, "payload": "fp32", "role": "ffn", "observed_seconds": 28.768100841902196}
+{"event": "gate-ready", "pid": 4147238, "payload": "ids", "role": "attention", "observed_seconds": 28.76838629692793}
+{"event": "gate-ready", "pid": 4147237, "payload": "ids", "role": "ffn", "observed_seconds": 28.768430207856}
+{"event": "post-enter", "pid": 4147238, "payload": "ids", "role": "attention", "observed_seconds": 28.768714842386544}
+{"event": "post-return", "pid": 4147238, "payload": "ids", "role": "attention", "observed_seconds": 28.768986417911947}
+{"event": "wait-enter", "pid": 4147238, "payload": "ids", "role": "attention", "observed_seconds": 28.769270032644272}
+{"event": "wait-return", "pid": 4147238, "payload": "ids", "result": true, "role": "attention", "observed_seconds": 28.76930278353393}
+{"event": "consumer-enqueued", "pid": 4147238, "payload": "ids", "pending": true, "role": "attention", "observed_seconds": 28.76933242380619}
+{"event": "consumer-observed", "pid": 4147238, "payload": "ids", "pending": true, "role": "attention", "observed_seconds": 33.78715391550213}
+{"event": "match-enter", "pid": 4147237, "payload": "ids", "role": "ffn", "observed_seconds": 33.78808741271496}
+{"event": "match-return", "pid": 4147237, "payload": "ids", "role": "ffn", "observed_seconds": 33.78836980741471}
+{"event": "gate-drained", "pid": 4147237, "payload": "ids", "role": "ffn", "observed_seconds": 33.78971687145531}
+{"event": "gate-drained", "pid": 4147238, "payload": "ids", "role": "attention", "observed_seconds": 33.78999283723533}
+{"event": "closed-native-tp-preserved", "pid": 4147237, "role": "ffn", "observed_seconds": 33.97805736865848}
+{"event": "closed-native-tp-preserved", "pid": 4147238, "role": "attention", "observed_seconds": 34.144953697919846}
+{
+  "scope": "endpoint capability gate; not C4 regression or eager ticket acceptance",
+  "operation": "isend",
+  "observed_inflight_at_late_query": {
+    "bf16": true,
+    "fp32": true,
+    "ids": true
+  },
+  "capability_gate_passed": true,
+  "all_payloads_drained_and_session_closed": true,
+  "timed_out": false,
+  "supervisor_error": null,
+  "owned_pid_start_ticks": {
+    "4147237": "817888573",
+    "4147238": "817888573",
+    "4147373": "817888814",
+    "4147372": "817888814",
+    "4147386": "817888815",
+    "4147388": "817888815",
+    "4147387": "817888815",
+    "4147389": "817888815"
+  },
+  "killed_owned_pids": [],
+  "exit_codes": {
+    "ffn": 0,
+    "attention": 0
+  },
+  "gates": {
+    "bf16": {
+      "ready": [
+        "attention",
+        "ffn"
+      ],
+      "drained": [
+        "ffn",
+        "attention"
+      ],
+      "phase": "query-return",
+      "deadline": 8178914.480239447,
+      "post_returned_while_matcher_held": true,
+      "wait_returned_while_matcher_held": true,
+      "early_consumer_event_pending": true,
+      "late_query_while_matcher_held": true,
+      "late_consumer_event_pending": true,
+      "match_released_at": 23.74389853514731,
+      "match_release_reason": "late-consumer-event-observed"
+    },
+    "fp32": {
+      "ready": [
+        "ffn",
+        "attention"
+      ],
+      "drained": [
+        "attention",
+        "ffn"
+      ],
+      "phase": "query-return",
+      "deadline": 8178919.502607861,
+      "post_returned_while_matcher_held": true,
+      "wait_returned_while_matcher_held": true,
+      "early_consumer_event_pending": true,
+      "late_query_while_matcher_held": true,
+      "late_consumer_event_pending": true,
+      "match_released_at": 28.766128946095705,
+      "match_release_reason": "late-consumer-event-observed"
+    },
+    "ids": {
+      "ready": [
+        "attention",
+        "ffn"
+      ],
+      "drained": [
+        "ffn",
+        "attention"
+      ],
+      "phase": "query-return",
+      "deadline": 8178924.52414686,
+      "post_returned_while_matcher_held": true,
+      "wait_returned_while_matcher_held": true,
+      "early_consumer_event_pending": true,
+      "late_query_while_matcher_held": true,
+      "late_consumer_event_pending": true,
+      "match_released_at": 33.78777161706239,
+      "match_release_reason": "late-consumer-event-observed"
+    }
+  },
+  "events": [
+    {
+      "event": "warmup-complete",
+      "pid": 4147238,
+      "role": "attention",
+      "observed_seconds": 18.724485233426094
+    },
+    {
+      "event": "gate-ready",
+      "pid": 4147238,
+      "payload": "bf16",
+      "role": "attention",
+      "observed_seconds": 18.72485626116395
+    },
+    {
+      "event": "warmup-complete",
+      "pid": 4147237,
+      "role": "ffn",
+      "observed_seconds": 18.725741466507316
+    },
+    {
+      "event": "gate-ready",
+      "pid": 4147237,
+      "payload": "bf16",
+      "role": "ffn",
+      "observed_seconds": 18.726023791357875
+    },
+    {
+      "event": "post-enter",
+      "pid": 4147238,
+      "payload": "bf16",
+      "role": "attention",
+      "observed_seconds": 18.726305777207017
+    },
+    {
+      "event": "post-return",
+      "pid": 4147238,
+      "payload": "bf16",
+      "role": "attention",
+      "observed_seconds": 18.72633841726929
+    },
+    {
+      "event": "wait-enter",
+      "pid": 4147238,
+      "payload": "bf16",
+      "role": "attention",
+      "observed_seconds": 18.726605432108045
+    },
+    {
+      "event": "wait-return",
+      "pid": 4147238,
+      "payload": "bf16",
+      "result": true,
+      "role": "attention",
+      "observed_seconds": 18.726634942926466
+    },
+    {
+      "event": "consumer-enqueued",
+      "pid": 4147238,
+      "payload": "bf16",
+      "pending": true,
+      "role": "attention",
+      "observed_seconds": 18.726662872359157
+    },
+    {
+      "event": "consumer-observed",
+      "pid": 4147238,
+      "payload": "bf16",
+      "pending": true,
+      "role": "attention",
+      "observed_seconds": 23.743177911266685
+    },
+    {
+      "event": "match-enter",
+      "pid": 4147237,
+      "payload": "bf16",
+      "role": "ffn",
+      "observed_seconds": 23.744752319529653
+    },
+    {
+      "event": "match-return",
+      "pid": 4147237,
+      "payload": "bf16",
+      "role": "ffn",
+      "observed_seconds": 23.74482062086463
+    },
+    {
+      "event": "gate-drained",
+      "pid": 4147237,
+      "payload": "bf16",
+      "role": "ffn",
+      "observed_seconds": 23.74580574873835
+    },
+    {
+      "event": "gate-ready",
+      "pid": 4147237,
+      "payload": "fp32",
+      "role": "ffn",
+      "observed_seconds": 23.74617147538811
+    },
+    {
+      "event": "gate-drained",
+      "pid": 4147238,
+      "payload": "bf16",
+      "role": "attention",
+      "observed_seconds": 23.746223877184093
+    },
+    {
+      "event": "gate-ready",
+      "pid": 4147238,
+      "payload": "fp32",
+      "role": "attention",
+      "observed_seconds": 23.74657050240785
+    },
+    {
+      "event": "post-enter",
+      "pid": 4147238,
+      "payload": "fp32",
+      "role": "attention",
+      "observed_seconds": 23.746901178732514
+    },
+    {
+      "event": "post-return",
+      "pid": 4147238,
+      "payload": "fp32",
+      "role": "attention",
+      "observed_seconds": 23.74719019420445
+    },
+    {
+      "event": "wait-enter",
+      "pid": 4147238,
+      "payload": "fp32",
+      "role": "attention",
+      "observed_seconds": 23.747487128712237
+    },
+    {
+      "event": "wait-return",
+      "pid": 4147238,
+      "payload": "fp32",
+      "result": true,
+      "role": "attention",
+      "observed_seconds": 23.7475207997486
+    },
+    {
+      "event": "consumer-enqueued",
+      "pid": 4147238,
+      "payload": "fp32",
+      "pending": true,
+      "role": "attention",
+      "observed_seconds": 23.74781692493707
+    },
+    {
+      "event": "consumer-observed",
+      "pid": 4147238,
+      "payload": "fp32",
+      "pending": true,
+      "role": "attention",
+      "observed_seconds": 28.765560385771096
+    },
+    {
+      "event": "match-enter",
+      "pid": 4147237,
+      "payload": "fp32",
+      "role": "ffn",
+      "observed_seconds": 28.766462451778352
+    },
+    {
+      "event": "match-return",
+      "pid": 4147237,
+      "payload": "fp32",
+      "role": "ffn",
+      "observed_seconds": 28.766740776598454
+    },
+    {
+      "event": "gate-drained",
+      "pid": 4147238,
+      "payload": "fp32",
+      "role": "attention",
+      "observed_seconds": 28.768050611019135
+    },
+    {
+      "event": "gate-drained",
+      "pid": 4147237,
+      "payload": "fp32",
+      "role": "ffn",
+      "observed_seconds": 28.768100841902196
+    },
+    {
+      "event": "gate-ready",
+      "pid": 4147238,
+      "payload": "ids",
+      "role": "attention",
+      "observed_seconds": 28.76838629692793
+    },
+    {
+      "event": "gate-ready",
+      "pid": 4147237,
+      "payload": "ids",
+      "role": "ffn",
+      "observed_seconds": 28.768430207856
+    },
+    {
+      "event": "post-enter",
+      "pid": 4147238,
+      "payload": "ids",
+      "role": "attention",
+      "observed_seconds": 28.768714842386544
+    },
+    {
+      "event": "post-return",
+      "pid": 4147238,
+      "payload": "ids",
+      "role": "attention",
+      "observed_seconds": 28.768986417911947
+    },
+    {
+      "event": "wait-enter",
+      "pid": 4147238,
+      "payload": "ids",
+      "role": "attention",
+      "observed_seconds": 28.769270032644272
+    },
+    {
+      "event": "wait-return",
+      "pid": 4147238,
+      "payload": "ids",
+      "result": true,
+      "role": "attention",
+      "observed_seconds": 28.76930278353393
+    },
+    {
+      "event": "consumer-enqueued",
+      "pid": 4147238,
+      "payload": "ids",
+      "pending": true,
+      "role": "attention",
+      "observed_seconds": 28.76933242380619
+    },
+    {
+      "event": "consumer-observed",
+      "pid": 4147238,
+      "payload": "ids",
+      "pending": true,
+      "role": "attention",
+      "observed_seconds": 33.78715391550213
+    },
+    {
+      "event": "match-enter",
+      "pid": 4147237,
+      "payload": "ids",
+      "role": "ffn",
+      "observed_seconds": 33.78808741271496
+    },
+    {
+      "event": "match-return",
+      "pid": 4147237,
+      "payload": "ids",
+      "role": "ffn",
+      "observed_seconds": 33.78836980741471
+    },
+    {
+      "event": "gate-drained",
+      "pid": 4147237,
+      "payload": "ids",
+      "role": "ffn",
+      "observed_seconds": 33.78971687145531
+    },
+    {
+      "event": "gate-drained",
+      "pid": 4147238,
+      "payload": "ids",
+      "role": "attention",
+      "observed_seconds": 33.78999283723533
+    },
+    {
+      "event": "closed-native-tp-preserved",
+      "pid": 4147237,
+      "role": "ffn",
+      "observed_seconds": 33.97805736865848
+    },
+    {
+      "event": "closed-native-tp-preserved",
+      "pid": 4147238,
+      "role": "attention",
+      "observed_seconds": 34.144953697919846
+    }
+  ],
+  "workers": {
+    "ffn": {
+      "scope": "existing transport HCCL data-group primitive gate, idle session",
+      "operation": "isend",
+      "role": "ffn",
+      "device": "npu:0",
+      "pid": 4147237,
+      "model_weights_loaded": false,
+      "accepted_parent_or_cursor_modified": false,
+      "abort_or_device_recovery_exercised": false,
+      "payloads": {
+        "bf16": {
+          "shape": [
+            8,
+            16
+          ],
+          "dtype": "torch.bfloat16",
+          "work_type": "torch.distributed.distributed_c10d.Work",
+          "work_wait_documentation": "wait(self: torch._C._distributed_c10d.Work, timeout: datetime.timedelta = datetime.timedelta(0)) -> bool\n\n\n              Returns:\n                  true/false.\n\n              Example::\n                 try:\n                     work.wait(timeout)\n                 except:\n                     # some handling\n\n              .. warning ::\n                  In normal cases, users do not need to set the timeout.\n                  calling wait() is the same as calling synchronize():\n                  Letting the current stream block on the completion of the NCCL work.\n                  However, if timeout is set, it will block the CPU thread until the NCCL work is completed\n                  or timed out. If timeout, exception will be thrown.\n            \n",
+          "wait_result": true,
+          "received_payload_exact": true,
+          "source_reuse_exact": false,
+          "consumer_exact": true,
+          "consumer_event_complete": true
+        },
+        "fp32": {
+          "shape": [
+            8,
+            16
+          ],
+          "dtype": "torch.float32",
+          "work_type": "torch.distributed.distributed_c10d.Work",
+          "work_wait_documentation": "wait(self: torch._C._distributed_c10d.Work, timeout: datetime.timedelta = datetime.timedelta(0)) -> bool\n\n\n              Returns:\n                  true/false.\n\n              Example::\n                 try:\n                     work.wait(timeout)\n                 except:\n                     # some handling\n\n              .. warning ::\n                  In normal cases, users do not need to set the timeout.\n                  calling wait() is the same as calling synchronize():\n                  Letting the current stream block on the completion of the NCCL work.\n                  However, if timeout is set, it will block the CPU thread until the NCCL work is completed\n                  or timed out. If timeout, exception will be thrown.\n            \n",
+          "wait_result": true,
+          "received_payload_exact": true,
+          "source_reuse_exact": false,
+          "consumer_exact": true,
+          "consumer_event_complete": true
+        },
+        "ids": {
+          "shape": [
+            8
+          ],
+          "dtype": "torch.int32",
+          "work_type": "torch.distributed.distributed_c10d.Work",
+          "work_wait_documentation": "wait(self: torch._C._distributed_c10d.Work, timeout: datetime.timedelta = datetime.timedelta(0)) -> bool\n\n\n              Returns:\n                  true/false.\n\n              Example::\n                 try:\n                     work.wait(timeout)\n                 except:\n                     # some handling\n\n              .. warning ::\n                  In normal cases, users do not need to set the timeout.\n                  calling wait() is the same as calling synchronize():\n                  Letting the current stream block on the completion of the NCCL work.\n                  However, if timeout is set, it will block the CPU thread until the NCCL work is completed\n                  or timed out. If timeout, exception will be thrown.\n            \n",
+          "wait_result": true,
+          "received_payload_exact": true,
+          "source_reuse_exact": false,
+          "consumer_exact": true,
+          "consumer_event_complete": true
+        }
+      },
+      "success": true,
+      "native_tp_before": [
+        1.0
+      ],
+      "endpoint": {
+        "group_type": "torch.distributed.distributed_c10d.ProcessGroup",
+        "backend": "hccl",
+        "afd_group_rank": 0,
+        "native_default_rank": 0,
+        "group_peer": 1,
+        "stage_group": 0,
+        "functions": {
+          "isend": {
+            "module": "torch.distributed.distributed_c10d",
+            "signature": "(tensor: torch.Tensor, dst: int | None = None, group: torch.distributed.distributed_c10d.ProcessGroup | None = None, tag: int = 0, group_dst: int | None = None) -> torch.distributed.distributed_c10d.Work | None",
+            "source_file": "/mnt/workspace/code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/torch/distributed/distributed_c10d.py",
+            "source_sha256": "31155344233ae77360a630bbeacf1b43cfa18f1923cf2103cd5b3142db39ec5c"
+          },
+          "irecv": {
+            "module": "torch.distributed.distributed_c10d",
+            "signature": "(tensor: torch.Tensor, src: int | None = None, group: torch.distributed.distributed_c10d.ProcessGroup | None = None, tag: int = 0, group_src: int | None = None) -> torch.distributed.distributed_c10d.Work | None",
+            "source_file": "/mnt/workspace/code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/torch/distributed/distributed_c10d.py",
+            "source_sha256": "31155344233ae77360a630bbeacf1b43cfa18f1923cf2103cd5b3142db39ec5c"
+          }
+        }
+      },
+      "stop_acknowledged": true,
+      "plugin_closed": true,
+      "native_tp_after_plugin_close": [
+        1.0
+      ]
+    },
+    "attention": {
+      "scope": "existing transport HCCL data-group primitive gate, idle session",
+      "operation": "isend",
+      "role": "attention",
+      "device": "npu:2",
+      "pid": 4147238,
+      "model_weights_loaded": false,
+      "accepted_parent_or_cursor_modified": false,
+      "abort_or_device_recovery_exercised": false,
+      "payloads": {
+        "bf16": {
+          "shape": [
+            8,
+            16
+          ],
+          "dtype": "torch.bfloat16",
+          "work_type": "torch.distributed.distributed_c10d.Work",
+          "work_wait_documentation": "wait(self: torch._C._distributed_c10d.Work, timeout: datetime.timedelta = datetime.timedelta(0)) -> bool\n\n\n              Returns:\n                  true/false.\n\n              Example::\n                 try:\n                     work.wait(timeout)\n                 except:\n                     # some handling\n\n              .. warning ::\n                  In normal cases, users do not need to set the timeout.\n                  calling wait() is the same as calling synchronize():\n                  Letting the current stream block on the completion of the NCCL work.\n                  However, if timeout is set, it will block the CPU thread until the NCCL work is completed\n                  or timed out. If timeout, exception will be thrown.\n            \n",
+          "wait_result": true,
+          "received_payload_exact": false,
+          "source_reuse_exact": true,
+          "consumer_exact": true,
+          "consumer_event_complete": true
+        },
+        "fp32": {
+          "shape": [
+            8,
+            16
+          ],
+          "dtype": "torch.float32",
+          "work_type": "torch.distributed.distributed_c10d.Work",
+          "work_wait_documentation": "wait(self: torch._C._distributed_c10d.Work, timeout: datetime.timedelta = datetime.timedelta(0)) -> bool\n\n\n              Returns:\n                  true/false.\n\n              Example::\n                 try:\n                     work.wait(timeout)\n                 except:\n                     # some handling\n\n              .. warning ::\n                  In normal cases, users do not need to set the timeout.\n                  calling wait() is the same as calling synchronize():\n                  Letting the current stream block on the completion of the NCCL work.\n                  However, if timeout is set, it will block the CPU thread until the NCCL work is completed\n                  or timed out. If timeout, exception will be thrown.\n            \n",
+          "wait_result": true,
+          "received_payload_exact": false,
+          "source_reuse_exact": true,
+          "consumer_exact": true,
+          "consumer_event_complete": true
+        },
+        "ids": {
+          "shape": [
+            8
+          ],
+          "dtype": "torch.int32",
+          "work_type": "torch.distributed.distributed_c10d.Work",
+          "work_wait_documentation": "wait(self: torch._C._distributed_c10d.Work, timeout: datetime.timedelta = datetime.timedelta(0)) -> bool\n\n\n              Returns:\n                  true/false.\n\n              Example::\n                 try:\n                     work.wait(timeout)\n                 except:\n                     # some handling\n\n              .. warning ::\n                  In normal cases, users do not need to set the timeout.\n                  calling wait() is the same as calling synchronize():\n                  Letting the current stream block on the completion of the NCCL work.\n                  However, if timeout is set, it will block the CPU thread until the NCCL work is completed\n                  or timed out. If timeout, exception will be thrown.\n            \n",
+          "wait_result": true,
+          "received_payload_exact": false,
+          "source_reuse_exact": true,
+          "consumer_exact": true,
+          "consumer_event_complete": true
+        }
+      },
+      "success": true,
+      "native_tp_before": [
+        1.0
+      ],
+      "endpoint": {
+        "group_type": "torch.distributed.distributed_c10d.ProcessGroup",
+        "backend": "hccl",
+        "afd_group_rank": 1,
+        "native_default_rank": 0,
+        "group_peer": 0,
+        "stage_group": 0,
+        "functions": {
+          "isend": {
+            "module": "torch.distributed.distributed_c10d",
+            "signature": "(tensor: torch.Tensor, dst: int | None = None, group: torch.distributed.distributed_c10d.ProcessGroup | None = None, tag: int = 0, group_dst: int | None = None) -> torch.distributed.distributed_c10d.Work | None",
+            "source_file": "/mnt/workspace/code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/torch/distributed/distributed_c10d.py",
+            "source_sha256": "31155344233ae77360a630bbeacf1b43cfa18f1923cf2103cd5b3142db39ec5c"
+          },
+          "irecv": {
+            "module": "torch.distributed.distributed_c10d",
+            "signature": "(tensor: torch.Tensor, src: int | None = None, group: torch.distributed.distributed_c10d.ProcessGroup | None = None, tag: int = 0, group_src: int | None = None) -> torch.distributed.distributed_c10d.Work | None",
+            "source_file": "/mnt/workspace/code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/torch/distributed/distributed_c10d.py",
+            "source_sha256": "31155344233ae77360a630bbeacf1b43cfa18f1923cf2103cd5b3142db39ec5c"
+          }
+        }
+      },
+      "stop_acknowledged": true,
+      "plugin_closed": true,
+      "native_tp_after_plugin_close": [
+        1.0
+      ]
+    }
+  },
+  "elapsed_seconds": 41.88221797440201
+}

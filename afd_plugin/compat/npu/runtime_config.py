@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING
 
 from afd_plugin.config import (
     AFD_ASYNC_CONNECTOR,
+    HCCL_P2P_CONNECTOR,
     is_afd_async_dp,
     parse_afd_config,
 )
@@ -54,6 +55,15 @@ def validate_deepseek_v41_speculation(vllm_config: VllmConfig) -> None:
         raise ValueError("V4.1 HCCL DSpark requires equal target and draft TP")
     if speculative.rejection_sample_method == "synthetic":
         raise ValueError("V4.1 HCCL DSpark requires real acceptance/rejection")
+    parallel = vllm_config.parallel_config
+    if speculative.enable_adaptive_verification and (
+        parallel.enable_dbo or parallel.use_ubatching
+    ):
+        # Ascend prepare_inputs @ 7e37e29a:723-734 compacts query coordinates,
+        # but :864 retains scheduled upper bounds in InputBatch. Native
+        # create_ubatch_slices @ ced6857a:49-75 uses those upper bounds to split
+        # requests; this component has not reconciled that compacted layout.
+        raise ValueError("V4.1 HCCL DSpark U2 requires adaptive verification off")
     target = vllm_config.model_config.hf_text_config
     draft_text = draft.hf_text_config
     layer_ids = target.dspark_target_layer_ids
@@ -85,16 +95,21 @@ def get_npu_ffn_config(vllm_config: VllmConfig) -> VllmConfig:
     """
     if not is_deepseek_v41_model(vllm_config):
         return vllm_config
-    parse_afd_config(vllm_config, expected_role="ffn")
+    afd_config = parse_afd_config(vllm_config, expected_role="ffn")
     validate_deepseek_v41_speculation(vllm_config)
     parallel = vllm_config.parallel_config
-    if vllm_config.speculative_config is not None and (
-        parallel.enable_dbo or parallel.use_ubatching
+    if (
+        vllm_config.speculative_config is not None
+        and (parallel.enable_dbo or parallel.use_ubatching)
+        and afd_config.connector != HCCL_P2P_CONNECTOR
     ):
         raise ValueError(
-            "V4.1 FFN requires DSpark with U1 before role isolation; "
-            "DSpark/U2 acceptance is pending"
+            "V4.1 FFN requires DSpark with U1 before role isolation "
+            "for non-HCCL connectors"
         )
+    # HCCL target ubatching belongs to Attention. F retains target scheduling
+    # but must not construct the native Attention-local drafter. Other NPU
+    # connectors retain the existing DSpark/U1 restriction above.
     ffn_config = copy(vllm_config)
     ffn_config.engram_config = None
     ffn_config.speculative_config = None

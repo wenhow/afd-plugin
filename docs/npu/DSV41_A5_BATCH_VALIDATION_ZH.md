@@ -28,7 +28,7 @@ git rev-parse HEAD
 沿用容器已部署的依赖和 CANN 环境。Python 使用
 `/usr/local/python3.11.10/bin/python`，无需新建 venv，也不要求名为 `atb-env` 的环境。
 
-## 一次运行六个组件用例
+## 一次运行十四个组件用例
 
 在仓库根目录执行，确认 `afd_model` 是本机 checkpoint 目录。
 `npu-smi info` 确认所选设备空闲后运行；示例使用设备 0、1、2、3。
@@ -85,6 +85,42 @@ run_component c6-pipeline-hybrid0 tests/npu/hccl_graph_manager_probe.py \
   --compute-pipeline --pipeline-hybrid 0 \
   --output-dir "$afd_batch_run/c6-pipeline-hybrid0"
 
+run_component c6-eager-isend tests/npu/hccl_eager_backend_probe.py \
+  --model "$afd_model" --devices 0,1 --operation isend \
+  --output-dir "$afd_batch_run/c6-eager-isend"
+
+run_component c6-eager-irecv tests/npu/hccl_eager_backend_probe.py \
+  --model "$afd_model" --devices 0,1 --operation irecv \
+  --output-dir "$afd_batch_run/c6-eager-irecv"
+
+run_component c6-axes11111 tests/npu/hccl_graph_manager_probe.py \
+  --model "$afd_model" --devices 0,1 --stage-bank \
+  --graph-compute 1 --graph-hybrid 1 --attention-three 1 --ffn-recv 1 --ffn-cross 1 \
+  --output-dir "$afd_batch_run/c6-axes11111"
+
+run_component c6-axes00000 tests/npu/hccl_graph_manager_probe.py \
+  --model "$afd_model" --devices 0,1 --stage-bank \
+  --graph-compute 0 --graph-hybrid 0 --attention-three 0 --ffn-recv 0 --ffn-cross 0 \
+  --output-dir "$afd_batch_run/c6-axes00000"
+
+run_component c6-axes10000 tests/npu/hccl_graph_manager_probe.py \
+  --model "$afd_model" --devices 0,1 --stage-bank \
+  --graph-compute 1 --graph-hybrid 0 --attention-three 0 --ffn-recv 0 --ffn-cross 0 \
+  --output-dir "$afd_batch_run/c6-axes10000"
+
+run_component c6-axes10010 tests/npu/hccl_graph_manager_probe.py \
+  --model "$afd_model" --devices 0,1 --stage-bank \
+  --graph-compute 1 --graph-hybrid 0 --attention-three 0 --ffn-recv 1 --ffn-cross 0 \
+  --output-dir "$afd_batch_run/c6-axes10010"
+
+run_component c6-eager-owner-tp1 tests/npu/hccl_eager_pipeline_probe.py \
+  --model "$afd_model" --tp-size 1 --devices 0,1 \
+  --output-dir "$afd_batch_run/c6-eager-owner-tp1"
+
+run_component c6-eager-owner-tp2 tests/npu/hccl_eager_pipeline_probe.py \
+  --model "$afd_model" --tp-size 2 --devices 0,1,2,3 \
+  --output-dir "$afd_batch_run/c6-eager-owner-tp2"
+
 npu-smi info > "$afd_batch_run/npu-after.txt"
 cat "$afd_batch_run/exit-codes.tsv"
 tar -czf "$afd_batch_run.tar.gz" -C "$(dirname "$afd_batch_run")" \
@@ -105,8 +141,22 @@ printf '结果包：%s.tar.gz\n' "$afd_batch_run"
 | `c5-native-manager` | 真实 base manager/runner、原生 InputBatch 切片、早期 GraphControl；stage bank 跨层复用、图内 padding IDs/F output mask、地址与字节预算核对；四 geometry 共 12 次 replay、6 次全局 eager fallback | `summary.json` 的 `status=passed`、`exit_codes=[0,0]`，两个 `rank-*.json` 的 `status=passed` |
 | `c6-pipeline-hybrid1` | 在上述固定 bank 上捕获侧流计算、父流 HCCL、逐 stage 接收依赖和最终 join；同一 key 三次 replay 的有效 token 数为完整桶、1、桶大小减 1，并核对跨层递推及末层结果 | `summary.json` 的 `status=passed`、`exit_codes=[0,0]`；两个角色的 `compute_pipeline=true`、`pipeline_hybrid=1` |
 | `c6-pipeline-hybrid0` | 独立 session 验证完整父流 frontier 依赖，其他输入及数值检查与 hybrid1 相同 | 同上，角色的 `pipeline_hybrid=0` |
+| `c6-eager-isend` | 同一已预热 HCCL 组上，三个 dtype 的异步发送 host 返回、Work 依赖、发送 buffer 复用及对端原始数据 | `result.json` 的 `capability_gate_passed=true`、`all_payloads_drained_and_session_closed=true`，`exit_codes` 的两个角色均为 0 |
+| `c6-eager-irecv` | 独立 session 检查接收投递、等待及消费者在匹配前保持依赖，匹配后数值精确 | 同上；它们是后端能力检查，尚不代表 eager/U2 模型流水验收 |
+| `c6-axes11111` | 五个 Graph 配置轴全部开启，实际 U2 按 selection 分配 pipeline；U1 保持 pipeline None | `summary.json` 的 `status=passed`、`exit_codes=[0,0]`；角色 JSON 中 `graph_axes` 为对应五值、`graph_selections` 的 U1 `pipeline_allocated=false`，U2 为 true |
+| `c6-axes00000` | 五轴全关；相同递推、有效 token 变化及末层校验仍走 Graph/U2，并非改为 eager | 同上；两个角色 `pipeline_storage=[]`，八个 warmup/capture `graph_selections` 都为 `pipeline_allocated=false`，`transactions` 仍含 4 个 capture、12 个 replay |
+| `c6-axes10000` | 仅 compute 开启；hybrid/Attention-three/F-recv/F-cross 关闭，F 每层完成 join | 同上；U2 的 `pipeline_storage` 中四个 policy 字段全为 false，仍有侧流 compute |
+| `c6-axes10010` | 在上一项基础上开启 F-recv，保留关闭跨层流水时的每层 join | 同上；U2 policy 的 `ffn_recv_stream=true`、`ffn_cross_layer=false` |
+| `c6-eager-owner-tp1` | 两 stage group 显式匹配预热，真实 owner/ticket/loan；6 个 target U2 parent、双层递推、在途上限与同 stage 复用，原始 FP32、raw IDs、完整 padding 输出及空 stage/全空 parent | `result.json` 的 `success=true`，`exit_codes` 两角色均为 0，`killed_owned_pids=[]`；每个角色 JSON 的 `success=true`、6 个 `parents`、16 个 `checked_steps`、`normal_stop=true`，`native_tp_before` 和 `native_tp_after_plugin_close` 均为 `[1.0]` |
+| `c6-eager-owner-tp2` | 独立四卡 session 验证上述配对 TP2 owner、每角色 native TP 域及 STOP 后保留 | 同上；`exit_codes` 四角色均为 0，四个角色 JSON 的 native TP 前后均为 `[2.0]` |
 
-回传不便时，最小结果为 `git-head.txt`、`exit-codes.tsv`，以及六项各自的结果：
+五轴顺序是 compute、hybrid、Attention-three、F-recv、F-cross。五个 CLI 必须一起显式
+传入，不能与第 5～6 项的 legacy 参数混用；`--ffn-cross 1` 要求 `--ffn-recv 1`。
+每项使用固定 session 设置和独立 cache，不能在同一 captured graph 上修改开关。
+`graph_selections[*].selection` 记录 configured/effective 以及 logical/physical stream；
+Graph 通信始终受父流约束，不应将逻辑 send/recv 配置解释为物理独立通信流。
+
+回传不便时，最小结果为 `git-head.txt`、`exit-codes.tsv`，以及十四项各自的结果：
 
 - `c4-1a1f/result.json`
 - `c4-2a2f-tp2/result.json`
@@ -114,6 +164,14 @@ printf '结果包：%s.tar.gz\n' "$afd_batch_run"
 - `c5-native-manager/summary.json` 和该目录的 `rank-*.json`
 - `c6-pipeline-hybrid1/summary.json` 和该目录的 `rank-*.json`
 - `c6-pipeline-hybrid0/summary.json` 和该目录的 `rank-*.json`
+- `c6-eager-isend/result.json`
+- `c6-eager-irecv/result.json`
+- `c6-axes11111/summary.json` 和该目录的 `rank-*.json`
+- `c6-axes00000/summary.json` 和该目录的 `rank-*.json`
+- `c6-axes10000/summary.json` 和该目录的 `rank-*.json`
+- `c6-axes10010/summary.json` 和该目录的 `rank-*.json`
+- `c6-eager-owner-tp1/result.json`，以及 `attention-0.json`、`ffn-0.json`
+- `c6-eager-owner-tp2/result.json`，以及 `attention-0.json`、`attention-1.json`、`ffn-0.json`、`ffn-1.json`
 
 同时保留体积很小的 `npu-before.txt` / `npu-after.txt`；失败项再补该项目的顶层
 日志和角色日志。A3 证据及实际范围见
@@ -122,6 +180,9 @@ printf '结果包：%s.tar.gz\n' "$afd_batch_run"
 和 [native manager/controller 006 原始记录](../../openspec/changes/afd-hccl-v2-graph/evidence/a3-native-manager-20261109/native-manager-006/results/probe/summary.json)。
 追加的 [stage bank 007 记录及空闲采样窗口限制](../../openspec/changes/afd-hccl-v2-graph/evidence/a3-native-manager-20261109/native-manager-bank-007/interpretation.json)
 分别保留计算/内部监督通过、首次七板空闲与后续八板空闲的原始事实。
+新增 [eager 后端两方向 gate 记录](../../openspec/changes/afd-hccl-v2-multistream/evidence/a3-eager-backend-20261110/README.md)
+与 [四个五轴组件会话](../../openspec/changes/afd-hccl-v2-multistream/evidence/a3-graph-axes-20261110/README.md)
+分别记录实际 Work/event 与固定 Graph 调度轴的验证范围。
 
 第 4～6 项是受控算术组件验证：早期 GraphControl 与真实 InputBatch 几何路径已执行，
 不包含真实 ModelState、`ModelAclGraphManager`、Engram、原生 MoE 或完整模型。
@@ -129,3 +190,16 @@ printf '结果包：%s.tar.gz\n' "$afd_batch_run"
 有效多流重叠、性能收益或完整模型数值对照。第 5～6 项只增加实际 stream/event
 捕获与 replay 正确性检查；它们不验证原生 scheduler 缩减请求后仍命中同一几何。
 当前不提供绕过模型门禁的启动参数。
+
+第 9～12 项同样只验证受控组件，沿用真实 base manager、InputBatch 几何、bank、
+GraphControl 和实际 NPU stream/event/HCCL。每项均有 4 次 warmup、4 次 capture、
+12 次 replay 与 6 次刻意触发的 eager fallback；关闭所有 overlap 时，正常四个 key
+仍应 capture/replay。它们不覆盖所有开关组合、真实 ModelState/Engram/MoE 或性能。
+
+第 13～14 项是实际 eager ticket owner 组件，和第 7～8 项的原始后端 gate 分开。
+它们全部通过公开的预热、计数提交、accepted plan、post、loan、finish 和 STOP API，
+每层先投递两个 positive stage，再消费本层全部输出并进入下一层。因此它们验证
+有界在途通信、BF16/独立 FP32/int32 IDs、借用依赖及同 stage buffer 复用，
+不代表原生 V4.1 延迟 HC/pre_mix/Engram、原生 MoE、完整模型或重叠性能验收。
+角色文件名是 `attention-*.json` / `ffn-*.json`，不是 Graph 用例的 `rank-*.json`。
+结果和 A3 范围见 [实际 owner 记录](../../openspec/changes/afd-hccl-v2-multistream/evidence/a3-eager-pipeline-20261110/README.md)。

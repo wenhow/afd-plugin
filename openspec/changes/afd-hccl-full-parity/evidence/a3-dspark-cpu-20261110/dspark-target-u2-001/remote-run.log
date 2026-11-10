@@ -1,0 +1,77 @@
+{
+  "scope": "CPU module seams with actual installed dependencies; no device probe",
+  "remote": "/mnt/workspace/tmp/afd-c0-20261104.hVgsIf/c5-control-cpu-20261109-wspwm1a6",
+  "command": [
+    "/mnt/workspace/code/.venvs/afd-v030-dsv41-c0/bin/python",
+    "-B",
+    "-m",
+    "pytest",
+    "-o",
+    "addopts=",
+    "-q",
+    "-rs",
+    "--tb=short",
+    "-p",
+    "no:cacheprovider",
+    "-m",
+    "not npu and not gpu",
+    "--junitxml=/mnt/workspace/tmp/afd-c0-20261104.hVgsIf/c5-control-cpu-20261109-wspwm1a6/results/cpu.xml",
+    "tests/unit/compat/npu/test_runtime_config.py",
+    "tests/unit/connectors/npu/test_hccl_config.py",
+    "tests/unit/connectors/npu/test_hccl_staged.py",
+    "tests/unit/v1/worker/npu/test_hccl_v41_execution.py"
+  ],
+  "returncode": 1,
+  "source_files_match": true,
+  "snapshot_exclusions": [],
+  "device_probe_started": false,
+  "success": false
+}
+........................................................................ [ 33%]
+........................................................................ [ 66%]
+...................................FF..FF............................... [ 99%]
+..                                                                       [100%]
+=================================== FAILURES ===================================
+_ test_dspark_u2_selects_the_same_target_protocol_after_ffn_role_isolation[False-2-attention] _
+tests/unit/connectors/npu/test_hccl_staged.py:141: in test_dspark_u2_selects_the_same_target_protocol_after_ffn_role_isolation
+    connector = adapter_module.create_npu_runtime_connector(0, 3, config, afd)
+afd_plugin/connectors/npu/hccl_staged.py:247: in create_npu_runtime_connector
+    return HcclStagedAFDConnector(
+afd_plugin/connectors/npu/hccl_staged.py:63: in __init__
+    raise ValueError("staged HCCL requires caller rank equal to role_rank")
+E   ValueError: staged HCCL requires caller rank equal to role_rank
+_ test_dspark_u2_selects_the_same_target_protocol_after_ffn_role_isolation[False-2-ffn] _
+tests/unit/connectors/npu/test_hccl_staged.py:141: in test_dspark_u2_selects_the_same_target_protocol_after_ffn_role_isolation
+    connector = adapter_module.create_npu_runtime_connector(0, 3, config, afd)
+afd_plugin/connectors/npu/hccl_staged.py:247: in create_npu_runtime_connector
+    return HcclStagedAFDConnector(
+afd_plugin/connectors/npu/hccl_staged.py:63: in __init__
+    raise ValueError("staged HCCL requires caller rank equal to role_rank")
+E   ValueError: staged HCCL requires caller rank equal to role_rank
+_ test_dspark_u2_selects_the_same_target_protocol_after_ffn_role_isolation[True-2-attention] _
+tests/unit/connectors/npu/test_hccl_staged.py:141: in test_dspark_u2_selects_the_same_target_protocol_after_ffn_role_isolation
+    connector = adapter_module.create_npu_runtime_connector(0, 3, config, afd)
+afd_plugin/connectors/npu/hccl_staged.py:247: in create_npu_runtime_connector
+    return HcclStagedAFDConnector(
+afd_plugin/connectors/npu/hccl_staged.py:63: in __init__
+    raise ValueError("staged HCCL requires caller rank equal to role_rank")
+E   ValueError: staged HCCL requires caller rank equal to role_rank
+_ test_dspark_u2_selects_the_same_target_protocol_after_ffn_role_isolation[True-2-ffn] _
+tests/unit/connectors/npu/test_hccl_staged.py:141: in test_dspark_u2_selects_the_same_target_protocol_after_ffn_role_isolation
+    connector = adapter_module.create_npu_runtime_connector(0, 3, config, afd)
+afd_plugin/connectors/npu/hccl_staged.py:247: in create_npu_runtime_connector
+    return HcclStagedAFDConnector(
+afd_plugin/connectors/npu/hccl_staged.py:63: in __init__
+    raise ValueError("staged HCCL requires caller rank equal to role_rank")
+E   ValueError: staged HCCL requires caller rank equal to role_rank
+=============================== warnings summary ===============================
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/torch/jit/_script.py:362: 14 warnings
+  /mnt/workspace/code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/torch/jit/_script.py:362: DeprecationWarning: `torch.jit.script_method` is deprecated. Please switch to `torch.compile` or `torch.export`.
+    warnings.warn(
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+- generated xml file: /mnt/workspace/tmp/afd-c0-20261104.hVgsIf/c5-control-cpu-20261109-wspwm1a6/results/cpu.xml -
+4 failed, 214 passed, 14 warnings in 2.19s
+
+
+Warning: Permanently added '[127.0.0.1]:43078' (ED25519) to the list of known hosts.

@@ -1,0 +1,104 @@
+{
+  "scope": "local CLI/static only; no torch import or device execution",
+  "python_3_11_ast": true,
+  "parser_cases": [
+    {
+      "case": "default",
+      "accepted": true,
+      "expected": true,
+      "stderr": ""
+    },
+    {
+      "case": "legacy",
+      "accepted": true,
+      "expected": true,
+      "stderr": ""
+    },
+    {
+      "case": "all_on",
+      "accepted": true,
+      "expected": true,
+      "stderr": ""
+    },
+    {
+      "case": "all_off",
+      "accepted": true,
+      "expected": true,
+      "stderr": ""
+    },
+    {
+      "case": "cross_without_recv",
+      "accepted": false,
+      "expected": false,
+      "stderr": "usage: hccl_graph_manager_probe.py [-h] [--devices DEVICES] --model MODEL\n                                   --output-dir OUTPUT_DIR [--timeout TIMEOUT]\n                                   [--stage-bank] [--compute-pipeline]\n                                   [--pipeline-hybrid {0,1}]\n                                   [--graph-compute {0,1}]\n                                   [--graph-hybrid {0,1}]\n                                   [--attention-three {0,1}]\n                                   [--ffn-recv {0,1}] [--ffn-cross {0,1}]\nhccl_graph_manager_probe.py: error: --ffn-cross 1 requires --ffn-recv 1\n"
+    },
+    {
+      "case": "partial_axes",
+      "accepted": false,
+      "expected": false,
+      "stderr": "usage: hccl_graph_manager_probe.py [-h] [--devices DEVICES] --model MODEL\n                                   --output-dir OUTPUT_DIR [--timeout TIMEOUT]\n                                   [--stage-bank] [--compute-pipeline]\n                                   [--pipeline-hybrid {0,1}]\n                                   [--graph-compute {0,1}]\n                                   [--graph-hybrid {0,1}]\n                                   [--attention-three {0,1}]\n                                   [--ffn-recv {0,1}] [--ffn-cross {0,1}]\nhccl_graph_manager_probe.py: error: the five Graph axes must all be explicitly supplied\n"
+    },
+    {
+      "case": "mixed_legacy",
+      "accepted": false,
+      "expected": false,
+      "stderr": "usage: hccl_graph_manager_probe.py [-h] [--devices DEVICES] --model MODEL\n                                   --output-dir OUTPUT_DIR [--timeout TIMEOUT]\n                                   [--stage-bank] [--compute-pipeline]\n                                   [--pipeline-hybrid {0,1}]\n                                   [--graph-compute {0,1}]\n                                   [--graph-hybrid {0,1}]\n                                   [--attention-three {0,1}]\n                                   [--ffn-recv {0,1}] [--ffn-cross {0,1}]\nhccl_graph_manager_probe.py: error: Graph axes require --stage-bank and exclude legacy pipeline flags\n"
+    },
+    {
+      "case": "missing_bank",
+      "accepted": false,
+      "expected": false,
+      "stderr": "usage: hccl_graph_manager_probe.py [-h] [--devices DEVICES] --model MODEL\n                                   --output-dir OUTPUT_DIR [--timeout TIMEOUT]\n                                   [--stage-bank] [--compute-pipeline]\n                                   [--pipeline-hybrid {0,1}]\n                                   [--graph-compute {0,1}]\n                                   [--graph-hybrid {0,1}]\n                                   [--attention-three {0,1}]\n                                   [--ffn-recv {0,1}] [--ffn-cross {0,1}]\nhccl_graph_manager_probe.py: error: Graph axes require --stage-bank and exclude legacy pipeline flags\n"
+    }
+  ],
+  "checks": [
+    {
+      "command": [
+        ".venv/Scripts/ruff.exe",
+        "check",
+        "tests/npu/hccl_graph_manager_probe.py",
+        "openspec/changes/afd-hccl-v2-graph/evidence/a3-native-manager-20261109/run_a3_graph_manager.py"
+      ],
+      "returncode": 0,
+      "stdout": "All checks passed!\n",
+      "stderr": ""
+    },
+    {
+      "command": [
+        ".venv/Scripts/ruff.exe",
+        "format",
+        "--check",
+        "tests/npu/hccl_graph_manager_probe.py",
+        "openspec/changes/afd-hccl-v2-graph/evidence/a3-native-manager-20261109/run_a3_graph_manager.py"
+      ],
+      "returncode": 0,
+      "stdout": "2 files already formatted\n",
+      "stderr": ""
+    },
+    {
+      "command": [
+        "D:\\openSource\\afd-plugin-dsv41-flash-v030\\.venv\\Scripts\\python.exe",
+        "tests/npu/hccl_graph_manager_probe.py",
+        "--help"
+      ],
+      "returncode": 0,
+      "stdout": "usage: hccl_graph_manager_probe.py [-h] [--devices DEVICES] --model MODEL\n                                   --output-dir OUTPUT_DIR [--timeout TIMEOUT]\n                                   [--stage-bank] [--compute-pipeline]\n                                   [--pipeline-hybrid {0,1}]\n                                   [--graph-compute {0,1}]\n                                   [--graph-hybrid {0,1}]\n                                   [--attention-three {0,1}]\n                                   [--ffn-recv {0,1}] [--ffn-cross {0,1}]\n\nBounded native manager/phase/cache component with controlled arithmetic. Uses\nthe real base CudaGraphManager factory, dispatch and replay plus NPUGraph HCCL\noperations. No checkpoint, native model/attention, Engram, production Graph\nselector or full-model microbatch threads participate.\n\noptions:\n  -h, --help            show this help message and exit\n  --devices DEVICES     FFN then Attention NPU\n  --model MODEL         configuration only; no weights\n  --output-dir OUTPUT_DIR\n  --timeout TIMEOUT\n  --stage-bank          reuse the production tensor bank across layers\n  --compute-pipeline    fork controlled arithmetic on the production C6\n                        compute pipeline\n  --pipeline-hybrid {0,1}\n                        C6 stage-ready hybrid policy (default 1 with\n                        --compute-pipeline)\n  --graph-compute {0,1}\n                        fixed session axis; supply all five axes together\n  --graph-hybrid {0,1}  fixed session axis; supply all five axes together\n  --attention-three {0,1}\n                        fixed session axis; supply all five axes together\n  --ffn-recv {0,1}      fixed session axis; supply all five axes together\n  --ffn-cross {0,1}     fixed session axis; supply all five axes together\n",
+      "stderr": ""
+    },
+    {
+      "command": [
+        "D:\\openSource\\afd-plugin-dsv41-flash-v030\\.venv\\Scripts\\python.exe",
+        "openspec/changes/afd-hccl-v2-graph/evidence/a3-native-manager-20261109/run_a3_graph_manager.py",
+        "--help"
+      ],
+      "returncode": 0,
+      "stdout": "usage: run_a3_graph_manager.py [-h] [--label LABEL] [--model MODEL]\n                               [--remote-root REMOTE_ROOT] [--stage-bank]\n                               [--compute-pipeline] [--pipeline-hybrid {0,1}]\n                               [--graph-compute {0,1}] [--graph-hybrid {0,1}]\n                               [--attention-three {0,1}] [--ffn-recv {0,1}]\n                               [--ffn-cross {0,1}] [--prepare-only]\n                               [--evidence-dir EVIDENCE_DIR]\n\nImmutable, source-pinned A3 native-manager/HCCL phase/cache component run.\n\noptions:\n  -h, --help            show this help message and exit\n  --label LABEL\n  --model MODEL\n  --remote-root REMOTE_ROOT\n  --stage-bank\n  --compute-pipeline\n  --pipeline-hybrid {0,1}\n  --graph-compute {0,1}\n  --graph-hybrid {0,1}\n  --attention-three {0,1}\n  --ffn-recv {0,1}\n  --ffn-cross {0,1}\n  --prepare-only        no SSH or devices\n  --evidence-dir EVIDENCE_DIR\n",
+      "stderr": ""
+    }
+  ],
+  "source_hashes": {
+    "tests/npu/hccl_graph_manager_probe.py": "1d7f7b1ef445dd852026d66919bc75c20e62b429e95c66e5ac47e2e286213365",
+    "openspec/changes/afd-hccl-v2-graph/evidence/a3-native-manager-20261109/run_a3_graph_manager.py": "4a3e0b65a33562c9e63735f5dc0baa335522cbe468a58e53cde89b4f6773ac56"
+  },
+  "all_passed": true
+}

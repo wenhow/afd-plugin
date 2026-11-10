@@ -1,0 +1,34 @@
+{
+  "scope": "endpoint posting/Work/consumer-event gate; no eager implementation",
+  "remote": "/mnt/workspace/tmp/afd-c0-20261104.hVgsIf/c6-eager-backend-20261110-2v8ucz2m",
+  "operation": "isend",
+  "command": [
+    "/mnt/workspace/code/.venvs/afd-v030-dsv41-c0/bin/python",
+    "-B",
+    "/mnt/workspace/tmp/afd-c0-20261104.hVgsIf/c6-eager-backend-20261110-2v8ucz2m/snapshot/tests/npu/hccl_eager_backend_probe.py",
+    "--operation",
+    "isend",
+    "--devices",
+    "0,2",
+    "--model",
+    "/mnt/workspace/models/DeepSeek-V4.1-Flash",
+    "--gate-window",
+    "5",
+    "--timeout",
+    "240",
+    "--output-dir",
+    "/mnt/workspace/tmp/afd-c0-20261104.hVgsIf/c6-eager-backend-20261110-2v8ucz2m/results/probe"
+  ],
+  "source_files_match": true,
+  "upstream_files_checked": 33,
+  "returncode": 0,
+  "elapsed_seconds": 43.99181829113513,
+  "outer_timed_out": false,
+  "outer_killed_owned_pids": [],
+  "idle_boards_before": 8,
+  "idle_boards_after": 8,
+  "capability_gate_passed": true,
+  "all_payloads_drained_and_session_closed": true,
+  "success": true
+}
+Warning: Permanently added '[127.0.0.1]:43078' (ED25519) to the list of known hosts.

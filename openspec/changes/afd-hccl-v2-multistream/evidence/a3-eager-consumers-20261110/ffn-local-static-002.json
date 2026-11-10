@@ -1,0 +1,27 @@
+{
+  "scope": "local static checks and missing-dependency collection only; no actual-dependency or NPU acceptance",
+  "python": "3.14.3 (tags/v3.14.3:323c59a, Feb  3 2026, 16:04:56) [MSC v.1944 64 bit (AMD64)]",
+  "ast_python_3_11": true,
+  "source_files": {
+    "afd_plugin/v1/worker/npu/hccl_v41_ffn_eager.py": "5e7183dea3436868aa1e22cb04056ffabb0ca714532b7090b623f0d56d2624ac",
+    "tests/unit/fakes/hccl_v41_ffn_eager.py": "7da2d26ae0027a3d8b97ae6d4eb9ff2c1207af7c0ac3ccd6086dbb4e64ab20e6",
+    "tests/unit/v1/worker/npu/test_hccl_v41_ffn_eager.py": "1e4a001160ecee25c284f5fa859fb080b5428cbccec8dd1f8862c75998bebd59"
+  },
+  "checks": [
+    {
+      "command": [
+        "D:\\openSource\\afd-plugin-dsv41-flash-v030\\.venv\\Scripts\\python.exe",
+        "-m",
+        "pytest",
+        "--noconftest",
+        "-o",
+        "addopts=",
+        "-q",
+        "tests/unit/v1/worker/npu/test_hccl_v41_ffn_eager.py"
+      ],
+      "exit_code": 5,
+      "stdout": "\n============================== warnings summary ===============================\n.venv\\Lib\\site-packages\\_pytest\\cacheprovider.py:487\n  D:\\openSource\\afd-plugin-dsv41-flash-v030\\.venv\\Lib\\site-packages\\_pytest\\cacheprovider.py:487: PytestCacheWarning: could not create cache path D:\\openSource\\afd-plugin-dsv41-flash-v030\\.pytest_cache\\v\\cache\\nodeids: [WinError 183] 当文件已存在时，无法创建该文件。: 'D:\\\\openSource\\\\afd-plugin-dsv41-flash-v030\\\\.pytest_cache\\\\v\\\\cache'\n    config.cache.set(\"cache/nodeids\", sorted(str(n) for n in self.cached_nodeids))\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n1 skipped, 1 warning in 0.03s\n",
+      "stderr": ""
+    }
+  ]
+}

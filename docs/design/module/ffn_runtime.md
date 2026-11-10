@@ -12,6 +12,7 @@ primary_code_paths:
   - "afd_plugin/v1/worker/ffn_worker.py"
   - "afd_plugin/v1/worker/npu/ffn_model_runner.py"
   - "afd_plugin/v1/worker/npu/hccl_v41_ffn_runner.py"
+  - "afd_plugin/v1/worker/npu/hccl_v41_ffn_eager.py"
   - "afd_plugin/v1/worker/npu/hccl_v41_ffn_graph.py"
   - "afd_plugin/v1/worker/npu/hccl_v41_graph_service.py"
   - "afd_plugin/v1/worker/npu/async_ffn_model_runner.py"
@@ -79,6 +80,18 @@ platform mechanisms, and EngineCore compatibility. No shared module may depend
 on the FFN worker or runner implementation.
 
 ## Runtime selection
+
+The explicit [V4.1 eager U2 consumer](../../../afd_plugin/v1/worker/npu/hccl_v41_ffn_eager.py)
+uses the caller's warmed, accepted ticket owner and compute stream at paired
+native TP1/TP2 with DP1/PP1/CP1 and non-SP. It receives each layer/stage payload,
+computes native MoE once with the original FP32 router input and IDs, closes the
+input loan before posting output, and completes the parent once. Native MoE
+owns shared experts and TP reduction. The consumer scopes both actual NPU and
+vLLM cached streams, restores prior context, rejects stale owners without
+failing another transaction, and retains a failed live owner for supervision.
+Session construction, stream allocation, matched warmup, selection and shutdown
+remain caller responsibilities; this standalone consumer changes no default
+serial or Graph selection.
 
 The explicit [V4.1 staged FFN executor](../../../afd_plugin/v1/worker/npu/hccl_v41_ffn_runner.py)
 consumes an accepted v3 plan in layer/stage order and passes each full aggregate

@@ -74,7 +74,10 @@ def harness(monkeypatch):
     )
     connector._initialized = True
     monkeypatch.setenv("AFD_ASYNC_CAM_LAYERED_GMM", "0")
-    monkeypatch.setattr(runtime, "create_afd_npu_profiler", lambda role: None)
+    monkeypatch.setattr(
+        runtime, "create_deferred_afd_npu_profiler", lambda role, **_: None
+    )
+    cfg.parallel_config.rank = 0
     runner = runtime.AsyncNPUFFNModelRunner(cfg, torch.device("cpu"), connector)
     runner.layer_ids = (2, 5)
     calls: list[str | tuple] = []

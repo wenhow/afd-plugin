@@ -21,8 +21,10 @@ from vllm.v1.worker.gpu.input_batch import InputBatch
 from vllm.v1.worker.gpu.ubatch_utils import UBatchState, slice_model_inputs
 from vllm_ascend.models.deepseek_v41.engram.model_state import EngramModelState
 
+from afd_plugin.compat.npu.stream import use_npu_current_stream
 from afd_plugin.compat.patches.npu.mrv2_ubatching import use_async_cam_dbo_dispatch
 from afd_plugin.connectors.npu.hccl_config import validate_staged_hccl_binding
+from afd_plugin.connectors.npu.hccl_eager_pipeline import HcclEagerPipeline
 from afd_plugin.connectors.npu.hccl_staged_transport import HcclStagedTransport
 from afd_plugin.distributed.hccl_plan import HcclLocalForward
 from afd_plugin.model_executor.models.forward_context import use_afd_metadata_provider
@@ -220,12 +222,58 @@ def execute_hccl_v41_stages(
     transport: HcclStagedTransport,
     *,
     engram_prepared: bool = False,
+    eager_pipeline: HcclEagerPipeline | None = None,
+    compute_stream: torch.npu.Stream | None = None,
 ) -> torch.Tensor | tuple[torch.Tensor, list[torch.Tensor]]:
     """Execute one accepted parent; retire its native producer in Ascend only.
 
     U1's native model pre-hook has already merged produced kwargs. U2 bypasses
     __call__ and consumes the producer here once in its native parent context.
     """
+    if eager_pipeline is not None and (
+        eager_pipeline.transport is not transport
+        or eager_pipeline.plan is not transport.plan
+        or eager_pipeline.finished
+        or eager_pipeline.failed
+        or transport.eager_pipeline is not eager_pipeline
+    ):
+        raise ValueError("eager parent requires its exact active transport/plan owner")
+    if (
+        eager_pipeline is not None
+        and torch.npu.current_stream(eager_pipeline.parent_stream.device)
+        != eager_pipeline.parent_stream
+    ):
+        raise ValueError("eager parent must enter on its actual owning stream")
+    with (
+        use_npu_current_stream(eager_pipeline.parent_stream)
+        if eager_pipeline is not None
+        else nullcontext()
+    ):
+        return _execute_hccl_v41_parent(
+            model,
+            model_state,
+            model_inputs,
+            contexts,
+            token_slices,
+            transport,
+            engram_prepared=engram_prepared,
+            eager_pipeline=eager_pipeline,
+            compute_stream=compute_stream,
+        )
+
+
+def _execute_hccl_v41_parent(
+    model: AFDDeepseekV41AttentionForCausalLM,
+    model_state: EngramModelState,
+    model_inputs: dict[str, Any],
+    contexts: tuple[ForwardContext, ...],
+    token_slices: tuple[slice, ...],
+    transport: HcclStagedTransport,
+    *,
+    engram_prepared: bool,
+    eager_pipeline: HcclEagerPipeline | None,
+    compute_stream: torch.npu.Stream | None,
+) -> torch.Tensor | tuple[torch.Tensor, list[torch.Tensor]]:
     try:
         parent_context = get_forward_context()
         if (
@@ -276,18 +324,29 @@ def execute_hccl_v41_stages(
                     child.get("inputs_embeds"),
                 )
             )
+        schedule = (
+            {"pipeline": eager_pipeline, "compute_stream": compute_stream}
+            if eager_pipeline is not None or compute_stream is not None
+            else {}
+        )
         output = run_deepseek_v41_stages(
             model.language_model.model,
             tuple(stages),
             contexts,
             slices,
             transport,
+            **schedule,
         )
-        transport.finish_forward()
+        if eager_pipeline is None:
+            transport.finish_forward()
+        else:
+            eager_pipeline.finish()
         return output
     except BaseException:
         # A peer can already be waiting on payload/COMPLETE. Mark this
         # endpoint terminal without blocking on an unsolicited error send;
         # backend timeout/process supervision owns failed peer unwinding.
         transport.terminal = True
+        if eager_pipeline is not None:
+            eager_pipeline.fail()
         raise

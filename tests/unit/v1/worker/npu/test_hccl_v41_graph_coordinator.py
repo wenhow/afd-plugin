@@ -32,6 +32,7 @@ from afd_plugin.connectors.npu.hccl_graph_pipeline import (
     HcclGraphPipelinePolicy,
 )
 from afd_plugin.connectors.npu.hccl_graph_stage import HcclGraphStageBank
+from afd_plugin.connectors.npu.hccl_overlap import HcclOverlapSettings
 from afd_plugin.v1.worker.npu.hccl_v41_graph_coordinator import HcclV41GraphCoordinator
 from tests.unit.fakes.hccl_graph_pipeline import attach_pipeline
 from tests.unit.fakes.hccl_v41_graph_coordinator import (
@@ -59,7 +60,9 @@ def coordinator_case(monkeypatch):
     )
     monkeypatch.setattr(torch.npu, "synchronize", lambda *args: None)
 
-    def build(*, pipeline_policy=None, **kwargs):
+    def build(
+        *, pipeline_policy=None, overlap_settings=None, diagnostic_sink=None, **kwargs
+    ):
         case = make_coordinator_case(**kwargs)
         case.coordinator = HcclV41GraphCoordinator(
             case.owner,
@@ -67,6 +70,8 @@ def coordinator_case(monkeypatch):
             case.session,
             next_transaction_id=case.next_transaction_id,
             pipeline_policy=pipeline_policy,
+            overlap_settings=overlap_settings,
+            diagnostic_sink=diagnostic_sink,
         )
         return case
 
@@ -108,14 +113,19 @@ def pipeline_capture_case(capture_case, monkeypatch):
     monkeypatch.setattr(
         HcclGraphComputePipeline,
         "allocate",
-        lambda bank, *, hybrid: (
-            attach_pipeline(monkeypatch, pipeline_module, bank, hybrid=hybrid).pipeline
+        lambda bank, **kwargs: (
+            attach_pipeline(monkeypatch, pipeline_module, bank, **kwargs).pipeline
         ),
     )
 
-    def build(*, stages=2, hybrid=True):
+    def build(*, stages=2, hybrid=True, overlap_settings=None, **kwargs):
         return capture_case(
-            stages=stages, pipeline_policy=HcclGraphPipelinePolicy(hybrid=hybrid)
+            stages=stages,
+            pipeline_policy=HcclGraphPipelinePolicy(hybrid=hybrid)
+            if overlap_settings is None
+            else None,
+            overlap_settings=overlap_settings,
+            **kwargs,
         )
 
     return build
@@ -146,6 +156,134 @@ def test_native_capture_pipeline_bundle_survives_preparation_and_replay(
     assert auxiliary is case.manager.aux_hidden_states
     assert case.cache.find(entry.key, 0).resources.pipeline is pipeline
     assert case.transport.plan is None and not case.transport.terminal
+
+
+@pytest.mark.parametrize("stages", [1, 2])
+@pytest.mark.parametrize(
+    "compute,hybrid,three,recv,cross",
+    [
+        (True, True, True, True, True),
+        (True, False, False, False, False),
+        (False, True, True, True, True),
+    ],
+)
+def test_overlap_settings_preserve_graph_when_compute_pipeline_is_disabled(
+    pipeline_capture_case, stages, compute, hybrid, three, recv, cross
+):
+    settings = HcclOverlapSettings(
+        graph_u2_compute_overlap=compute,
+        graph_u2_hybrid_dag=hybrid,
+        graph_u2_attention_three_stream=three,
+        graph_u2_ffn_recv_stream=recv,
+        graph_u2_ffn_cross_layer=cross,
+    )
+    case = pipeline_capture_case(stages=stages, overlap_settings=settings)
+    assert case.coordinator.preflight_capture()
+    case.coordinator.capture_native()
+    entry = case.cache.find(native_keys(case)[0], 0)
+    assert entry is not None and entry.resources.overlap_settings == settings
+    pipeline = entry.resources.pipeline
+    assert (pipeline is not None) == (stages > 1 and compute)
+    if pipeline is not None:
+        assert pipeline.policy == HcclGraphPipelinePolicy.from_selection(
+            pipeline.selection
+        )
+        assert pipeline.selection.role == "attention"
+        assert pipeline.selection.phase == "graph_capture"
+        assert pipeline.selection.physical_send_stream == "parent"
+    case.transport.states[0] = "ready"
+    install_runtime_replay_boundary(case)
+    with case.coordinator.execution_scope(
+        mode="target", valid_tokens=4, dummy_run=False
+    ):
+        descriptor = dispatch_runtime(case)
+        prepare_runtime_full(case, descriptor)
+        output, _ = case.manager.run_fullgraph(descriptor)
+    assert output is case.manager.hidden_states
+    assert case.cache.find(entry.key, 0).resources.pipeline is pipeline
+    assert case.transport.plan is None and not case.transport.terminal
+
+
+@pytest.mark.parametrize("stages,compute", [(1, True), (2, False), (2, True)])
+def test_captured_graph_rejects_changed_settings_even_without_side_pipeline(
+    pipeline_capture_case, stages, compute
+):
+    settings = HcclOverlapSettings(graph_u2_compute_overlap=compute)
+    case = pipeline_capture_case(stages=stages, overlap_settings=settings)
+    assert case.coordinator.preflight_capture()
+    case.coordinator.capture_native()
+    case.transport.states[0] = "ready"
+    case.coordinator = HcclV41GraphCoordinator(
+        case.owner,
+        case.control,
+        case.session,
+        next_transaction_id=case.next_transaction_id,
+        overlap_settings=replace(settings, graph_u2_attention_three_stream=False),
+    )
+    before = tuple(sent(case, "FORWARD"))
+    with (
+        pytest.raises(ValueError, match="cache bundle does not own"),
+        case.coordinator.execution_scope(
+            mode="target", valid_tokens=4, dummy_run=False
+        ),
+    ):
+        dispatch_runtime(case)
+    assert tuple(sent(case, "FORWARD")) == before
+    assert case.transport.plan is None and case.transport.terminal
+
+
+def test_one_capture_session_selects_compute_per_native_u1_u2_descriptor(
+    pipeline_capture_case,
+):
+    descriptors = tuple(
+        BatchExecutionDescriptor(
+            CUDAGraphMode.FULL, 4, 4, uniform_token_count=1, num_ubatches=stages
+        )
+        for stages in (1, 2)
+    )
+    case = pipeline_capture_case(
+        descriptors=descriptors, overlap_settings=HcclOverlapSettings()
+    )
+    assert case.coordinator.preflight_capture()
+    case.coordinator.capture_native()
+    entries = tuple(case.cache.find(key, 0) for key in native_keys(case))
+    assert len(entries) == 2
+    assert entries[0].resources.pipeline is None
+    assert entries[1].resources.pipeline.selection.num_stages == 2
+    assert not case.transport.terminal
+
+
+@pytest.mark.parametrize("stages,compute", [(1, True), (2, False), (2, True)])
+def test_native_capture_reports_configured_and_actual_rank_schedule(
+    pipeline_capture_case, stages, compute
+):
+    records = []
+    case = pipeline_capture_case(
+        stages=stages,
+        overlap_settings=HcclOverlapSettings(
+            graph_u2_compute_overlap=compute,
+            graph_u2_attention_three_stream=False,
+            stage_diagnostics=True,
+            ffn_compute_sync_diagnostics=True,
+        ),
+        diagnostic_sink=records.append,
+    )
+    assert case.coordinator.preflight_capture()
+    case.coordinator.capture_native()
+    assert [record["phase"] for record in records] == ["graph_warmup", "graph_capture"]
+    for record in records:
+        assert record["event"] == "configuration"
+        assert record["role"] == "attention"
+        assert record["world_rank"] == case.transport.world_rank
+        assert record["actual.compute_stream"] == (
+            "compute" if stages > 1 and compute else "parent"
+        )
+        assert record["actual.recv_stream"] == "parent"
+        assert record["actual.ffn_compute_sync"] is False
+        assert record["configured.AFD_HCCL_GRAPH_U2_COMPUTE_OVERLAP"] == compute
+        assert record["effective.AFD_HCCL_GRAPH_U2_COMPUTE_OVERLAP"] == (
+            stages > 1 and compute
+        )
 
 
 @pytest.mark.parametrize("mismatch", ["pipeline", "policy"])

@@ -36,6 +36,7 @@ from afd_plugin.connectors.npu.hccl_staged_transport import HcclStagedTransport
 from afd_plugin.model_executor.models.npu.deepseek_v41 import (
     AFDDeepseekV41AttentionForCausalLM,
 )
+from afd_plugin.v1.worker.npu.hccl_v41_eager import HcclV41EagerSession
 from afd_plugin.v1.worker.npu.hccl_v41_execution import execute_hccl_v41_stages
 from afd_plugin.v1.worker.npu.ubatch_runner import NPUUBatchRunner
 
@@ -175,6 +176,7 @@ class HcclV41UBatchRunner(NPUUBatchRunner):
         )
         # ### PATCH START: retain the explicit parent graph owner
         self.graph_owner = graph_owner
+        self.eager_session: HcclV41EagerSession | None = None
         self._preparing_cg_mode = CUDAGraphMode.NONE
         # ### PATCH END: retain the explicit parent graph owner
 
@@ -390,6 +392,15 @@ class HcclV41UBatchRunner(NPUUBatchRunner):
         boundary. Model execution uses typed stage inputs. This method neither
         submits child history nor retires the native parent's producer.
         """
+        session = self.eager_session
+        if session is not None and session.transport is not transport:
+            raise ValueError("native eager execution requires its bound transport")
+        pipeline = None if session is None else session.open_parent()
+        schedule = (
+            {"eager_pipeline": pipeline, "compute_stream": session.compute_stream}
+            if pipeline is not None
+            else {}
+        )
         return execute_hccl_v41_stages(
             model,
             self.model_state,
@@ -397,4 +408,21 @@ class HcclV41UBatchRunner(NPUUBatchRunner):
             tuple(ubatch_state.forward_contexts),
             tuple(stage.token_slice for stage in ubatch_state.slices),
             transport,
+            **schedule,
         )
+
+    def bind_eager_session(self, session: HcclV41EagerSession) -> None:
+        """Inject a warmed caller-owned session before accepting any parent."""
+        if (
+            self.eager_session is not None
+            or self.graph_owner is not None
+            or session.transport is not self.transport
+            or not session.initialized
+            or not self.transport.initialized
+            or self.transport.closed
+            or self.transport.terminal
+            or self.transport.plan is not None
+            or self.transport.graph_reservation is not None
+        ):
+            raise RuntimeError("bind one idle eager session to its exact U2 transport")
+        self.eager_session = session

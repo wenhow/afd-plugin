@@ -1,0 +1,267 @@
+{
+  "scope": "A3 existing HCCL endpoint primitive capability gate after matched communicator warmup; not multi-inflight ticket/model/performance acceptance",
+  "status": "both initial device sessions passed",
+  "sessions": {
+    "isend-001": {
+      "identity": "openspec/changes/afd-hccl-v2-multistream/evidence/a3-eager-backend-20261110/isend-001/identity.json",
+      "manifest_sha256": "46c69cf22e0d81da16fa3aa98ee11b60bbc38c25111561e707eef4ced00ed113",
+      "head_commit": "8a6eeb2a81506621f8571784179a46e3f4680d95",
+      "source_files_match": true,
+      "upstream_files_checked": 33,
+      "probe_sha256": "86ddf59910776a8b50b3dc76b5e56484f4d207e9eff9e8a2d375f271fdf91b34",
+      "harness_sha256": "4a3df039d861b3d6106bdf6fed8e716277972966661ace5b29703bbab9de420a",
+      "transport_sha256": "9ae40a90dab184fc4f1d17f934520318c2bd50eea75b5d082ed284e9a4e79128",
+      "group_factory_sha256": "eab623c56c995f4cd4f00ba89c14e8448d83dbf32b08565eda7fe0973e97c1c5",
+      "success": true,
+      "elapsed_seconds": 43.99181829113513,
+      "idle_before": 8,
+      "idle_after": 8,
+      "exit_codes": {
+        "ffn": 0,
+        "attention": 0
+      },
+      "killed_owned_pids": [],
+      "timed_out": false,
+      "gates": {
+        "bf16": {
+          "ready": [
+            "attention",
+            "ffn"
+          ],
+          "drained": [
+            "ffn",
+            "attention"
+          ],
+          "phase": "query-return",
+          "deadline": 8178914.480239447,
+          "post_returned_while_matcher_held": true,
+          "wait_returned_while_matcher_held": true,
+          "early_consumer_event_pending": true,
+          "late_query_while_matcher_held": true,
+          "late_consumer_event_pending": true,
+          "match_released_at": 23.74389853514731,
+          "match_release_reason": "late-consumer-event-observed"
+        },
+        "fp32": {
+          "ready": [
+            "ffn",
+            "attention"
+          ],
+          "drained": [
+            "attention",
+            "ffn"
+          ],
+          "phase": "query-return",
+          "deadline": 8178919.502607861,
+          "post_returned_while_matcher_held": true,
+          "wait_returned_while_matcher_held": true,
+          "early_consumer_event_pending": true,
+          "late_query_while_matcher_held": true,
+          "late_consumer_event_pending": true,
+          "match_released_at": 28.766128946095705,
+          "match_release_reason": "late-consumer-event-observed"
+        },
+        "ids": {
+          "ready": [
+            "attention",
+            "ffn"
+          ],
+          "drained": [
+            "ffn",
+            "attention"
+          ],
+          "phase": "query-return",
+          "deadline": 8178924.52414686,
+          "post_returned_while_matcher_held": true,
+          "wait_returned_while_matcher_held": true,
+          "early_consumer_event_pending": true,
+          "late_query_while_matcher_held": true,
+          "late_consumer_event_pending": true,
+          "match_released_at": 33.78777161706239,
+          "match_release_reason": "late-consumer-event-observed"
+        }
+      },
+      "observed_inflight_at_late_query": {
+        "bf16": true,
+        "fp32": true,
+        "ids": true
+      },
+      "native_tp": {
+        "ffn": {
+          "before": [
+            1.0
+          ],
+          "after_plugin_close": [
+            1.0
+          ],
+          "stop": true,
+          "closed": true
+        },
+        "attention": {
+          "before": [
+            1.0
+          ],
+          "after_plugin_close": [
+            1.0
+          ],
+          "stop": true,
+          "closed": true
+        }
+      },
+      "raw_sha256": {
+        "delivery.json": "34cd318b775fb355f95c5a325464e87c8d2ad4f707d3700c2123f3506d801498",
+        "identity.json": "31c31517e1fdae51976fb9d03c52be44426da0b5f78b9bec5d9722303a39c423",
+        "remote-run.log": "92c05313f6ec9c8f24c3982ccd75d4ff2f57d62181d58a0f2a6e2fec6af19e48",
+        "results/effective-env.json": "7c21302e80b198f24cedd767faa6084b27e98e3d9feec23c8ab1186409ad7c54",
+        "results/npu-after.log": "32f57793af7a3edd9bcb2567492fd2d2b2c01a3036fc434b18a48b34bb3f6454",
+        "results/npu-before.log": "c2932c7612486710fd5830a87f7718ee36e7fb8c54bb315c1f904d9d572fa381",
+        "results/owned-processes.json": "d591a5990b325cdd890a1d0cdc2c0baad5d070f1054ad25933eb42f1ba7b6475",
+        "results/probe.log": "172206b78b597b1e28ccaa4b38cd0e90f78632a85ce955b42a73b8d87c59a8dd",
+        "results/source-check.json": "6398402f60cffcb87fdf4bd7672cfbcea23a9c056619b540256c3b90894d6cda",
+        "results/standalone-no-torch-preflight.json": "5f542e23eb08e7520a088c9862a081ef2517ad0b58ecd3da1acb3c769dcd9afc",
+        "results/summary.json": "a5d96e04494a4c5350e3ede9b86180778f9c15396ee5efa1b9e256aa9e08eab2",
+        "results/upstream-identity.json": "ccce1aa67235ce2f18e6302767e4b640fc6304ce311c80e4d62d573e901b889d",
+        "results/probe/attention.json": "91aad8830328881b9c888c3f90b5ca4ffa2587f4a0bfa560b39e76078bd06673",
+        "results/probe/attention.log": "c55e58708150e348661005cc9b3069be928e78db5d8737bd4ef144fbb7ed0e50",
+        "results/probe/ffn.json": "c16cf124e49cff5e720e904ef3c1beb030e78c1d0c5eba8d6d9bbe2f01de293d",
+        "results/probe/ffn.log": "ec43596e6e183f8f2bc0158b71f2896547a653b393043450943831249fec5ce1",
+        "results/probe/result.json": "9840fa5335ecdd09cfb1c3839f4325ce59627e561da7b13e28d1e1e95c93e442"
+      }
+    },
+    "irecv-001": {
+      "identity": "openspec/changes/afd-hccl-v2-multistream/evidence/a3-eager-backend-20261110/irecv-001/identity.json",
+      "manifest_sha256": "56293f939f2fa27479cd4cd8f4281a308d0c5f987f4a065e09d0b10cd7aaa8f8",
+      "head_commit": "8a6eeb2a81506621f8571784179a46e3f4680d95",
+      "source_files_match": true,
+      "upstream_files_checked": 33,
+      "probe_sha256": "86ddf59910776a8b50b3dc76b5e56484f4d207e9eff9e8a2d375f271fdf91b34",
+      "harness_sha256": "4a3df039d861b3d6106bdf6fed8e716277972966661ace5b29703bbab9de420a",
+      "transport_sha256": "9ae40a90dab184fc4f1d17f934520318c2bd50eea75b5d082ed284e9a4e79128",
+      "group_factory_sha256": "eab623c56c995f4cd4f00ba89c14e8448d83dbf32b08565eda7fe0973e97c1c5",
+      "success": true,
+      "elapsed_seconds": 44.4673018604517,
+      "idle_before": 8,
+      "idle_after": 8,
+      "exit_codes": {
+        "ffn": 0,
+        "attention": 0
+      },
+      "killed_owned_pids": [],
+      "timed_out": false,
+      "gates": {
+        "bf16": {
+          "ready": [
+            "ffn",
+            "attention"
+          ],
+          "drained": [
+            "ffn",
+            "attention"
+          ],
+          "phase": "query-return",
+          "deadline": 8179185.205350266,
+          "post_returned_while_matcher_held": true,
+          "wait_returned_while_matcher_held": true,
+          "early_consumer_event_pending": true,
+          "late_query_while_matcher_held": true,
+          "late_consumer_event_pending": true,
+          "match_released_at": 23.810095332562923,
+          "match_release_reason": "late-consumer-event-observed"
+        },
+        "fp32": {
+          "ready": [
+            "ffn",
+            "attention"
+          ],
+          "drained": [
+            "attention",
+            "ffn"
+          ],
+          "phase": "query-return",
+          "deadline": 8179190.228261388,
+          "post_returned_while_matcher_held": true,
+          "wait_returned_while_matcher_held": true,
+          "early_consumer_event_pending": true,
+          "late_query_while_matcher_held": true,
+          "late_consumer_event_pending": true,
+          "match_released_at": 28.83287053089589,
+          "match_release_reason": "late-consumer-event-observed"
+        },
+        "ids": {
+          "ready": [
+            "attention",
+            "ffn"
+          ],
+          "drained": [
+            "ffn",
+            "attention"
+          ],
+          "phase": "query-return",
+          "deadline": 8179195.251115438,
+          "post_returned_while_matcher_held": true,
+          "wait_returned_while_matcher_held": true,
+          "early_consumer_event_pending": true,
+          "late_query_while_matcher_held": true,
+          "late_consumer_event_pending": true,
+          "match_released_at": 33.85582421347499,
+          "match_release_reason": "late-consumer-event-observed"
+        }
+      },
+      "observed_inflight_at_late_query": {
+        "bf16": true,
+        "fp32": true,
+        "ids": true
+      },
+      "native_tp": {
+        "ffn": {
+          "before": [
+            1.0
+          ],
+          "after_plugin_close": [
+            1.0
+          ],
+          "stop": true,
+          "closed": true
+        },
+        "attention": {
+          "before": [
+            1.0
+          ],
+          "after_plugin_close": [
+            1.0
+          ],
+          "stop": true,
+          "closed": true
+        }
+      },
+      "raw_sha256": {
+        "delivery.json": "983fc83cd489d5b4080613c4aec440a80861b61fe1dffdb1ca1feac1b4bbb510",
+        "identity.json": "613dd6765d7539a707f5702c5bc76a073ace3544f81ce6cc116056612698f04e",
+        "remote-run.log": "e03228546976672e53a75171b7c1c712fa76114aa9fee18c44d352554f73356f",
+        "results/effective-env.json": "5e045dfb847470f20f3f9bc753736aa8fa62b9b55ae34546e687ec26f9c0412c",
+        "results/npu-after.log": "964fd0edde79d1a051fcb1294975ee0813ee20b2f83771cf6b0b974143c3f550",
+        "results/npu-before.log": "2e77f116c61e65b3d09ac25f10ffc746e7e757c4a275702975d8cd9058e5ec24",
+        "results/owned-processes.json": "0692f1c507bf7dd75ee98ff3a2fa0985b727f8c4b0f1fa9055e5b677fd00cbc5",
+        "results/probe.log": "b1957481407765f9b7884d5a2d292cb28692ddc1acc3d2693717ace5a4e6e59a",
+        "results/source-check.json": "6398402f60cffcb87fdf4bd7672cfbcea23a9c056619b540256c3b90894d6cda",
+        "results/standalone-no-torch-preflight.json": "5f542e23eb08e7520a088c9862a081ef2517ad0b58ecd3da1acb3c769dcd9afc",
+        "results/summary.json": "901bcefb581921a163b38275100ab7c53c34e3bfd215dc0298af94f2463fe706",
+        "results/upstream-identity.json": "ccce1aa67235ce2f18e6302767e4b640fc6304ce311c80e4d62d573e901b889d",
+        "results/probe/attention.json": "e558ac3f5b33172c05efe26a136ea2f622329f7937552731439e62bcba7a6f2e",
+        "results/probe/attention.log": "ade1722cecc2f27edfb14a1e3b4470216ce3f59b6cc9268ae53be471a3387874",
+        "results/probe/ffn.json": "16cc1c0b3266bb2cac4b9e4abd55dd73a7c50451cdb5ee9d37f64b0c4f9a59a8",
+        "results/probe/ffn.log": "c14a944ad229f68886d20f6bf213ba478aefc843fb32ca284fe6e5e3ac724182",
+        "results/probe/result.json": "e9f243dc95887887cbda6f6dc63cdfdef70bd892b5b119aa3f364938528ea5ca"
+      }
+    }
+  },
+  "preflight_history": {
+    "preflight-001": "Source33 matched/no torch imports; npu-smi ret127 missing libc_sec.so without driver library paths; no device launch",
+    "preflight-002": "Existing CANN/driver/ATB paths; source33 matched/no torch imports/8 idle/FastAPI0.123.10"
+  },
+  "limitations": [
+    "Only paired 1A1F nativeTP1, warmed existing data_groups[0], small fixed payloads and one outstanding gate at a time",
+    "No first-use host-nonblocking claim, multi-stage posting, TP2, large-payload pressure, allocator stress, native model, abort or performance acceptance",
+    "Graph WIP source in complete archive is identity only; gate uses no Graph body"
+  ]
+}

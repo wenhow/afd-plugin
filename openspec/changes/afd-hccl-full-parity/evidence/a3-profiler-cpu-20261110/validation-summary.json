@@ -1,0 +1,287 @@
+{
+  "scope": "Independent immutable CPU attempts; no aggregate test count across runs",
+  "current_worktree_comparison_sample_utc": "2026-11-10T02:09:45.130166+00:00",
+  "current_head": "b7f86e1792ce43c2f56f4c27141106acf44e2607",
+  "current_runtime_sha256": {
+    "afd_plugin/compat/npu/stream.py": "6a881fa579e9c775f3b7142c7c456936e3d05c2ea37f9a87f3bcc386e7656771",
+    "afd_plugin/compat/npu/profiler.py": "89bfee6694e1b6fd75c0750a742906c987a419faded41417072f71b10ac22129",
+    "afd_plugin/connectors/npu/hccl_staged_transport.py": "ae4c38de38cb90d5e511fe0c7d0dbd6fda9fc318292f2d10784d33b3c8d422f1",
+    "afd_plugin/connectors/npu/hccl_graph_pipeline.py": "2105627f04b4693c44d5fc12c4ffac318cf540f6709fbb86228b60576540c066",
+    "afd_plugin/connectors/npu/hccl_eager_pipeline.py": "b758b9e8cb398cebdf91c8bd36087b060e2d10e7cbfc6636ff0ba385e0cb6e31",
+    "afd_plugin/connectors/npu/hccl_overlap.py": "04391ecd16bbf4210bb978f6c7be7a16ab53a68f74dc9ad5e1ae1d452865a34c",
+    "afd_plugin/connectors/npu/hccl_diagnostics.py": "96ae0f376770a4d425c3c8876f028f2fad24747f517aaea051d63220ac61c0e0",
+    "afd_plugin/model_executor/models/npu/deepseek_v41_graph.py": "a3140845755cae90d5f7927596c5a50248d829db15aac8c7d9230ef4d37a92fb",
+    "afd_plugin/model_executor/models/npu/deepseek_v41_staged.py": "8017c4095045ee735caef73caf7c80c6d0f825139f8d14871120cdf29d6845de",
+    "afd_plugin/v1/worker/npu/hccl_v41_eager.py": "8591e7a5860843bb8c4537212a71112114afc7a9179801087b377c67a2ab2695",
+    "afd_plugin/v1/worker/npu/hccl_v41_ffn_eager.py": "5e7183dea3436868aa1e22cb04056ffabb0ca714532b7090b623f0d56d2624ac",
+    "afd_plugin/v1/worker/npu/hccl_v41_execution.py": "0e91c47b3d52bdc55b1580808b468d18074b349ea6c86c66904214243bb3ffab",
+    "afd_plugin/v1/worker/npu/hccl_v41_ubatch_runner.py": "c76eedb4b43a42a29edde890a397f24aab3763c0327c7691680fab8471844a1d",
+    "afd_plugin/v1/worker/npu/hccl_v41_ffn_runner.py": "c3f3c434efcaa5cc533e5b4550534119140a894113a272e6aa96ca277ef565a8",
+    "afd_plugin/v1/worker/npu/hccl_v41_ffn_graph.py": "b82fc1a39979e9d5e206fca565d5f1c83e7b11d5557958d08a74e80df1c096cf",
+    "afd_plugin/v1/worker/npu/hccl_v41_graph_execution.py": "04e165ae223c85214939c5ca40d8f45a8e8ec0488742c7e6619c8e61f546f662",
+    "afd_plugin/v1/worker/npu/hccl_v41_graph_coordinator.py": "424dc9226f404a0265d65680db7f46e70a7e70630ce0c2e85bb0abecb18d29b3",
+    "afd_plugin/v1/worker/npu/hccl_v41_graph_service.py": "949b88fae34dd99c1faf55b53a55deb41e08c032518d18ddfc415a6f839f93aa",
+    "afd_plugin/v1/worker/npu/ffn_worker.py": "6f36918afc2dbd0d0afedc7a908be676f111d9398a4858a34556a3beaf0d2e7e",
+    "afd_plugin/v1/worker/npu/ffn_model_runner.py": "69ff9109e51dd363491d2c208a08b7dd48ffa893eec4ecb45e9093313ebb3260",
+    "afd_plugin/v1/worker/npu/async_ffn_model_runner.py": "e5cb17e7769c2d34a828dd5deb3fc9ec6f8dd203c10e3bed3394f425b61f0f25"
+  },
+  "current_bytes_comparison_boundary": "Advisory comparison only; changed later bytes do not rewrite or invalidate historical source identities, and are not accepted by old runs.",
+  "runs": {
+    "profiler-owner-012": {
+      "scope": "CPU seams with actual dependencies; no NPU, model or performance acceptance",
+      "head_commit": "8a6eeb2a81506621f8571784179a46e3f4680d95",
+      "manifest_sha256": "30363caa92f1d143a75fb8ca916dc432d94bdd3a69e90507bf8208e30af72f1b",
+      "archive_sha256": "81d3c8c43705b8566266d734315038b450f1568cc76d77aa5d08eece99f2c866",
+      "manifest_entries": 324,
+      "targets": [
+        "tests/unit/compat/npu/test_profiler.py",
+        "tests/unit/v1/worker/test_npu_runtime.py",
+        "tests/unit/v1/worker/test_async_ffn_runtime.py",
+        "tests/unit/compat/patches/test_signatures.py"
+      ],
+      "snapshot_exclusions": [],
+      "summary": {
+        "scope": "CPU module seams with actual installed dependencies; no device probe",
+        "remote": "/mnt/workspace/tmp/afd-c0-20261104.hVgsIf/c5-control-cpu-20261109-8925mfu9",
+        "command": [
+          "/mnt/workspace/code/.venvs/afd-v030-dsv41-c0/bin/python",
+          "-B",
+          "-m",
+          "pytest",
+          "-o",
+          "addopts=",
+          "-q",
+          "-rs",
+          "--tb=short",
+          "-p",
+          "no:cacheprovider",
+          "-m",
+          "not npu and not gpu",
+          "--junitxml=/mnt/workspace/tmp/afd-c0-20261104.hVgsIf/c5-control-cpu-20261109-8925mfu9/results/cpu.xml",
+          "tests/unit/compat/npu/test_profiler.py",
+          "tests/unit/v1/worker/test_npu_runtime.py",
+          "tests/unit/v1/worker/test_async_ffn_runtime.py",
+          "tests/unit/compat/patches/test_signatures.py"
+        ],
+        "returncode": 0,
+        "source_files_match": true,
+        "snapshot_exclusions": [],
+        "device_probe_started": false,
+        "success": true
+      },
+      "junit": {
+        "name": "pytest",
+        "errors": "0",
+        "failures": "0",
+        "skipped": "0",
+        "tests": "99",
+        "time": "2.124",
+        "timestamp": "2026-11-10T09:16:14.659713+08:00",
+        "hostname": "4ff038c993bf40219c03182f786a9def"
+      },
+      "junit_suites": [
+        {
+          "name": "pytest",
+          "errors": "0",
+          "failures": "0",
+          "skipped": "0",
+          "tests": "99",
+          "time": "2.124",
+          "timestamp": "2026-11-10T09:16:14.659713+08:00",
+          "hostname": "4ff038c993bf40219c03182f786a9def"
+        }
+      ],
+      "counts": {
+        "passed": 99,
+        "failure": 0,
+        "error": 0,
+        "skipped": 0,
+        "total": 99
+      },
+      "module_cases": {
+        "tests.unit.compat.npu.test_profiler": 26,
+        "tests.unit.compat.patches.test_signatures": 14,
+        "tests.unit.v1.worker.test_async_ffn_runtime": 4,
+        "tests.unit.v1.worker.test_npu_runtime": 55
+      },
+      "module_outcomes": {
+        "tests.unit.compat.npu.test_profiler": {
+          "passed": 26
+        },
+        "tests.unit.compat.patches.test_signatures": {
+          "passed": 14
+        },
+        "tests.unit.v1.worker.test_async_ffn_runtime": {
+          "passed": 4
+        },
+        "tests.unit.v1.worker.test_npu_runtime": {
+          "passed": 55
+        }
+      },
+      "failure_or_error_cases": [],
+      "upstream_pins_total": 10,
+      "upstream_pins_all_match": true,
+      "upstream_source_expected_sha256": {
+        "vllm/model_executor/model_loader/base_loader.py": "5291c330c4ed5634a9ea1d535364c26162b60251aa2af03fd409b88c34d836e2",
+        "vllm/model_executor/model_loader/utils.py": "aa398e74ee835537403e60186f2e9a81e8741a4b35fec68b47df6537716a45b7",
+        "vllm/distributed/parallel_state.py": "d9b10ad56833ebc08a753e1a050ef0989c30d4134021b7b7b00150b7bd01adc6",
+        "vllm/config/parallel.py": "f012ace89e3fb730a467f729f602679bc145c49f0d10721811c9d818570e7b2b",
+        "vllm/forward_context.py": "cc1473477dcc7b762c3901b25cc7bf35c06a2c42f193136fed553abf6fe33f0e",
+        "vllm_ascend/distributed/parallel_state.py": "b7ea7d6fb74530c50aec718d34266bae952ed96cc5a85766d7e208b952b10445",
+        "vllm_ascend/worker/v2/model_runner.py": "a3471a9f181b45742b8f985c86137cdaafc2871d2ef6f96aa6a45236a242969b",
+        "vllm_ascend/models/deepseek_v41/model.py": "989aec6db1e344dca76159dcbef0d5876874facedaa36b47e993146d5b8a2b9f",
+        "vllm_ascend/models/deepseek_v41/dspark.py": "fcee256905928917154d8dac94d6611bb83d02da441e8aa154a525ef51e6a601",
+        "vllm_ascend/models/deepseek_v41/engram/model_state.py": "677cb13bb86ad80a154e0ff9a43620aa3344e7e93170a05e27aba0cc1f10aa8b"
+      },
+      "upstream_source_checks": {
+        "vllm/model_executor/model_loader/base_loader.py": true,
+        "vllm/model_executor/model_loader/utils.py": true,
+        "vllm/distributed/parallel_state.py": true,
+        "vllm/config/parallel.py": true,
+        "vllm/forward_context.py": true,
+        "vllm_ascend/distributed/parallel_state.py": true,
+        "vllm_ascend/worker/v2/model_runner.py": true,
+        "vllm_ascend/models/deepseek_v41/model.py": true,
+        "vllm_ascend/models/deepseek_v41/dspark.py": true,
+        "vllm_ascend/models/deepseek_v41/engram/model_state.py": true
+      },
+      "current_runtime_matches_snapshot": {
+        "afd_plugin/compat/npu/stream.py": true,
+        "afd_plugin/compat/npu/profiler.py": true,
+        "afd_plugin/connectors/npu/hccl_staged_transport.py": true,
+        "afd_plugin/connectors/npu/hccl_graph_pipeline.py": true,
+        "afd_plugin/connectors/npu/hccl_eager_pipeline.py": true,
+        "afd_plugin/connectors/npu/hccl_overlap.py": true,
+        "afd_plugin/connectors/npu/hccl_diagnostics.py": true,
+        "afd_plugin/model_executor/models/npu/deepseek_v41_graph.py": true,
+        "afd_plugin/model_executor/models/npu/deepseek_v41_staged.py": false,
+        "afd_plugin/v1/worker/npu/hccl_v41_eager.py": true,
+        "afd_plugin/v1/worker/npu/hccl_v41_ffn_eager.py": false,
+        "afd_plugin/v1/worker/npu/hccl_v41_execution.py": false,
+        "afd_plugin/v1/worker/npu/hccl_v41_ubatch_runner.py": false,
+        "afd_plugin/v1/worker/npu/hccl_v41_ffn_runner.py": true,
+        "afd_plugin/v1/worker/npu/hccl_v41_ffn_graph.py": true,
+        "afd_plugin/v1/worker/npu/hccl_v41_graph_execution.py": true,
+        "afd_plugin/v1/worker/npu/hccl_v41_graph_coordinator.py": true,
+        "afd_plugin/v1/worker/npu/hccl_v41_graph_service.py": true,
+        "afd_plugin/v1/worker/npu/ffn_worker.py": false,
+        "afd_plugin/v1/worker/npu/ffn_model_runner.py": false,
+        "afd_plugin/v1/worker/npu/async_ffn_model_runner.py": true
+      },
+      "current_runtime_missing_from_snapshot": [],
+      "snapshot_runtime_sha256": {
+        "afd_plugin/compat/npu/stream.py": "6a881fa579e9c775f3b7142c7c456936e3d05c2ea37f9a87f3bcc386e7656771",
+        "afd_plugin/compat/npu/profiler.py": "89bfee6694e1b6fd75c0750a742906c987a419faded41417072f71b10ac22129",
+        "afd_plugin/connectors/npu/hccl_staged_transport.py": "ae4c38de38cb90d5e511fe0c7d0dbd6fda9fc318292f2d10784d33b3c8d422f1",
+        "afd_plugin/connectors/npu/hccl_graph_pipeline.py": "2105627f04b4693c44d5fc12c4ffac318cf540f6709fbb86228b60576540c066",
+        "afd_plugin/connectors/npu/hccl_eager_pipeline.py": "b758b9e8cb398cebdf91c8bd36087b060e2d10e7cbfc6636ff0ba385e0cb6e31",
+        "afd_plugin/connectors/npu/hccl_overlap.py": "04391ecd16bbf4210bb978f6c7be7a16ab53a68f74dc9ad5e1ae1d452865a34c",
+        "afd_plugin/connectors/npu/hccl_diagnostics.py": "96ae0f376770a4d425c3c8876f028f2fad24747f517aaea051d63220ac61c0e0",
+        "afd_plugin/model_executor/models/npu/deepseek_v41_graph.py": "a3140845755cae90d5f7927596c5a50248d829db15aac8c7d9230ef4d37a92fb",
+        "afd_plugin/model_executor/models/npu/deepseek_v41_staged.py": "0ed64e929443523ca41c1f92614550e7c04d73d4df90824923742414a082e203",
+        "afd_plugin/v1/worker/npu/hccl_v41_eager.py": "8591e7a5860843bb8c4537212a71112114afc7a9179801087b377c67a2ab2695",
+        "afd_plugin/v1/worker/npu/hccl_v41_ffn_eager.py": "b89ee5db2726dd4c10cbdabfc32f34951b77dd0794390725781904c9cdafcb18",
+        "afd_plugin/v1/worker/npu/hccl_v41_execution.py": "11bc88b9da925e2f73130fe0458ad5b3b5e48ddf5d09e88532b615e5064bafdf",
+        "afd_plugin/v1/worker/npu/hccl_v41_ubatch_runner.py": "fb456f3568b99dfc89f62a6389cd0b0183a2976d423a718c6013fb059739e932",
+        "afd_plugin/v1/worker/npu/hccl_v41_ffn_runner.py": "c3f3c434efcaa5cc533e5b4550534119140a894113a272e6aa96ca277ef565a8",
+        "afd_plugin/v1/worker/npu/hccl_v41_ffn_graph.py": "b82fc1a39979e9d5e206fca565d5f1c83e7b11d5557958d08a74e80df1c096cf",
+        "afd_plugin/v1/worker/npu/hccl_v41_graph_execution.py": "04e165ae223c85214939c5ca40d8f45a8e8ec0488742c7e6619c8e61f546f662",
+        "afd_plugin/v1/worker/npu/hccl_v41_graph_coordinator.py": "424dc9226f404a0265d65680db7f46e70a7e70630ce0c2e85bb0abecb18d29b3",
+        "afd_plugin/v1/worker/npu/hccl_v41_graph_service.py": "949b88fae34dd99c1faf55b53a55deb41e08c032518d18ddfc415a6f839f93aa",
+        "afd_plugin/v1/worker/npu/ffn_worker.py": "4f9151420c1b3667c38287f1448652e1711cc922839e8ea5f9e06b173b765ca9",
+        "afd_plugin/v1/worker/npu/ffn_model_runner.py": "bb50e2ca68f1bf3e1f56e22ddf1f0a04d65e3b33cb4f0c80fdfa7bec8a130512",
+        "afd_plugin/v1/worker/npu/async_ffn_model_runner.py": "e5cb17e7769c2d34a828dd5deb3fc9ec6f8dd203c10e3bed3394f425b61f0f25"
+      },
+      "raw_artifact_sha256": {
+        "delivery.json": "0d9bc64f194d8b56b7cc20732d2381ffc9fcbd57691c6557a8633072a2a521a8",
+        "identity.json": "2829c3508d78a531189401849eb70a736ad0ea18a9f88971b858e47d2610d6ba",
+        "remote-run.log": "4d46499a0dec9a129e37e4154b5256c80e0dab2a4f33e0f61a93a9d60d3257ea",
+        "results/cpu.stderr.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "results/cpu.stdout.log": "399612e64f53f4d480c1f79f3cc36b97946ebb25b3284cdaeb068fd6f4074bcd",
+        "results/cpu.xml": "5782786f4d0dc06e64020cdfff7424b91697f4e95e428a572a6d18c21d9f0c38",
+        "results/effective-env.json": "71a847508a88c476f8845129a203580e1b62ec28645df07f0d8f741b841525f5",
+        "results/source-check.json": "26217f98782ba8d3091010cf6a886fd9dc1195b125b41e89642960e0311108cd",
+        "results/summary.json": "a27f861c7541048b3f2da52af0bf482e16fab55fbaf4035f4d2c1c165baae8d9",
+        "results/versions.json": "8aa40a41b53ecde5293ad581f313555c4e948071ce87c879c3b93ac6d8ad2601"
+      },
+      "current_manifest_source_comparison": {
+        "checked_python_sources": 318,
+        "matched_python_sources": 301,
+        "changed_python_sources": {
+          "afd_plugin/model_executor/models/npu/deepseek_v41_staged.py": {
+            "snapshot_sha256": "0ed64e929443523ca41c1f92614550e7c04d73d4df90824923742414a082e203",
+            "current_sha256": "8017c4095045ee735caef73caf7c80c6d0f825139f8d14871120cdf29d6845de"
+          },
+          "afd_plugin/v1/worker/npu/ffn_model_runner.py": {
+            "snapshot_sha256": "bb50e2ca68f1bf3e1f56e22ddf1f0a04d65e3b33cb4f0c80fdfa7bec8a130512",
+            "current_sha256": "69ff9109e51dd363491d2c208a08b7dd48ffa893eec4ecb45e9093313ebb3260"
+          },
+          "afd_plugin/v1/worker/npu/ffn_worker.py": {
+            "snapshot_sha256": "4f9151420c1b3667c38287f1448652e1711cc922839e8ea5f9e06b173b765ca9",
+            "current_sha256": "6f36918afc2dbd0d0afedc7a908be676f111d9398a4858a34556a3beaf0d2e7e"
+          },
+          "afd_plugin/v1/worker/npu/hccl_v41_execution.py": {
+            "snapshot_sha256": "11bc88b9da925e2f73130fe0458ad5b3b5e48ddf5d09e88532b615e5064bafdf",
+            "current_sha256": "0e91c47b3d52bdc55b1580808b468d18074b349ea6c86c66904214243bb3ffab"
+          },
+          "afd_plugin/v1/worker/npu/hccl_v41_ffn_eager.py": {
+            "snapshot_sha256": "b89ee5db2726dd4c10cbdabfc32f34951b77dd0794390725781904c9cdafcb18",
+            "current_sha256": "5e7183dea3436868aa1e22cb04056ffabb0ca714532b7090b623f0d56d2624ac"
+          },
+          "afd_plugin/v1/worker/npu/hccl_v41_ubatch_runner.py": {
+            "snapshot_sha256": "fb456f3568b99dfc89f62a6389cd0b0183a2976d423a718c6013fb059739e932",
+            "current_sha256": "c76eedb4b43a42a29edde890a397f24aab3763c0327c7691680fab8471844a1d"
+          },
+          "tests/unit/compat/patches/test_signatures.py": {
+            "snapshot_sha256": "4cd9777e96637f894dd5c1948dcf7f3ad3e683599fe95e8b99a2ffb9769e9530",
+            "current_sha256": "acd0046014fcea1ab920d207e991d99f2b9f319dff25c9bc388aa40e68616ed2"
+          },
+          "tests/unit/fakes/hccl.py": {
+            "snapshot_sha256": "bac125b2d919aadaf52e82b8f883b29054bb2378151c6ed585db4c3f0c84e678",
+            "current_sha256": "2693ad5b37352d7e6c792bec76aed3e999412376e4bdc2f99df9e5ab1d48417e"
+          },
+          "tests/unit/fakes/hccl_eager_model.py": {
+            "snapshot_sha256": "79612f46bcff3c781911d4464c638c12bc5a934646b42202ee333b51541fb62e",
+            "current_sha256": "72aae6b98a4695cbaa2e0922d70489299f4dd1466e14532e273101353f5d3612"
+          },
+          "tests/unit/fakes/hccl_v41_ffn_eager.py": {
+            "snapshot_sha256": "e532d0922dd73f3f7ea35627efa1907a95d82fc9f6be63a7d87e14a2c5e62c09",
+            "current_sha256": "7da2d26ae0027a3d8b97ae6d4eb9ff2c1207af7c0ac3ccd6086dbb4e64ab20e6"
+          },
+          "tests/unit/fakes/hccl_v41_graph_service.py": {
+            "snapshot_sha256": "7fefb86095d5f8ddbde9e7572b15b73e8f05b387090039d09e99a067293e6b52",
+            "current_sha256": "8e220fd4be43f76b7828e64331d9ed930f41dee4d151de58923e744b7d05b91a"
+          },
+          "tests/unit/fakes/profiler.py": {
+            "snapshot_sha256": "3a957fee0e4aab5ac8e626249c25919be0b2cfe30b93c73dfeeba93d72054b14",
+            "current_sha256": "89d339ed854d12bd851056889502f9b2cffd30377ee6da21e4466e9d544a9343"
+          },
+          "tests/unit/v1/worker/npu/test_ffn_worker.py": {
+            "snapshot_sha256": "866c7059170a3bd1035e7e828a38505a3caa9d0bac3e52a48148fb22fec76bb9",
+            "current_sha256": "abae9eb4054374a7df9037774300681e7f83a0aa4e710612f2e3b5cd72910411"
+          },
+          "tests/unit/v1/worker/npu/test_hccl_v41_execution.py": {
+            "snapshot_sha256": "8abe83d9ba5baefaf03afee61a0b273924fadfbbd9ad2ffb3c8ebffdbdff1ffa",
+            "current_sha256": "81f18c1c01010957c33587d7d7de7b5257bdc3879291b6e0fd6f0a3e1700d2ef"
+          },
+          "tests/unit/v1/worker/npu/test_hccl_v41_ffn_eager.py": {
+            "snapshot_sha256": "98a5ee8a419bd4029136001fcb345573ca09dd3b7880646865eb1ff86fb6e146",
+            "current_sha256": "1e4a001160ecee25c284f5fa859fb080b5428cbccec8dd1f8862c75998bebd59"
+          },
+          "tests/unit/v1/worker/npu/test_hccl_v41_ffn_runner.py": {
+            "snapshot_sha256": "08e9fad715c464f1dc20344937ace2570f0bda4f3aa1c51beb81ac0dc609b7b1",
+            "current_sha256": "6817b41ab0a202e172756d61fb02d599928544af54fc925e4097ab7eafdcc6b5"
+          },
+          "tests/unit/v1/worker/npu/test_hccl_v41_ubatch_runner.py": {
+            "snapshot_sha256": "585728914f073454f4fe4cfe92bba1bffcd706a2901d83b691896a0e69000efa",
+            "current_sha256": "44165a9f0914578abd0333acbd915de0f9b3b05e0bbd71b59fab3fa3d762a52a"
+          }
+        },
+        "missing_python_sources": []
+      }
+    }
+  },
+  "related_cpu_index": "../../../afd-hccl-v2-multistream/evidence/a3-pipeline-cpu-20261110/validation-summary.json",
+  "device_acceptance": "Separate actual device evidence; no device probe in any CPU run here",
+  "full_model_acceptance": "pending manual A5 validation"
+}

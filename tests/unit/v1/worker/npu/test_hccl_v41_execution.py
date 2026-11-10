@@ -18,6 +18,7 @@ pytest.importorskip("vllm_ascend")
 from vllm.config import CompilationMode, CUDAGraphMode
 from vllm.forward_context import get_forward_context, override_forward_context
 from vllm.v1.worker.gpu import model_runner as native_model_runner
+from vllm.v1.worker.gpu.spec_decode.dflash.speculator import DFlashSpeculator
 from vllm_ascend.worker.v2.model_runner import NPUModelRunner
 
 from afd_plugin.connectors.npu.hccl_staged import HcclStagedAFDConnector
@@ -25,6 +26,7 @@ from afd_plugin.connectors.npu.p2p_hccl import P2pHcclAFDConnector
 from afd_plugin.distributed.hccl_graph import HcclGraphDecision
 from afd_plugin.model_executor.models import forward_context as context_module
 from afd_plugin.model_executor.models.npu.deepseek_v41 import (
+    HCCL_V41_PARENT_FORWARD_KEY,
     AFDDeepseekV41AttentionForCausalLM,
 )
 from afd_plugin.v1.worker.npu import attention_model_runner_v2 as attention
@@ -32,8 +34,73 @@ from afd_plugin.v1.worker.npu import hccl_v41_execution as execution
 from afd_plugin.v1.worker.npu import hccl_v41_ubatch_runner as ubatch
 from tests.unit.fakes.deepseek_v41 import ParentEngramState, make_staged_model
 from tests.unit.fakes.hccl import StagedAttentionPeer
-from tests.unit.fakes.input_batch import make_ascend_batch, make_hccl_ubatch_seam
+from tests.unit.fakes.hccl_eager_model import make_eager_model_case
+from tests.unit.fakes.input_batch import (
+    make_ascend_batch,
+    make_ascend_speculative_batch,
+    make_hccl_ubatch_seam,
+)
 from tests.unit.fakes.vllm_config import hccl_vllm_config
+
+
+def test_explicit_eager_parent_consumes_one_producer_and_completes_ticket_owner(
+    monkeypatch,
+):
+    setup = make_eager_model_case(monkeypatch, execution)
+    case = setup.case
+    parent = SimpleNamespace(cudagraph_runtime_mode=CUDAGraphMode.NONE, ubatch_idx=-1)
+    state = ParentEngramState(
+        {
+            key: value
+            for key, value in case.parent_inputs.items()
+            if key.startswith("engram_")
+        },
+        parent_context=parent,
+    )
+    with override_forward_context(parent):
+        output = execution.execute_hccl_v41_stages(
+            case.wrapper,
+            state,
+            case.parent_inputs,
+            case.contexts,
+            case.slices,
+            setup.peer,
+            eager_pipeline=setup.pipeline,
+            compute_stream=setup.runtime.compute,
+        )
+        assert get_forward_context() is parent
+
+    expected = case.model(**case.parent_inputs)
+    torch.testing.assert_close(output, expected, rtol=0, atol=0)
+    assert state.consumed and setup.pipeline.finished and setup.peer.completed
+
+
+@pytest.mark.parametrize("invalid", ["foreign_transport", "foreign_plan", "finished"])
+def test_eager_parent_rejects_stale_owner_before_consuming_native_producer(
+    monkeypatch, invalid
+):
+    setup = make_eager_model_case(monkeypatch, execution)
+    state = ParentEngramState({})
+    if invalid == "foreign_transport":
+        setup.pipeline.transport = StagedAttentionPeer()
+    elif invalid == "foreign_plan":
+        setup.pipeline.plan = replace(setup.case.plan, transaction_id="another-parent")
+    else:
+        setup.pipeline.finished = True
+
+    with pytest.raises(ValueError, match="exact active transport/plan owner"):
+        execution.execute_hccl_v41_stages(
+            setup.case.wrapper,
+            state,
+            {},
+            (),
+            (),
+            setup.peer,
+            eager_pipeline=setup.pipeline,
+            compute_stream=setup.runtime.compute,
+        )
+
+    assert not state.consumed and setup.peer.messages == []
 
 
 @pytest.fixture
@@ -50,7 +117,11 @@ def native_case(monkeypatch):
     # forward-context construction, nn.Module pre-hook and AFD entry run below.
     # Native request/KV execution and retirement are not simulated as evidence.
     def native_execute(self, scheduler_output, *args, **kwargs):
-        batch = make_ascend_batch(scheduler_output.total_num_scheduled_tokens)
+        batch = (
+            make_ascend_speculative_batch(scheduler_output.total_num_scheduled_tokens)
+            if self.vllm_config.speculative_config is not None
+            else make_ascend_batch(scheduler_output.total_num_scheduled_tokens)
+        )
         state = self.model_state
         state.consumed = False
         prepared = None
@@ -58,6 +129,7 @@ def native_case(monkeypatch):
             prepared = self.ubatch_runner.prepare(
                 batch, (), torch.arange(8, dtype=torch.int32).reshape(1, 8)
             )
+        self.native_steps.append(SimpleNamespace(batch=batch, prepared=prepared))
         parent = context_module.forward_context_module.create_forward_context(
             None,
             self.vllm_config,
@@ -82,14 +154,22 @@ def native_case(monkeypatch):
 
     monkeypatch.setattr(NPUModelRunner, "execute_model", native_execute)
 
-    def build(*, with_ubatches=True, bind=True):
+    def build(*, with_ubatches=True, bind=True, dspark=False):
         config = hccl_vllm_config(
             dtype=torch.bfloat16,
             compilation_mode=CompilationMode.NONE,
             cudagraph_mode=CUDAGraphMode.NONE,
+            dspark=dspark,
         )
         config.model_config.hf_text_config.hidden_size = 4
         config.model_config.hf_text_config.vocab_size = 32
+        if dspark:
+            # The arithmetic model has two target layers. Keep target and
+            # native-draft aux metadata aligned with those actual layer IDs.
+            config.model_config.hf_text_config.num_hidden_layers = 2
+            config.model_config.hf_text_config.dspark_target_layer_ids = [1, 2]
+            draft_text = config.speculative_config.draft_model_config.hf_text_config
+            draft_text.dspark_target_layer_ids = [1, 2]
         config.compilation_config.static_forward_context = {}
         config.parallel_config.use_ubatching = True
         config.parallel_config.num_ubatches = 2
@@ -114,6 +194,7 @@ def native_case(monkeypatch):
         owner.ubatch_runner, owner.prof, owner.cudagraph_manager = None, None, None
         owner._afd_transaction_counter = 0
         owner.select_u2 = False
+        owner.native_steps = []
         peer = StagedAttentionPeer()
         if bind:
             owner.bind_hccl_v41_transport(peer)
@@ -124,7 +205,13 @@ def native_case(monkeypatch):
             owner.ubatch_runner.vllm_config = config
             owner.ubatch_runner.parallel_config = config.parallel_config
             owner.ubatch_runner.transport = peer
-        return SimpleNamespace(owner=owner, peer=peer, state=state, producer=producer)
+        return SimpleNamespace(
+            owner=owner,
+            peer=peer,
+            state=state,
+            producer=producer,
+            native_steps=owner.native_steps,
+        )
 
     return build
 
@@ -169,6 +256,81 @@ def test_same_native_entry_alternates_u1_and_u2_without_reusing_parent_ids(nativ
         "native-4",
     ]
     assert case.peer.plan is None and not case.peer.terminal
+
+
+def test_dspark_target_keeps_query_coordinates_and_ordered_aux_through_completion(
+    native_case,
+):
+    reference = native_case(dspark=True)
+    expected, expected_aux = reference.owner.execute_model(
+        SimpleNamespace(total_num_scheduled_tokens=5)
+    )
+    case = native_case(dspark=True)
+    case.owner.select_u2 = True
+    output, auxiliary = case.owner.execute_model(
+        SimpleNamespace(total_num_scheduled_tokens=5)
+    )
+    assert output.shape == (8, 4) and len(auxiliary) == 2
+    torch.testing.assert_close(output, expected)
+    for actual, native_u1 in zip(auxiliary, expected_aux, strict=True):
+        torch.testing.assert_close(actual, native_u1)
+    # The first native aux is layer entry, before its Engram injection.
+    inner = case.owner.model.language_model.model
+    torch.testing.assert_close(auxiliary[0], inner.embed_tokens(torch.arange(8)))
+    assert not torch.equal(auxiliary[1], auxiliary[0])
+    # Native prepare exposes the actual per-child query metadata. The second
+    # request crosses the token boundary: 3 queries become 2+1. Sampling fields
+    # stay on the parent; no child sampler or acceptance result is invented.
+    batch, prepared = case.native_steps[0].batch, case.native_steps[0].prepared
+    assert batch.num_draft_tokens_per_req.tolist() == [1, 2]
+    assert batch.logits_indices.tolist() == list(range(5))
+    assert batch.cu_num_logits.tolist() == [0, 2, 5]
+    children = [context.attn_metadata["child"] for context in prepared.forward_contexts]
+    assert [child.query_start_loc.tolist() for child in children] == [[0, 2, 4], [0, 1]]
+    assert [child.positions.tolist() for child in children] == [
+        list(range(4)),
+        list(range(4, 8)),
+    ]
+    assert case.peer.proposals[-1].valid_tokens == (4, 1)
+    assert case.peer.completed and case.peer.plan is None
+
+
+def test_completed_dspark_u2_target_leaves_native_draft_forward_attention_local(
+    native_case,
+):
+    case = native_case(dspark=True)
+    case.owner.select_u2 = True
+    _, auxiliary = case.owner.execute_model(
+        SimpleNamespace(total_num_scheduled_tokens=5)
+    )
+    assert case.peer.completed and case.peer.plan is None
+
+    def local_draft(input_ids, **kwargs):
+        # A real native drafter context must not inherit the completed target's
+        # typed parent sidecar or AFD metadata provider. Arithmetic is a model
+        # collaborator only; this test makes no native sampling/device claim.
+        context = get_forward_context()
+        assert HCCL_V41_PARENT_FORWARD_KEY not in (context.additional_kwargs or {})
+        assert context_module.get_afd_metadata_from_forward_context() is None
+        return auxiliary[0][: input_ids.numel()] + input_ids[:, None]
+
+    draft = SimpleNamespace(
+        vllm_config=case.owner.vllm_config,
+        input_buffers=SimpleNamespace(
+            input_ids=torch.arange(5), positions=torch.arange(5)
+        ),
+        model=local_draft,
+    )
+    result = DFlashSpeculator._run_model(draft, 5, None, None, None)
+    torch.testing.assert_close(result, auxiliary[0][:5] + torch.arange(5)[:, None])
+    assert len(case.peer.forwards) == 1
+    assert [(layer, stage) for layer, stage, *_ in case.peer.messages] == [
+        (0, 0),
+        (0, 1),
+        (1, 0),
+        (1, 1),
+    ]
+    assert case.peer.completed and case.peer.plan is None
 
 
 @pytest.mark.parametrize("u2,padded", [(False, (8,)), (True, (4, 4))])

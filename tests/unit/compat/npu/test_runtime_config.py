@@ -67,15 +67,35 @@ def test_ffn_config_preserves_existing_model_configurations(model_type, architec
 
 
 @pytest.mark.parametrize("field", ["enable_dbo", "use_ubatching"])
-def test_ffn_config_rejects_dspark_u2_before_erasing_target_identity(field):
+def test_ffn_config_isolates_dspark_u2_without_changing_target_scheduling(field):
     source = v41_dspark_config(role="ffn")
     speculative = source.speculative_config
+    source.engram_config = SimpleNamespace(dp_shared_memory=False)
     setattr(source.parallel_config, field, True)
+    source.parallel_config.num_ubatches = 2
 
-    with pytest.raises(ValueError, match="DSpark with U1 before role isolation"):
-        get_npu_ffn_config(source)
+    result = get_npu_ffn_config(source)
 
     assert source.speculative_config is speculative
+    assert source.engram_config.dp_shared_memory is False
+    assert result.speculative_config is None and result.engram_config is None
+    assert result.model_config is source.model_config
+    assert result.parallel_config is source.parallel_config
+    assert result.parallel_config.num_ubatches == 2
+
+
+@pytest.mark.parametrize("connector", ["CAMP2pAFDConnector", "CAMAsyncAFDConnector"])
+def test_ffn_config_preserves_non_hccl_dspark_u2_rejection(connector):
+    source = v41_dspark_config(role="ffn")
+    source.additional_config["afd"]["connector"] = connector
+    source.parallel_config.enable_dbo = source.parallel_config.use_ubatching = True
+    source.parallel_config.num_ubatches = source.parallel_config.ubatch_size = 2
+    before = deepcopy(source)
+
+    with pytest.raises(ValueError, match="DSpark with U1.*non-HCCL connectors"):
+        get_npu_ffn_config(source)
+
+    assert source == before
 
 
 def test_dspark_validation_retains_native_target_and_draft_metadata():
@@ -90,6 +110,30 @@ def test_dspark_validation_retains_native_target_and_draft_metadata():
         config.speculative_config.draft_model_config.hf_text_config.n_routed_experts
         == 128
     )
+
+
+@pytest.mark.parametrize("field", ["enable_dbo", "use_ubatching"])
+def test_dspark_u2_rejects_adaptive_layout_before_ffn_role_isolation(field):
+    source = v41_dspark_config(role="ffn")
+    source.speculative_config.enable_adaptive_verification = True
+    source.parallel_config.num_ubatches = 2
+    setattr(source.parallel_config, field, True)
+    before = deepcopy(source)
+
+    with pytest.raises(ValueError, match="U2 requires adaptive verification off"):
+        get_npu_ffn_config(source)
+
+    assert source == before
+
+
+def test_dspark_u1_keeps_native_adaptive_verification_configuration():
+    config = v41_dspark_config()
+    config.speculative_config.enable_adaptive_verification = True
+    before = deepcopy(config)
+
+    validate_deepseek_v41_speculation(config)
+
+    assert config == before
 
 
 @pytest.mark.parametrize(

@@ -68,6 +68,34 @@ def runner_factory(monkeypatch):
     return build
 
 
+def test_eager_staged_run_rejects_foreign_wire_before_native_producer(runner_factory):
+    runner = runner_factory()
+    peer = StagedModelPeer(None)
+    runner.transport = peer
+    runner.eager_session = SimpleNamespace(transport=peer)
+    with pytest.raises(ValueError, match="bound transport"):
+        runner.run_staged(None, {}, None, StagedModelPeer(None))
+    assert not runner.model_state.consumed
+    assert peer.messages == []
+
+
+@pytest.mark.parametrize("invalid", ["uninitialized", "closed", "terminal"])
+def test_eager_binding_rejects_a_dead_previously_warmed_session(
+    runner_factory, invalid
+):
+    runner = runner_factory()
+    peer = SimpleNamespace(initialized=True, closed=False, terminal=False)
+    runner.transport = peer
+    session = SimpleNamespace(transport=peer, initialized=True)
+    setattr(
+        peer,
+        "initialized" if invalid == "uninitialized" else invalid,
+        invalid != "uninitialized",
+    )
+    with pytest.raises(RuntimeError, match="idle eager session"):
+        runner.bind_eager_session(session)
+
+
 @pytest.mark.parametrize("dp_size", [1, 3])
 @pytest.mark.parametrize("real", [2, 5, 7])
 def test_prepare_retains_native_child_coordinates_without_local_moe_dp(

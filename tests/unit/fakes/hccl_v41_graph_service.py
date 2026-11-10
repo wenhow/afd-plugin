@@ -18,6 +18,7 @@ from vllm.forward_context import ForwardContext, override_forward_context
 from vllm_ascend.ascend_forward_context import _EXTRA_CTX
 
 from afd_plugin.connectors.npu.hccl_graph_cache import HcclGraphCache
+from afd_plugin.connectors.npu.hccl_graph_pipeline import HcclGraphPipelinePolicy
 from afd_plugin.distributed.hccl import HcclStageLayout
 from afd_plugin.distributed.hccl_graph import HcclGraphReport, decide_graph_execution
 from afd_plugin.distributed.hccl_plan import HcclParentPlan, HcclPlanMessage
@@ -124,6 +125,7 @@ class ServiceGraphBanks:
             endpoint_factory=endpoint,
         )
         bank = SimpleNamespace(
+            layer_indices=caps.layer_indices,
             device=device,
             key=key,
             capabilities=caps,
@@ -146,16 +148,31 @@ class ServiceGraphBodies:
     def __init__(self, api):
         self.api, self.resources = api, []
 
-    def __call__(self, model, contexts, bank, parallel, *, pipeline=None):
-        body = ServiceGraphBody(self.api, model, contexts, bank, pipeline=pipeline)
+    def __call__(
+        self, model, contexts, bank, parallel, *, pipeline=None, diagnostics=None
+    ):
+        body = ServiceGraphBody(
+            self.api,
+            model,
+            contexts,
+            bank,
+            pipeline=pipeline,
+            diagnostics=diagnostics,
+        )
         self.resources.append(weakref.ref(body))
         return body
 
 
 class ServiceGraphBody:
-    def __init__(self, api, model, contexts, bank, *, pipeline=None):
+    def __init__(self, api, model, contexts, bank, *, pipeline=None, diagnostics=None):
         self.api, self.model, self.contexts, self.bank = api, model, contexts, bank
         self.pipeline = pipeline
+        if diagnostics is not None:
+            diagnostics.bind_execution(
+                layer_indices=bank.layer_indices,
+                actual_compute_stream="compute" if pipeline is not None else "parent",
+                is_warmup=diagnostics.selection.phase == "graph_warmup",
+            )
 
     def run(self):
         self.api.events.append("tensor-body")
@@ -181,17 +198,23 @@ class ServiceGraphPipeline:
     """Resource identity only; no stream, event or device work is simulated."""
 
     bank: SimpleNamespace
-    hybrid: bool
+    policy: HcclGraphPipelinePolicy
+
+    @property
+    def hybrid(self):
+        return self.policy.hybrid
 
 
 class ServiceGraphPipelines:
     def __init__(self, api):
         self.api = api
 
-    def allocate(self, bank, *, hybrid):
+    def allocate(self, bank, *, policy=None, selection=None):
         if self.api.capturing:
             raise RuntimeError("pipeline allocation entered graph capture")
-        return ServiceGraphPipeline(bank, hybrid)
+        if selection is not None:
+            policy = HcclGraphPipelinePolicy.from_selection(selection)
+        return ServiceGraphPipeline(bank, policy)
 
 
 class FFNGraphControlPeer(ScriptedStagedControlPeer):
@@ -315,17 +338,26 @@ class FFNGraphControlPeer(ScriptedStagedControlPeer):
         super()._send_control(rank, message)
 
 
-def make_graph_service_case(service_module, monkeypatch, *, pipeline_policy=None):
+def make_graph_service_case(
+    service_module,
+    monkeypatch,
+    *,
+    pipeline_policy=None,
+    overlap_settings=None,
+    rows=(2, 2),
+    diagnostic_sink=None,
+):
     events = []
-    model_case = make_ffn_graph_case(rows=(2, 2), valid=(2, 2))
+    model_case = make_ffn_graph_case(rows=rows, valid=rows)
     transport = FFNGraphControlPeer(model_case.bank, events)
     config = hccl_vllm_config(
         dtype=torch.bfloat16,
         compilation_mode=CompilationMode.NONE,
-        cudagraph_mode=CUDAGraphMode.NONE,
+        cudagraph_mode=CUDAGraphMode.FULL_DECODE_ONLY,
         role="ffn",
     )
     config.parallel_config.rank = 0
+    config.model_config.enforce_eager = False
     config.model_config.hf_text_config.hidden_size = 4
     config.model_config.hf_text_config.vocab_size = 128
     runner = object.__new__(AFDNPUFFNModelRunner)
@@ -335,12 +367,14 @@ def make_graph_service_case(service_module, monkeypatch, *, pipeline_policy=None
     runner.connector = SimpleNamespace(is_initialized=False)
     runner.graph_pool = None
     runner.hccl_v41_graph_service = None
+    runner.hccl_v41_eager_session = None
+    runner.prof = None
     api, banks = GraphServiceAPI(events), ServiceGraphBanks()
     cache = HcclGraphCache(api.synchronize)
     bodies = ServiceGraphBodies(api)
     monkeypatch.setattr(service_module, "HcclGraphStageBank", banks)
     monkeypatch.setattr(service_module, "HcclV41FFNGraph", bodies)
-    if pipeline_policy is not None:
+    if pipeline_policy is not None or overlap_settings is not None:
         monkeypatch.setattr(
             service_module, "HcclGraphComputePipeline", ServiceGraphPipelines(api)
         )
@@ -353,6 +387,8 @@ def make_graph_service_case(service_module, monkeypatch, *, pipeline_policy=None
         cache,
         lambda: generation.value,
         pipeline_policy=pipeline_policy,
+        overlap_settings=overlap_settings,
+        diagnostic_sink=diagnostic_sink,
         graph_factory=api.create,
         graph_capture=api.capture,
     )

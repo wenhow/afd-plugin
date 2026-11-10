@@ -1,0 +1,58 @@
+{
+  "scope": "local static and CLI checks after late-query/source-reuse review correction; no device job",
+  "python": "3.14.3 (tags/v3.14.3:323c59a, Feb  3 2026, 16:04:56) [MSC v.1944 64 bit (AMD64)]",
+  "python_3_11_ast": true,
+  "source_hashes": {
+    "tests/npu/hccl_eager_backend_probe.py": "86ddf59910776a8b50b3dc76b5e56484f4d207e9eff9e8a2d375f271fdf91b34",
+    "openspec/changes/afd-hccl-v2-multistream/evidence/run_a3_eager_backend.py": "4a3df039d861b3d6106bdf6fed8e716277972966661ace5b29703bbab9de420a",
+    "openspec/changes/afd-hccl-v2-multistream/evidence/collect_eager_endpoint_source.py": "7621e53c0b205410acd14a3e42f2d01f2c95b4e291f9c21231833f4ac399e673"
+  },
+  "checks": [
+    {
+      "command": [
+        ".venv/Scripts/ruff.exe",
+        "check",
+        "tests/npu/hccl_eager_backend_probe.py",
+        "openspec/changes/afd-hccl-v2-multistream/evidence/run_a3_eager_backend.py",
+        "openspec/changes/afd-hccl-v2-multistream/evidence/collect_eager_endpoint_source.py"
+      ],
+      "returncode": 0,
+      "stdout": "All checks passed!\n",
+      "stderr": ""
+    },
+    {
+      "command": [
+        ".venv/Scripts/ruff.exe",
+        "format",
+        "--check",
+        "tests/npu/hccl_eager_backend_probe.py",
+        "openspec/changes/afd-hccl-v2-multistream/evidence/run_a3_eager_backend.py",
+        "openspec/changes/afd-hccl-v2-multistream/evidence/collect_eager_endpoint_source.py"
+      ],
+      "returncode": 0,
+      "stdout": "3 files already formatted\n",
+      "stderr": ""
+    },
+    {
+      "command": [
+        "D:\\openSource\\afd-plugin-dsv41-flash-v030\\.venv\\Scripts\\python.exe",
+        "tests/npu/hccl_eager_backend_probe.py",
+        "--help"
+      ],
+      "returncode": 0,
+      "stdout": "usage: hccl_eager_backend_probe.py [-h] --operation {isend,irecv}\n                                   [--devices DEVICES] [--model MODEL]\n                                   --output-dir OUTPUT_DIR\n                                   [--gate-window GATE_WINDOW]\n                                   [--timeout TIMEOUT]\n\nOpt-in host-posting/Work dependency gate on the existing HCCL data group. The\nsupervisor withholds the matcher's CPU permission to enter its data op.\nPosting return, Work.wait return, pending consumer event and exact payload are\nseparate observations. This is an endpoint capability gate, without a parent\nplan, model weights, eager tickets, HCCL abort or device recovery acceptance.\n\noptions:\n  -h, --help            show this help message and exit\n  --operation {isend,irecv}\n  --devices DEVICES     FFN then Attention\n  --model MODEL         config only\n  --output-dir OUTPUT_DIR\n  --gate-window GATE_WINDOW\n  --timeout TIMEOUT\n",
+      "stderr": ""
+    },
+    {
+      "command": [
+        "D:\\openSource\\afd-plugin-dsv41-flash-v030\\.venv\\Scripts\\python.exe",
+        "openspec/changes/afd-hccl-v2-multistream/evidence/run_a3_eager_backend.py",
+        "--help"
+      ],
+      "returncode": 0,
+      "stdout": "usage: run_a3_eager_backend.py [-h] --operation {isend,irecv} [--label LABEL]\n                               [--model MODEL] [--gate-window {1,2,3,4,5}]\n                               [--prepare-only]\n\nImmutable opt-in A3 eager endpoint gate; existing environment, no packages.\n\noptions:\n  -h, --help            show this help message and exit\n  --operation {isend,irecv}\n  --label LABEL\n  --model MODEL\n  --gate-window {1,2,3,4,5}\n  --prepare-only        no SSH or devices\n",
+      "stderr": ""
+    }
+  ],
+  "all_passed": true
+}

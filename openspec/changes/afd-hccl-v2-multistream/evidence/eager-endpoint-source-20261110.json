@@ -1,0 +1,280 @@
+{
+  "scope": "installed source declarations only; no torch import or NPU job",
+  "collected_at_utc": "2026-11-09T23:19:48.458656+00:00",
+  "versions": {
+    "torch": "2.10.0",
+    "torch-npu": "2.10.0.post4"
+  },
+  "torch_imported": false,
+  "torch_npu_imported": false,
+  "sources": {
+    "torch/distributed/distributed_c10d.py": {
+      "exists": true,
+      "absolute_path": "/mnt/workspace/code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/torch/distributed/distributed_c10d.py",
+      "sha256": "31155344233ae77360a630bbeacf1b43cfa18f1923cf2103cd5b3142db39ec5c",
+      "declarations": [
+        {
+          "name": "isend",
+          "line_start": 2449,
+          "line_end": 2491,
+          "source": "def isend(\n    tensor: torch.Tensor,\n    dst: int | None = None,\n    group: ProcessGroup | None = None,\n    tag: int = 0,\n    group_dst: int | None = None,\n) -> Work | None:\n    \"\"\"\n    Send a tensor asynchronously.\n\n    .. warning::\n        Modifying ``tensor`` before the request completes causes undefined\n        behavior.\n\n    .. warning::\n        ``tag`` is not supported with the NCCL backend.\n\n    Unlike send, which is blocking, isend allows src == dst rank, i.e. send to self.\n\n    Args:\n        tensor (Tensor): Tensor to send.\n        dst (int): Destination rank on global process group (regardless of ``group`` argument)\n        group (ProcessGroup, optional): The process group to work on. If None,\n            the default process group will be used.\n        tag (int, optional): Tag to match send with remote recv\n        group_dst (int, optional): Destination rank on ``group``.  Invalid to specify both ``dst`` and ``group_dst``\n\n    Returns:\n        A distributed request object.\n        None, if not part of the group\n\n    \"\"\"\n    group = _group_or_default_group(group)\n    group_dst = _canonicalize_group_rank(group, dst, group_dst)\n    _check_single_tensor(tensor, \"tensor\")\n    if _rank_not_in_group(group):\n        _warn_not_in_group(\"isend\")\n        return None\n\n    if tensor.is_complex():\n        tensor = torch.view_as_real(tensor)\n\n    return group.send([tensor], group_dst, tag)"
+        },
+        {
+          "name": "irecv",
+          "line_start": 2494,
+          "line_end": 2536,
+          "source": "def irecv(\n    tensor: torch.Tensor,\n    src: int | None = None,\n    group: ProcessGroup | None = None,\n    tag: int = 0,\n    group_src: int | None = None,\n) -> Work | None:\n    \"\"\"\n    Receives a tensor asynchronously.\n\n    .. warning::\n        ``tag`` is not supported with the NCCL backend.\n\n    Unlike recv, which is blocking, irecv allows src == dst rank, i.e. recv from self.\n\n    Args:\n        tensor (Tensor): Tensor to fill with received data.\n        src (int, optional): Source rank on global process group (regardless of ``group`` argument).\n            Will receive from any process if unspecified.\n        group (ProcessGroup, optional): The process group to work on. If None,\n            the default process group will be used.\n        tag (int, optional): Tag to match recv with remote send\n        group_src (int, optional): Destination rank on ``group``.  Invalid to specify both ``src`` and ``group_src``.\n\n    Returns:\n        A distributed request object.\n        None, if not part of the group\n\n    \"\"\"\n    _check_single_tensor(tensor, \"tensor\")\n    if _rank_not_in_group(group):\n        _warn_not_in_group(\"irecv\")\n        return None\n\n    if tensor.is_complex():\n        tensor = torch.view_as_real(tensor)\n\n    group = _group_or_default_group(group)\n    if src is None and group_src is None:\n        return group.recv_anysource([tensor], tag)\n    else:\n        group_src = _canonicalize_group_rank(group, src, group_src)\n        return group.recv([tensor], group_src, tag)"
+        },
+        {
+          "name": "send",
+          "line_start": 2539,
+          "line_end": 2568,
+          "source": "@_exception_logger\ndef send(\n    tensor: torch.Tensor,\n    dst: int | None = None,\n    group: ProcessGroup | None = None,\n    tag: int = 0,\n    group_dst: int | None = None,\n) -> None:\n    \"\"\"\n    Send a tensor synchronously.\n\n    .. warning::\n        ``tag`` is not supported with the NCCL backend.\n\n    Args:\n        tensor (Tensor): Tensor to send.\n        dst (int): Destination rank on global process group (regardless of ``group`` argument).\n            Destination rank should not be the same as the rank of the current process.\n        group (ProcessGroup, optional): The process group to work on. If None,\n            the default process group will be used.\n        tag (int, optional): Tag to match send with remote recv\n        group_dst (int, optional): Destination rank on ``group``.  Invalid to specify both ``dst`` and ``group_dst``.\n\n    \"\"\"\n    group = _group_or_default_group(group)\n    group_dst = _canonicalize_group_rank(group, dst, group_dst)\n    _check_not_self_rank(group, group_dst, \"destination\")\n    work = isend(tensor, group=group, tag=tag, group_dst=group_dst)\n    if work is not None:\n        work.wait()"
+        },
+        {
+          "name": "recv",
+          "line_start": 2571,
+          "line_end": 2608,
+          "source": "@_exception_logger\ndef recv(\n    tensor: torch.Tensor,\n    src: int | None = None,\n    group: ProcessGroup | None = None,\n    tag: int = 0,\n    group_src: int | None = None,\n) -> int:\n    \"\"\"\n    Receives a tensor synchronously.\n\n    .. warning::\n        ``tag`` is not supported with the NCCL backend.\n\n    Args:\n        tensor (Tensor): Tensor to fill with received data.\n        src (int, optional): Source rank on global process group (regardless of ``group`` argument).\n            Will receive from any process if unspecified.\n        group (ProcessGroup, optional): The process group to work on. If None,\n            the default process group will be used.\n        tag (int, optional): Tag to match recv with remote send\n        group_src (int, optional): Destination rank on ``group``.  Invalid to specify both ``src`` and ``group_src``.\n    Returns:\n        Sender rank\n        -1, if not part of the group\n\n    \"\"\"\n    work = irecv(tensor, src=src, group=group, tag=tag, group_src=group_src)\n    if work is None:\n        return -1\n    work.wait()\n    if src is None:\n        if group_src is None:\n            group_src = work._source_rank()\n        group = _group_or_default_group(group)\n        _check_not_self_rank(group, group_src, \"source\")\n        src = get_global_rank(group, group_src)\n    return src"
+        }
+      ],
+      "p2p_reference_lines": [
+        {
+          "line": 72,
+          "text": "    \"batch_isend_irecv\","
+        },
+        {
+          "line": 88,
+          "text": "    \"irecv\","
+        },
+        {
+          "line": 97,
+          "text": "    \"isend\","
+        },
+        {
+          "line": 488,
+          "text": "    A class to build point-to-point operations for ``batch_isend_irecv``."
+        },
+        {
+          "line": 492,
+          "text": "    ``batch_isend_irecv`` for point-to-point communications."
+        },
+        {
+          "line": 496,
+          "text": "            The type of ``op`` is either ``torch.distributed.isend`` or"
+        },
+        {
+          "line": 497,
+          "text": "            ``torch.distributed.irecv``."
+        },
+        {
+          "line": 1220,
+          "text": "    \"\"\"Check that the ``op`` is either isend or irecv.\"\"\""
+        },
+        {
+          "line": 1221,
+          "text": "    if op not in [isend, irecv]:"
+        },
+        {
+          "line": 1224,
+          "text": "            \"to be of type ``torch.distributed.isend`` or \""
+        },
+        {
+          "line": 1225,
+          "text": "            \"``torch.distributed.irecv``.\""
+        },
+        {
+          "line": 2449,
+          "text": "def isend("
+        },
+        {
+          "line": 2466,
+          "text": "    Unlike send, which is blocking, isend allows src == dst rank, i.e. send to self."
+        },
+        {
+          "line": 2485,
+          "text": "        _warn_not_in_group(\"isend\")"
+        },
+        {
+          "line": 2491,
+          "text": "    return group.send([tensor], group_dst, tag)"
+        },
+        {
+          "line": 2494,
+          "text": "def irecv("
+        },
+        {
+          "line": 2507,
+          "text": "    Unlike recv, which is blocking, irecv allows src == dst rank, i.e. recv from self."
+        },
+        {
+          "line": 2525,
+          "text": "        _warn_not_in_group(\"irecv\")"
+        },
+        {
+          "line": 2533,
+          "text": "        return group.recv_anysource([tensor], tag)"
+        },
+        {
+          "line": 2536,
+          "text": "        return group.recv([tensor], group_src, tag)"
+        },
+        {
+          "line": 2566,
+          "text": "    work = isend(tensor, group=group, tag=tag, group_dst=group_dst)"
+        },
+        {
+          "line": 2598,
+          "text": "    work = irecv(tensor, src=src, group=group, tag=tag, group_src=group_src)"
+        },
+        {
+          "line": 2786,
+          "text": "def batch_isend_irecv(p2p_op_list: list[P2POp]) -> list[Work]:"
+        },
+        {
+          "line": 2795,
+          "text": "            ``torch.distributed.P2POp``). The order of the isend/irecv in the list"
+        },
+        {
+          "line": 2796,
+          "text": "            matters and it needs to match with corresponding isend/irecv on the"
+        },
+        {
+          "line": 2807,
+          "text": "        >>> send_op = dist.P2POp(dist.isend, send_tensor, (rank + 1) % world_size)"
+        },
+        {
+          "line": 2809,
+          "text": "        ...     dist.irecv, recv_tensor, (rank - 1 + world_size) % world_size"
+        },
+        {
+          "line": 2811,
+          "text": "        >>> reqs = batch_isend_irecv([send_op, recv_op])"
+        },
+        {
+          "line": 2835,
+          "text": "        key = \"group_dst\" if op.op is isend else \"group_src\""
+        },
+        {
+          "line": 3432,
+          "text": "            uses existing entire group communicators. See batch_isend_irecv for usage and"
+        },
+        {
+          "line": 3468,
+          "text": "        >>>     dist.send_object_list(objects, dst=1, device=device)"
+        },
+        {
+          "line": 3471,
+          "text": "        >>>     dist.recv_object_list(objects, src=0, device=device)"
+        },
+        {
+          "line": 3498,
+          "text": "        batch_isend_irecv("
+        },
+        {
+          "line": 3499,
+          "text": "            [P2POp(isend, object_sizes_tensor, group_peer=group_dst, group=group)]"
+        },
+        {
+          "line": 3513,
+          "text": "        batch_isend_irecv("
+        },
+        {
+          "line": 3514,
+          "text": "            [P2POp(isend, object_tensor, group_peer=group_dst, group=group)]"
+        },
+        {
+          "line": 3547,
+          "text": "            uses existing entire group communicators. See batch_isend_irecv for usage and"
+        },
+        {
+          "line": 3585,
+          "text": "        >>>     dist.send_object_list(objects, dst=1, device=device)"
+        },
+        {
+          "line": 3588,
+          "text": "        >>>     dist.recv_object_list(objects, src=0, device=device)"
+        },
+        {
+          "line": 3613,
+          "text": "        work = batch_isend_irecv("
+        },
+        {
+          "line": 3616,
+          "text": "                    irecv,"
+        },
+        {
+          "line": 3636,
+          "text": "        work = batch_isend_irecv("
+        },
+        {
+          "line": 3639,
+          "text": "                    irecv,"
+        }
+      ]
+    },
+    "torch/_C/_distributed_c10d.pyi": {
+      "exists": true,
+      "absolute_path": "/mnt/workspace/code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/torch/_C/_distributed_c10d.pyi",
+      "sha256": "b3f981c9c6979517d3f98cadfeca1339438003c90360ff3ba72f6ed63fe97101",
+      "declarations": [
+        {
+          "name": "Work",
+          "line_start": 294,
+          "line_end": 307,
+          "source": "class Work:\n    def is_completed(self) -> bool: ...\n    def is_success(self) -> bool: ...\n    def exception(self) -> Any: ...\n    def wait(self, timeout: timedelta = ...) -> bool: ...\n    def block_current_stream(self) -> None: ...\n    def get_future(self) -> Future: ...\n    def source_rank(self) -> int: ...\n    def _source_rank(self) -> int: ...\n    def result(self) -> list[Tensor]: ...\n    def synchronize(self) -> None: ...\n    def boxed(self) -> ScriptObject: ...\n    @staticmethod\n    def unbox(obj: ScriptObject) -> Work: ..."
+        },
+        {
+          "name": "send",
+          "line_start": 566,
+          "line_end": 571,
+          "source": "    def send(\n        self,\n        tensors: list[Tensor],\n        dstRank: int,\n        tag: int,\n    ) -> Work: ..."
+        },
+        {
+          "name": "recv",
+          "line_start": 572,
+          "line_end": 577,
+          "source": "    def recv(\n        self,\n        tensors: list[Tensor],\n        srcRank: int,\n        tag: int,\n    ) -> Work: ..."
+        }
+      ],
+      "p2p_reference_lines": []
+    },
+    "torch_npu/distributed/distributed_c10d.py": {
+      "exists": true,
+      "absolute_path": "/mnt/workspace/code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/torch_npu/distributed/distributed_c10d.py",
+      "sha256": "6afceb0425ee4229e1bdab21dd1c3965f7e4a599c8f495a42cba70fad997fec7",
+      "declarations": [],
+      "p2p_reference_lines": [
+        {
+          "line": 57,
+          "text": "    isend,"
+        },
+        {
+          "line": 86,
+          "text": "def _batch_isend_irecv(p2p_op_list):"
+        },
+        {
+          "line": 92,
+          "text": "        key = \"group_dst\" if op.op is isend else \"group_src\""
+        },
+        {
+          "line": 130,
+          "text": "            # batch_isend_irecv"
+        },
+        {
+          "line": 147,
+          "text": "            return [_group.batch_isend_irecv(op_type, tensors, remote_rank_list)]"
+        }
+      ]
+    },
+    "torch_npu/distributed/__init__.py": {
+      "exists": true,
+      "absolute_path": "/mnt/workspace/code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/torch_npu/distributed/__init__.py",
+      "sha256": "19b6221f90249b150390b64724454d69dff995ff4c98dc3f4dcd552d8d489f89",
+      "declarations": [],
+      "p2p_reference_lines": []
+    }
+  },
+  "collection_command": "LD_LIBRARY_PATH=/opt/buildtools/python-3.12.9/lib:${LD_LIBRARY_PATH} /mnt/workspace/code/.venvs/afd-v030-dsv41-c0/bin/python -B - --remote-read",
+  "collector_sha256": "7621e53c0b205410acd14a3e42f2d01f2c95b4e291f9c21231833f4ac399e673"
+}

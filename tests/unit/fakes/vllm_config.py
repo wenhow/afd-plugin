@@ -122,6 +122,8 @@ def hccl_vllm_config(
     role="attention",
     extra_config=None,
     tensor_parallel_size=1,
+    dspark=False,
+    num_ubatches=1,
 ):
     """CPU tensors and an exact first-path HCCL configuration, without a model."""
     config = npu_vllm_config(
@@ -135,6 +137,10 @@ def hccl_vllm_config(
         tensor_parallel_size=tensor_parallel_size,
         num_attention_ranks=tensor_parallel_size,
         num_ffn_ranks=tensor_parallel_size,
+        enable_dbo=num_ubatches == 2,
+        use_ubatching=num_ubatches > 1,
+        num_ubatches=num_ubatches,
+        ubatch_size=num_ubatches if num_ubatches > 1 else 0,
     )
     config.model_config.dtype = dtype
     config.model_config.is_multimodal_model = False
@@ -149,6 +155,13 @@ def hccl_vllm_config(
     config.compilation_config.pass_config = SimpleNamespace(enable_sp=False)
     config.kv_transfer_config = None
     config.lora_config = None
+    if dspark:
+        native = v41_dspark_config(role=role, tensor_parallel_size=tensor_parallel_size)
+        config.speculative_config = native.speculative_config
+        config.model_config.model = native.model_config.model
+        vars(config.model_config.hf_text_config).update(
+            vars(native.model_config.hf_text_config)
+        )
     return config
 
 
@@ -159,6 +172,7 @@ class DSparkSpeculativeConfig:
     draft_parallel_config: SimpleNamespace
     num_speculative_tokens: int = 5
     rejection_sample_method: str = "standard"
+    enable_adaptive_verification: bool = False
 
     def use_dspark(self):
         return self.method == "dspark"

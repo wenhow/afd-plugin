@@ -1,0 +1,251 @@
+{
+  "scope": "Read-only original Git objects and current plugin source audit; no torch import or device execution",
+  "installed_source_origin": "eager-endpoint-source-20261110.json",
+  "sources": {
+    "current_transport": {
+      "path": "afd_plugin/connectors/npu/hccl_staged_transport.py",
+      "git_repository": null,
+      "git_commit": null,
+      "sha256": "9ae40a90dab184fc4f1d17f934520318c2bd50eea75b5d082ed284e9a4e79128",
+      "all_declared_function_names": [
+        "__init__",
+        "is_coordinator",
+        "graph_reservation",
+        "_other_ranks",
+        "initialize",
+        "_create_group",
+        "_hello",
+        "_require_active",
+        "_validate_plan",
+        "_validate_local_forward",
+        "_require_graph_idle",
+        "_validate_graph_candidate",
+        "_validate_graph_decision",
+        "reserve_attention_forward",
+        "receive_graph_reservation",
+        "_receive_graph_reservation",
+        "_collect_graph_acks",
+        "submit_forward",
+        "_report_rejection",
+        "_acknowledge_stop",
+        "_activate_plan",
+        "begin_forward",
+        "receive_forward",
+        "_collect_replies",
+        "_validate_reply",
+        "_require_step",
+        "_check_tensor",
+        "_check_ids",
+        "send_layer_inputs",
+        "receive_layer_output",
+        "receive_layer",
+        "send_layer_output",
+        "_advance",
+        "finish_forward",
+        "complete_graph_forward",
+        "stop_attention",
+        "stop",
+        "_send_control",
+        "_recv_control",
+        "_broadcast_control",
+        "_expect",
+        "_error_message",
+        "_reject_peers",
+        "_clear_plan",
+        "close"
+      ],
+      "selected_declarations": [
+        {
+          "name": "initialize",
+          "line_start": 121,
+          "line_end": 140,
+          "source": "    def initialize(self) -> None:\n        if self.initialized or self.closed:\n            raise RuntimeError(\"transport cannot be initialized again\")\n        # Worker isolation: register the NPU backend in runtime processes only.\n        import torch_npu  # noqa: F401\n\n        torch.npu.set_device(self.local_device)\n        try:\n            self.control_group = self._create_group(\"gloo\", \"afd_hccl_v3_control\")\n            self._hello()\n            for stage_idx in range(self.negotiated_capabilities.max_stages):\n                self.data_groups.append(\n                    self._create_group(\"hccl\", f\"afd_hccl_v3_stage_{stage_idx}\")\n                )\n            self.initialized = True\n        except BaseException:\n            self.terminal = True\n            with suppress(Exception):  # Preserve the initialization exception.\n                self.close()\n            raise"
+        },
+        {
+          "name": "send_layer_inputs",
+          "line_start": 853,
+          "line_end": 906,
+          "source": "    def send_layer_inputs(\n        self,\n        layer_idx: int,\n        stage_idx: int,\n        hidden_states: torch.Tensor,\n        hidden_states_fp32: torch.Tensor,\n        input_ids: torch.Tensor,\n    ) -> None:\n        self._require_active(\"attention\")\n        peers = self._require_step(layer_idx, stage_idx)\n        if self._pending_inputs is not None:\n            raise RuntimeError(\n                \"receive the previous stage output before sending inputs\"\n            )\n        assert self.plan is not None\n        stage = self.plan.stages[stage_idx]\n        native_rows = stage.attention_padded_tokens[self.role_rank]\n        hidden_size = self.negotiated_capabilities.hidden_size\n        self._check_tensor(hidden_states, (native_rows, hidden_size), torch.bfloat16)\n        self._check_tensor(\n            hidden_states_fp32, (native_rows, hidden_size), torch.float32\n        )\n        self._check_tensor(input_ids, (native_rows,), torch.int32)\n        self._check_ids(input_ids, stage.attention_valid_tokens[self.role_rank])\n        rows = sum(peer.padded_tokens for peer in peers)\n        device = torch.device(\"npu\", self.local_device)\n        wire = HcclLayerInputs(\n            torch.zeros((rows, hidden_size), dtype=torch.bfloat16, device=device),\n            torch.zeros((rows, hidden_size), dtype=torch.float32, device=device),\n            torch.zeros(rows, dtype=torch.int32, device=device),\n        )\n        try:\n            wire.hidden_states[:native_rows].copy_(hidden_states)\n            wire.hidden_states_fp32[:native_rows].copy_(hidden_states_fp32)\n            wire.input_ids[:native_rows].copy_(input_ids)\n            self._pending_inputs = wire\n            for peer in peers:\n                start, stop = (\n                    peer.attention_offset,\n                    peer.attention_offset + peer.padded_tokens,\n                )\n                for tensor in (\n                    wire.hidden_states,\n                    wire.hidden_states_fp32,\n                    wire.input_ids,\n                ):\n                    dist.send(\n                        tensor[start:stop],\n                        group_dst=peer.ffn_world_rank,\n                        group=self.data_groups[stage_idx],\n                    )\n        except BaseException:\n            self.terminal = True\n            raise"
+        },
+        {
+          "name": "receive_layer_output",
+          "line_start": 908,
+          "line_end": 938,
+          "source": "    def receive_layer_output(self, layer_idx: int, stage_idx: int) -> torch.Tensor:\n        self._require_active(\"attention\")\n        peers = self._require_step(layer_idx, stage_idx)\n        if self._pending_inputs is None:\n            raise RuntimeError(\"send inputs before receiving a stage output\")\n        rows = sum(peer.padded_tokens for peer in peers)\n        try:\n            output = torch.empty(\n                (rows, self.negotiated_capabilities.hidden_size),\n                dtype=torch.bfloat16,\n                device=torch.device(\"npu\", self.local_device),\n            )\n            for peer in peers:\n                start, stop = (\n                    peer.attention_offset,\n                    peer.attention_offset + peer.padded_tokens,\n                )\n                dist.recv(\n                    output[start:stop],\n                    group_src=peer.ffn_world_rank,\n                    group=self.data_groups[stage_idx],\n                )\n            assert self.plan is not None\n            native_rows = self.plan.stages[stage_idx].attention_padded_tokens[\n                self.role_rank\n            ]\n            self._advance()\n            return output[:native_rows]\n        except BaseException:\n            self.terminal = True\n            raise"
+        },
+        {
+          "name": "receive_layer",
+          "line_start": 940,
+          "line_end": 971,
+          "source": "    def receive_layer(self, layer_idx: int, stage_idx: int) -> HcclLayerInputs:\n        self._require_active(\"ffn\")\n        peers = self._require_step(layer_idx, stage_idx)\n        if self._pending_inputs is not None:\n            raise RuntimeError(\"send the previous stage output before receiving inputs\")\n        rows = sum(peer.padded_tokens for peer in peers)\n        device = torch.device(\"npu\", self.local_device)\n        shape = (rows, self.negotiated_capabilities.hidden_size)\n        inputs = HcclLayerInputs(\n            torch.empty(shape, dtype=torch.bfloat16, device=device),\n            torch.empty(shape, dtype=torch.float32, device=device),\n            torch.empty(rows, dtype=torch.int32, device=device),\n        )\n        try:\n            for peer in peers:\n                start, stop = peer.ffn_offset, peer.ffn_offset + peer.padded_tokens\n                for tensor in (\n                    inputs.hidden_states,\n                    inputs.hidden_states_fp32,\n                    inputs.input_ids,\n                ):\n                    dist.recv(\n                        tensor[start:stop],\n                        group_src=peer.attention_world_rank,\n                        group=self.data_groups[stage_idx],\n                    )\n                self._check_ids(inputs.input_ids[start:stop], peer.valid_tokens)\n            self._pending_inputs = inputs\n            return inputs\n        except BaseException:\n            self.terminal = True\n            raise"
+        },
+        {
+          "name": "send_layer_output",
+          "line_start": 973,
+          "line_end": 995,
+          "source": "    def send_layer_output(\n        self, layer_idx: int, stage_idx: int, output: torch.Tensor\n    ) -> None:\n        self._require_active(\"ffn\")\n        peers = self._require_step(layer_idx, stage_idx)\n        if self._pending_inputs is None:\n            raise RuntimeError(\"receive all aggregate inputs before sending outputs\")\n        rows = sum(peer.padded_tokens for peer in peers)\n        self._check_tensor(\n            output, (rows, self.negotiated_capabilities.hidden_size), torch.bfloat16\n        )\n        try:\n            for peer in peers:\n                start, stop = peer.ffn_offset, peer.ffn_offset + peer.padded_tokens\n                dist.send(\n                    output[start:stop],\n                    group_dst=peer.attention_world_rank,\n                    group=self.data_groups[stage_idx],\n                )\n            self._advance()\n        except BaseException:\n            self.terminal = True\n            raise"
+        }
+      ]
+    },
+    "current_group_factory": {
+      "path": "afd_plugin/distributed/afd_process_group.py",
+      "git_repository": null,
+      "git_commit": null,
+      "sha256": "eab623c56c995f4cd4f00ba89c14e8448d83dbf32b08565eda7fe0973e97c1c5",
+      "all_declared_function_names": [
+        "create_hccl_process_group_options",
+        "init_afd_process_group",
+        "__init__",
+        "__enter__",
+        "__exit__"
+      ],
+      "selected_declarations": [
+        {
+          "name": "init_afd_process_group",
+          "line_start": 62,
+          "line_end": 120,
+          "source": "def init_afd_process_group(\n    *,\n    backend: str,\n    init_method: str,\n    world_size: int,\n    rank: int,\n    group_name: str,\n    timeout: timedelta,\n    pg_options: Any | None = None,\n    store_callback: Callable[[Store], None] | None = None,\n) -> ProcessGroup:\n    \"\"\"Create a plugin-owned process group without patching vLLM source.\n\n    The helper keeps process-group setup isolated in the plugin. It relies on\n    PyTorch/vLLM private APIs and fails fast if the target runtime stack is\n    unavailable.\n    \"\"\"\n\n    rendezvous_iterator = rendezvous(\n        init_method,\n        rank,\n        world_size,\n        timeout=timeout,\n    )\n    store, rank, world_size = next(rendezvous_iterator)\n    store.set_timeout(timeout)\n    prefixed_store = PrefixStore(group_name, store)\n    if store_callback is not None:\n        store_callback(prefixed_store)\n    backend_value = Backend(backend) if backend else Backend(\"undefined\")\n    pg_options_param_name = (\n        \"backend_options\" if is_torch_equal_or_newer(\"2.6.0\") else \"pg_options\"\n    )\n\n    process_group, _ = _new_process_group_helper(\n        world_size,\n        rank,\n        [],\n        backend_value,\n        prefixed_store,\n        group_name=group_name,\n        **{pg_options_param_name: pg_options},\n        timeout=timeout,\n    )\n\n    group_ranks = {i: i for i in range(world_size)}\n    _world.pg_group_ranks[process_group] = group_ranks\n\n    try:\n        world = parallel_state.get_world_group()\n        world.pg_group_ranks[process_group] = group_ranks\n    except Exception:\n        if torch.distributed.is_initialized():\n            default_group = torch.distributed.distributed_c10d._get_default_group()\n            pg_group_ranks = getattr(default_group, \"pg_group_ranks\", None)\n            if pg_group_ranks is not None:\n                pg_group_ranks[process_group] = group_ranks\n\n    return process_group"
+        }
+      ]
+    },
+    "locked_donor": {
+      "path": "afd_plugin/connectors/npu/p2p_hccl.py",
+      "git_repository": "D:/openSource/afd-plugin/afd-plugin-phase1-delivery",
+      "git_commit": "4ddd69a391dfb5b3e362c7601399e538a31de702",
+      "sha256": "594ac53c8c8008ba05da4d12db1c38511e94fdcb8e13340322a0587e940df0ef",
+      "all_declared_function_names": [
+        "_graph_hccl_send",
+        "_graph_hccl_recv",
+        "_ensure_graph_hccl_ops_registered",
+        "_strict_binary_env_enabled",
+        "_graph_u2_compute_overlap_enabled",
+        "_eager_u2_stream_overlap_enabled",
+        "_stage_diagnostics_enabled",
+        "_ffn_compute_sync_diagnostics_enabled",
+        "_graph_u2_hybrid_dag_enabled",
+        "_graph_u2_attention_three_stream_enabled",
+        "_graph_u2_ffn_recv_stream_enabled",
+        "_graph_u2_ffn_cross_layer_enabled",
+        "_balanced_split_sizes",
+        "_project_attention_counts_to_ffn",
+        "_num_tokens_for_attention_rank",
+        "_attention_token_counts",
+        "_make_peer_slices",
+        "resolve",
+        "parse_extra_config",
+        "__init__",
+        "is_initialized",
+        "init_afd_connector",
+        "close",
+        "attention_stream_pipeline_ready",
+        "_attention_stream_pipeline_active",
+        "_layer_major_attention_pipeline_active",
+        "_initialize_attention_stream_pipeline",
+        "attention_graph_compute_pipeline_active",
+        "attention_graph_hybrid_dag_active",
+        "_attention_graph_stream",
+        "_use_attention_graph_stream",
+        "attention_graph_compute",
+        "wait_for_attention_graph_compute",
+        "wait_for_attention_graph_receive",
+        "join_attention_graph_compute",
+        "_attention_graph_events",
+        "send_attn_output",
+        "recv_ffn_output",
+        "_enqueue_attention_send",
+        "_enqueue_attention_receive",
+        "wait_for_attention_stage_receive",
+        "require_attention_pipeline_idle",
+        "reset_attention_pipeline_state",
+        "_attention_events",
+        "recv_attn_output",
+        "send_ffn_output",
+        "recv_attn_output_streamed",
+        "send_ffn_output_streamed",
+        "_attention_peer_slices",
+        "_pad_attention_tensor_for_fanout",
+        "_send_attention_tensor",
+        "_recv_attention_tensor",
+        "send_input_ids",
+        "recv_input_ids",
+        "send_mtp_header",
+        "prepare_mtp_header_for_graph",
+        "_send_prepared_mtp_graph_header",
+        "recv_mtp_header",
+        "recv_mtp_header_for_graph",
+        "prepare_stage_buffer",
+        "_send_tensor",
+        "_recv_tensor",
+        "_graph_transport_active",
+        "_graph_parent_transport_active",
+        "_record_stream",
+        "_hidden_recv_buffer",
+        "_mtp_hidden_recv_buffer",
+        "_peer_token_counts_for_stage",
+        "_stage_layout",
+        "_attention_peer_world_ranks",
+        "_validate_receive_capacity",
+        "_validate_input_ids",
+        "_data_group",
+        "_ids_buffer_and_group",
+        "_mtp_header_buffer_and_group",
+        "_mtp_header_buffer_for_peer",
+        "_validate_mtp_scope",
+        "_validate_mtp_topology",
+        "_mtp_ffn_token_counts",
+        "_validate_mtp_header_values",
+        "_require_initialized",
+        "__init__",
+        "update_state_from_dp_metadata",
+        "reset_pending_payload",
+        "send_dp_metadata_list",
+        "send_mtp_phase_ready",
+        "_send_payload",
+        "recv_dp_metadata_list",
+        "recv_mtp_phase_ready",
+        "_recv_payload"
+      ],
+      "selected_declarations": [
+        {
+          "name": "_send_tensor",
+          "line_start": 1727,
+          "line_end": 1748,
+          "source": "    def _send_tensor(\n        self,\n        tensor: torch.Tensor,\n        *,\n        dst: int,\n        group: ProcessGroup,\n        stream=None,\n    ) -> None:\n        # Dynamo marks the MTP token dimension dynamic. Querying contiguity in\n        # Python specializes that dimension during full draft compilation even\n        # though the model-owned buffers are already contiguous.\n        send_tensor = (\n            tensor\n            if torch.compiler.is_compiling() or tensor.is_contiguous()\n            else tensor.contiguous()\n        )\n        if stream is not None:\n            self._record_stream(send_tensor, stream)\n        if self._graph_transport_active():\n            _graph_hccl_send(send_tensor, dst=dst, group=group)\n            return\n        dist.send(send_tensor, dst=dst, group=group)"
+        },
+        {
+          "name": "_recv_tensor",
+          "line_start": 1750,
+          "line_end": 1763,
+          "source": "    def _recv_tensor(\n        self,\n        tensor: torch.Tensor,\n        *,\n        src: int,\n        group: ProcessGroup,\n        stream=None,\n    ) -> None:\n        if stream is not None:\n            self._record_stream(tensor, stream)\n        if self._graph_transport_active():\n            _graph_hccl_recv(tensor, src=src, group=group)\n            return\n        dist.recv(tensor, src=src, group=group)"
+        }
+      ]
+    },
+    "locked_ascend_communicator": {
+      "path": "vllm_ascend/distributed/device_communicators/pyhccl.py",
+      "git_repository": "D:/openSource/vllm-ascend",
+      "git_commit": "7e37e29a7803d6897a7113088e2b771f83205bc0",
+      "sha256": "e7ed254ad5250e2b9775b87c0e9007d45f5e90f41cb716a33538153d234945b2",
+      "all_declared_function_names": [
+        "__init__",
+        "close",
+        "all_reduce",
+        "broadcast"
+      ],
+      "selected_declarations": [
+        {
+          "name": "all_reduce",
+          "line_start": 140,
+          "line_end": 165,
+          "source": "    def all_reduce(self, in_tensor: torch.Tensor, op: ReduceOp = ReduceOp.SUM, stream=None) -> torch.Tensor:\n        if self.disabled:\n            return None\n        if not self.available:\n            raise RuntimeError(\"HCCL communicator is closed\")\n        # hccl communicator created on a specific device\n        # will only work on tensors on the same device\n        # otherwise it will cause \"illegal memory access\"\n        assert in_tensor.device == self.device, (\n            f\"this hccl communicator is created to work on {self.device}, but the input tensor is on {in_tensor.device}\"\n        )\n\n        out_tensor = torch.empty_like(in_tensor)\n\n        if stream is None:\n            stream = current_stream()\n        self.hccl.hcclAllReduce(\n            buffer_type(in_tensor.data_ptr()),\n            buffer_type(out_tensor.data_ptr()),\n            in_tensor.numel(),\n            hcclDataTypeEnum.from_torch(in_tensor.dtype),\n            hcclRedOpTypeEnum.from_torch(op),\n            self.comm,\n            aclrtStream_t(stream.npu_stream),\n        )\n        return out_tensor"
+        },
+        {
+          "name": "broadcast",
+          "line_start": 167,
+          "line_end": 185,
+          "source": "    def broadcast(self, tensor: torch.Tensor, src: int, stream=None):\n        if self.disabled:\n            return\n        if not self.available:\n            raise RuntimeError(\"HCCL communicator is closed\")\n        assert tensor.device == self.device, (\n            f\"this hccl communicator is created to work on {self.device}, but the input tensor is on {tensor.device}\"\n        )\n        if stream is None:\n            stream = current_stream()\n        buffer = buffer_type(tensor.data_ptr())\n        self.hccl.hcclBroadcast(\n            buffer,\n            tensor.numel(),\n            hcclDataTypeEnum.from_torch(tensor.dtype),\n            src,\n            self.comm,\n            aclrtStream_t(stream.npu_stream),\n        )"
+        }
+      ]
+    }
+  },
+  "conclusion": "Existing eager P2P uses torchdist on plugin-owned HCCL ProcessGroups. Locked Ascend PyHccl has no P2P methods. Gate must use the existing transport data_groups, not a substitute backend."
+}

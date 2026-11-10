@@ -13,6 +13,7 @@ primary_code_paths:
   - "afd_plugin/v1/worker/npu/attention_model_runner_v2.py"
   - "afd_plugin/v1/worker/npu/hccl_v41_ubatch_runner.py"
   - "afd_plugin/v1/worker/npu/hccl_v41_execution.py"
+  - "afd_plugin/v1/worker/npu/hccl_v41_eager.py"
   - "afd_plugin/v1/worker/npu/hccl_v41_graph.py"
   - "afd_plugin/v1/worker/npu/hccl_v41_graph_control.py"
   - "afd_plugin/v1/worker/npu/hccl_v41_graph_execution.py"
@@ -37,6 +38,7 @@ validation_paths:
   - "tests/unit/v1/worker/test_npu_model_runner_v2.py"
   - "tests/unit/v1/worker/npu/test_hccl_v41_ubatch_runner.py"
   - "tests/unit/v1/worker/npu/test_hccl_v41_execution.py"
+  - "tests/unit/v1/worker/npu/test_hccl_v41_eager.py"
   - "tests/unit/v1/worker/npu/test_hccl_v41_graph.py"
   - "tests/unit/v1/worker/npu/test_hccl_v41_graph_control.py"
   - "tests/unit/v1/worker/npu/test_hccl_v41_graph_execution.py"
@@ -466,6 +468,17 @@ and accuracy E2E paths. Control-plane, graph, DBO, or async-CAM changes require
 the matching platform and connector tests as well.
 
 ## Limitations and open issues
+
+The explicit `HcclV41EagerSession` owns fixed parent/compute/send/receive
+streams for paired native TP1/TP2. Both roles initialize the matched stage
+groups while idle. After native KV/U2 construction, Attention binds that warmed
+session through `bind_hccl_v41_eager_session`; FFN binds before its receiver
+starts. Target U2 uses transport-owned loans and delays each native HC
+continuation until its next stage consumer. U1/profile/warmup retain serial
+execution. The parent Engram producer, final MTP/collapse and native retirement
+remain outside the stage loans. Graph owners use a separate session family.
+CPU seams and the controlled eager ticket probe establish their recorded
+boundaries; ordinary model admission and full-checkpoint acceptance stay gated.
 
 Current shared limits are the supported vLLM release and registered role-aware
 model integrations. Ascend V1 native ubatching accepts exactly two ubatches. V2

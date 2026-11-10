@@ -70,6 +70,7 @@ def make_ffn_graph_case(
     native_tp_size=1,
     role_rank=0,
     pipeline_factory=None,
+    diagnostics=None,
 ):
     events = []
     bank = make_graph_stage_bank(
@@ -124,7 +125,12 @@ def make_ffn_graph_case(
     config.parallel_config.rank = role_rank
     pipeline = pipeline_factory(bank) if pipeline_factory is not None else None
     driver = HcclV41FFNGraph(
-        model, contexts, bank, config.parallel_config, pipeline=pipeline
+        model,
+        contexts,
+        bank,
+        config.parallel_config,
+        pipeline=pipeline,
+        diagnostics=diagnostics,
     )
     if pipeline is not None:
         for layer in model.model.layers:

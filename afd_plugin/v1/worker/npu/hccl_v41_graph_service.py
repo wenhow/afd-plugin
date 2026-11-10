@@ -14,6 +14,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from contextlib import AbstractContextManager
 from dataclasses import dataclass
+from functools import partial
 from typing import TYPE_CHECKING, cast
 
 import torch
@@ -25,12 +26,18 @@ from afd_plugin.compat.npu import ascend_forward_context
 from afd_plugin.config import HCCL_P2P_CONNECTOR, parse_afd_config
 from afd_plugin.connectors.metadata import AFDForwardContextMetadata
 from afd_plugin.connectors.npu.hccl_config import DEEPSEEK_V41_ARCHITECTURES
+from afd_plugin.connectors.npu.hccl_diagnostics import HcclStageDiagnostics
 from afd_plugin.connectors.npu.hccl_graph_cache import HcclGraphCache, HcclReplayGraph
 from afd_plugin.connectors.npu.hccl_graph_pipeline import (
     HcclGraphComputePipeline,
     HcclGraphPipelinePolicy,
 )
 from afd_plugin.connectors.npu.hccl_graph_stage import HcclGraphStageBank
+from afd_plugin.connectors.npu.hccl_overlap import (
+    HcclOverlapSelection,
+    HcclOverlapSettings,
+    select_hccl_overlap,
+)
 from afd_plugin.connectors.npu.hccl_staged_transport import HcclStagedTransport
 from afd_plugin.distributed.hccl_graph import HcclGraphCandidate, HcclGraphReport
 from afd_plugin.distributed.hccl_plan import HcclParentPlan
@@ -50,6 +57,7 @@ class HcclV41FFNGraphResources:
     contexts: tuple[ForwardContext, ...]
     body: HcclV41FFNGraph
     pipeline: HcclGraphComputePipeline | None = None
+    overlap_settings: HcclOverlapSettings | None = None
 
 
 class HcclV41GraphService:
@@ -69,13 +77,19 @@ class HcclV41GraphService:
         generation: Callable[[], int],
         *,
         pipeline_policy: HcclGraphPipelinePolicy | None = None,
+        overlap_settings: HcclOverlapSettings | None = None,
+        diagnostic_sink: Callable[[dict[str, str | int | bool]], None] | None = None,
         graph_factory: Callable[[], HcclReplayGraph] | None = None,
         graph_capture: Callable[[HcclReplayGraph], AbstractContextManager[None]]
         | None = None,
     ) -> None:
+        if pipeline_policy is not None and overlap_settings is not None:
+            raise ValueError("choose graph pipeline policy or overlap settings")
         self.runner, self.transport, self.cache = runner, transport, cache
         self.generation = generation
         self._pipeline_policy = pipeline_policy
+        self._overlap_settings = overlap_settings
+        self._diagnostic_sink = diagnostic_sink
         self.graph_factory = graph_factory or torch.npu.NPUGraph
         self.graph_capture = graph_capture or (
             lambda graph: torch.npu.graph(graph, pool=runner.graph_pool)
@@ -95,6 +109,26 @@ class HcclV41GraphService:
     def pipeline_policy(self) -> HcclGraphPipelinePolicy | None:
         """Capture policy fixed for the lifetime of this exclusive cache."""
         return self._pipeline_policy
+
+    @property
+    def overlap_settings(self) -> HcclOverlapSettings | None:
+        return self._overlap_settings
+
+    def _diagnostics(
+        self, selection: HcclOverlapSelection | None
+    ) -> HcclStageDiagnostics | None:
+        if selection is None or not (
+            selection.settings.stage_diagnostics
+            or selection.settings.ffn_compute_sync_diagnostics
+        ):
+            return None
+        return HcclStageDiagnostics(
+            selection,
+            world_rank=self.transport.world_rank,
+            role_rank=self.transport.role_rank,
+            emit=self._diagnostic_sink,
+            synchronize=partial(torch.npu.synchronize, self.runner.device),
+        )
 
     @property
     def acknowledged_stop(self) -> bool:
@@ -219,8 +253,18 @@ class HcclV41GraphService:
         bank = resources.bank
         pipeline = resources.body.pipeline
         policy = self.pipeline_policy
+        if self.overlap_settings is not None:
+            policy = HcclGraphPipelinePolicy.from_selection(
+                select_hccl_overlap(
+                    self.overlap_settings,
+                    role="ffn",
+                    phase="graph_replay",
+                    num_stages=len(bank.stage_rows),
+                )
+            )
         if (
             bank.role != "ffn"
+            or resources.overlap_settings != self.overlap_settings
             or bank.role_rank != self.transport.role_rank
             or bank.device != self.runner.device
             or bank.capabilities != self.transport.negotiated_capabilities
@@ -234,7 +278,7 @@ class HcclV41GraphService:
                 and (
                     policy is None
                     or pipeline.bank is not bank
-                    or pipeline.hybrid != policy.hybrid
+                    or pipeline.policy != policy
                 )
             )
             or len(self.transport.data_groups) < len(bank.exchanges)
@@ -330,11 +374,23 @@ class HcclV41GraphService:
                 )
                 contexts.append(context)
         retained_contexts = tuple(contexts)
-        pipeline = (
-            HcclGraphComputePipeline.allocate(bank, hybrid=self.pipeline_policy.hybrid)
-            if self.pipeline_policy is not None
-            else None
-        )
+        selection = None
+        policy = self.pipeline_policy
+        if self.overlap_settings is not None:
+            selection = select_hccl_overlap(
+                self.overlap_settings,
+                role="ffn",
+                phase="graph_warmup" if decision.phase == "warmup" else "graph_capture",
+                num_stages=len(bank.stage_rows),
+            )
+            policy = HcclGraphPipelinePolicy.from_selection(selection)
+        pipeline = None
+        if policy is not None:
+            pipeline = (
+                HcclGraphComputePipeline.allocate(bank, selection=selection)
+                if selection is not None
+                else HcclGraphComputePipeline.allocate(bank, policy=policy)
+            )
         resources = HcclV41FFNGraphResources(
             bank,
             retained_contexts,
@@ -344,8 +400,10 @@ class HcclV41GraphService:
                 bank,
                 self.runner.vllm_config.parallel_config,
                 pipeline=pipeline,
+                diagnostics=self._diagnostics(selection),
             ),
             pipeline=pipeline,
+            overlap_settings=self.overlap_settings,
         )
         self._active_resources = resources
         self._validate_resources(resources)
@@ -372,7 +430,23 @@ class HcclV41GraphService:
                         "FFN graph session stopped inside a reserved parent"
                     )
                 if decision.phase == "eager":
-                    execute_hccl_v41_parent(self.runner, self.transport)
+                    selection = (
+                        select_hccl_overlap(
+                            self.overlap_settings,
+                            role="ffn",
+                            phase="eager",
+                            num_stages=len(plan.stages),
+                        )
+                        if self.overlap_settings is not None
+                        else None
+                    )
+                    diagnostics = self._diagnostics(selection)
+                    if diagnostics is None:
+                        execute_hccl_v41_parent(self.runner, self.transport)
+                    else:
+                        execute_hccl_v41_parent(
+                            self.runner, self.transport, diagnostics=diagnostics
+                        )
                     return True
                 generation = self._reserved_generation
                 if generation is None or generation != self._generation():

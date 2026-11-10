@@ -24,6 +24,11 @@ from afd_plugin.compat.npu import (
     fix_all2all_backend_for_afd,
     npu_afd_num_ubatches,
 )
+from afd_plugin.compat.npu.profiler import (
+    AFDNPUProfilerSession,
+    afd_npu_profiler_owner,
+    step_afd_npu_profiler,
+)
 from afd_plugin.compat.npu.runtime_config import get_npu_ffn_config
 from afd_plugin.config import AFD_ASYNC_CONNECTOR, parse_afd_config
 from afd_plugin.connectors import AFDConnectorFactory
@@ -46,6 +51,7 @@ if TYPE_CHECKING:
     from vllm.v1.outputs import AsyncModelRunnerOutput, ModelRunnerOutput
 
     from afd_plugin.connectors.npu.hccl_staged_transport import HcclStagedTransport
+from afd_plugin.v1.worker.npu.hccl_v41_eager import HcclV41EagerSession
 
 logger = logging.getLogger(__name__)
 
@@ -184,6 +190,16 @@ class AFDNPUFFNWorker(NPUWorker):
             self.model_runner.connector, P2pHcclAFDConnector
         )
 
+    def bind_hccl_v41_eager_session(self, session: HcclV41EagerSession) -> None:
+        """Bind caller-warmed streams before starting the resident receiver."""
+        if (
+            self._ffn_thread is not None
+            or session.transport is not self._hccl_v41_transport
+            or not isinstance(self.model_runner, AFDNPUFFNModelRunner)
+        ):
+            raise RuntimeError("bind eager FFN streams before resident service startup")
+        self.model_runner.bind_hccl_v41_eager_session(session)
+
     def compile_or_warm_up_model(self) -> CompilationTimes:
         return CompilationTimes(language_model=0.0, encoder=0.0)
 
@@ -197,6 +213,17 @@ class AFDNPUFFNWorker(NPUWorker):
         )
 
     def start_ffn_server_loop(self) -> None:
+        self._validate_profiler_owner()
+        profiler = self.model_runner.prof
+        if isinstance(profiler, AFDNPUProfilerSession):
+            status = profiler.status()
+            if status["failed"] or status["closed"]:
+                # A deferred profiler belongs to one serving-thread lifetime.
+                # In particular, do not recreate a legacy connector after its
+                # old loop error has been observed/cleared by management.
+                raise RuntimeError(
+                    "cannot restart a failed or closed AFD profiler owner"
+                )
         if self._ffn_thread is not None and self._ffn_thread.is_alive():
             self.raise_ffn_loop_error_if_any()
             return
@@ -219,12 +246,19 @@ class AFDNPUFFNWorker(NPUWorker):
 
         def ffn_worker_loop() -> None:
             try:
-                self._run_ffn_server_loop()
+                with afd_npu_profiler_owner(self.model_runner.prof):
+                    self._run_ffn_server_loop()
             except Exception as exc:
                 shutdown_event = self._ffn_shutdown_event
+                profiler = self.model_runner.prof
+                profiler_failed = (
+                    isinstance(profiler, AFDNPUProfilerSession)
+                    and profiler.status()["failed"]
+                )
                 if (
                     not self._uses_hccl_service()
                     and not self._requires_async_drain()
+                    and not profiler_failed
                     and shutdown_event is not None
                     and shutdown_event.is_set()
                 ):
@@ -246,6 +280,51 @@ class AFDNPUFFNWorker(NPUWorker):
             daemon=True,
         )
         self._ffn_thread.start()
+
+    def _validate_profiler_owner(self) -> None:
+        if (
+            isinstance(self.model_runner.prof, AFDNPUProfilerSession)
+            and self.profiler_config is not None
+            and self.profiler_config.profiler is not None
+        ):
+            raise ValueError(
+                "AFD_NPU_FFN_PROFILER_ENABLE and native --profiler-config "
+                "cannot be enabled together"
+            )
+
+    # Upstream: NPUWorker.profile, vllm_ascend/worker/worker.py:1223,
+    # 7e37e29a7803d6897a7113088e2b771f83205bc0. Signature matches exactly.
+    # Reason: F executes in a daemon, while native profile RPC runs on the
+    # management thread and controls a separate native profiler.
+    # Functionality: explicit role-env sessions accept nonblocking requests;
+    # the serving owner applies them at boundaries and reports pending state.
+    # Delegation exception: without the role-env session, preserve the entire
+    # native config/trace-name/lifecycle behavior through super(). Remove this
+    # override when native Worker supports connector-driven profiler owners.
+    def profile(self, is_start: bool = True, profile_prefix: str | None = None):
+        # ### PATCH START: F profiler execution owner
+        self._validate_profiler_owner()
+        session = self.model_runner.prof
+        if isinstance(session, AFDNPUProfilerSession):
+            self.raise_ffn_loop_error_if_any()
+            session.request(is_start, profile_prefix)
+            return
+        # ### PATCH END: F profiler execution owner
+        return super().profile(is_start, profile_prefix)
+
+    def afd_profiler_status(self) -> dict[str, bool | int | str | None]:
+        """Management RPC: pending requests do not assert trace collection."""
+        session = self.model_runner.prof
+        if isinstance(session, AFDNPUProfilerSession):
+            return {"mode": "afd-role", **session.status()}
+        return {
+            "mode": "native",
+            "configured": self.profiler_config is not None
+            and self.profiler_config.profiler is not None,
+            # Native control state alone does not prove that F's daemon was
+            # recorded or that native iteration limits were advanced there.
+            "control_running": self.profiler is not None and self.profiler.is_running,
+        }
 
     def _bind_cpus_once(self) -> None:
         if self._cpu_binding_attempted:
@@ -274,6 +353,9 @@ class AFDNPUFFNWorker(NPUWorker):
 
         torch.npu.set_device(self.device)
         while not event.is_set():
+            session = self.model_runner.prof
+            if isinstance(session, AFDNPUProfilerSession):
+                session.before_step()
             if self._hccl_v41_transport is not None:
                 assert isinstance(self.model_runner, AFDNPUFFNModelRunner)
                 if not self.model_runner.execute_hccl_v41_step(
@@ -282,6 +364,7 @@ class AFDNPUFFNWorker(NPUWorker):
                     self._hccl_stop_received = True
                     return
                 # COMPLETE already synchronizes this device before release.
+                step_afd_npu_profiler(session)
                 continue
             if isinstance(self.model_runner.connector, P2pHcclAFDConnector):
                 plan = self.model_runner.connector.receive_forward_plan()
@@ -292,6 +375,7 @@ class AFDNPUFFNWorker(NPUWorker):
                 # Observe deferred device failures in the serving thread; no
                 # failed transaction may proceed to another FORWARD receive.
                 torch.npu.synchronize()
+                step_afd_npu_profiler(session)
                 continue
             if isinstance(self.model_runner, AsyncNPUFFNModelRunner):
                 if not self.model_runner.execute_connector_driven_step():

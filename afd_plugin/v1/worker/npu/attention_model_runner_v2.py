@@ -57,10 +57,12 @@ from afd_plugin.v1.worker.attention_model_runner_v2 import (
     _use_afd_capture_input_preparation,
     _use_afd_ubatch_preparation,
 )
+from afd_plugin.v1.worker.npu.hccl_v41_eager import HcclV41EagerSession
 from afd_plugin.v1.worker.npu.hccl_v41_execution import (
     HcclV41Execution,
     validate_hccl_v41_binding,
 )
+from afd_plugin.v1.worker.npu.hccl_v41_ubatch_runner import HcclV41UBatchRunner
 from afd_plugin.validation import validate_npu_model_runner_v2_config
 
 if TYPE_CHECKING:
@@ -418,6 +420,20 @@ class AFDNPUAttentionModelRunnerV2(AFDMetadataProviderMixin, NPUModelRunnerV2):
         validate_hccl_v41_binding(self.vllm_config, transport, self.device)
         self.hccl_v41_graph_eager = eager
         self.hccl_v41_graph_session = session
+
+    def bind_hccl_v41_eager_session(self, session: HcclV41EagerSession) -> None:
+        """Select warmed eager streams after native KV/U2 runner construction.
+
+        Both roles must explicitly bind the same scheduling family. Profiling
+        before this call and later native U1 parents use the serial path.
+        """
+        if (
+            session.transport is not self.hccl_v41_transport
+            or self.hccl_v41_graph_session is not None
+            or not isinstance(self.ubatch_runner, HcclV41UBatchRunner)
+        ):
+            raise RuntimeError("eager stream binding requires its native U2 runner")
+        self.ubatch_runner.bind_eager_session(session)
 
     def bind_hccl_v41_graph_coordinator(
         self, coordinator: HcclV41GraphCoordinator

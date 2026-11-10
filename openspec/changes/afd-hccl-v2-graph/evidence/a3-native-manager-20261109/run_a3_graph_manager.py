@@ -48,6 +48,13 @@ INNER_TIMEOUT_SECONDS = 300
 OUTER_TIMEOUT_SECONDS = 340
 SSH_TIMEOUT_SECONDS = 480
 EXPECTED_IDLE_BOARDS = 8
+GRAPH_AXIS_ARGUMENTS = (
+    "graph_compute",
+    "graph_hybrid",
+    "attention_three",
+    "ffn_recv",
+    "ffn_cross",
+)
 
 
 def load_base(root):
@@ -172,6 +179,9 @@ def remote_run(args):
         command.extend(
             ["--compute-pipeline", "--pipeline-hybrid", str(args.pipeline_hybrid)]
         )
+    if args.graph_axes:
+        for name in GRAPH_AXIS_ARGUMENTS:
+            command.extend(["--" + name.replace("_", "-"), str(vars(args)[name])])
     timed_out, owned, killed = False, {}, []
     started = time.monotonic()
     with (results / "probe.log").open("wb") as output:
@@ -214,6 +224,11 @@ def remote_run(args):
         "stage_bank": args.stage_bank,
         "compute_pipeline": args.compute_pipeline,
         "pipeline_hybrid": args.pipeline_hybrid,
+        "graph_axes": (
+            {name: vars(args)[name] for name in GRAPH_AXIS_ARGUMENTS}
+            if args.graph_axes
+            else None
+        ),
         "remote": str(remote),
         "command": command,
         "source_files_match": all(checks.values()),
@@ -247,6 +262,9 @@ def main():
     parser.add_argument("--stage-bank", action="store_true")
     parser.add_argument("--compute-pipeline", action="store_true")
     parser.add_argument("--pipeline-hybrid", type=int, choices=(0, 1))
+    for name in GRAPH_AXIS_ARGUMENTS:
+        parser.add_argument("--" + name.replace("_", "-"), type=int, choices=(0, 1))
+    parser.add_argument("--prepare-only", action="store_true", help="no SSH or devices")
     parser.add_argument("--evidence-dir", type=Path)
     args = parser.parse_args()
     if args.compute_pipeline and not args.stage_bank:
@@ -255,6 +273,21 @@ def main():
         parser.error("--pipeline-hybrid requires --compute-pipeline")
     if args.compute_pipeline and args.pipeline_hybrid is None:
         args.pipeline_hybrid = 1
+    axes = tuple(vars(args)[name] for name in GRAPH_AXIS_ARGUMENTS)
+    args.graph_axes = any(value is not None for value in axes)
+    if args.graph_axes:
+        if any(value is None for value in axes):
+            parser.error("the five Graph axes must all be explicitly supplied")
+        if (
+            not args.stage_bank
+            or args.compute_pipeline
+            or args.pipeline_hybrid is not None
+        ):
+            parser.error(
+                "Graph axes require --stage-bank and exclude legacy pipeline flags"
+            )
+        if args.ffn_cross and not args.ffn_recv:
+            parser.error("--ffn-cross 1 requires --ffn-recv 1")
     if args.remote_root:
         return remote_run(args)
     if not args.label or any(
@@ -289,7 +322,7 @@ def main():
             "commit": source["commit"],
             "sha256": digest,
         }
-    if args.compute_pipeline:
+    if args.compute_pipeline or args.graph_axes:
         source = lock["repositories"]["vllm"]
         name = "vllm/utils/torch_utils.py"
         data = subprocess.check_output(
@@ -315,7 +348,7 @@ def main():
         root / "tests/__init__.py",
         root / ".agents/dsv41/sources.lock.json",
     ]
-    if args.compute_pipeline:
+    if args.compute_pipeline or args.graph_axes:
         files.append(root / STREAM_API_IDENTITY)
     contents = {path.relative_to(root).as_posix(): path.read_bytes() for path in files}
     contents["source-expected.json"] = (json.dumps(expected, indent=2) + "\n").encode()
@@ -333,6 +366,59 @@ def main():
             info = tarfile.TarInfo(name)
             info.size = len(data)
             archive.addfile(info, io.BytesIO(data))
+    with tarfile.open(fileobj=io.BytesIO(stream.getvalue())) as archive:
+        names = archive.getnames()
+        assert len(names) == len(set(names)) == len(manifest) + 1
+        assert all(
+            hashlib.sha256(archive.extractfile(name).read()).hexdigest() == digest
+            for name, digest in manifest.items()
+        )
+    identity = {
+        "scope": "working-tree bytes immutable snapshot",
+        "created_utc": datetime.now(timezone.utc).isoformat(),
+        "head_commit": subprocess.check_output(
+            ["git", "rev-parse", "HEAD"], cwd=root, text=True
+        ).strip(),
+        "prepare_only": args.prepare_only,
+        "archive_members": len(names),
+        "stage_bank": args.stage_bank,
+        "compute_pipeline": args.compute_pipeline,
+        "pipeline_hybrid": args.pipeline_hybrid,
+        "graph_axes": (
+            {name: vars(args)[name] for name in GRAPH_AXIS_ARGUMENTS}
+            if args.graph_axes
+            else None
+        ),
+        "evidence_directory": destination.relative_to(root).as_posix(),
+        "manifest": manifest,
+        "snapshot_manifest_sha256": hashlib.sha256(
+            json.dumps(manifest, sort_keys=True, separators=(",", ":")).encode()
+        ).hexdigest(),
+        "archive_sha256": hashlib.sha256(stream.getvalue()).hexdigest(),
+        "source_expected": expected,
+        "source_identity_origin": SOURCE_IDENTITY,
+        "locked_git_object_sources": locked_objects,
+        "installed_stream_source_origin": (
+            STREAM_API_IDENTITY if args.compute_pipeline or args.graph_axes else None
+        ),
+    }
+    if args.prepare_only:
+        (destination / "identity.json").write_text(
+            json.dumps(identity, indent=2) + "\n"
+        )
+        print(
+            json.dumps(
+                {
+                    "prepare_only": True,
+                    "archive_members": len(names),
+                    "manifest_entries": len(manifest),
+                    "source_pins": len(expected),
+                    "snapshot_manifest_sha256": identity["snapshot_manifest_sha256"],
+                },
+                indent=2,
+            )
+        )
+        return 0
     remote = (
         base.ssh(
             "python3 -B -c "
@@ -349,29 +435,7 @@ def main():
         "cat > " + shlex.quote(remote + "/run_a3_graph_manager.py"),
         Path(__file__).read_bytes(),
     )
-    identity = {
-        "scope": "working-tree bytes immutable snapshot",
-        "created_utc": datetime.now(timezone.utc).isoformat(),
-        "head_commit": subprocess.check_output(
-            ["git", "rev-parse", "HEAD"], cwd=root, text=True
-        ).strip(),
-        "remote": remote,
-        "stage_bank": args.stage_bank,
-        "compute_pipeline": args.compute_pipeline,
-        "pipeline_hybrid": args.pipeline_hybrid,
-        "evidence_directory": destination.relative_to(root).as_posix(),
-        "manifest": manifest,
-        "snapshot_manifest_sha256": hashlib.sha256(
-            json.dumps(manifest, sort_keys=True, separators=(",", ":")).encode()
-        ).hexdigest(),
-        "archive_sha256": hashlib.sha256(stream.getvalue()).hexdigest(),
-        "source_expected": expected,
-        "source_identity_origin": SOURCE_IDENTITY,
-        "locked_git_object_sources": locked_objects,
-        "installed_stream_source_origin": (
-            STREAM_API_IDENTITY if args.compute_pipeline else None
-        ),
-    }
+    identity["remote"] = remote
     (destination / "identity.json").write_text(json.dumps(identity, indent=2) + "\n")
     remote_command = "python3 -B " + shlex.quote(remote + "/run_a3_graph_manager.py")
     remote_command += (
@@ -383,6 +447,11 @@ def main():
         remote_command += " --compute-pipeline --pipeline-hybrid " + str(
             args.pipeline_hybrid
         )
+    if args.graph_axes:
+        for name in GRAPH_AXIS_ARGUMENTS:
+            remote_command += (
+                " --" + name.replace("_", "-") + " " + str(vars(args)[name])
+            )
     command = [
         "ssh",
         "-F",

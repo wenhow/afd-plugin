@@ -4,17 +4,26 @@
 from __future__ import annotations
 
 import sys
+import threading
+from concurrent.futures import ThreadPoolExecutor
 from types import SimpleNamespace
 
 import pytest
 
 from afd_plugin.compat.npu.profiler import (
     afd_npu_profiler_config,
+    afd_npu_profiler_owner,
     create_afd_npu_profiler,
+    create_deferred_afd_npu_profiler,
     step_afd_npu_profiler,
     stop_afd_npu_profiler,
 )
-from tests.unit.fakes.profiler import StepProfiler as _StepProfiler
+from tests.unit.fakes.profiler import (
+    PROFILER_TEST_TIMEOUT_SECONDS,
+    FakeTorchNPUProfiler,
+    StepProfiler,
+    make_profiler_session_case,
+)
 
 _ENV_NAMES = (
     "AFD_NPU_ATTENTION_PROFILER_ENABLE",
@@ -33,6 +42,8 @@ _ENV_NAMES = (
     "AFD_NPU_FFN_PROFILER_SKIP_FIRST",
     "AFD_NPU_FFN_PROFILER_DIR",
     "AFD_NPU_FFN_PROFILER_WITH_STACK",
+    "AFD_NPU_ATTENTION_PROFILER_RANKS",
+    "AFD_NPU_FFN_PROFILER_RANKS",
     "VLLM_ASCEND_MODEL_RUNNER_PROFILER_ENABLE",
     "VLLM_ASCEND_FFN_PROFILER_ENABLE",
     "VLLM_TORCH_PROFILER_DIR",
@@ -84,7 +95,7 @@ def test_npu_profiler_dir_falls_back_to_vllm_torch_profiler_dir(monkeypatch):
 
 
 def test_create_npu_profiler_uses_configured_schedule(monkeypatch):
-    profiler_module = _FakeTorchNPUProfiler()
+    profiler_module = FakeTorchNPUProfiler()
     monkeypatch.setitem(
         sys.modules,
         "torch_npu",
@@ -119,7 +130,7 @@ def test_create_npu_profiler_uses_configured_schedule(monkeypatch):
 def test_step_npu_profiler_ignores_disabled_profiler():
     step_afd_npu_profiler(None)
 
-    profiler = _StepProfiler()
+    profiler = StepProfiler()
     step_afd_npu_profiler(profiler)
 
     assert profiler.steps == 1
@@ -128,44 +139,144 @@ def test_step_npu_profiler_ignores_disabled_profiler():
 def test_stop_npu_profiler_ignores_disabled_profiler():
     stop_afd_npu_profiler(None)
 
-    profiler = _StepProfiler()
+    profiler = StepProfiler()
     stop_afd_npu_profiler(profiler)
 
     assert profiler.stopped is True
 
 
-class _FakeTorchNPUProfiler:
-    class ExportType:
-        Text = "text"
+@pytest.mark.parametrize(
+    "value,expected",
+    [(None, frozenset({0})), ("all", None), (" 2,0,2 ", frozenset({0, 2}))],
+)
+def test_role_profiler_rank_selection_matches_donor(monkeypatch, value, expected):
+    if value is not None:
+        monkeypatch.setenv("AFD_NPU_FFN_PROFILER_RANKS", value)
+    assert afd_npu_profiler_config("ffn").ranks == expected
 
-    class ProfilerLevel:
-        Level2 = "level2"
 
-    class AiCMetrics:
-        AiCoreNone = "aicore_none"
+@pytest.mark.parametrize("value", ["", "-1", "0,no", "0,"])
+def test_role_profiler_rejects_invalid_rank_selection(monkeypatch, value):
+    monkeypatch.setenv("AFD_NPU_FFN_PROFILER_RANKS", value)
+    with pytest.raises(ValueError, match="AFD_NPU_FFN_PROFILER_RANKS"):
+        afd_npu_profiler_config("ffn")
 
-    class ProfilerActivity:
-        CPU = "cpu"
-        NPU = "npu"
 
-    def __init__(self):
-        self.created_profiler = _StepProfiler()
-        self.schedule_kwargs: dict[str, object] = {}
-        self.profile_kwargs: dict[str, object] = {}
-        self.trace_dir = None
-        self._ExperimentalConfig = self._experimental_config
+def test_deferred_profiler_is_disabled_without_loading_backend(monkeypatch):
+    monkeypatch.setitem(sys.modules, "torch_npu", None)
+    assert create_deferred_afd_npu_profiler("ffn") is None
 
-    def _experimental_config(self, **kwargs):
-        return kwargs
 
-    def schedule(self, **kwargs):
-        self.schedule_kwargs = kwargs
-        return kwargs
+@pytest.mark.parametrize("rank,selected", [(0, True), (1, False)])
+def test_deferred_profiler_freezes_rank_settings_and_trace_name(
+    monkeypatch, rank, selected
+):
+    backend = FakeTorchNPUProfiler()
+    monkeypatch.setenv("AFD_NPU_FFN_PROFILER_ENABLE", "1")
+    session = create_deferred_afd_npu_profiler("ffn", role_rank=rank)
+    assert session.status()["pending"]
+    assert not backend.created_profiler.started
+    monkeypatch.setitem(sys.modules, "torch_npu", SimpleNamespace(profiler=backend))
+    monkeypatch.setenv("AFD_NPU_FFN_PROFILER_RANKS", "all")
+    session.before_step()
+    assert session.status()["selected"] is selected
+    assert session.status()["applied"] is selected
+    assert backend.created_profiler.started is selected
+    if selected:
+        assert backend.worker_name == f"ffn_rank{rank}"
+    session.finish()
 
-    def tensorboard_trace_handler(self, trace_dir):
-        self.trace_dir = trace_dir
-        return ("handler", trace_dir)
 
-    def profile(self, **kwargs):
-        self.profile_kwargs = kwargs
-        return self.created_profiler
+def test_management_request_remains_pending_until_execution_owner_applies_it():
+    case = make_profiler_session_case()
+    with ThreadPoolExecutor(max_workers=1) as owner:
+        owner.submit(case.session.before_step).result(PROFILER_TEST_TIMEOUT_SECONDS)
+        case.session.request(False)
+        status = case.session.status()
+        assert status["requested"] is False and status["applied"] is True
+        assert status["pending"]
+        owner.submit(case.session.before_step).result(PROFILER_TEST_TIMEOUT_SECONDS)
+        assert not case.session.status()["applied"]
+        assert not case.session.status()["pending"]
+        case.session.request(True, "round2")
+        owner.submit(case.session.step).result(PROFILER_TEST_TIMEOUT_SECONDS)
+        owner.submit(case.session.finish).result(PROFILER_TEST_TIMEOUT_SECONDS)
+    assert [event[0] for event in case.events] == [
+        "create",
+        "start",
+        "stop",
+        "create",
+        "start",
+        "step",
+        "stop",
+    ]
+    assert len({event[1] for event in case.events}) == 1
+    assert case.events[3][2] == "round2"
+    assert case.session.status()["owner_thread_id"] != threading.get_ident()
+    assert case.session.status()["closed"]
+
+
+def test_management_requests_do_not_wait_for_owner_trace_export():
+    case = make_profiler_session_case()
+    with ThreadPoolExecutor(max_workers=1) as owner:
+        owner.submit(case.session.before_step).result(PROFILER_TEST_TIMEOUT_SECONDS)
+        backend = case.profilers[0]
+        backend.stop_release.clear()
+        case.session.request(False)
+        pending = owner.submit(case.session.before_step)
+        assert backend.stop_entered.wait(PROFILER_TEST_TIMEOUT_SECONDS)
+        try:
+            case.session.request(True, "next")
+            assert case.session.status()["pending"]
+        finally:
+            backend.stop_release.set()
+        pending.result(PROFILER_TEST_TIMEOUT_SECONDS)
+        owner.submit(case.session.step).result(PROFILER_TEST_TIMEOUT_SECONDS)
+        owner.submit(case.session.finish).result(PROFILER_TEST_TIMEOUT_SECONDS)
+    assert case.session.status()["steps"] == 1
+
+
+@pytest.mark.parametrize("operation", ["before_step", "step", "finish"])
+def test_profiler_backend_rejects_a_foreign_execution_thread(operation):
+    case = make_profiler_session_case()
+    case.session.before_step()
+    with ThreadPoolExecutor(max_workers=1) as foreign:
+        result = foreign.submit(getattr(case.session, operation))
+        with pytest.raises(RuntimeError, match="execution owner thread"):
+            result.result(PROFILER_TEST_TIMEOUT_SECONDS)
+    case.session.finish()
+    assert [event[0] for event in case.events] == ["create", "start", "stop"]
+
+
+@pytest.mark.parametrize("failure", ["start", "step", "stop"])
+def test_profiler_failure_remains_visible_and_cannot_restart(failure):
+    case = make_profiler_session_case(failure=failure)
+    with (
+        pytest.raises(ValueError, match=f"controlled profiler {failure}"),
+        afd_npu_profiler_owner(case.session),
+    ):
+        case.session.step()
+    status = case.session.status()
+    assert status["failed"] and not status["closed"]
+    assert status["error"] == f"controlled profiler {failure} failure"
+    with pytest.raises(RuntimeError, match="session failed"):
+        case.session.request(True)
+
+
+def test_serving_failure_is_preserved_when_profiler_export_also_fails():
+    case = make_profiler_session_case(failure="stop")
+    with (
+        pytest.raises(ValueError, match="original serving failure"),
+        afd_npu_profiler_owner(case.session),
+    ):
+        case.session.before_step()
+        raise ValueError("original serving failure")
+    assert case.session.status()["error"] == "controlled profiler stop failure"
+
+
+def test_exited_profiler_owner_cannot_accept_a_new_start():
+    case = make_profiler_session_case()
+    case.session.finish()
+    case.session.stop()
+    with pytest.raises(RuntimeError, match="owner has exited"):
+        case.session.start()

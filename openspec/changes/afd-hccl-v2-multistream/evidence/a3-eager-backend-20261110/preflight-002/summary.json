@@ -1,0 +1,25 @@
+{
+  "command": [
+    "ssh",
+    "-F",
+    "C:/Users/zq/.atomgitdevenv/.ssh/config",
+    "-o",
+    "BatchMode=yes",
+    "-o",
+    "ConnectTimeout=15",
+    "devenvc_rissvg.4ff038c993bf40219c03182f786a9def.atomgit.0",
+    "bash -c 'set -e\nsource /mnt/workspace/code/.ascend/cann-9.0.1/ascend-toolkit/set_env.sh >/dev/null\nexport LD_LIBRARY_PATH=/opt/buildtools/python-3.12.9/lib:/usr/local/Ascend/driver/lib64/driver:/usr/local/Ascend/driver/lib64/common:${LD_LIBRARY_PATH}\nsource /mnt/workspace/code/.ascend/cann-9.0.1/cann-9.0.1/nnal/atb/set_env.sh >/dev/null\n/mnt/workspace/code/.venvs/afd-v030-dsv41-c0/bin/python -B -\n'"
+  ],
+  "returncode": 0,
+  "source_count": 33,
+  "source_files_match": true,
+  "idle_boards": 8,
+  "npu_smi_returncode": 0,
+  "torch_imported": false,
+  "torch_npu_imported": false,
+  "versions": {
+    "torch": "2.10.0",
+    "torch-npu": "2.10.0.post4",
+    "fastapi": "0.123.10"
+  }
+}

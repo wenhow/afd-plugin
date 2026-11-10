@@ -36,6 +36,13 @@ from tests.unit.fakes.hccl import (
     make_staged_ffn_service_case,
 )
 from tests.unit.fakes.hccl_v41_graph_service import make_graph_service_case
+from tests.unit.fakes.profiler import (
+    PROFILER_TEST_TIMEOUT_SECONDS,
+    make_profiled_restart_case,
+    make_profiled_shutdown_case,
+    make_profiled_worker_case,
+    make_profiler_session_case,
+)
 
 
 @pytest.fixture
@@ -307,3 +314,132 @@ def test_worker_retains_resources_while_peer_stop_or_device_is_pending(lifecycle
         worker.stop_ffn_server_loop()
 
     assert ffn.is_initialized
+
+
+@pytest.fixture
+def profiled_service(monkeypatch):
+    case = make_profiled_worker_case(worker_module, runner_module, monkeypatch)
+    yield case
+    for event in case.gate.release:
+        event.set()
+    if case.worker._ffn_thread is not None:
+        join_hccl_worker(case.worker)
+
+
+def test_role_profiler_rpc_remains_responsive_during_parent_receive(profiled_service):
+    case = profiled_service
+    case.worker.start_ffn_server_loop()
+    assert case.gate.entered[0].wait(PROFILER_TEST_TIMEOUT_SECONDS)
+    case.worker.profile(False)
+    pending = case.worker.afd_profiler_status()
+    assert pending["mode"] == "afd-role"
+    assert pending["pending"] and pending["applied"] and not pending["requested"]
+    case.gate.release[0].set()
+    assert case.gate.entered[1].wait(PROFILER_TEST_TIMEOUT_SECONDS)
+    applied = case.worker.afd_profiler_status()
+    assert not applied["pending"] and not applied["applied"]
+    case.gate.release[1].set()
+    join_hccl_worker(case.worker)
+    case.worker.stop_ffn_server_loop()
+    assert case.worker.afd_profiler_status()["closed"]
+    assert case.peer.messages == [
+        ("FORWARD", "profile-parent"),
+        ("COMPLETE", "profile-parent"),
+        ("STOP_ACK",),
+    ]
+
+
+def test_hccl_profiler_steps_one_parent_and_finalizes_on_its_execution_owner(
+    profiled_service,
+):
+    case = profiled_service
+    for release in case.gate.release:
+        release.set()
+    case.worker.start_ffn_server_loop()
+    join_hccl_worker(case.worker)
+    case.worker.stop_ffn_server_loop()
+    status = case.worker.afd_profiler_status()
+    assert status["steps"] == 1 and status["closed"]
+    assert [event[0] for event in case.profile.events] == [
+        "create",
+        "start",
+        "step",
+        "stop",
+    ]
+    assert {event[1] for event in case.profile.events} == {status["owner_thread_id"]}
+
+
+def test_role_and_native_profilers_cannot_start_together(profiled_service):
+    case = profiled_service
+    case.worker.profiler_config = SimpleNamespace(profiler="torch")
+    with pytest.raises(ValueError, match="cannot be enabled together"):
+        case.worker.start_ffn_server_loop()
+    with pytest.raises(ValueError, match="cannot be enabled together"):
+        case.worker.profile()
+    assert case.profile.events == [] and case.peer.messages == []
+
+
+def test_default_profile_rpc_preserves_native_worker_control(lifecycle, monkeypatch):
+    _, _, _, worker = lifecycle
+    worker.profiler_config = SimpleNamespace(profiler="torch")
+    native = SimpleNamespace(is_running=False, prefix=None)
+
+    def profile_native(self, is_start=True, profile_prefix=None):
+        native.is_running, native.prefix = is_start, profile_prefix
+
+    monkeypatch.setattr(worker_module.NPUWorker, "profile", profile_native)
+    worker.profile(True, "native-prefix")
+    assert native.is_running and native.prefix == "native-prefix"
+    worker.profile(False)
+    assert not native.is_running
+    assert worker.afd_profiler_status() == {
+        "mode": "native",
+        "configured": True,
+        "control_running": False,
+    }
+
+
+def test_profiler_export_failure_remains_terminal_and_preserves_hccl_resources(
+    profiled_service,
+):
+    case = profiled_service
+    case.profile = make_profiler_session_case(failure="stop")
+    case.runner.prof = case.profile.session
+    for release in case.gate.release:
+        release.set()
+    case.worker.start_ffn_server_loop()
+    join_hccl_worker(case.worker)
+    with pytest.raises(RuntimeError, match="worker loop failed") as failure:
+        case.worker.stop_ffn_server_loop()
+    assert "controlled profiler stop failure" in str(failure.value.__cause__)
+    status = case.worker.afd_profiler_status()
+    assert status["failed"] and not status["closed"]
+    assert not case.peer.closed
+
+
+def test_legacy_shutdown_does_not_hide_a_profiler_export_failure(monkeypatch):
+    case = make_profiled_shutdown_case(worker_module, runner_module, monkeypatch)
+    case.worker.start_ffn_server_loop()
+    join_hccl_worker(case.worker)
+    with pytest.raises(RuntimeError, match="worker loop failed") as failure:
+        case.worker.stop_ffn_server_loop()
+    assert "controlled profiler stop failure" in str(failure.value.__cause__)
+    assert case.worker.afd_profiler_status()["failed"]
+
+
+@pytest.mark.parametrize("state", ["failed", "closed"])
+def test_terminal_profiler_owner_rejects_restart_before_legacy_connector_init(
+    monkeypatch, state
+):
+    case = make_profiled_restart_case(worker_module, runner_module, monkeypatch)
+    profile = make_profiler_session_case(failure="start" if state == "failed" else None)
+    case.runner.prof = profile.session
+    if state == "failed":
+        with pytest.raises(ValueError, match="controlled profiler start failure"):
+            profile.session.before_step()
+    else:
+        profile.session.finish()
+    with pytest.raises(RuntimeError, match="failed or closed AFD profiler owner"):
+        case.worker.start_ffn_server_loop()
+    assert not case.runner.connector.is_initialized
+    assert case.peer.messages == []

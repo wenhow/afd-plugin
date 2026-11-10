@@ -1,0 +1,54 @@
+{
+  "scope": "local Ruff/format/Python3.11AST and dependency collection; no actual-runtime or NPU acceptance",
+  "python": "3.14.3 (tags/v3.14.3:323c59a, Feb  3 2026, 16:04:56) [MSC v.1944 64 bit (AMD64)]",
+  "source_hashes": {
+    "afd_plugin/v1/worker/npu/hccl_v41_ffn_eager.py": "b89ee5db2726dd4c10cbdabfc32f34951b77dd0794390725781904c9cdafcb18",
+    "tests/unit/fakes/hccl_v41_ffn_eager.py": "e532d0922dd73f3f7ea35627efa1907a95d82fc9f6be63a7d87e14a2c5e62c09",
+    "tests/unit/v1/worker/npu/test_hccl_v41_ffn_eager.py": "98a5ee8a419bd4029136001fcb345573ca09dd3b7880646865eb1ff86fb6e146"
+  },
+  "checks": [
+    {
+      "command": [
+        ".venv/Scripts/ruff.exe",
+        "check",
+        "afd_plugin/v1/worker/npu/hccl_v41_ffn_eager.py",
+        "tests/unit/fakes/hccl_v41_ffn_eager.py",
+        "tests/unit/v1/worker/npu/test_hccl_v41_ffn_eager.py"
+      ],
+      "returncode": 0,
+      "stdout": "All checks passed!\n",
+      "stderr": ""
+    },
+    {
+      "command": [
+        ".venv/Scripts/ruff.exe",
+        "format",
+        "--check",
+        "afd_plugin/v1/worker/npu/hccl_v41_ffn_eager.py",
+        "tests/unit/fakes/hccl_v41_ffn_eager.py",
+        "tests/unit/v1/worker/npu/test_hccl_v41_ffn_eager.py"
+      ],
+      "returncode": 0,
+      "stdout": "3 files already formatted\n",
+      "stderr": ""
+    },
+    {
+      "command": [
+        "D:\\openSource\\afd-plugin-dsv41-flash-v030\\.venv\\Scripts\\python.exe",
+        "-m",
+        "pytest",
+        "--noconftest",
+        "-o",
+        "addopts=",
+        "-q",
+        "tests/unit/v1/worker/npu/test_hccl_v41_ffn_eager.py"
+      ],
+      "returncode": 5,
+      "stdout": "\n============================== warnings summary ===============================\n.venv\\Lib\\site-packages\\_pytest\\cacheprovider.py:487\n  D:\\openSource\\afd-plugin-dsv41-flash-v030\\.venv\\Lib\\site-packages\\_pytest\\cacheprovider.py:487: PytestCacheWarning: could not create cache path D:\\openSource\\afd-plugin-dsv41-flash-v030\\.pytest_cache\\v\\cache\\nodeids: [WinError 183] \u5f53\u6587\u4ef6\u5df2\u5b58\u5728\u65f6\uff0c\u65e0\u6cd5\u521b\u5efa\u8be5\u6587\u4ef6\u3002: 'D:\\\\openSource\\\\afd-plugin-dsv41-flash-v030\\\\.pytest_cache\\\\v\\\\cache'\n    config.cache.set(\"cache/nodeids\", sorted(str(n) for n in self.cached_nodeids))\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n1 skipped, 1 warning in 0.01s\n",
+      "stderr": ""
+    }
+  ],
+  "python_3_11_ast": true,
+  "actual_dependency_tests_passed": false,
+  "local_dependency_boundary": "torch not installed; target 0 collected/1 module skipped, exit5"
+}

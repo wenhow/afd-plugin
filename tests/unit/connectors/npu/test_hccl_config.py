@@ -19,7 +19,7 @@ from afd_plugin.config import (
     afd_config_from_mapping,
     validate_afd_config,
 )
-from tests.unit.fakes.vllm_config import hccl_vllm_config, v41_dspark_config
+from tests.unit.fakes.vllm_config import hccl_vllm_config
 
 
 @pytest.fixture(scope="module")
@@ -224,7 +224,6 @@ def test_staged_runtime_admits_counts_protocol_without_relaxing_legacy_u1(
         ("compilation_config", "use_inductor_graph_partition", True, "modes NONE"),
         (None, "kv_transfer_config", True, "KV transfer/PD"),
         (None, "lora_config", True, "LoRA"),
-        (None, "speculative_config", True, "speculation off"),
     ],
 )
 def test_staged_runtime_preserves_unimplemented_feature_boundaries(
@@ -451,13 +450,13 @@ def test_runtime_rejects_unsupported_optional_features(
 
 
 @pytest.fixture
-def dspark_runtime(runtime):
-    native = v41_dspark_config()
-    runtime.speculative_config = native.speculative_config
-    runtime.model_config.model = native.model_config.model
-    for name, value in vars(native.model_config.hf_text_config).items():
-        setattr(runtime.model_config.hf_text_config, name, value)
-    return runtime
+def dspark_runtime(hccl_config_module):
+    return hccl_vllm_config(
+        dtype=hccl_config_module.torch.bfloat16,
+        compilation_mode=hccl_config_module.CompilationMode.NONE,
+        cudagraph_mode=hccl_config_module.CUDAGraphMode.NONE,
+        dspark=True,
+    )
 
 
 def test_hccl_admits_native_attention_local_dspark_components(
@@ -471,6 +470,51 @@ def test_hccl_admits_native_attention_local_dspark_components(
     assert dspark_runtime.speculative_config.draft_model_config.architectures == [
         "DeepseekV41DSparkModel"
     ]
+
+
+@pytest.mark.parametrize("num_ubatches", [1, 2])
+def test_staged_dspark_target_admits_eager_attention_without_consuming_the_drafter(
+    hccl_config_module, dspark_runtime, afd_config, num_ubatches
+):
+    parallel = dspark_runtime.parallel_config
+    parallel.num_ubatches = num_ubatches
+    parallel.enable_dbo = parallel.use_ubatching = num_ubatches == 2
+    before = deepcopy(dspark_runtime)
+
+    caps = hccl_config_module.validate_staged_hccl_runtime(
+        dspark_runtime, afd_config, 0
+    )
+
+    assert caps.local_counts_version == 1 and caps.graph_execution_version == 0
+    assert caps.layer_indices == tuple(range(40))
+    assert dspark_runtime == before
+
+
+@pytest.mark.parametrize("boundary", ["ffn", "graph", "checkpoint", "method"])
+def test_staged_dspark_target_keeps_role_graph_and_checkpoint_boundaries(
+    hccl_config_module, dspark_runtime, afd_config, boundary
+):
+    graph = boundary == "graph"
+    if graph:
+        dspark_runtime.model_config.enforce_eager = False
+        dspark_runtime.compilation_config.cudagraph_mode = (
+            hccl_config_module.CUDAGraphMode.FULL_DECODE_ONLY
+        )
+    elif boundary == "checkpoint":
+        dspark_runtime.speculative_config.draft_model_config.model = "foreign-model"
+    elif boundary == "method":
+        dspark_runtime.speculative_config.method = "mtp"
+    role = replace(afd_config, role="ffn") if boundary == "ffn" else afd_config
+    reason = {
+        "ffn": "speculation off on FFN",
+        "graph": "speculation off",
+        "checkpoint": "same target checkpoint",
+        "method": "method='dspark'",
+    }[boundary]
+    with pytest.raises(ValueError, match=reason):
+        hccl_config_module.validate_staged_hccl_runtime(
+            dspark_runtime, role, 0, graph=graph
+        )
 
 
 def test_hccl_rejects_classic_mtp(hccl_config_module, dspark_runtime, afd_config):

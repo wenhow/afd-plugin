@@ -1,0 +1,14 @@
+{
+  "command": [
+    "ssh",
+    "-F",
+    "C:/Users/zq/.atomgitdevenv/.ssh/config",
+    "-o",
+    "BatchMode=yes",
+    "-o",
+    "ConnectTimeout=15",
+    "devenvc_rissvg.4ff038c993bf40219c03182f786a9def.atomgit.0",
+    "python3 -B /mnt/workspace/tmp/afd-c0-20261104.hVgsIf/c6-eager-backend-20261110-yiv0m8ml/run_a3_eager_backend.py --remote-root /mnt/workspace/tmp/afd-c0-20261104.hVgsIf/c6-eager-backend-20261110-yiv0m8ml --operation irecv --model /mnt/workspace/models/DeepSeek-V4.1-Flash --gate-window 5"
+  ],
+  "returncode": 0
+}

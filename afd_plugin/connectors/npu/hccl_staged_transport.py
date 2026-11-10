@@ -19,6 +19,11 @@ import torch
 import torch.distributed as dist
 from torch.distributed.distributed_c10d import ProcessGroup
 
+from afd_plugin.compat.npu.stream import use_npu_current_stream
+from afd_plugin.connectors.npu.hccl_eager_pipeline import (
+    HcclEagerPipeline,
+    validate_eager_topology,
+)
 from afd_plugin.connectors.npu.hccl_transport import HcclLayerInputs
 from afd_plugin.distributed.afd_process_group import init_afd_process_group
 from afd_plugin.distributed.hccl import HcclPeerSlice, HcclStageLayout
@@ -92,6 +97,12 @@ class HcclStagedTransport:
         self._steps: Iterator[tuple[int, int]] = iter(())
         self._next_step: tuple[int, int] | None = None
         self._pending_inputs: HcclLayerInputs | None = None
+        self._eager_pipeline: HcclEagerPipeline | None = None
+        self._eager_warmed = False
+        self._eager_warmup_failed = False
+        self._eager_warmed_groups: tuple[ProcessGroup, ...] = ()
+        self._eager_warmup_storage: tuple[torch.Tensor, ...] = ()
+        self._eager_warmup_stream: torch.npu.Stream | None = None
         self._counts_transaction_id: str | None = None
         self._local_forward: HcclLocalForward | None = None
         self._graph_transaction_id: str | None = None
@@ -102,6 +113,131 @@ class HcclStagedTransport:
     @property
     def is_coordinator(self) -> bool:
         return self.world_rank == self.coordinator_rank
+
+    @property
+    def eager_pipeline(self) -> HcclEagerPipeline | None:
+        """The sole eager Work owner, retained on failure for supervision."""
+        return self._eager_pipeline
+
+    @property
+    def eager_pipeline_warmed(self) -> bool:
+        return self._eager_warmed
+
+    def warmup_eager_pipeline(self, *, parent_stream: torch.npu.Stream) -> None:
+        """Explicit all-rank, once-per-session matched warmup on both data groups.
+
+        Invoke before reservations/plans from every paired rank. This does not
+        change HELLO or silently enable an asynchronous schedule on either role.
+        Failure is terminal and preserves groups for external supervision.
+        """
+        self._require_active()
+        validate_eager_topology(self)
+        if (
+            self._eager_warmed
+            or self.plan is not None
+            or self._counts_transaction_id is not None
+            or self._graph_transaction_id is not None
+            or self._eager_pipeline is not None
+        ):
+            raise RuntimeError("eager warmup requires a fresh idle parent boundary")
+        device = torch.device("npu", self.local_device)
+        if (
+            parent_stream.device != device
+            or torch.npu.current_stream(device) != parent_stream
+        ):
+            raise ValueError(
+                "eager warmup requires the actual indexed NPU parent stream"
+            )
+        if torch.npu.is_current_stream_capturing():
+            raise RuntimeError("eager warmup cannot run inside graph capture")
+        if len(self.data_groups) != self.negotiated_capabilities.max_stages:
+            raise RuntimeError("all negotiated stage groups must be initialized")
+        try:
+            self._eager_warmup_stream = parent_stream
+            with use_npu_current_stream(parent_stream):
+                # Small dtype-matched packets trigger only the selected plugin groups.
+                tensors = tuple(
+                    torch.zeros(1, dtype=dtype, device=device)
+                    for dtype in (torch.bfloat16, torch.float32, torch.int32)
+                )
+                self._eager_warmup_storage = tensors
+                for group in self.data_groups:
+                    if self.role == "attention":
+                        for tensor in tensors:
+                            dist.send(tensor, group=group, group_dst=self.role_rank)
+                        dist.recv(tensors[0], group=group, group_src=self.role_rank)
+                    else:
+                        peer = self.negotiated_capabilities.ffn_size + self.role_rank
+                        for tensor in tensors:
+                            dist.recv(tensor, group=group, group_src=peer)
+                        dist.send(tensors[0], group=group, group_dst=peer)
+                torch.npu.synchronize(self.local_device)
+                dist.barrier(group=self.control_group)
+            self._eager_warmed = True
+            self._eager_warmed_groups = tuple(self.data_groups)
+        except BaseException:
+            self._eager_warmup_failed = True
+            self.terminal = True
+            raise
+
+    def open_eager_pipeline(
+        self,
+        *,
+        parent_stream: torch.npu.Stream,
+        send_stream: torch.npu.Stream,
+        receive_stream: torch.npu.Stream,
+    ) -> HcclEagerPipeline:
+        """Opt into one accepted eager U2 parent; the default remains serial."""
+        self._require_active()
+        if not self._eager_warmed:
+            raise RuntimeError(
+                "matched stage-group warmup is required before eager posts"
+            )
+        if len(self.data_groups) != len(self._eager_warmed_groups) or any(
+            current is not warmed
+            for current, warmed in zip(
+                self.data_groups, self._eager_warmed_groups, strict=True
+            )
+        ):
+            raise RuntimeError(
+                "eager posts require the exact matched-warm stage groups"
+            )
+        if self._eager_pipeline is not None or self._pending_inputs is not None:
+            raise RuntimeError("an eager/serial tensor exchange is already active")
+        if self.plan is None or self._next_step != next(
+            (
+                (layer, stage.stage_idx)
+                for layer in self.plan.layer_indices
+                for stage in self.plan.stages
+                if any(stage.attention_padded_tokens)
+            ),
+            None,
+        ):
+            raise RuntimeError("open eager pipeline before any serial parent step")
+        owner = HcclEagerPipeline(
+            self,
+            parent_stream=parent_stream,
+            send_stream=send_stream,
+            receive_stream=receive_stream,
+        )
+        self._eager_pipeline = owner
+        try:
+            owner._allocate_slots()
+        except BaseException:
+            owner.fail()
+            raise
+        return owner
+
+    def _require_no_eager_pipeline(self) -> None:
+        if self._eager_pipeline is not None:
+            raise RuntimeError("the eager ticket owner exclusively owns this parent")
+
+    def _complete_eager_pipeline(self, owner: HcclEagerPipeline) -> None:
+        if self._eager_pipeline is not owner or owner.plan is not self.plan:
+            raise RuntimeError("only the current eager owner can complete its parent")
+        self._steps, self._next_step = iter(()), None
+        self._finish_forward()
+        self._eager_pipeline = None
 
     @property
     def graph_reservation(self) -> HcclGraphDecision | None:
@@ -806,6 +942,7 @@ class HcclStagedTransport:
     def _require_step(
         self, layer_idx: int, stage_idx: int
     ) -> tuple[HcclPeerSlice, ...]:
+        self._require_no_eager_pipeline()
         if (
             type(layer_idx) is not int
             or type(stage_idx) is not int
@@ -999,6 +1136,10 @@ class HcclStagedTransport:
         self._next_step = next(self._steps, None)
 
     def finish_forward(self) -> None:
+        self._require_no_eager_pipeline()
+        self._finish_forward()
+
+    def _finish_forward(self) -> None:
         self._require_active()
         if (
             self.plan is None
@@ -1037,6 +1178,7 @@ class HcclStagedTransport:
         the existing device synchronization and all-world digest handshake.
         """
         self._require_active()
+        self._require_no_eager_pipeline()
         if (
             self.plan is None
             or self.plan.graph_execution is None
@@ -1155,6 +1297,9 @@ class HcclStagedTransport:
 
     def close(self) -> None:
         """Destroy plugin groups in reverse creation order, never native TP."""
+        self._require_no_eager_pipeline()
+        if self._eager_warmup_failed:
+            raise RuntimeError("failed eager warmup retains its groups for supervision")
         if self.closed:
             return
         self.closed = self.terminal = True

@@ -1,0 +1,93 @@
+{
+  "scope": "local stdlib profiler control contracts and static validation only; no NPU or actual-dependency worker execution",
+  "head": "8a6eeb2a81506621f8571784179a46e3f4680d95",
+  "python": "3.14.3",
+  "source_files": {
+    "afd_plugin/compat/npu/profiler.py": "89bfee6694e1b6fd75c0750a742906c987a419faded41417072f71b10ac22129",
+    "afd_plugin/v1/worker/npu/ffn_worker.py": "4f9151420c1b3667c38287f1448652e1711cc922839e8ea5f9e06b173b765ca9",
+    "afd_plugin/v1/worker/npu/ffn_model_runner.py": "bb50e2ca68f1bf3e1f56e22ddf1f0a04d65e3b33cb4f0c80fdfa7bec8a130512",
+    "afd_plugin/v1/worker/npu/async_ffn_model_runner.py": "e5cb17e7769c2d34a828dd5deb3fc9ec6f8dd203c10e3bed3394f425b61f0f25",
+    "tests/unit/fakes/profiler.py": "3a957fee0e4aab5ac8e626249c25919be0b2cfe30b93c73dfeeba93d72054b14",
+    "tests/unit/fakes/hccl.py": "bac125b2d919aadaf52e82b8f883b29054bb2378151c6ed585db4c3f0c84e678",
+    "tests/unit/compat/npu/test_profiler.py": "966c5f0bf034ed27586a1bdf94419ba4926fc789c1d3d66df7110b2b1d3906b3",
+    "tests/unit/compat/patches/test_signatures.py": "acd0046014fcea1ab920d207e991d99f2b9f319dff25c9bc388aa40e68616ed2",
+    "tests/unit/v1/worker/npu/test_ffn_worker.py": "866c7059170a3bd1035e7e828a38505a3caa9d0bac3e52a48148fb22fec76bb9",
+    "tests/unit/v1/worker/test_npu_runtime.py": "5ae4d95d4bd94c4eb4c8f932eca0748aa54c90c309575e96969af501bf855a14",
+    "tests/unit/v1/worker/test_async_ffn_runtime.py": "0c21df64eafe78b84d7f25c21a3dc81a83d95fa453eac6e41777ed5d1c3cacdd"
+  },
+  "results": [
+    {
+      "command": ".venv/Scripts/python.exe -m ruff check <11 source_files paths>",
+      "exit_code": 0,
+      "output": "All checks passed!",
+      "record_type": "tool result transcription; not a raw subprocess log"
+    },
+    {
+      "command": ".venv/Scripts/python.exe -m ruff format --check <11 source_files paths>",
+      "exit_code": 0,
+      "output": "11 files already formatted",
+      "record_type": "tool result transcription; not a raw subprocess log"
+    },
+    {
+      "command": ".venv/Scripts/python.exe -m pytest tests/unit/compat/npu/test_profiler.py tests/unit/v1/worker/npu/test_ffn_worker.py tests/unit/v1/worker/test_npu_runtime.py tests/unit/v1/worker/test_async_ffn_runtime.py tests/unit/compat/patches/test_signatures.py -ra",
+      "exit_code": 0,
+      "passed": 26,
+      "skipped": 18,
+      "output": "26 passed, 18 skipped in 0.21s; 3 missing dependency modules and 15 signature cases skipped (no torch/vllm)",
+      "record_type": "tool result transcription; not a raw subprocess log"
+    },
+    {
+      "command": "ast.parse(feature_version=(3,11)) for all 11 source_files; git diff --check -- <11 source_files paths>",
+      "exit_code": 0,
+      "record_type": "tool result transcription; no syntax/diff errors"
+    }
+  ],
+  "not_validated": [
+    "actual dependency FFN worker tests",
+    "HTTP role-env-only router integration",
+    "A owner/control migration",
+    "NPU timeline generation/content",
+    "full model profiler/performance parity"
+  ],
+  "source_hash_provenance": "11-file freeze recorded by AST/hash tool result before subsequent root-owned FFN eager-consumer edits. Exact frozen files are not asserted to equal the later worktree.",
+  "static_followup": {
+    "reason": "Retain role-profiler export errors even when legacy CAM shutdown event is set; do not classify them as an interrupted receive. One additional public worker lifecycle test.",
+    "source_files": {
+      "afd_plugin/v1/worker/npu/ffn_worker.py": "0fcad157d68eedbdc81310ca4acb1840243ff10aa968587cb3e6f63f4d54d5de",
+      "tests/unit/fakes/profiler.py": "ddc69ac31d2ef48a34e797a33905c649410639f1d159e2500b59ca7792ec4a06",
+      "tests/unit/v1/worker/npu/test_ffn_worker.py": "1118a2ad3a2e408e170ff8037e8a374d93c7de3d42c1dfef093ef22046b34d51"
+    },
+    "commands": [
+      ".venv/Scripts/python.exe -m ruff check <three source_files paths>",
+      ".venv/Scripts/python.exe -m ruff format --check <three source_files paths>",
+      "ast.parse(feature_version=(3,11)) for three source_files"
+    ],
+    "exit_codes": [
+      0,
+      0,
+      0
+    ],
+    "record_type": "tool result transcription; not actual-dependency worker test execution"
+  },
+  "restart_static_followup": {
+    "reason": "Reject a failed/closed deferred owner before legacy connector initialization or daemon restart; None retains original legacy startup behavior.",
+    "source_files": {
+      "afd_plugin/v1/worker/npu/ffn_worker.py": "6f36918afc2dbd0d0afedc7a908be676f111d9398a4858a34556a3beaf0d2e7e",
+      "tests/unit/fakes/profiler.py": "89d339ed854d12bd851056889502f9b2cffd30377ee6da21e4466e9d544a9343",
+      "tests/unit/v1/worker/npu/test_ffn_worker.py": "abae9eb4054374a7df9037774300681e7f83a0aa4e710612f2e3b5cd72910411"
+    },
+    "commands": [
+      ".venv/Scripts/python.exe -m ruff check <three source_files paths>",
+      ".venv/Scripts/python.exe -m ruff format --check <three source_files paths>",
+      "ast.parse(feature_version=(3,11)) for three source_files",
+      "git diff --check -- <three source_files paths>"
+    ],
+    "exit_codes": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "record_type": "tool result transcription; actual A3 result is separate immutable evidence"
+  }
+}

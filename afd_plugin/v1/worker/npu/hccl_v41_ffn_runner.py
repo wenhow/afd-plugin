@@ -16,6 +16,7 @@ import torch
 
 from afd_plugin.compat.npu import ascend_forward_context
 from afd_plugin.connectors.metadata import AFDForwardContextMetadata
+from afd_plugin.connectors.npu.hccl_diagnostics import HcclStageDiagnostics
 from afd_plugin.connectors.npu.hccl_staged_transport import HcclStagedTransport
 from afd_plugin.v1.worker.ffn_metadata import _set_moe_layer_index
 
@@ -27,7 +28,10 @@ if TYPE_CHECKING:
 
 
 def execute_hccl_v41_parent(
-    runner: AFDNPUFFNModelRunner, transport: HcclStagedTransport
+    runner: AFDNPUFFNModelRunner,
+    transport: HcclStagedTransport,
+    *,
+    diagnostics: HcclStageDiagnostics | None = None,
 ) -> None:
     """Run all accepted layer/stage aggregates and complete one parent.
 
@@ -64,6 +68,23 @@ def execute_hccl_v41_parent(
             raise ValueError("V4.1 staged FFN role size must match its native TP world")
         if parallel.rank != transport.role_rank:
             raise ValueError("V4.1 staged FFN native rank does not match role_rank")
+        progress = None
+        if diagnostics is not None:
+            if (
+                diagnostics.selection.role != "ffn"
+                or diagnostics.selection.phase != "eager"
+                or diagnostics.selection.num_stages != len(plan.stages)
+                or diagnostics.role_rank != transport.role_rank
+            ):
+                raise ValueError(
+                    "FFN eager diagnostics must match the accepted role/stages"
+                )
+            progress = diagnostics.bind_execution(
+                layer_indices=plan.layer_indices,
+                actual_compute_stream="parent",
+                in_profile_run=plan.mode == "profile",
+                is_warmup=plan.mode in ("warmup", "dummy"),
+            )
         if not any(any(stage.attention_padded_tokens) for stage in plan.stages):
             transport.finish_forward()
             return
@@ -88,7 +109,11 @@ def execute_hccl_v41_parent(
                     transaction_id=plan.transaction_id,
                     tokens_unpadded_lens=[sum(peer.valid_tokens for peer in peers)],
                 )
+                if progress is not None:
+                    progress.record("recv_begin", layer_idx, stage.stage_idx)
                 payload = transport.receive_layer(layer_idx, stage.stage_idx)
+                if progress is not None:
+                    progress.record("recv_returned", layer_idx, stage.stage_idx)
                 with ascend_forward_context(
                     vllm_config=runner.vllm_config,
                     afd_metadata=metadata,
@@ -99,6 +124,8 @@ def execute_hccl_v41_parent(
                     input_ids=payload.input_ids,
                 ) as forward_context:
                     _set_moe_layer_index(forward_context, layer_idx)
+                    if progress is not None:
+                        progress.record("compute_begin", layer_idx, stage.stage_idx)
                     output = model.compute_ffn_output(
                         hidden_states=payload.hidden_states,
                         layer_idx=layer_idx,
@@ -106,7 +133,13 @@ def execute_hccl_v41_parent(
                         hidden_states_fp32=payload.hidden_states_fp32,
                         already_sequence_parallel=False,
                     )
+                    if progress is not None:
+                        progress.record("compute_returned", layer_idx, stage.stage_idx)
+                        progress.synchronize_compute(layer_idx, stage.stage_idx)
+                        progress.record("send_begin", layer_idx, stage.stage_idx)
                     transport.send_layer_output(layer_idx, stage.stage_idx, output)
+                    if progress is not None:
+                        progress.record("send_returned", layer_idx, stage.stage_idx)
         transport.finish_forward()
     except BaseException:
         # No best-effort network abort can release a peer blocked in HCCL.

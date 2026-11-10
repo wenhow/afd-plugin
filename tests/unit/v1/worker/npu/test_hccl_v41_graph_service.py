@@ -23,6 +23,7 @@ from vllm.forward_context import (
 
 from afd_plugin.connectors.npu.hccl_graph_cache import HcclGraphCache
 from afd_plugin.connectors.npu.hccl_graph_pipeline import HcclGraphPipelinePolicy
+from afd_plugin.connectors.npu.hccl_overlap import HcclOverlapSettings
 from afd_plugin.distributed.hccl_graph import graph_capture_sequence_digest
 from afd_plugin.v1.worker.npu import hccl_v41_graph_service as service_module
 from tests.unit.fakes.hccl_v41_ffn_graph import make_ffn_graph_case
@@ -84,6 +85,115 @@ def test_same_bank_pipeline_replacement_rejects_before_replay(pipeline_case):
         case.service.execute_step()
     assert case.events == ["ERROR"]
     assert replacement.terminal and case.transport.terminal
+
+
+@pytest.mark.parametrize("rows", [(4,), (2, 2)])
+@pytest.mark.parametrize(
+    "compute,recv,cross",
+    [
+        (True, True, True),
+        (True, True, False),
+        (True, False, False),
+        (False, True, True),
+    ],
+)
+def test_ffn_settings_select_pipeline_without_disabling_native_graph(
+    monkeypatch, rows, compute, recv, cross
+):
+    settings = HcclOverlapSettings(
+        graph_u2_compute_overlap=compute,
+        graph_u2_ffn_recv_stream=recv,
+        graph_u2_ffn_cross_layer=cross,
+    )
+    case = make_graph_service_case(
+        service_module, monkeypatch, overlap_settings=settings, rows=rows
+    )
+    for phase in ("warmup", "capture", "replay"):
+        case.transport.queue_parent(phase, identifier=phase, valid=rows)
+        assert case.service.execute_step()
+    entry = case.cache.find(case.transport.base_bank.key, 0)
+    assert entry.resources.overlap_settings == settings
+    pipeline = entry.resources.pipeline
+    assert (pipeline is not None) == (len(rows) > 1 and compute)
+    if pipeline is not None:
+        assert pipeline.policy.ffn_recv_stream == recv
+        assert pipeline.policy.ffn_cross_layer == cross
+    assert "graph-replay" in case.events
+    case.transport.queue_stop()
+    assert case.service.execute_step() is False
+    case.service.close()
+    assert case.cache.closed
+
+
+@pytest.mark.parametrize(
+    "rows,compute", [((4,), True), ((2, 2), False), ((2, 2), True)]
+)
+def test_ffn_cached_graph_rejects_changed_settings_before_new_payload(
+    monkeypatch, rows, compute
+):
+    settings = HcclOverlapSettings(graph_u2_compute_overlap=compute)
+    case = make_graph_service_case(
+        service_module, monkeypatch, overlap_settings=settings, rows=rows
+    )
+    case.transport.queue_parent("capture", identifier="capture", valid=rows)
+    assert case.service.execute_step()
+    case.service = service_module.HcclV41GraphService(
+        case.runner,
+        case.transport,
+        case.cache,
+        lambda: 0,
+        overlap_settings=replace(settings, graph_u2_attention_three_stream=False),
+        graph_factory=case.api.create,
+        graph_capture=case.api.capture,
+    )
+    case.events.clear()
+    case.transport.queue_rejection(
+        "replay", error="FFN graph resources belong to another model/session"
+    )
+    with pytest.raises(RuntimeError, match="another model/session"):
+        case.service.execute_step()
+    assert case.events == ["ERROR"]
+    assert case.cache.terminal and case.transport.terminal
+
+
+@pytest.mark.parametrize(
+    "rows,compute", [((4,), True), ((2, 2), False), ((2, 2), True)]
+)
+def test_ffn_configuration_is_reported_before_capture_and_preserved_on_replay(
+    monkeypatch, rows, compute
+):
+    records, capture_states = [], []
+
+    def emit(record):
+        records.append(record)
+        capture_states.append(case.api.capturing)
+
+    case = make_graph_service_case(
+        service_module,
+        monkeypatch,
+        rows=rows,
+        diagnostic_sink=emit,
+        overlap_settings=HcclOverlapSettings(
+            graph_u2_compute_overlap=compute,
+            stage_diagnostics=True,
+            ffn_compute_sync_diagnostics=True,
+        ),
+    )
+    for phase in ("warmup", "capture", "replay"):
+        case.transport.queue_parent(phase, identifier=phase, valid=rows)
+        assert case.service.execute_step()
+    assert capture_states == [False, False]
+    assert [record["phase"] for record in records] == ["graph_warmup", "graph_capture"]
+    for record in records:
+        assert record["event"] == "configuration"
+        assert record["role"] == "ffn"
+        assert record["world_rank"] == case.transport.world_rank
+        assert record["actual.compute_stream"] == (
+            "compute" if len(rows) > 1 and compute else "parent"
+        )
+        assert record["actual.recv_stream"] == "parent"
+        assert record["actual.ffn_compute_sync"] is False
+    assert "graph-replay" in case.events
 
 
 def test_graph_phase_sequence_keeps_caller_ownership(

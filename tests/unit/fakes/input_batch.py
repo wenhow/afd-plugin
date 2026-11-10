@@ -4,7 +4,6 @@
 
 from types import SimpleNamespace
 
-import numpy as np
 import torch
 from vllm.config import CUDAGraphMode
 from vllm_ascend.worker.v2.input_batch import AscendInputBatch, AscendInputBuffers
@@ -12,16 +11,36 @@ from vllm_ascend.worker.v2.input_batch import AscendInputBatch, AscendInputBuffe
 from tests.unit.fakes.vllm_config import npu_vllm_config
 
 
-def make_ascend_batch(real=5, padded=8):
-    buffers = AscendInputBuffers(2, padded, torch.device("cpu"))
-    batch = AscendInputBatch.make_dummy(1, real, buffers)
+def make_ascend_batch(real=5, padded=8, *, num_reqs=1):
+    buffers = AscendInputBuffers(max(2, num_reqs), padded, torch.device("cpu"))
+    batch = AscendInputBatch.make_dummy(num_reqs, real, buffers)
     batch.num_tokens_after_padding = padded
     batch.input_ids = torch.arange(padded)
     batch.positions = torch.arange(padded)
     batch.is_padding = torch.arange(padded) >= real
     batch.seq_lens += 12
     batch.seq_lens_cpu_upper_bound += 12
-    batch.seq_lens_np = np.array([real + 12], dtype=np.int32)
+    batch.seq_lens_np = batch.num_scheduled_tokens.copy() + 12
+    return batch
+
+
+def make_ascend_speculative_batch(real=5, padded=8):
+    """Two native request queries, with all target logits retained for sampling.
+
+    This describes scheduled draft tokens; it performs no acceptance/rejection
+    and does not run the native request-history or device preparation kernels.
+    """
+    batch = make_ascend_batch(real, padded, num_reqs=2)
+    batch.num_draft_tokens_per_req = batch.num_scheduled_tokens - 1
+    batch.num_draft_tokens = int(batch.num_draft_tokens_per_req.sum())
+    counts = torch.from_numpy(batch.num_scheduled_tokens)
+    batch.expanded_idx_mapping = torch.repeat_interleave(batch.idx_mapping, counts)
+    batch.expanded_local_pos = torch.cat(
+        [torch.arange(int(count), dtype=torch.int32) for count in counts]
+    )
+    batch.logits_indices = torch.arange(real, dtype=torch.int64)
+    batch.cu_num_logits = batch.query_start_loc.clone()
+    batch.cu_num_logits_np = batch.query_start_loc_np.copy()
     return batch
 
 
@@ -76,6 +95,7 @@ def make_hccl_ubatch_seam(
     runner.parallel_config = runner.vllm_config.parallel_config
     runner.model_state = model_state
     runner.graph_owner = graph_owner
+    runner.eager_session = None
     runner._preparing_cg_mode = CUDAGraphMode.NONE
     runner.num_ubatches, runner.dcp_size, runner.dcp_rank = 2, 1, 0
     runner.cp_interleave = 1

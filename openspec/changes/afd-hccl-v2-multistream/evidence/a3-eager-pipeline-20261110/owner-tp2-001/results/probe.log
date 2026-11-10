@@ -1,0 +1,1316 @@
+{
+  "scope": "actual eager owner component; no MoE/model/overlap acceptance",
+  "success": true,
+  "tp_size": 2,
+  "devices": [
+    0,
+    2,
+    4,
+    6
+  ],
+  "killed_owned_pids": [],
+  "exit_codes": {
+    "ffn-0": 0,
+    "ffn-1": 0,
+    "attention-0": 0,
+    "attention-1": 0
+  },
+  "workers": {
+    "ffn-0": {
+      "scope": "actual eager ticket/loan component; controlled arithmetic only",
+      "role": "ffn",
+      "role_rank": 0,
+      "device": "npu:0",
+      "pid": 4169670,
+      "success": true,
+      "model_weights_loaded": false,
+      "native_moe_exercised": false,
+      "overlap_or_performance_claim": false,
+      "checked_steps": [
+        {
+          "parent": "eager-owner-0",
+          "layer": 0,
+          "stage": 0,
+          "rows": 3,
+          "valid": 2,
+          "bf16_exact": true,
+          "original_fp32_exact": true,
+          "raw_ids_exact": true
+        },
+        {
+          "parent": "eager-owner-0",
+          "layer": 0,
+          "stage": 1,
+          "rows": 5,
+          "valid": 5,
+          "bf16_exact": true,
+          "original_fp32_exact": true,
+          "raw_ids_exact": true
+        },
+        {
+          "parent": "eager-owner-0",
+          "layer": 2,
+          "stage": 0,
+          "rows": 3,
+          "valid": 2,
+          "bf16_exact": true,
+          "original_fp32_exact": true,
+          "raw_ids_exact": true
+        },
+        {
+          "parent": "eager-owner-0",
+          "layer": 2,
+          "stage": 1,
+          "rows": 5,
+          "valid": 5,
+          "bf16_exact": true,
+          "original_fp32_exact": true,
+          "raw_ids_exact": true
+        },
+        {
+          "parent": "eager-owner-1",
+          "layer": 0,
+          "stage": 0,
+          "rows": 1,
+          "valid": 1,
+          "bf16_exact": true,
+          "original_fp32_exact": true,
+          "raw_ids_exact": true
+        },
+        {
+          "parent": "eager-owner-1",
+          "layer": 0,
+          "stage": 1,
+          "rows": 4,
+          "valid": 2,
+          "bf16_exact": true,
+          "original_fp32_exact": true,
+          "raw_ids_exact": true
+        },
+        {
+          "parent": "eager-owner-1",
+          "layer": 2,
+          "stage": 0,
+          "rows": 1,
+          "valid": 1,
+          "bf16_exact": true,
+          "original_fp32_exact": true,
+          "raw_ids_exact": true
+        },
+        {
+          "parent": "eager-owner-1",
+          "layer": 2,
+          "stage": 1,
+          "rows": 4,
+          "valid": 2,
+          "bf16_exact": true,
+          "original_fp32_exact": true,
+          "raw_ids_exact": true
+        },
+        {
+          "parent": "eager-owner-2",
+          "layer": 0,
+          "stage": 1,
+          "rows": 3,
+          "valid": 1,
+          "bf16_exact": true,
+          "original_fp32_exact": true,
+          "raw_ids_exact": true
+        },
+        {
+          "parent": "eager-owner-2",
+          "layer": 2,
+          "stage": 1,
+          "rows": 3,
+          "valid": 1,
+          "bf16_exact": true,
+          "original_fp32_exact": true,
+          "raw_ids_exact": true
+        },
+        {
+          "parent": "eager-owner-3",
+          "layer": 0,
+          "stage": 0,
+          "rows": 2,
+          "valid": 0,
+          "bf16_exact": true,
+          "original_fp32_exact": true,
+          "raw_ids_exact": true
+        },
+        {
+          "parent": "eager-owner-3",
+          "layer": 2,
+          "stage": 0,
+          "rows": 2,
+          "valid": 0,
+          "bf16_exact": true,
+          "original_fp32_exact": true,
+          "raw_ids_exact": true
+        },
+        {
+          "parent": "eager-owner-5",
+          "layer": 0,
+          "stage": 0,
+          "rows": 5,
+          "valid": 4,
+          "bf16_exact": true,
+          "original_fp32_exact": true,
+          "raw_ids_exact": true
+        },
+        {
+          "parent": "eager-owner-5",
+          "layer": 0,
+          "stage": 1,
+          "rows": 2,
+          "valid": 0,
+          "bf16_exact": true,
+          "original_fp32_exact": true,
+          "raw_ids_exact": true
+        },
+        {
+          "parent": "eager-owner-5",
+          "layer": 2,
+          "stage": 0,
+          "rows": 5,
+          "valid": 4,
+          "bf16_exact": true,
+          "original_fp32_exact": true,
+          "raw_ids_exact": true
+        },
+        {
+          "parent": "eager-owner-5",
+          "layer": 2,
+          "stage": 1,
+          "rows": 2,
+          "valid": 0,
+          "bf16_exact": true,
+          "original_fp32_exact": true,
+          "raw_ids_exact": true
+        }
+      ],
+      "posting_frontiers": [],
+      "parents": [
+        {
+          "transaction_id": "eager-owner-0",
+          "padded": [
+            3,
+            5
+          ],
+          "valid": [
+            2,
+            5
+          ],
+          "finished": true
+        },
+        {
+          "transaction_id": "eager-owner-1",
+          "padded": [
+            1,
+            4
+          ],
+          "valid": [
+            1,
+            2
+          ],
+          "finished": true
+        },
+        {
+          "transaction_id": "eager-owner-2",
+          "padded": [
+            0,
+            3
+          ],
+          "valid": [
+            0,
+            1
+          ],
+          "finished": true
+        },
+        {
+          "transaction_id": "eager-owner-3",
+          "padded": [
+            2,
+            0
+          ],
+          "valid": [
+            0,
+            0
+          ],
+          "finished": true
+        },
+        {
+          "transaction_id": "eager-owner-4",
+          "padded": [
+            0,
+            0
+          ],
+          "valid": [
+            0,
+            0
+          ],
+          "finished": true
+        },
+        {
+          "transaction_id": "eager-owner-5",
+          "padded": [
+            5,
+            2
+          ],
+          "valid": [
+            4,
+            0
+          ],
+          "finished": true
+        }
+      ],
+      "native_tp_before": [
+        2.0
+      ],
+      "matched_stage_groups_warmed": true,
+      "normal_stop": true,
+      "native_tp_after_plugin_close": [
+        2.0
+      ]
+    },
+    "ffn-1": {
+      "scope": "actual eager ticket/loan component; controlled arithmetic only",
+      "role": "ffn",
+      "role_rank": 1,
+      "device": "npu:2",
+      "pid": 4169671,
+      "success": true,
+      "model_weights_loaded": false,
+      "native_moe_exercised": false,
+      "overlap_or_performance_claim": false,
+      "checked_steps": [
+        {
+          "parent": "eager-owner-0",
+          "layer": 0,
+          "stage": 0,
+          "rows": 3,
+          "valid": 2,
+          "bf16_exact": true,
+          "original_fp32_exact": true,
+          "raw_ids_exact": true
+        },
+        {
+          "parent": "eager-owner-0",
+          "layer": 0,
+          "stage": 1,
+          "rows": 5,
+          "valid": 5,
+          "bf16_exact": true,
+          "original_fp32_exact": true,
+          "raw_ids_exact": true
+        },
+        {
+          "parent": "eager-owner-0",
+          "layer": 2,
+          "stage": 0,
+          "rows": 3,
+          "valid": 2,
+          "bf16_exact": true,
+          "original_fp32_exact": true,
+          "raw_ids_exact": true
+        },
+        {
+          "parent": "eager-owner-0",
+          "layer": 2,
+          "stage": 1,
+          "rows": 5,
+          "valid": 5,
+          "bf16_exact": true,
+          "original_fp32_exact": true,
+          "raw_ids_exact": true
+        },
+        {
+          "parent": "eager-owner-1",
+          "layer": 0,
+          "stage": 0,
+          "rows": 1,
+          "valid": 1,
+          "bf16_exact": true,
+          "original_fp32_exact": true,
+          "raw_ids_exact": true
+        },
+        {
+          "parent": "eager-owner-1",
+          "layer": 0,
+          "stage": 1,
+          "rows": 4,
+          "valid": 2,
+          "bf16_exact": true,
+          "original_fp32_exact": true,
+          "raw_ids_exact": true
+        },
+        {
+          "parent": "eager-owner-1",
+          "layer": 2,
+          "stage": 0,
+          "rows": 1,
+          "valid": 1,
+          "bf16_exact": true,
+          "original_fp32_exact": true,
+          "raw_ids_exact": true
+        },
+        {
+          "parent": "eager-owner-1",
+          "layer": 2,
+          "stage": 1,
+          "rows": 4,
+          "valid": 2,
+          "bf16_exact": true,
+          "original_fp32_exact": true,
+          "raw_ids_exact": true
+        },
+        {
+          "parent": "eager-owner-2",
+          "layer": 0,
+          "stage": 1,
+          "rows": 3,
+          "valid": 1,
+          "bf16_exact": true,
+          "original_fp32_exact": true,
+          "raw_ids_exact": true
+        },
+        {
+          "parent": "eager-owner-2",
+          "layer": 2,
+          "stage": 1,
+          "rows": 3,
+          "valid": 1,
+          "bf16_exact": true,
+          "original_fp32_exact": true,
+          "raw_ids_exact": true
+        },
+        {
+          "parent": "eager-owner-3",
+          "layer": 0,
+          "stage": 0,
+          "rows": 2,
+          "valid": 0,
+          "bf16_exact": true,
+          "original_fp32_exact": true,
+          "raw_ids_exact": true
+        },
+        {
+          "parent": "eager-owner-3",
+          "layer": 2,
+          "stage": 0,
+          "rows": 2,
+          "valid": 0,
+          "bf16_exact": true,
+          "original_fp32_exact": true,
+          "raw_ids_exact": true
+        },
+        {
+          "parent": "eager-owner-5",
+          "layer": 0,
+          "stage": 0,
+          "rows": 5,
+          "valid": 4,
+          "bf16_exact": true,
+          "original_fp32_exact": true,
+          "raw_ids_exact": true
+        },
+        {
+          "parent": "eager-owner-5",
+          "layer": 0,
+          "stage": 1,
+          "rows": 2,
+          "valid": 0,
+          "bf16_exact": true,
+          "original_fp32_exact": true,
+          "raw_ids_exact": true
+        },
+        {
+          "parent": "eager-owner-5",
+          "layer": 2,
+          "stage": 0,
+          "rows": 5,
+          "valid": 4,
+          "bf16_exact": true,
+          "original_fp32_exact": true,
+          "raw_ids_exact": true
+        },
+        {
+          "parent": "eager-owner-5",
+          "layer": 2,
+          "stage": 1,
+          "rows": 2,
+          "valid": 0,
+          "bf16_exact": true,
+          "original_fp32_exact": true,
+          "raw_ids_exact": true
+        }
+      ],
+      "posting_frontiers": [],
+      "parents": [
+        {
+          "transaction_id": "eager-owner-0",
+          "padded": [
+            3,
+            5
+          ],
+          "valid": [
+            2,
+            5
+          ],
+          "finished": true
+        },
+        {
+          "transaction_id": "eager-owner-1",
+          "padded": [
+            1,
+            4
+          ],
+          "valid": [
+            1,
+            2
+          ],
+          "finished": true
+        },
+        {
+          "transaction_id": "eager-owner-2",
+          "padded": [
+            0,
+            3
+          ],
+          "valid": [
+            0,
+            1
+          ],
+          "finished": true
+        },
+        {
+          "transaction_id": "eager-owner-3",
+          "padded": [
+            2,
+            0
+          ],
+          "valid": [
+            0,
+            0
+          ],
+          "finished": true
+        },
+        {
+          "transaction_id": "eager-owner-4",
+          "padded": [
+            0,
+            0
+          ],
+          "valid": [
+            0,
+            0
+          ],
+          "finished": true
+        },
+        {
+          "transaction_id": "eager-owner-5",
+          "padded": [
+            5,
+            2
+          ],
+          "valid": [
+            4,
+            0
+          ],
+          "finished": true
+        }
+      ],
+      "native_tp_before": [
+        2.0
+      ],
+      "matched_stage_groups_warmed": true,
+      "normal_stop": true,
+      "native_tp_after_plugin_close": [
+        2.0
+      ]
+    },
+    "attention-0": {
+      "scope": "actual eager ticket/loan component; controlled arithmetic only",
+      "role": "attention",
+      "role_rank": 0,
+      "device": "npu:4",
+      "pid": 4169672,
+      "success": true,
+      "model_weights_loaded": false,
+      "native_moe_exercised": false,
+      "overlap_or_performance_claim": false,
+      "checked_steps": [
+        {
+          "parent": "eager-owner-0",
+          "layer": 0,
+          "stage": 0,
+          "rows": 3,
+          "valid": 2,
+          "independent_fp32": true,
+          "raw_ids_exact": true,
+          "full_output_exact": true
+        },
+        {
+          "parent": "eager-owner-0",
+          "layer": 0,
+          "stage": 1,
+          "rows": 5,
+          "valid": 5,
+          "independent_fp32": true,
+          "raw_ids_exact": true,
+          "full_output_exact": true
+        },
+        {
+          "parent": "eager-owner-0",
+          "layer": 2,
+          "stage": 0,
+          "rows": 3,
+          "valid": 2,
+          "independent_fp32": true,
+          "raw_ids_exact": true,
+          "full_output_exact": true
+        },
+        {
+          "parent": "eager-owner-0",
+          "layer": 2,
+          "stage": 1,
+          "rows": 5,
+          "valid": 5,
+          "independent_fp32": true,
+          "raw_ids_exact": true,
+          "full_output_exact": true
+        },
+        {
+          "parent": "eager-owner-1",
+          "layer": 0,
+          "stage": 0,
+          "rows": 1,
+          "valid": 1,
+          "independent_fp32": true,
+          "raw_ids_exact": true,
+          "full_output_exact": true
+        },
+        {
+          "parent": "eager-owner-1",
+          "layer": 0,
+          "stage": 1,
+          "rows": 4,
+          "valid": 2,
+          "independent_fp32": true,
+          "raw_ids_exact": true,
+          "full_output_exact": true
+        },
+        {
+          "parent": "eager-owner-1",
+          "layer": 2,
+          "stage": 0,
+          "rows": 1,
+          "valid": 1,
+          "independent_fp32": true,
+          "raw_ids_exact": true,
+          "full_output_exact": true
+        },
+        {
+          "parent": "eager-owner-1",
+          "layer": 2,
+          "stage": 1,
+          "rows": 4,
+          "valid": 2,
+          "independent_fp32": true,
+          "raw_ids_exact": true,
+          "full_output_exact": true
+        },
+        {
+          "parent": "eager-owner-2",
+          "layer": 0,
+          "stage": 1,
+          "rows": 3,
+          "valid": 1,
+          "independent_fp32": true,
+          "raw_ids_exact": true,
+          "full_output_exact": true
+        },
+        {
+          "parent": "eager-owner-2",
+          "layer": 2,
+          "stage": 1,
+          "rows": 3,
+          "valid": 1,
+          "independent_fp32": true,
+          "raw_ids_exact": true,
+          "full_output_exact": true
+        },
+        {
+          "parent": "eager-owner-3",
+          "layer": 0,
+          "stage": 0,
+          "rows": 2,
+          "valid": 0,
+          "independent_fp32": true,
+          "raw_ids_exact": true,
+          "full_output_exact": true
+        },
+        {
+          "parent": "eager-owner-3",
+          "layer": 2,
+          "stage": 0,
+          "rows": 2,
+          "valid": 0,
+          "independent_fp32": true,
+          "raw_ids_exact": true,
+          "full_output_exact": true
+        },
+        {
+          "parent": "eager-owner-5",
+          "layer": 0,
+          "stage": 0,
+          "rows": 5,
+          "valid": 4,
+          "independent_fp32": true,
+          "raw_ids_exact": true,
+          "full_output_exact": true
+        },
+        {
+          "parent": "eager-owner-5",
+          "layer": 0,
+          "stage": 1,
+          "rows": 2,
+          "valid": 0,
+          "independent_fp32": true,
+          "raw_ids_exact": true,
+          "full_output_exact": true
+        },
+        {
+          "parent": "eager-owner-5",
+          "layer": 2,
+          "stage": 0,
+          "rows": 5,
+          "valid": 4,
+          "independent_fp32": true,
+          "raw_ids_exact": true,
+          "full_output_exact": true
+        },
+        {
+          "parent": "eager-owner-5",
+          "layer": 2,
+          "stage": 1,
+          "rows": 2,
+          "valid": 0,
+          "independent_fp32": true,
+          "raw_ids_exact": true,
+          "full_output_exact": true
+        }
+      ],
+      "posting_frontiers": [
+        {
+          "parent": "eager-owner-0",
+          "layer": 0,
+          "occupied_stages_before_output_loans": [
+            0,
+            1
+          ],
+          "ticket_stages": [
+            0,
+            1
+          ]
+        },
+        {
+          "parent": "eager-owner-0",
+          "layer": 2,
+          "occupied_stages_before_output_loans": [
+            0,
+            1
+          ],
+          "ticket_stages": [
+            0,
+            1
+          ]
+        },
+        {
+          "parent": "eager-owner-1",
+          "layer": 0,
+          "occupied_stages_before_output_loans": [
+            0,
+            1
+          ],
+          "ticket_stages": [
+            0,
+            1
+          ]
+        },
+        {
+          "parent": "eager-owner-1",
+          "layer": 2,
+          "occupied_stages_before_output_loans": [
+            0,
+            1
+          ],
+          "ticket_stages": [
+            0,
+            1
+          ]
+        },
+        {
+          "parent": "eager-owner-2",
+          "layer": 0,
+          "occupied_stages_before_output_loans": [
+            1
+          ],
+          "ticket_stages": [
+            1
+          ]
+        },
+        {
+          "parent": "eager-owner-2",
+          "layer": 2,
+          "occupied_stages_before_output_loans": [
+            1
+          ],
+          "ticket_stages": [
+            1
+          ]
+        },
+        {
+          "parent": "eager-owner-3",
+          "layer": 0,
+          "occupied_stages_before_output_loans": [
+            0
+          ],
+          "ticket_stages": [
+            0
+          ]
+        },
+        {
+          "parent": "eager-owner-3",
+          "layer": 2,
+          "occupied_stages_before_output_loans": [
+            0
+          ],
+          "ticket_stages": [
+            0
+          ]
+        },
+        {
+          "parent": "eager-owner-4",
+          "layer": 0,
+          "occupied_stages_before_output_loans": [],
+          "ticket_stages": []
+        },
+        {
+          "parent": "eager-owner-4",
+          "layer": 2,
+          "occupied_stages_before_output_loans": [],
+          "ticket_stages": []
+        },
+        {
+          "parent": "eager-owner-5",
+          "layer": 0,
+          "occupied_stages_before_output_loans": [
+            0,
+            1
+          ],
+          "ticket_stages": [
+            0,
+            1
+          ]
+        },
+        {
+          "parent": "eager-owner-5",
+          "layer": 2,
+          "occupied_stages_before_output_loans": [
+            0,
+            1
+          ],
+          "ticket_stages": [
+            0,
+            1
+          ]
+        }
+      ],
+      "parents": [
+        {
+          "transaction_id": "eager-owner-0",
+          "padded": [
+            3,
+            5
+          ],
+          "valid": [
+            2,
+            5
+          ],
+          "finished": true
+        },
+        {
+          "transaction_id": "eager-owner-1",
+          "padded": [
+            1,
+            4
+          ],
+          "valid": [
+            1,
+            2
+          ],
+          "finished": true
+        },
+        {
+          "transaction_id": "eager-owner-2",
+          "padded": [
+            0,
+            3
+          ],
+          "valid": [
+            0,
+            1
+          ],
+          "finished": true
+        },
+        {
+          "transaction_id": "eager-owner-3",
+          "padded": [
+            2,
+            0
+          ],
+          "valid": [
+            0,
+            0
+          ],
+          "finished": true
+        },
+        {
+          "transaction_id": "eager-owner-4",
+          "padded": [
+            0,
+            0
+          ],
+          "valid": [
+            0,
+            0
+          ],
+          "finished": true
+        },
+        {
+          "transaction_id": "eager-owner-5",
+          "padded": [
+            5,
+            2
+          ],
+          "valid": [
+            4,
+            0
+          ],
+          "finished": true
+        }
+      ],
+      "native_tp_before": [
+        2.0
+      ],
+      "matched_stage_groups_warmed": true,
+      "normal_stop": true,
+      "native_tp_after_plugin_close": [
+        2.0
+      ]
+    },
+    "attention-1": {
+      "scope": "actual eager ticket/loan component; controlled arithmetic only",
+      "role": "attention",
+      "role_rank": 1,
+      "device": "npu:6",
+      "pid": 4169673,
+      "success": true,
+      "model_weights_loaded": false,
+      "native_moe_exercised": false,
+      "overlap_or_performance_claim": false,
+      "checked_steps": [
+        {
+          "parent": "eager-owner-0",
+          "layer": 0,
+          "stage": 0,
+          "rows": 3,
+          "valid": 2,
+          "independent_fp32": true,
+          "raw_ids_exact": true,
+          "full_output_exact": true
+        },
+        {
+          "parent": "eager-owner-0",
+          "layer": 0,
+          "stage": 1,
+          "rows": 5,
+          "valid": 5,
+          "independent_fp32": true,
+          "raw_ids_exact": true,
+          "full_output_exact": true
+        },
+        {
+          "parent": "eager-owner-0",
+          "layer": 2,
+          "stage": 0,
+          "rows": 3,
+          "valid": 2,
+          "independent_fp32": true,
+          "raw_ids_exact": true,
+          "full_output_exact": true
+        },
+        {
+          "parent": "eager-owner-0",
+          "layer": 2,
+          "stage": 1,
+          "rows": 5,
+          "valid": 5,
+          "independent_fp32": true,
+          "raw_ids_exact": true,
+          "full_output_exact": true
+        },
+        {
+          "parent": "eager-owner-1",
+          "layer": 0,
+          "stage": 0,
+          "rows": 1,
+          "valid": 1,
+          "independent_fp32": true,
+          "raw_ids_exact": true,
+          "full_output_exact": true
+        },
+        {
+          "parent": "eager-owner-1",
+          "layer": 0,
+          "stage": 1,
+          "rows": 4,
+          "valid": 2,
+          "independent_fp32": true,
+          "raw_ids_exact": true,
+          "full_output_exact": true
+        },
+        {
+          "parent": "eager-owner-1",
+          "layer": 2,
+          "stage": 0,
+          "rows": 1,
+          "valid": 1,
+          "independent_fp32": true,
+          "raw_ids_exact": true,
+          "full_output_exact": true
+        },
+        {
+          "parent": "eager-owner-1",
+          "layer": 2,
+          "stage": 1,
+          "rows": 4,
+          "valid": 2,
+          "independent_fp32": true,
+          "raw_ids_exact": true,
+          "full_output_exact": true
+        },
+        {
+          "parent": "eager-owner-2",
+          "layer": 0,
+          "stage": 1,
+          "rows": 3,
+          "valid": 1,
+          "independent_fp32": true,
+          "raw_ids_exact": true,
+          "full_output_exact": true
+        },
+        {
+          "parent": "eager-owner-2",
+          "layer": 2,
+          "stage": 1,
+          "rows": 3,
+          "valid": 1,
+          "independent_fp32": true,
+          "raw_ids_exact": true,
+          "full_output_exact": true
+        },
+        {
+          "parent": "eager-owner-3",
+          "layer": 0,
+          "stage": 0,
+          "rows": 2,
+          "valid": 0,
+          "independent_fp32": true,
+          "raw_ids_exact": true,
+          "full_output_exact": true
+        },
+        {
+          "parent": "eager-owner-3",
+          "layer": 2,
+          "stage": 0,
+          "rows": 2,
+          "valid": 0,
+          "independent_fp32": true,
+          "raw_ids_exact": true,
+          "full_output_exact": true
+        },
+        {
+          "parent": "eager-owner-5",
+          "layer": 0,
+          "stage": 0,
+          "rows": 5,
+          "valid": 4,
+          "independent_fp32": true,
+          "raw_ids_exact": true,
+          "full_output_exact": true
+        },
+        {
+          "parent": "eager-owner-5",
+          "layer": 0,
+          "stage": 1,
+          "rows": 2,
+          "valid": 0,
+          "independent_fp32": true,
+          "raw_ids_exact": true,
+          "full_output_exact": true
+        },
+        {
+          "parent": "eager-owner-5",
+          "layer": 2,
+          "stage": 0,
+          "rows": 5,
+          "valid": 4,
+          "independent_fp32": true,
+          "raw_ids_exact": true,
+          "full_output_exact": true
+        },
+        {
+          "parent": "eager-owner-5",
+          "layer": 2,
+          "stage": 1,
+          "rows": 2,
+          "valid": 0,
+          "independent_fp32": true,
+          "raw_ids_exact": true,
+          "full_output_exact": true
+        }
+      ],
+      "posting_frontiers": [
+        {
+          "parent": "eager-owner-0",
+          "layer": 0,
+          "occupied_stages_before_output_loans": [
+            0,
+            1
+          ],
+          "ticket_stages": [
+            0,
+            1
+          ]
+        },
+        {
+          "parent": "eager-owner-0",
+          "layer": 2,
+          "occupied_stages_before_output_loans": [
+            0,
+            1
+          ],
+          "ticket_stages": [
+            0,
+            1
+          ]
+        },
+        {
+          "parent": "eager-owner-1",
+          "layer": 0,
+          "occupied_stages_before_output_loans": [
+            0,
+            1
+          ],
+          "ticket_stages": [
+            0,
+            1
+          ]
+        },
+        {
+          "parent": "eager-owner-1",
+          "layer": 2,
+          "occupied_stages_before_output_loans": [
+            0,
+            1
+          ],
+          "ticket_stages": [
+            0,
+            1
+          ]
+        },
+        {
+          "parent": "eager-owner-2",
+          "layer": 0,
+          "occupied_stages_before_output_loans": [
+            1
+          ],
+          "ticket_stages": [
+            1
+          ]
+        },
+        {
+          "parent": "eager-owner-2",
+          "layer": 2,
+          "occupied_stages_before_output_loans": [
+            1
+          ],
+          "ticket_stages": [
+            1
+          ]
+        },
+        {
+          "parent": "eager-owner-3",
+          "layer": 0,
+          "occupied_stages_before_output_loans": [
+            0
+          ],
+          "ticket_stages": [
+            0
+          ]
+        },
+        {
+          "parent": "eager-owner-3",
+          "layer": 2,
+          "occupied_stages_before_output_loans": [
+            0
+          ],
+          "ticket_stages": [
+            0
+          ]
+        },
+        {
+          "parent": "eager-owner-4",
+          "layer": 0,
+          "occupied_stages_before_output_loans": [],
+          "ticket_stages": []
+        },
+        {
+          "parent": "eager-owner-4",
+          "layer": 2,
+          "occupied_stages_before_output_loans": [],
+          "ticket_stages": []
+        },
+        {
+          "parent": "eager-owner-5",
+          "layer": 0,
+          "occupied_stages_before_output_loans": [
+            0,
+            1
+          ],
+          "ticket_stages": [
+            0,
+            1
+          ]
+        },
+        {
+          "parent": "eager-owner-5",
+          "layer": 2,
+          "occupied_stages_before_output_loans": [
+            0,
+            1
+          ],
+          "ticket_stages": [
+            0,
+            1
+          ]
+        }
+      ],
+      "parents": [
+        {
+          "transaction_id": "eager-owner-0",
+          "padded": [
+            3,
+            5
+          ],
+          "valid": [
+            2,
+            5
+          ],
+          "finished": true
+        },
+        {
+          "transaction_id": "eager-owner-1",
+          "padded": [
+            1,
+            4
+          ],
+          "valid": [
+            1,
+            2
+          ],
+          "finished": true
+        },
+        {
+          "transaction_id": "eager-owner-2",
+          "padded": [
+            0,
+            3
+          ],
+          "valid": [
+            0,
+            1
+          ],
+          "finished": true
+        },
+        {
+          "transaction_id": "eager-owner-3",
+          "padded": [
+            2,
+            0
+          ],
+          "valid": [
+            0,
+            0
+          ],
+          "finished": true
+        },
+        {
+          "transaction_id": "eager-owner-4",
+          "padded": [
+            0,
+            0
+          ],
+          "valid": [
+            0,
+            0
+          ],
+          "finished": true
+        },
+        {
+          "transaction_id": "eager-owner-5",
+          "padded": [
+            5,
+            2
+          ],
+          "valid": [
+            4,
+            0
+          ],
+          "finished": true
+        }
+      ],
+      "native_tp_before": [
+        2.0
+      ],
+      "matched_stage_groups_warmed": true,
+      "normal_stop": true,
+      "native_tp_after_plugin_close": [
+        2.0
+      ]
+    }
+  },
+  "owned_pid_start_ticks": {
+    "4169670": "818601489",
+    "4169671": "818601489",
+    "4169672": "818601490",
+    "4169673": "818601490",
+    "4169958": "818601767",
+    "4169980": "818601769",
+    "4169982": "818601769",
+    "4169959": "818601767",
+    "4169978": "818601769",
+    "4169981": "818601769",
+    "4169957": "818601767",
+    "4169979": "818601769",
+    "4169983": "818601769",
+    "4169948": "818601766",
+    "4169955": "818601767",
+    "4169956": "818601767",
+    "4170788": "818602836",
+    "4170840": "818603227",
+    "4170887": "818603235"
+  },
+  "elapsed_seconds": 29.277965871617198
+}

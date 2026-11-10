@@ -1,0 +1,88 @@
+{
+  "scope": "CPU module seams with actual installed dependencies; no device probe",
+  "remote": "/mnt/workspace/tmp/afd-c0-20261104.hVgsIf/c5-control-cpu-20261109-ddu2fwe1",
+  "command": [
+    "/mnt/workspace/code/.venvs/afd-v030-dsv41-c0/bin/python",
+    "-B",
+    "-m",
+    "pytest",
+    "-o",
+    "addopts=",
+    "-q",
+    "-rs",
+    "--tb=short",
+    "-p",
+    "no:cacheprovider",
+    "-m",
+    "not npu and not gpu",
+    "--junitxml=/mnt/workspace/tmp/afd-c0-20261104.hVgsIf/c5-control-cpu-20261109-ddu2fwe1/results/cpu.xml",
+    "tests/unit/connectors/npu/test_hccl_diagnostics.py",
+    "tests/unit/v1/worker/npu/test_hccl_v41_ffn_runner.py",
+    "tests/unit/v1/worker/npu/test_hccl_v41_ffn_graph.py",
+    "tests/unit/v1/worker/npu/test_hccl_v41_graph_service.py",
+    "tests/unit/v1/worker/npu/test_hccl_v41_graph_coordinator.py"
+  ],
+  "returncode": 1,
+  "source_files_match": true,
+  "snapshot_exclusions": [],
+  "device_probe_started": false,
+  "success": false
+}
+........................................................................ [ 25%]
+........................................................................ [ 50%]
+.......................FFF.............................................. [ 75%]
+.....................................................................    [100%]
+=================================== FAILURES ===================================
+_ test_ffn_configuration_is_reported_before_capture_and_preserved_on_replay[rows0-True] _
+tests/unit/v1/worker/npu/test_hccl_v41_graph_service.py:184: in test_ffn_configuration_is_reported_before_capture_and_preserved_on_replay
+    assert case.service.execute_step()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/torch/utils/_contextlib.py:124: in decorate_context
+    return func(*args, **kwargs)
+afd_plugin/v1/worker/npu/hccl_v41_graph_service.py:465: in execute_step
+    resources = self._prepare_resources(plan)
+afd_plugin/v1/worker/npu/hccl_v41_graph_service.py:397: in _prepare_resources
+    HcclV41FFNGraph(
+tests/unit/fakes/hccl_v41_graph_service.py:153: in __call__
+    body = ServiceGraphBody(
+tests/unit/fakes/hccl_v41_graph_service.py:171: in __init__
+    layer_indices=bank.layer_indices,
+E   AttributeError: 'types.SimpleNamespace' object has no attribute 'layer_indices'
+_ test_ffn_configuration_is_reported_before_capture_and_preserved_on_replay[rows1-False] _
+tests/unit/v1/worker/npu/test_hccl_v41_graph_service.py:184: in test_ffn_configuration_is_reported_before_capture_and_preserved_on_replay
+    assert case.service.execute_step()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/torch/utils/_contextlib.py:124: in decorate_context
+    return func(*args, **kwargs)
+afd_plugin/v1/worker/npu/hccl_v41_graph_service.py:465: in execute_step
+    resources = self._prepare_resources(plan)
+afd_plugin/v1/worker/npu/hccl_v41_graph_service.py:397: in _prepare_resources
+    HcclV41FFNGraph(
+tests/unit/fakes/hccl_v41_graph_service.py:153: in __call__
+    body = ServiceGraphBody(
+tests/unit/fakes/hccl_v41_graph_service.py:171: in __init__
+    layer_indices=bank.layer_indices,
+E   AttributeError: 'types.SimpleNamespace' object has no attribute 'layer_indices'
+_ test_ffn_configuration_is_reported_before_capture_and_preserved_on_replay[rows2-True] _
+tests/unit/v1/worker/npu/test_hccl_v41_graph_service.py:184: in test_ffn_configuration_is_reported_before_capture_and_preserved_on_replay
+    assert case.service.execute_step()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/torch/utils/_contextlib.py:124: in decorate_context
+    return func(*args, **kwargs)
+afd_plugin/v1/worker/npu/hccl_v41_graph_service.py:465: in execute_step
+    resources = self._prepare_resources(plan)
+afd_plugin/v1/worker/npu/hccl_v41_graph_service.py:397: in _prepare_resources
+    HcclV41FFNGraph(
+tests/unit/fakes/hccl_v41_graph_service.py:153: in __call__
+    body = ServiceGraphBody(
+tests/unit/fakes/hccl_v41_graph_service.py:171: in __init__
+    layer_indices=bank.layer_indices,
+E   AttributeError: 'types.SimpleNamespace' object has no attribute 'layer_indices'
+=============================== warnings summary ===============================
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/torch/jit/_script.py:362: 14 warnings
+  /mnt/workspace/code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/torch/jit/_script.py:362: DeprecationWarning: `torch.jit.script_method` is deprecated. Please switch to `torch.compile` or `torch.export`.
+    warnings.warn(
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+- generated xml file: /mnt/workspace/tmp/afd-c0-20261104.hVgsIf/c5-control-cpu-20261109-ddu2fwe1/results/cpu.xml -
+3 failed, 282 passed, 14 warnings in 5.95s
+
+
+Warning: Permanently added '[127.0.0.1]:43078' (ED25519) to the list of known hosts.

@@ -76,6 +76,7 @@ with the later source tree.
 | `consumers-002` | 130 | Stream TLS 10, pipeline 31, actual FFN body 43, FFN service 46 | 3.785 |
 | `native-consumers-003` | 240 | A body 42, native graph execution 16/coordinator 60/session 19, runner entry 11, eager bridge 27, eager execution 22, dispatch 23, signatures 14, new policy cases 6 | 4.113 |
 | `parent-stream-004` | 122 | Updated A parent 46, native graph execution 16, coordinator 60 | 3.709 |
+| `five-axis-005` | 460 | Immutable role/phase selection, five Graph axes, actual A/F bodies, native coordinator/service/execution | 8.367 |
 
 `consumers-002` tests the shared native/vLLM current-stream scope, both side
 compute policies in the actual FFN tensor body, unchanged FP32/IDs/output
@@ -106,3 +107,114 @@ The [settings record](../local-settings-20261110.json) documents 77 local
 stdlib parser cases as a delegated tool-output transcription. Neither local
 record is hardware evidence. Actual controlled NPU graph tests are recorded
 under [their own directory](../a3-pipeline-device-20261110/README.md).
+
+`five-axis-005` freezes the independent Graph settings consumers. Its 460
+cases include role/phase projection, U1/U2 in one native capture session,
+compute-off Graph replay, logical Attention send/receive choices under the
+physical parent override, all three legal FFN receive/cross-layer combinations,
+and rejection of changed settings even when the captured pipeline is absent.
+The actual A/F CPU bodies preserve their output and BF16/FP32/IDs wire contract.
+All ten installed upstream source pins match. This run predates the subsequent
+stage-diagnostics integration; its immutable source manifest is authoritative.
+It does not qualify physical receive/compute overlap or native device MoE.
+
+## Diagnostic integration follow-up
+
+`diagnostics-006` selected the diagnostic helper and the real FFN eager/Graph,
+coordinator and service seams: **282 passed, 3 failed**, no errors or skips
+(JUnit 5.949 s). All three failures were new service test fixtures missing the
+real bank's public `layer_indices`; the fixture was corrected without changing
+production code. The affected complete service module was then rerun as
+`diagnostic-service-007`: **60 passed**, no failures, errors or skips
+(JUnit 2.725 s). Both immutable attempts remain in the index and raw directories.
+These are separate runs, rather than a combined all-green pytest result.
+
+The checks cover capture-time configuration records, configured/effective and
+logical/actual stream distinctions, replay retention, host enqueue milestones,
+default-disabled diagnostics, and live eager U1-only FFN compute synchronization.
+The synchronization callback binds the runner's explicit device. Profiling,
+warmup, dummy and Graph paths do not enable that synchronization. Each run
+matched all ten upstream pins and started no NPU probe. Diagnostic log entries
+describe host enqueue points; they do not measure device overlap or latency.
+
+## Eager ticket owner, consumers and worker follow-up
+
+These are additional independent CPU attempts using actual installed A3
+packages. Every attempt matched all ten installed source pins and started no
+NPU probe. The index records exact commands, per-module outcomes, complete raw
+artifact SHA256s and upstream expected hashes. Its current-tree comparison is
+only a later source sample: changed or newly added bytes are not accepted by an
+older run. Do not add the following counts together or turn failed attempts
+into a combined green result.
+
+| Snapshot | Passed | Failed | Setup errors | Skipped | Per-module observations |
+| --- | ---: | ---: | ---: | ---: | --- |
+| [eager-attention-008](eager-attention-008/identity.json) | 38 | 0 | 0 | 0 | Staged A model 38 |
+| [eager-transport-009](eager-transport-009/identity.json) | 89 | 44 | 0 | 0 | Existing staged transport 84; owner 5 passed / 44 failed |
+| [eager-owner-010](eager-owner-010/identity.json) | 143 | 13 | 0 | 0 | Owner 49, execution 24 and ubatch runner 70 passed; session 13 failed |
+| [eager-session-011](eager-session-011/identity.json) | 119 | 0 | 0 | 0 | Session 13, execution 25, A runner 11, ubatch runner 70 |
+| [eager-ffn-013](eager-ffn-013/identity.json) | 231 | 0 | 2 | 0 | Owner 50, F consumer 43, worker 25 passed / 2 setup errors, F runner 58, NPU runtime 55 |
+| [worker-followup-014](worker-followup-014/identity.json) | 114 | 0 | 0 | 0 | Worker 29 including two restart guards, Graph service 60, execution 25 |
+| [binding-guards-015](binding-guards-015/identity.json) | 134 | 0 | 0 | 0 | Complete FFN parent module 59, complete ubatch runner module 74, one `ffn-profile` signature case |
+| [parent-identity-016](parent-identity-016/identity.json) | 28 | 0 | 0 | 0 | Complete eager execution module, including three direct-parent identity rejection cases |
+
+`eager-transport-009` retained the first real ACCEPT-frontier failures: its
+scripted peer omitted the required `world_rank`. The shared fake was corrected;
+the real wire validation was preserved. `eager-owner-010` then passed all 49
+owner cases. The new session fake in that run lacked `parallel_config.rank`,
+so its 13 cases failed before opening a parent. The fake was corrected, and
+`eager-session-011` passed its complete 13-case module alongside the updated A
+entry seams. These are test-fixture repairs, rather than hidden relaxations of
+the production acceptance or rank contracts.
+
+`eager-ffn-013` uses owner source
+`b758b9e8cb398cebdf91c8bd36087b060e2d10e7cbfc6636ff0ba385e0cb6e31` as recorded by its immutable manifest and the F consumer source
+`5e7183dea3436868aa1e22cb04056ffabb0ca714532b7090b623f0d56d2624ac`.
+The F consumer's 43 cases cover complete native-call CPU context and output
+seams, independent FP32/IDs, padding-only and empty stages, TP1 and both TP2
+role ranks, one COMPLETE, invalid topology/model/stream rejection, sticky live
+failure, stale-owner rejection without failing another parent, and actual
+vLLM stream TLS restoration around compute and final completion. The native
+MoE boundary is controlled CPU arithmetic; no device kernel is simulated as
+acceptance. The full run has two **setup errors**, not failed F consumer tests:
+old Graph worker fixtures supplied `enforce_eager=True` and Graph NONE, which
+real Graph binding correctly rejects. The shared fixture was corrected to
+`enforce_eager=False` / `FULL_DECODE_ONLY`. Its complete Graph service module
+and worker/execution seams passed in `worker-followup-014`; that follow-up also
+checks two new worker restart guards. The original 013 XML, logs and summary
+remain unchanged.
+
+`binding-guards-015` is a separate **134 passed** run (JUnit 2.228 s), with
+zero failures, setup errors or skips. It closes three binding-identity review
+findings: reject an FFN eager session from a different connector wire; reject
+an A staged eager run on a foreign wire before native producer work; and reject
+an uninitialized, closed or terminal previously warmed A session. The complete
+FFN parent and ubatch runner modules were selected, plus only the single
+`ffn-profile` upstream-signature row. All ten installed source pins and the
+uploaded source manifest matched, and no device probe was started. This does
+not replace any earlier immutable attempt or qualify native device execution.
+
+`parent-identity-016` separately passed **28 cases** with zero failures,
+errors or skips. The public `execute_hccl_v41_stages` entry itself now rejects
+a foreign or stale eager owner before preparing Engram, including callers that
+do not enter through `UBatch.run`. Three added negative cases exercise exact
+transport/plan identity and active/finished/failed ownership. All ten upstream
+pins and uploaded sources matched, and no NPU probe was started. Its source
+identity and complete module result are independent of the 015 binding checks.
+
+The separate C7 profiler-owner snapshot is
+[profiler-owner-012](../../../afd-hccl-full-parity/evidence/a3-profiler-cpu-20261110/README.md):
+**99 passed**, no failures, errors or skips. It is indexed under its own change
+rather than counted as another C6 run.
+
+For each label, inspect `results/cpu.xml` and `results/cpu.stdout.log` together
+with `identity.json` and `results/summary.json`. The
+[index](validation-summary.json) hashes every local raw file, including stderr,
+remote invocation/transcript, environment, versions and source checks. All
+raw files were rehashed after indexing with no changes. Reproduction uses the
+same CPU harness and a **new label** with the exact `targets` list recorded in
+the immutable identity; the command in each summary is the actual executed
+command. No package installation or upstream modification was part of these
+runs. CPU stream/event/Work boundaries, profiler state and native model-call
+seams do not establish NPU overlap, native device MoE, profiler C++ thread
+semantics, full-model correctness or performance.

@@ -5,6 +5,7 @@
 """CPU protocol/model seams only; these do not execute native NPU MoE."""
 
 from dataclasses import replace
+from types import SimpleNamespace
 
 import pytest
 
@@ -13,6 +14,12 @@ pytest.importorskip("vllm")
 pytest.importorskip("torch_npu")
 pytest.importorskip("vllm_ascend")
 
+from afd_plugin.connectors.npu import hccl_diagnostics as diagnostics_module
+from afd_plugin.connectors.npu.hccl_overlap import (
+    HcclOverlapSettings,
+    select_hccl_overlap,
+)
+from afd_plugin.connectors.npu.hccl_staged import HcclStagedAFDConnector
 from afd_plugin.distributed.hccl import HcclStageLayout
 from afd_plugin.distributed.hccl_plan import HcclParentPlan
 from afd_plugin.v1.worker.npu import hccl_v41_ffn_runner as runner_module
@@ -22,6 +29,7 @@ from tests.unit.fakes.hccl import (
     staged_ffn_expected_output,
     unexpected_hccl_forward_context,
 )
+from tests.unit.fakes.hccl_diagnostics import make_diagnostics_case
 
 
 @pytest.fixture
@@ -41,6 +49,95 @@ def case(monkeypatch, plan):
     case = make_staged_ffn_case(AFDNPUFFNModelRunner, plan)
     monkeypatch.setattr(runner_module, "ascend_forward_context", case.context.activate)
     return case
+
+
+def test_eager_binding_rejects_a_session_from_another_connector_wire(case):
+    connector = object.__new__(HcclStagedAFDConnector)
+    connector.transport = case.peer
+    case.runner.connector = connector
+    foreign = SimpleNamespace(role="ffn")
+    session = SimpleNamespace(transport=foreign, initialized=True)
+
+    with pytest.raises(RuntimeError, match="idle eager FFN session"):
+        case.runner.bind_hccl_v41_eager_session(session)
+
+    assert case.peer.messages == []
+
+
+@pytest.mark.parametrize("mode", ["target", "dummy", "warmup", "profile"])
+@pytest.mark.parametrize("num_stages", [1, 2])
+def test_stage_diagnostics_report_actual_serial_execution_and_only_sync_live_u1(
+    monkeypatch, plan, mode, num_stages
+):
+    current = replace(plan, mode=mode, stages=plan.stages[:num_stages])
+    case = make_staged_ffn_case(AFDNPUFFNModelRunner, current)
+    monkeypatch.setattr(runner_module, "ascend_forward_context", case.context.activate)
+    selection = select_hccl_overlap(
+        HcclOverlapSettings(stage_diagnostics=True, ffn_compute_sync_diagnostics=True),
+        role="ffn",
+        phase="eager",
+        num_stages=num_stages,
+    )
+    diagnostic = make_diagnostics_case(diagnostics_module, selection)
+    runner_module.execute_hccl_v41_parent(
+        case.runner, case.peer, diagnostics=diagnostic.diagnostics
+    )
+    config = diagnostic.records[0]
+    assert config["event"] == "configuration"
+    assert config["actual.mode"] == "serial"
+    assert config["actual.compute_stream"] == config["actual.recv_stream"] == "parent"
+    assert config["actual.compute_pipeline_enabled"] is False
+    assert config["effective.AFD_HCCL_EAGER_U2_STREAM_OVERLAP"] is (num_stages == 2)
+    expected_sync = mode == "target" and num_stages == 1
+    assert config["actual.ffn_compute_sync"] is expected_sync
+    steps = len(current.layer_indices) * num_stages
+    assert diagnostic.events.count("device_sync") == (steps if expected_sync else 0)
+    for record in diagnostic.records[1:]:
+        assert record["layer"] in current.layer_indices
+        assert record["stage"] < num_stages
+    assert case.peer.messages[-1] == ("COMPLETE", current.transaction_id)
+
+
+def test_requested_compute_sync_failure_keeps_session_terminal_without_send(
+    monkeypatch, plan
+):
+    current = replace(plan, stages=plan.stages[:1])
+    case = make_staged_ffn_case(AFDNPUFFNModelRunner, current)
+    monkeypatch.setattr(runner_module, "ascend_forward_context", case.context.activate)
+    selection = select_hccl_overlap(
+        HcclOverlapSettings(ffn_compute_sync_diagnostics=True),
+        role="ffn",
+        phase="eager",
+        num_stages=1,
+    )
+    diagnostic = make_diagnostics_case(diagnostics_module, selection)
+    diagnostic.recorder.fail_sync = True
+    with pytest.raises(RuntimeError, match="requested diagnostic device sync failed"):
+        runner_module.execute_hccl_v41_parent(
+            case.runner, case.peer, diagnostics=diagnostic.diagnostics
+        )
+    assert diagnostic.events == ["configuration", "compute_sync_begin", "device_sync"]
+    assert case.peer.messages == [("RECEIVE", current.layer_indices[0], 0)]
+    assert case.peer.terminal
+
+
+@pytest.mark.parametrize("invalid", ["role", "phase", "stages", "rank"])
+def test_foreign_eager_diagnostics_are_rejected_before_any_payload(case, invalid):
+    selection = select_hccl_overlap(
+        HcclOverlapSettings(stage_diagnostics=True),
+        role="attention" if invalid == "role" else "ffn",
+        phase="graph_capture" if invalid == "phase" else "eager",
+        num_stages=1 if invalid == "stages" else 2,
+    )
+    diagnostic = make_diagnostics_case(
+        diagnostics_module, selection, role_rank=1 if invalid == "rank" else 0
+    )
+    with pytest.raises(ValueError, match="diagnostics must match"):
+        runner_module.execute_hccl_v41_parent(
+            case.runner, case.peer, diagnostics=diagnostic.diagnostics
+        )
+    assert diagnostic.records == case.peer.messages == []
+    assert case.peer.terminal
 
 
 @pytest.mark.parametrize("mode", ["target", "dummy", "warmup", "profile"])

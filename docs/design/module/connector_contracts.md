@@ -111,6 +111,17 @@ transport to its model and actual device. The Attention runner and FFN worker
 can explicitly bind this protocol. Native NPU construction also selects it
 for the configured U2 target path, without opening the V4.1 model guard.
 
+The explicit [eager ticket owner](../../../afd_plugin/connectors/npu/hccl_eager_pipeline.py)
+separates layer/stage posting from native-consumer completion on paired TP1/TP2
+target U2 parents. Every role must first call matched, idle stage-group warmup;
+opening the owner then excludes serial tensor and Graph completion APIs until
+its synchronized COMPLETE. Borrowed input/output loans run Work dependencies
+on the actual consumer stream and fence per-stage reuse. Failed owners retain
+their resources for external supervision and refuse group destruction. The
+[implementation contract](../../../openspec/changes/afd-hccl-v2-multistream/evidence/eager-ticket-owner-contract-20261110.md)
+separates these CPU protocol/lifetime seams from pending real owner, model and
+overlap qualification; default serial execution remains available.
+
 The optional `graph_execution_version=1` adds an early phase reservation to
 the v3 component. All peers agree QUERY/REPORT/DECISION/ACK/global ACK before
 native input preparation; the final parent digest includes that reservation.

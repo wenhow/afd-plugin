@@ -1,0 +1,50 @@
+{
+  "scope": "CPU module seams with actual installed dependencies; no device probe",
+  "remote": "/mnt/workspace/tmp/afd-c0-20261104.hVgsIf/c5-control-cpu-20261109-4akyc5r_",
+  "command": [
+    "/mnt/workspace/code/.venvs/afd-v030-dsv41-c0/bin/python",
+    "-B",
+    "-m",
+    "pytest",
+    "-o",
+    "addopts=",
+    "-q",
+    "-rs",
+    "--tb=short",
+    "-p",
+    "no:cacheprovider",
+    "-m",
+    "not npu and not gpu",
+    "--junitxml=/mnt/workspace/tmp/afd-c0-20261104.hVgsIf/c5-control-cpu-20261109-4akyc5r_/results/cpu.xml",
+    "tests/unit/connectors/npu/test_hccl_overlap.py",
+    "tests/unit/connectors/npu/test_hccl_graph_pipeline.py",
+    "tests/unit/v1/worker/npu/test_hccl_v41_ffn_graph.py",
+    "tests/unit/v1/worker/npu/test_hccl_v41_graph_service.py",
+    "tests/unit/v1/worker/npu/test_hccl_v41_graph_coordinator.py",
+    "tests/unit/model_executor/models/npu/test_deepseek_v41_graph.py",
+    "tests/unit/v1/worker/npu/test_hccl_v41_graph_execution.py"
+  ],
+  "returncode": 0,
+  "source_files_match": true,
+  "snapshot_exclusions": [],
+  "device_probe_started": false,
+  "success": true
+}
+........................................................................ [ 15%]
+........................................................................ [ 31%]
+........................................................................ [ 46%]
+........................................................................ [ 62%]
+........................................................................ [ 78%]
+........................................................................ [ 93%]
+............................                                             [100%]
+=============================== warnings summary ===============================
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/torch/jit/_script.py:362: 14 warnings
+  /mnt/workspace/code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/torch/jit/_script.py:362: DeprecationWarning: `torch.jit.script_method` is deprecated. Please switch to `torch.compile` or `torch.export`.
+    warnings.warn(
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+- generated xml file: /mnt/workspace/tmp/afd-c0-20261104.hVgsIf/c5-control-cpu-20261109-4akyc5r_/results/cpu.xml -
+460 passed, 14 warnings in 8.37s
+
+
+Warning: Permanently added '[127.0.0.1]:43078' (ED25519) to the list of known hosts.
