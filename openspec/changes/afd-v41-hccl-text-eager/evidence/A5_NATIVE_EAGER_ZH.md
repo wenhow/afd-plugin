@@ -3,12 +3,38 @@
 更新：2026-11-10。用户确认 950DT、8 卡、每卡显示 98304 MB；
 按 NPU 工具的 MiB 口径为每卡 96 GiB，实际可用显存以运行前采集为准。
 **本轮改用 DP8/TP1/EP8 + Engram CPU offload/DP shared memory，
-保留 eager、DSpark off 和小请求限制。最新回传已完成 8 rank 加载和服务启动，
-`/health` 返回 200；首请求在原生 Attention 的 CompressorV2 动态库解析失败，返回 500。
-后续库探测已定位到 custom_transformer vendor 路径未导出；启动器已补环境与加载前符号检查，待重跑请求。
-不解除 AFD 模型 guard，完整原生推理与 AFD 对照仍未通过。**
+保留 eager、DSpark off 和小请求限制。最新回传已完成 8 rank 完整 checkpoint 冷加载，
+`/health` 与首次 `/v1/completions` 均返回 200，输出 ` Paris.`，原生首次推理 smoke 通过。
+本次已越过此前的 CompressorV2 符号解析失败。
+AFD 对照、连续/并发及退出回收仍未验收，不解除 AFD 模型 guard。**
 
-## 当前下一步：补齐 custom_transformer 路径后重跑
+## 最新结果：原生首请求通过
+
+回传 `6c31728c57fb470d8d846d7fd808dd17.gz` 的 [完整证据与范围](a5-20261110-native-ep8-success-001/README.md)
+已核对响应、服务日志、请求退出码、源码版本及设备快照：
+
+| 项目 | 本次结果 |
+| --- | --- |
+| 请求 | `The capital of France is`，temperature=0，seed=0，max_tokens=32，logprobs=5 |
+| 响应 | HTTP 200；` Paris.`；`finish_reason=stop`；token IDs `[11111,16,1]` |
+| token 数 | 输入 5、输出 3（含结束 token）；请求退出码 0 |
+| custom_transformer | `latest/opp/vendors/custom_transformer` 已加入环境，目标库与两个符号预检查通过 |
+| 加载与内存 | 8 rank 各报告模型加载 44.29 GiB、KV 预算 34.11–34.12 GiB；设备快照已保存，未采集连续峰值 |
+| 实际源码 | afd-plugin `e7cfe618…`；Ascend `4ec6dc77…`，与项目锁定 `7e37e29a…` 的差异继续保留 |
+
+本次在下文启动命令前显式设置
+`AFD_TRANSFORMER_VENDOR=/usr/local/Ascend/ascend-toolkit/latest/opp/vendors/custom_transformer`。
+使用现有 checkpoint、Ascend 插件和原生并行；TP8 量化兼容开关为 0，未加载 AFD 运行插件。
+这证实部署环境的完整模型首次请求可执行，不是单纯的库符号检查；
+仍不代表所有输入、数值精度、AFD 等价或性能验收，也未自动认定为锁定源码对的验收。
+
+成功响应后，日志于 19:16:08（Asia/Shanghai）收到 SIGINT，启动器退出码 130。
+`EngineDeadError` 等错误首次出现在此后，未把它们记作请求失败。
+但 `npu-after.log` 快照仍显示 worker，且有 shared_memory 清理警告；
+没有延迟复查，不能声称无残留、已完全释放资源或新进程重启通过。
+下轮保持已成功的布局与环境，补连续请求/并发和结束后的设备复查，再做 AFD 条件匹配的对照。
+
+## CompressorV2 路径修正与此前失败
 
 回传 `b0a1f0ab6acf4ebc993ca3cc9342f698.gz` 已确认 `/dev/shm=512G`、
 DP8/TP1/EP8、Engram CPU offload/shared memory 和默认关闭的 TP8 兼容补丁。
@@ -17,7 +43,7 @@ DP8/TP1/EP8、Engram CPU offload/shared memory 和默认关闭的 TP8 兼容补�
 进入 V4.1 Attention 压缩器后，`cann_ops_transformer` 无法解析
 `aclnnCompressorV2` / `aclnnCompressorV2GetWorkspaceSize`。
 因此 HTTP 500 是 worker 失败的后果，不是请求 JSON 校验错误，也不是此前的 2 GiB shm 限制。
-详见 [本轮诊断](a5-20261110-native-ep8-request-001/diagnosis.json)。
+详见 [此前失败诊断](a5-20261110-native-ep8-request-001/diagnosis.json)。
 
 回传 `f1a363f791b04b38baef5cafbec28c46.gz` 的只读探测进一步确认：
 

@@ -1,0 +1,364 @@
+{
+  "date": "2026-11-10",
+  "scope": "User-run A5 native full-checkpoint cold load and one greedy text completion; no AFD request",
+  "result": "native_dp8_tp1_ep8_first_request_smoke_passed",
+  "archive": {
+    "original_name": "6c31728c57fb470d8d846d7fd808dd17.gz",
+    "sha256": "cad58629c795b4573f419ed63bfe3f3a724ac9088ff7ca02b726893818f7ed04",
+    "saved_as": "raw-results.tar.gz",
+    "results_directory": "dsv41-native-dp8-ep8.oZJo2T",
+    "member_sha256": {
+      "request.json": "696a272370c38045de189333b5980d47f2ec394aab3480380c30cac571800a61",
+      "environment.txt": "bb8fbe3d5c1652c00ba1b25dcb173992320e9ea14dd6e79eeb8cb987adf8e36b",
+      "npu-after-request.log": "acac36887e02267c22f2b8915c21e95e127f09ad78a85bc13f4969974379e7b5",
+      "opapi-preflight.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "preflight.json": "d866485bd92a54607fec40fdfa5bbd25e318c9edd10591e62bd3fe4674ad5473",
+      "native-server.log": "2edb69289f462475b9cfc8c0863a8463de802861dc99fbc2849b007e6bb7ec51",
+      "opapi-preflight.json": "433d310413eb2aa0d71c57ebd80932557e2a4e18562b8a54175a6db0cef56d23",
+      "request-exit-code.txt": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa",
+      "npu-after.log": "5bacc325cd17988d2188f7d70d23f801faa140170d0c499c3b8278bfc6f549b2",
+      "npu-before.log": "b4ca05b04d329fab493b2cd918598d8e30e4cbb0fcfa06ec58580e52b91411a4",
+      "launcher-exit-code.txt": "f5bde7eb9f6c71611dc5726e8aca3eb4eba3e386da49e0a4ed5c295a90a73a0d",
+      "response.json": "174fc92509e0b50a9d47d395620aa8d02f10808a84c0d2ca752649bcd372ea83",
+      "npu-ready.log": "7e367d9d44874ad75dcb58b69ad1498dded2df5e9a013a96e63f77eccdb0bd46",
+      "launcher.log": "805c14f7b095034b348b73173cbf2d6fdeaf81af0d9383a68c918bb7be558318",
+      "health.txt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "preflight.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    }
+  },
+  "runtime": {
+    "afd_plugin_commit": "e7cfe618aaba693f40a587424c58a90e9d8a790e",
+    "actual_ascend_commit": "4ec6dc7722ec4f7f8005a86570238ac4377c5d43",
+    "locked_ascend_commit": "7e37e29a7803d6897a7113088e2b771f83205bc0",
+    "ascend_package_metadata": "0.19.1rc2.dev637+g2db8549c5",
+    "vllm_package_metadata": "0.30.0+empty",
+    "python": "3.11.10",
+    "torch": "2.10.0",
+    "torch_npu": "2.10.0.post4",
+    "fastapi": "0.123.10",
+    "device": "Ascend950DT",
+    "device_ids": [
+      0,
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7
+    ],
+    "topology": {
+      "dp": 8,
+      "tp": 1,
+      "ep": 8,
+      "pp": 1,
+      "pcp": 1,
+      "dcp": 1
+    },
+    "runner": "V2",
+    "execution": "eager",
+    "dspark": false,
+    "dbo": false,
+    "quantization": "deepseek_v4_fp8",
+    "load_format": "safetensors",
+    "engram": {
+      "cpu_offload": true,
+      "embedding_across_dp": false,
+      "dp_shared_memory": true
+    },
+    "max_model_len": 1024,
+    "max_num_seqs_per_dp_engine": 1,
+    "max_num_batched_tokens": 1024,
+    "visible_plugins": "ascend,ascend_model,ascend_model_loader,ascend_kv_connector,ascend_service_profiling",
+    "AFD_DSV41_MXFP8_SCALE_PATCH": "0",
+    "shared_memory_capacity": "512G",
+    "transformer_vendor": "/usr/local/Ascend/ascend-toolkit/latest/opp/vendors/custom_transformer",
+    "ascend_source_sha256": {
+      "quantization/methods/w4a8/w4a8_mxfp4.py": "71240fac4f2eaa87300127d8f0e520c55596746ccbb52852357655499cb842f4",
+      "ops/fused_moe/moe_mlp.py": "2bf107e3287e3a4c69512e60e65495448f34a4451eab32ae3b23b5c2a46d2558",
+      "ops/fused_moe/dataclass/moe_mlp.py": "88d648e6accf00f4cb661a3e33d5b9dcdbd96a3d21246bd2948ef2bcc515ecaf"
+    }
+  },
+  "checkpoint": {
+    "checkpoint": "/home/models/DeepSeek-V4.1-Flash",
+    "sha256": {
+      "config.json": "8be45ce0476004a3f529fd896115a4a2e800a129ad2d3ec05b16050f52e21879",
+      "model.safetensors.index.json": "74b0686a3d2891980d5e303251b075a3bccae2c2ff650747db2620a649b98fa8"
+    },
+    "shard_count": 48,
+    "missing_shards": [],
+    "checkpoint_matches": true
+  },
+  "request": {
+    "model": "dsv41-native",
+    "prompt": "The capital of France is",
+    "temperature": 0,
+    "seed": 0,
+    "max_tokens": 32,
+    "logprobs": 5,
+    "return_token_ids": true,
+    "stream": false
+  },
+  "response": {
+    "http_status": 200,
+    "text": " Paris.",
+    "finish_reason": "stop",
+    "token_ids": [
+      11111,
+      16,
+      1
+    ],
+    "prompt_token_ids": [
+      671,
+      6102,
+      294,
+      8760,
+      344
+    ],
+    "usage": {
+      "prompt_tokens": 5,
+      "total_tokens": 8,
+      "completion_tokens": 3,
+      "prompt_tokens_details": null,
+      "completion_tokens_details": null
+    },
+    "request_exit_code": 0
+  },
+  "memory": {
+    "model_load_GiB_per_rank": [
+      44.29,
+      44.29,
+      44.29,
+      44.29,
+      44.29,
+      44.29,
+      44.29,
+      44.29
+    ],
+    "kv_budget_GiB_per_rank": [
+      34.11,
+      34.11,
+      34.12,
+      34.11,
+      34.11,
+      34.12,
+      34.12,
+      34.11
+    ],
+    "npu_smi_snapshots": {
+      "npu-before.log": {
+        "used_as_reported_MB_by_device_0_to_7": [
+          4908,
+          4909,
+          4907,
+          4907,
+          4909,
+          4907,
+          4904,
+          4908
+        ],
+        "capacity_as_reported_MB_per_device": 98304
+      },
+      "npu-ready.log": {
+        "used_as_reported_MB_by_device_0_to_7": [
+          92079,
+          89529,
+          89528,
+          89527,
+          89526,
+          89527,
+          89522,
+          89527
+        ],
+        "capacity_as_reported_MB_per_device": 98304
+      },
+      "npu-after-request.log": {
+        "used_as_reported_MB_by_device_0_to_7": [
+          92419,
+          89869,
+          89867,
+          89866,
+          89653,
+          89866,
+          89861,
+          89865
+        ],
+        "capacity_as_reported_MB_per_device": 98304
+      },
+      "npu-after.log": {
+        "used_as_reported_MB_by_device_0_to_7": [
+          89942,
+          71969,
+          59047,
+          57506,
+          36874,
+          7534,
+          89861,
+          13675
+        ],
+        "capacity_as_reported_MB_per_device": 98304
+      }
+    },
+    "peak_hbm_measured": false
+  },
+  "server_log_line_numbers": {
+    "health_200": [
+      1392
+    ],
+    "completion_200": [
+      1403
+    ],
+    "startup_complete": [
+      1384,
+      1385,
+      1386,
+      1387,
+      1388,
+      1389,
+      1390,
+      1391
+    ],
+    "sigint": [
+      1404,
+      1405,
+      1406,
+      1407,
+      1408,
+      1409,
+      1416,
+      1418
+    ],
+    "error_or_traceback": [
+      1496,
+      1497,
+      1498,
+      1499,
+      1500,
+      1501,
+      1502,
+      1503,
+      1504,
+      1505,
+      1506,
+      1507,
+      1508,
+      1509,
+      1510,
+      1511,
+      1512,
+      1513,
+      1514,
+      1515,
+      1516,
+      1517,
+      1518,
+      1519,
+      1526,
+      1527,
+      1528,
+      1529,
+      1530,
+      1531,
+      1532,
+      1533,
+      1534,
+      1535,
+      1536,
+      1537,
+      1538,
+      1539,
+      1540,
+      1541,
+      1542,
+      1543,
+      1544,
+      1545,
+      1546,
+      1547,
+      1548,
+      1549,
+      1603,
+      1604,
+      1605,
+      1606,
+      1607,
+      1624,
+      1636,
+      1637,
+      1638
+    ],
+    "load": [
+      884,
+      887,
+      890,
+      893,
+      896,
+      899,
+      902,
+      905
+    ],
+    "kv": [
+      910,
+      912,
+      914,
+      916,
+      918,
+      920,
+      922,
+      924
+    ],
+    "compressor_compilation": [
+      1393,
+      1394
+    ],
+    "broadcast_wait": [
+      1395,
+      1396,
+      1397,
+      1398,
+      1399,
+      1400,
+      1401,
+      1402
+    ]
+  },
+  "shutdown": {
+    "signal": "SIGINT",
+    "signal_timestamp_as_logged": "2026-11-10 19:16:08",
+    "launcher_exit_code": 130,
+    "server_exit_code_file_present": false,
+    "errors_first_appear_after_sigint": true,
+    "post_exit_snapshot_contains_worker_processes": true,
+    "eventual_cleanup": "not established by this snapshot",
+    "shared_memory_objects_reported_at_shutdown": 8
+  },
+  "acceptance": {
+    "native_first_request_on_deployed_runtime": "passed",
+    "compressor_symbol_failure_on_this_request": "not reproduced",
+    "pinned_runtime_pair_qualification": "pending",
+    "sustained_and_concurrent_requests": "not tested",
+    "shutdown_cleanup_and_restart": "pending",
+    "native_afd_equivalence": "not tested",
+    "performance": "not measured"
+  },
+  "evidence_consistency_checks_passed": true,
+  "local_validation": {
+    "evidence_consistency": {
+      "command": "python -B .tmp/record_dsv41_native_smoke.py",
+      "exit_code": 0,
+      "scope": "Archive identities, response fields, request/launcher exit codes, event ordering, 8 rank load/KV records and four per-device memory snapshots"
+    },
+    "planning_harness": {
+      "command": "python -B .agents/dsv41/harness.py check",
+      "exit_code": 0,
+      "ok": true,
+      "upstreams_unchanged": true
+    },
+    "upstream_guard": {
+      "command": "python -B .agents/dsv41/harness.py guard",
+      "exit_code": 0,
+      "upstreams_unchanged": true
+    },
+    "npu_work_run_locally": false
+  }
+}

@@ -1,0 +1,39 @@
+Source: raw-results.tar.gz:dsv41-native-dp8-ep8.oZJo2T/native-server.log
+Line numbers count LF-delimited lines, preserving CR progress output in the archive.
+
+884: (Worker_DP5_EP5 pid=45108) INFO 11-10 19:08:55 [model_runner.py:428] Model loading took 44.29 GiB memory and 230.279248 seconds
+887: (Worker_DP3_EP3 pid=45109) INFO 11-10 19:08:55 [model_runner.py:428] Model loading took 44.29 GiB memory and 230.357567 seconds
+890: (Worker_DP0_EP0 pid=45113) INFO 11-10 19:08:55 [model_runner.py:428] Model loading took 44.29 GiB memory and 230.350851 seconds
+893: (Worker_DP1_EP1 pid=45122) INFO 11-10 19:08:55 [model_runner.py:428] Model loading took 44.29 GiB memory and 230.408752 seconds
+896: (Worker_DP7_EP7 pid=45121) INFO 11-10 19:08:55 [model_runner.py:428] Model loading took 44.29 GiB memory and 230.361839 seconds
+899: (Worker_DP4_EP4 pid=45112) INFO 11-10 19:08:55 [model_runner.py:428] Model loading took 44.29 GiB memory and 230.414229 seconds
+902: (Worker_DP6_EP6 pid=45110) INFO 11-10 19:08:55 [model_runner.py:428] Model loading took 44.29 GiB memory and 230.481967 seconds
+905: (Worker_DP2_EP2 pid=45120) INFO 11-10 19:08:55 [model_runner.py:428] Model loading took 44.29 GiB memory and 230.557900 seconds
+910: (Worker_DP5_EP5 pid=45108) INFO 11-10 19:09:18 [worker.py:650] Available KV cache memory: 34.11 GiB
+912: (Worker_DP3_EP3 pid=45109) INFO 11-10 19:09:18 [worker.py:650] Available KV cache memory: 34.11 GiB
+914: (Worker_DP0_EP0 pid=45113) INFO 11-10 19:09:18 [worker.py:650] Available KV cache memory: 34.12 GiB
+916: (Worker_DP1_EP1 pid=45122) INFO 11-10 19:09:18 [worker.py:650] Available KV cache memory: 34.11 GiB
+918: (Worker_DP7_EP7 pid=45121) INFO 11-10 19:09:18 [worker.py:650] Available KV cache memory: 34.11 GiB
+920: (Worker_DP4_EP4 pid=45112) INFO 11-10 19:09:18 [worker.py:650] Available KV cache memory: 34.12 GiB
+922: (Worker_DP6_EP6 pid=45110) INFO 11-10 19:09:18 [worker.py:650] Available KV cache memory: 34.12 GiB
+924: (Worker_DP2_EP2 pid=45120) INFO 11-10 19:09:18 [worker.py:650] Available KV cache memory: 34.11 GiB
+1384: (ApiServer_2 pid=43634) INFO:     Application startup complete.
+1385: (ApiServer_3 pid=43635) INFO:     Application startup complete.
+1386: (ApiServer_7 pid=43639) INFO:     Application startup complete.
+1387: (ApiServer_1 pid=43633) INFO:     Application startup complete.
+1388: (ApiServer_5 pid=43637) INFO:     Application startup complete.
+1389: (ApiServer_0 pid=43632) INFO:     Application startup complete.
+1390: (ApiServer_6 pid=43638) INFO:     Application startup complete.
+1391: (ApiServer_4 pid=43636) INFO:     Application startup complete.
+1392: (ApiServer_6 pid=43638) INFO:     127.0.0.1:46016 - "GET /health HTTP/1.1" 200 OK
+1403: (ApiServer_4 pid=43636) INFO:     127.0.0.1:57344 - "POST /v1/completions HTTP/1.1" 200 OK
+1404: (EngineCore_DP5 pid=43629) (EngineCore_DP3 pid=43627) (EngineCore_DP4 pid=43628) (EngineCore_DP1 pid=43625) (EngineCore_DP0 pid=43624) (EngineCore_DP7 pid=43631) (ApiServer_7 pid=43639) (ApiServer_6 pid=43638) (ApiServer_3 pid=43635) INFO 11-10 19:16:08 [core.py:1342] [shutdown] EngineCore: trigger received signal=SIGINT
+1405: INFO 11-10 19:16:08 [core.py:1342] [shutdown] EngineCore: trigger received signal=SIGINT
+1406: INFO 11-10 19:16:08 [core.py:1342] [shutdown] EngineCore: trigger received signal=SIGINT
+1407: INFO 11-10 19:16:08 [core.py:1342] [shutdown] EngineCore: trigger received signal=SIGINT
+1408: (ApiServer_0 pid=43632) INFO 11-10 19:16:08 [core.py:1342] [shutdown] EngineCore: trigger received signal=SIGINT
+1409: INFO 11-10 19:16:08 [core.py:1342] [shutdown] EngineCore: trigger received signal=SIGINT
+1416: INFO 11-10 19:16:08 [core.py:1342] [shutdown] EngineCore: trigger received signal=SIGINT
+1418: INFO 11-10 19:16:08 [core.py:1342] [shutdown] EngineCore: trigger received signal=SIGINT
+1496: (ApiServer_7 pid=43639) ERROR 11-10 19:16:08 [async_llm.py:843] AsyncLLM output_handler failed.
+1639: /usr/local/python3.11.10/lib/python3.11/multiprocessing/resource_tracker.py:254: UserWarning: resource_tracker: There appear to be 8 leaked shared_memory objects to clean up at shutdown

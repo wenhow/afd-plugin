@@ -1,0 +1,83 @@
+Tue Nov 10 11:01:05 UTC 2026
+Python 3.11.10
+Name: torch
+Version: 2.10.0
+Summary: Tensors and Dynamic neural networks in Python with strong GPU acceleration
+Home-page:
+Author:
+Author-email: PyTorch Team <packages@pytorch.org>
+License: BSD-3-Clause
+Location: /usr/local/python3.11.10/lib/python3.11/site-packages
+Requires: filelock, fsspec, jinja2, networkx, sympy, typing-extensions
+Required-by: accelerate, ais_bench_benchmark, cann_ops_nn, cann_ops_transformer, cannbot-arena-net, cannbot-arena-net-ops, compressed-tensors, flash-linear-attention-npu-a5, torch_npu, torchaudio, torchvision, vllm_ascend, xgrammar
+---
+Name: torch_npu
+Version: 2.10.0.post4
+Summary: NPU bridge for PyTorch
+Home-page: https://gitcode.com/ascend/pytorch
+Author:
+Author-email:
+License: BSD License
+Location: /usr/local/python3.11.10/lib/python3.11/site-packages
+Requires: torch
+Required-by: cann_ops_nn, cann_ops_transformer, flash-linear-attention-npu-a5, vllm_ascend
+---
+Name: vllm
+Version: 0.30.0+empty
+Summary: A high-throughput and memory-efficient inference and serving engine for LLMs
+Home-page:
+Author: vLLM Team
+Author-email:
+License:
+Location: /usr/local/python3.11.10/lib/python3.11/site-packages
+Requires: aiohttp, anthropic, blake3, cachetools, cbor2, cloudpickle, compressed-tensors, depyf, einops, fastapi, filelock, huggingface_hub, ijson, jsonschema, lark, llguidance, lm-format-enforcer, mcp, mistral_common, model-hosting-container-standards, msgspec, ninja, numpy, openai, openai-harmony, opencv-python-headless, opentelemetry-api, opentelemetry-exporter-otlp, opentelemetry-sdk, opentelemetry-semantic-conventions-ai, outlines_core, partial-json-parser, pillow, prometheus-fastapi-instrumentator, prometheus_client, protobuf, psutil, py-cpuinfo, pybase64, pydantic, python-json-logger, pyyaml, pyzmq, regex, requests, safetensors, sentencepiece, setproctitle, starlette, tiktoken, tokenizers, tqdm, transformers, typing_extensions, watchfiles, xgrammar
+Required-by:
+---
+Name: vllm_ascend
+Version: 0.19.1rc2.dev637+g2db8549c5
+Summary: vLLM Ascend backend plugin
+Home-page: https://github.com/vllm-project/vllm-ascend
+Author: vLLM-Ascend team
+Author-email:
+License: Apache 2.0
+Location: /usr/local/python3.11.10/lib/python3.11/site-packages
+Editable project location: /opt/vllm-ascend
+Requires: arctic-inference, cmake, compressed_tensors, decorator, einops, fastapi, fastokens, memcache_hybrid, memfabric_hybrid, msgpack, numba, numpy, packaging, pandas, pandas-stubs, pip, psutil, pybind11, pyyaml, quart, regex, scipy, setuptools, setuptools-scm, torch, torch-npu, torchaudio, torchvision, transformers, triton-ascend, wheel, xgrammar
+Required-by:
+---
+Name: fastapi
+Version: 0.123.10
+Summary: FastAPI framework, high performance, easy to learn, fast to code, ready for production
+Home-page:
+Author:
+Author-email: =?utf-8?q?Sebasti=C3=A1n_Ram=C3=ADrez?= <tiangolo@gmail.com>
+License:
+Location: /usr/local/python3.11.10/lib/python3.11/site-packages
+Requires: annotated-doc, pydantic, starlette, typing-extensions
+Required-by: model-hosting-container-standards, vllm, vllm_ascend
+e7cfe618aaba693f40a587424c58a90e9d8a790e
+?? results/
+4ec6dc7722ec4f7f8005a86570238ac4377c5d43
+python=/usr/local/python3.11.10/bin/python
+model=/home/models/DeepSeek-V4.1-Flash
+transformer_vendor=/usr/local/Ascend/ascend-toolkit/latest/opp/vendors/custom_transformer
+ASCEND_OPP_PATH=/usr/local/Ascend/cann-9.2.0/opp
+ASCEND_CUSTOM_OPP_PATH=/usr/local/Ascend/ascend-toolkit/latest/opp/vendors/custom_transformer
+LD_LIBRARY_PATH=/usr/local/Ascend/ascend-toolkit/latest/opp/vendors/custom_transformer/op_api/lib:/usr/local/Ascend/nnal/atb/latest/atb/cxx_abi_1/lib:/usr/local/Ascend/nnal/atb/latest/atb/cxx_abi_1/examples:/usr/local/Ascend/nnal/atb/latest/atb/cxx_abi_1/tests/atbopstest:/usr/local/Ascend/ascend-toolkit/latest/tools/aml/lib64:/usr/local/Ascend/ascend-toolkit/latest/tools/aml/lib64/plugin:/usr/local/Ascend/ascend-toolkit/latest/lib64:/usr/local/Ascend/ascend-toolkit/latest/lib64/plugin/opskernel:/usr/local/Ascend/ascend-toolkit/latest/lib64/plugin/nnengine:/usr/local/Ascend/ascend-toolkit/latest/opp/built-in/op_impl/ai_core/tbe/op_tiling:/usr/local/Ascend/driver/lib64/common/:/usr/local/Ascend/driver/lib64/driver/:/usr/local/lib::/usr/local/Ascend/ascend-toolkit/latest/aarch64-linux/devlib:/usr/lib64
+ASCEND_RT_VISIBLE_DEVICES=0,1,2,3,4,5,6,7
+VLLM_PLUGINS=ascend,ascend_model,ascend_model_loader,ascend_kv_connector,ascend_service_profiling
+AFD_DSV41_MXFP8_SCALE_PATCH=0
+tp8_compat_probe_only=0
+HCCL_OP_EXPANSION_MODE=CCU_SCHED
+HCCL_BUFFSIZE=1600
+HCCL_CONNECT_TIMEOUT=1200
+HCCL_EXEC_TIMEOUT=2040
+VLLM_EXECUTE_MODEL_TIMEOUT_SECONDS=3000
+OMP_PROC_BIND=false
+OMP_NUM_THREADS=10
+PYTORCH_NPU_ALLOC_CONF=expandable_segments:True
+               total        used        free      shared  buff/cache   available
+Mem:           1.5Ti        96Gi       632Gi        61Gi       845Gi       1.4Ti
+Swap:          4.0Gi       3.7Gi       328Mi
+Filesystem      Size  Used Avail Use% Mounted on
+shm             512G     0  512G   0% /dev/shm

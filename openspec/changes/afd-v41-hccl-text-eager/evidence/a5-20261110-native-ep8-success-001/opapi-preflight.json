@@ -1,0 +1,10 @@
+{
+  "library": "/usr/local/Ascend/ascend-toolkit/latest/opp/vendors/custom_transformer/op_api/lib/libcust_opapi.so",
+  "loaded": true,
+  "symbols": {
+    "aclnnCompressorV2": true,
+    "aclnnCompressorV2GetWorkspaceSize": true
+  },
+  "passed": true,
+  "scope": "Library load and symbol lookup only; no operator execution or inference"
+}
