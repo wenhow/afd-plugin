@@ -35,6 +35,38 @@ from tests.unit.fakes.hccl import (
 from tests.unit.fakes.hccl_v41_graph_service import make_graph_service_case
 
 
+@pytest.mark.parametrize("fail_load", [False, True])
+def test_normal_graph_ffn_loader_retains_target_width_and_refuses_storage_reload(
+    monkeypatch, fail_load
+):
+    case = make_ffn_capacity_case(
+        monkeypatch,
+        worker_module,
+        runner_module,
+        graph=True,
+        fail_load=fail_load,
+    )
+    case.worker.init_device()
+    runner = case.worker.model_runner
+    transport = runner.connector.transport
+    assert transport.negotiated_capabilities.target_query_len == 3
+    assert runner.target_shape.target_query_len == 3
+    if fail_load:
+        with pytest.raises(RuntimeError, match="controlled FFN weight"):
+            runner.load_model()
+        with pytest.raises(RuntimeError, match="single-use"):
+            runner.load_model()
+        assert transport.terminal and not transport.closed
+    else:
+        runner.load_model()
+        model = runner.get_model()
+        with pytest.raises(RuntimeError, match="already loaded"):
+            runner.load_model()
+        assert runner.get_model() is model
+        assert model.routing_workspace.numel() == 9
+        assert not transport.terminal and not transport.closed
+
+
 @pytest.mark.parametrize("foreign_model", [False, True])
 def test_ffn_runner_rejects_target_shape_for_wrong_model_or_capacity(
     monkeypatch, foreign_model

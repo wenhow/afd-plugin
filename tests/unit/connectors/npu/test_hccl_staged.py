@@ -17,7 +17,10 @@ from vllm.distributed import parallel_state
 from afd_plugin.compat.npu.feature_validation import (
     fail_if_unsupported_npu_afd_features,
 )
-from afd_plugin.compat.npu.runtime_config import get_npu_ffn_config
+from afd_plugin.compat.npu.runtime_config import (
+    DeepseekV41TargetShape,
+    get_npu_ffn_config,
+)
 from afd_plugin.config import parse_afd_config
 from afd_plugin.connectors.metadata import AFDTransferContext, AFDTransferMetadata
 from afd_plugin.connectors.npu import hccl_staged as adapter_module
@@ -173,6 +176,64 @@ def test_dspark_u2_selector_rejects_invalid_draft_instead_of_using_legacy_u1(bou
     with pytest.raises(ValueError, match=reason):
         adapter_module.create_npu_runtime_connector(
             0, 0, config, parse_afd_config(config)
+        )
+
+
+@pytest.mark.parametrize("role", ["attention", "ffn"])
+@pytest.mark.parametrize("stages", [1, 2])
+@pytest.mark.parametrize("query_len", [1, 3])
+def test_normal_graph_factory_and_validation_select_the_same_role_protocol(
+    role, stages, query_len
+):
+    runtime = hccl_vllm_config(
+        dtype=torch.bfloat16,
+        compilation_mode=CompilationMode.NONE,
+        cudagraph_mode=CUDAGraphMode.FULL_DECODE_ONLY,
+        role=role,
+        dspark=query_len > 1,
+        num_ubatches=stages,
+    )
+    runtime.model_config.enforce_eager = False
+    runtime.parallel_config.rank = 0
+    if query_len > 1:
+        runtime.speculative_config.num_speculative_tokens = query_len - 1
+    shape = DeepseekV41TargetShape(query_len)
+    if role == "ffn":
+        runtime = get_npu_ffn_config(runtime)
+    afd = parse_afd_config(runtime, expected_role=role)
+    validate_npu_model_runner_v2_config(runtime, expected_role=role, device_type="npu")
+
+    connector = adapter_module.create_npu_runtime_connector(
+        0, 0, runtime, afd, target_shape=shape
+    )
+
+    assert isinstance(connector, adapter_module.HcclStagedAFDConnector)
+    caps = connector.transport.negotiated_capabilities
+    assert caps.graph_execution_version == caps.local_counts_version == 1
+    assert caps.target_query_len == query_len
+    assert not connector.is_initialized
+    assert runtime.compilation_config.cudagraph_mode == CUDAGraphMode.FULL_DECODE_ONLY
+    assert not runtime.model_config.enforce_eager
+    if role == "ffn":
+        assert runtime.speculative_config is None and runtime.engram_config is None
+
+
+@pytest.mark.parametrize("boundary", ["sleep", "weight_transfer", "mode"])
+def test_normal_graph_factory_rejects_storage_or_mode_changes_before_rendezvous(
+    runtime, boundary
+):
+    runtime.model_config.enforce_eager = False
+    runtime.compilation_config.cudagraph_mode = CUDAGraphMode.FULL_DECODE_ONLY
+    if boundary == "sleep":
+        runtime.model_config.enable_sleep_mode = True
+    elif boundary == "weight_transfer":
+        runtime.weight_transfer_config = object()
+    else:
+        runtime.compilation_config.cudagraph_mode = CUDAGraphMode.FULL
+    reason = "fixed storage" if boundary != "mode" else "FULL_DECODE_ONLY"
+    with pytest.raises(ValueError, match=reason):
+        adapter_module.create_npu_runtime_connector(
+            0, 0, runtime, parse_afd_config(runtime)
         )
 
 

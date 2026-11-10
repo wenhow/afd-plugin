@@ -1512,7 +1512,7 @@ def test_npu_ffn_connector_uses_model_device_index_for_dp_worker(monkeypatch):
     connector = _LifecycleConnector([], control_plane=object())
     calls = []
 
-    def create_connector(rank, local_rank, vllm_config, afd_config):
+    def create_connector(rank, local_rank, vllm_config, afd_config, **kwargs):
         calls.append((rank, local_rank))
         return connector
 

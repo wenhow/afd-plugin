@@ -576,7 +576,9 @@ def test_npu_async_v2_constructor_validates_before_native_and_connector_init(
     monkeypatch.setattr(module.NPUModelRunnerV2, "__init__", native_init)
     monkeypatch.setattr(module, "_resolve_world_ranks", lambda: (0, 0))
     monkeypatch.setattr(module, "create_npu_runtime_connector", create_connector)
-    monkeypatch.setattr(module, "create_afd_npu_profiler", lambda _role: None)
+    monkeypatch.setattr(
+        module, "create_deferred_afd_npu_profiler", lambda _role, **kwargs: None
+    )
     runner = module.AFDNPUAttentionModelRunnerV2(
         config, SimpleNamespace(type="npu", index=0)
     )

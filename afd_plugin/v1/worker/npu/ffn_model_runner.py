@@ -77,6 +77,7 @@ class AFDNPUFFNModelRunner:
     """Synchronous FFN execution for CAMP2P and typed eager HCCL steps."""
 
     afd_expected_role = "ffn"
+    _hccl_graph_load_started = False
 
     # Plugin-only target_shape retains the original validated target's N+1
     # width after FFN config isolation. None derives the local/default shape;
@@ -110,6 +111,7 @@ class AFDNPUFFNModelRunner:
                 raise ValueError("target shape does not match the V4.1 target config")
         self.target_shape = local_shape if target_shape is None else target_shape
         self.model: torch.nn.Module | None = None
+        self._hccl_graph_load_started = False
         self.model_memory_usage = 0
         self.afd_config = afd_config
         fail_if_unsupported_npu_afd_features(
@@ -119,7 +121,11 @@ class AFDNPUFFNModelRunner:
         if connector is None:
             rank, _ = _resolve_world_ranks()
             connector = create_npu_runtime_connector(
-                rank, int(device.index), vllm_config, afd_config
+                rank,
+                int(device.index),
+                vllm_config,
+                afd_config,
+                target_shape=self.target_shape,
             )
         self.connector = connector
         self.num_layers = int(self.model_config.hf_text_config.num_hidden_layers)
@@ -153,29 +159,50 @@ class AFDNPUFFNModelRunner:
 
         if self.model is not None:
             raise RuntimeError("NPU FFN weights are already loaded")
-        speculative_config = self.vllm_config.speculative_config
-        if self.target_shape is not None:
-            decode_query_len = self.target_shape.target_query_len
-        else:
-            decode_query_len = 1 + (
-                speculative_config.num_speculative_tokens
-                if speculative_config is not None
-                else 0
-            )
-        # Ascend MoE dispatchers read these helpers during model construction,
-        # including when CAMP2P supplies their input hidden states.
-        set_mc2_tokens_capacity(
-            self.vllm_config,
-            self.vllm_config.scheduler_config.max_num_seqs,
-            decode_query_len,
+        transport = (
+            self.connector.transport
+            if isinstance(self.connector, HcclStagedAFDConnector)
+            else None
         )
-        set_mc2_mask(self.vllm_config, self.device)
-        loader = get_model_loader(self.vllm_config.load_config)
-        with DeviceMemoryProfiler() as profiler:
-            self.model = loader.load_model(
-                vllm_config=self.vllm_config, model_config=self.model_config
+        graph = (
+            transport is not None
+            and transport.negotiated_capabilities.graph_execution_version == 1
+        )
+        if graph:
+            if self._hccl_graph_load_started:
+                raise RuntimeError("native FFN Graph model loading is single-use")
+            validate_staged_hccl_binding(
+                self.vllm_config, transport, self.device, target_shape=self.target_shape
             )
-        self.model_memory_usage = profiler.consumed_memory
+            self._hccl_graph_load_started = True
+        try:
+            speculative_config = self.vllm_config.speculative_config
+            if self.target_shape is not None:
+                decode_query_len = self.target_shape.target_query_len
+            else:
+                decode_query_len = 1 + (
+                    speculative_config.num_speculative_tokens
+                    if speculative_config is not None
+                    else 0
+                )
+            # Ascend MoE dispatchers read these helpers during construction,
+            # including when CAMP2P supplies their input hidden states.
+            set_mc2_tokens_capacity(
+                self.vllm_config,
+                self.vllm_config.scheduler_config.max_num_seqs,
+                decode_query_len,
+            )
+            set_mc2_mask(self.vllm_config, self.device)
+            loader = get_model_loader(self.vllm_config.load_config)
+            with DeviceMemoryProfiler() as profiler:
+                self.model = loader.load_model(
+                    vllm_config=self.vllm_config, model_config=self.model_config
+                )
+            self.model_memory_usage = profiler.consumed_memory
+        except BaseException:
+            if graph:
+                transport.terminal = True
+            raise
 
     def get_model(self) -> torch.nn.Module:
         if self.model is None:

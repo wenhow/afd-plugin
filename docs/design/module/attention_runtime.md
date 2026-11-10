@@ -21,6 +21,7 @@ primary_code_paths:
   - "afd_plugin/v1/worker/npu/hccl_v41_graph_session.py"
   - "afd_plugin/v1/worker/npu/hccl_v41_graph_coordinator.py"
   - "afd_plugin/v1/worker/npu/hccl_v41_graph_eager.py"
+  - "afd_plugin/v1/worker/npu/hccl_v41_graph_bootstrap.py"
   - "afd_plugin/v1/worker/npu/attention_worker.py"
 related_code_paths:
   - "afd_plugin/connectors/**"
@@ -47,6 +48,7 @@ validation_paths:
   - "tests/unit/v1/worker/npu/test_hccl_v41_graph_session.py"
   - "tests/unit/v1/worker/npu/test_hccl_v41_graph_coordinator.py"
   - "tests/unit/v1/worker/npu/test_hccl_v41_graph_eager.py"
+  - "tests/unit/v1/worker/npu/test_hccl_v41_graph_bootstrap.py"
   - "tests/unit/v1/worker/npu/test_attention_model_runner_v2.py"
   - "tests/unit/v1/worker/npu/test_attention_worker.py"
   - "tests/unit/model_executor/test_async_cam_dbo.py"
@@ -87,6 +89,16 @@ Normal NPU construction now selects and binds the staged adapter for a V4.1
 HCCL target configured for U2, including that session's native U1 fallback.
 Default U1 and DSpark/U1 retain their existing v2 connector. The V4.1 model
 admission guard and full-checkpoint qualification remain unchanged.
+
+Normal Graph configuration selects the staged Graph protocol on both roles,
+including U1. After loading, Attention installs its pre-KV eager bridge; the
+complete native KV initialization then binds the same session/cache to its
+native manager. The headless FFN start RPC initializes the wire and installs
+the matching lazy Graph service before starting its receiving thread. Settings
+come from one immutable environment snapshot per role; diagnostics default to
+off. This automatic assembly retains the closed model qualification guard.
+One load and one KV allocation own generation zero; reload, KV reinitialization,
+sleep and weight-transfer modes do not enter this fixed storage lifetime.
 
 ## Purpose and boundary
 

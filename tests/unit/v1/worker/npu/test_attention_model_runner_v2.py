@@ -24,6 +24,11 @@ from tests.unit.fakes.attention_model_runner_v2 import (
     make_graph_runner_case,
     queue_graph_runner_stop,
 )
+from tests.unit.fakes.hccl_v41_graph_bootstrap import (
+    make_graph_bootstrap_case,
+    set_graph_bootstrap_environment,
+)
+from tests.unit.fakes.hccl_v41_graph_eager import run_graph_eager_parent
 
 
 @pytest.fixture
@@ -141,3 +146,155 @@ def test_shutdown_retains_native_owners_until_graph_reset_succeeds(
         direction == "recv" and message.kind == "STOP_ACK"
         for direction, _, _, message in case.transport.transcript
     )
+
+
+@pytest.fixture
+def automatic_graph_factory(runner_case, monkeypatch):
+    set_graph_bootstrap_environment(monkeypatch)
+    monkeypatch.setattr(runner_module.torch.npu, "synchronize", lambda *a: None)
+
+    def create(**kwargs):
+        case = make_graph_bootstrap_case(**kwargs)
+        monkeypatch.setattr(
+            NPUModelRunner,
+            "load_model",
+            lambda owner, *a, **k: case.native.load_model(owner, *a, **k),
+        )
+        monkeypatch.setattr(
+            NPUModelRunner,
+            "initialize_kv_cache",
+            lambda owner, *a, **k: case.native.initialize_kv_cache(owner, *a, **k),
+        )
+        return case
+
+    return create
+
+
+@pytest.fixture
+def automatic_graph_case(automatic_graph_factory):
+    return automatic_graph_factory()
+
+
+def test_normal_dspark_u2_load_and_kv_retain_target_query_and_graph_session(
+    automatic_graph_factory,
+):
+    case = automatic_graph_factory(stages=2, target_query_len=3)
+    case.owner.load_model()
+    bridge = case.owner.hccl_v41_graph_eager
+    case.owner.initialize_kv_cache(case.owner.kv_cache_config)
+    coordinator = case.owner.hccl_v41_graph_coordinator
+    assert coordinator.control.cache is bridge.control.cache
+    assert coordinator.session is case.owner.hccl_v41_graph_session
+    assert coordinator.transport.negotiated_capabilities.target_query_len == 3
+    assert coordinator.owner.decode_query_len == 3
+    assert case.owner.ubatch_runner.graph_owner is coordinator.session
+    assert coordinator.control.generation() == 0 and not case.transport.terminal
+
+
+def test_normal_load_profiles_before_kv_then_installs_the_same_graph_owners(
+    automatic_graph_case, monkeypatch
+):
+    case = automatic_graph_case
+    case.owner.load_model()
+    bridge = case.owner.hccl_v41_graph_eager
+    monkeypatch.setattr(
+        NPUModelRunner,
+        "execute_model",
+        lambda owner, *a, **k: run_graph_eager_parent(case, dummy=True, tokens=4)[1],
+    )
+    monkeypatch.setattr(
+        "vllm_ascend.worker.v2.input_batch.update_cos_sin", lambda _: None
+    )
+    output, auxiliary = case.owner.execute_model(
+        SimpleNamespace(total_num_scheduled_tokens=4), dummy_run=True, is_profile=True
+    )
+    case.owner.initialize_kv_cache(case.owner.kv_cache_config)
+    coordinator = case.owner.hccl_v41_graph_coordinator
+    assert output.shape == (4, 4) and len(auxiliary) == 2
+    assert coordinator.control.cache is bridge.control.cache
+    assert coordinator.control.generation is bridge.control.generation
+    assert coordinator.control.generation() == 0
+    assert coordinator.session is case.owner.hccl_v41_graph_session
+    assert not coordinator.control.cache.terminal
+    plans = [
+        message.plan
+        for direction, _, _, message in case.transport.transcript
+        if direction == "send" and message.kind == "FORWARD"
+    ]
+    assert len(plans) == 1 and plans[0].mode == "profile"
+    assert plans[0].graph_execution.phase == "eager"
+    assert case.transport.plan is None and case.transport.graph_reservation is None
+
+
+def test_automatic_graph_settings_stay_fixed_through_real_kv_handoff(
+    automatic_graph_case, monkeypatch
+):
+    case = automatic_graph_case
+    case.owner.load_model()
+    settings = case.owner.hccl_v41_graph_eager.overlap_settings
+    monkeypatch.setenv("AFD_HCCL_GRAPH_U2_COMPUTE_OVERLAP", "0")
+    monkeypatch.setenv("AFD_HCCL_STAGE_DIAGNOSTICS", "1")
+    case.owner.initialize_kv_cache(case.owner.kv_cache_config)
+    assert case.owner.hccl_v41_graph_coordinator.overlap_settings is settings
+    assert settings.graph_u2_compute_overlap and not settings.stage_diagnostics
+
+
+def test_automatic_kv_cannot_write_after_acknowledged_shutdown(
+    automatic_graph_case,
+):
+    case = automatic_graph_case
+    case.owner.load_model()
+    queue_graph_runner_stop(case)
+    case.owner.prepare_shutdown()
+    with pytest.raises(RuntimeError, match="first idle load"):
+        case.owner.initialize_kv_cache(case.owner.kv_cache_config)
+    assert case.events == ["native-load"]
+    assert case.owner.hccl_v41_graph_eager.control.cache.closed
+    assert not case.transport.closed
+
+
+@pytest.mark.parametrize("entry", ["load", "kv"])
+def test_automatic_graph_reinitialization_preserves_the_first_valid_storage(
+    automatic_graph_case, entry
+):
+    case = automatic_graph_case
+    case.owner.load_model()
+    if entry == "kv":
+        case.owner.initialize_kv_cache(case.owner.kv_cache_config)
+    first = case.owner.hccl_v41_graph_eager.control.cache
+    with pytest.raises(RuntimeError, match="single-use|first idle load"):
+        if entry == "load":
+            case.owner.load_model()
+        else:
+            case.owner.initialize_kv_cache(case.owner.kv_cache_config)
+    assert case.events == (
+        ["native-load", "native-kv"] if entry == "kv" else ["native-load"]
+    )
+    assert case.owner.hccl_v41_graph_eager.control.cache is first
+    assert not first.closed and not first.terminal and not case.transport.terminal
+
+
+@pytest.mark.parametrize("entry", ["load", "kv"])
+def test_automatic_graph_native_initialization_failure_retains_terminal_owners(
+    automatic_graph_case, entry
+):
+    case = automatic_graph_case
+    if entry == "load":
+        case.native.fail_load = True
+    else:
+        case.owner.load_model()
+        case.native.fail_kv = True
+    with pytest.raises(RuntimeError, match="native load|native KV"):
+        if entry == "load":
+            case.owner.load_model()
+        else:
+            case.owner.initialize_kv_cache(case.owner.kv_cache_config)
+    assert case.transport.terminal and not case.transport.closed
+    if entry == "kv":
+        assert case.owner.hccl_v41_graph_eager.control.cache.terminal
+        assert not case.owner.hccl_v41_graph_eager.control.cache.closed
+    with pytest.raises(RuntimeError, match="single-use|first idle load"):
+        if entry == "load":
+            case.owner.load_model()
+        else:
+            case.owner.initialize_kv_cache(case.owner.kv_cache_config)

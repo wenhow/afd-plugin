@@ -133,7 +133,7 @@ def use_npu_ubatch_factory(
 ) -> Iterator[None]:
     """Scope native construction with explicit HCCL transport/graph ownership.
 
-    Production callers omit ``hccl_transport`` and retain their existing
+    Non-HCCL callers omit ``hccl_transport`` and retain their existing
     connector admission. An optional graph owner must belong to that injected
     transport and passes the controlled runner's graph admission checks. This
     injection does not open the V4.1 model guard.

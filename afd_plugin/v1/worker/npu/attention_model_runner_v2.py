@@ -4,9 +4,11 @@
 
 from __future__ import annotations
 
+import os
 from collections.abc import Iterator
 from contextlib import AbstractContextManager, contextmanager, nullcontext
 from dataclasses import replace
+from functools import partial
 from types import MethodType
 from typing import TYPE_CHECKING
 
@@ -41,6 +43,7 @@ from afd_plugin.connectors import (
     AFDConnectorBase,
     AFDForwardContextMetadata,
 )
+from afd_plugin.connectors.npu.hccl_overlap import HcclOverlapSettings
 from afd_plugin.connectors.npu.hccl_protocol import HcclForwardPlan
 from afd_plugin.connectors.npu.hccl_staged import (
     HcclStagedAFDConnector,
@@ -63,6 +66,9 @@ from afd_plugin.v1.worker.npu.hccl_v41_eager import HcclV41EagerSession
 from afd_plugin.v1.worker.npu.hccl_v41_execution import (
     HcclV41Execution,
     validate_hccl_v41_binding,
+)
+from afd_plugin.v1.worker.npu.hccl_v41_graph_bootstrap import (
+    HcclV41AttentionGraphBootstrap,
 )
 from afd_plugin.v1.worker.npu.hccl_v41_ubatch_runner import HcclV41UBatchRunner
 from afd_plugin.validation import validate_npu_model_runner_v2_config
@@ -238,9 +244,11 @@ class AFDNPUAttentionModelRunnerV2(AFDMetadataProviderMixin, NPUModelRunnerV2):
     hccl_v41_graph_eager: HcclV41GraphEager | None = None
     hccl_v41_graph_session: HcclV41GraphSession | None = None
     hccl_v41_graph_coordinator: HcclV41GraphCoordinator | None = None
+    hccl_v41_graph_bootstrap: HcclV41AttentionGraphBootstrap | None = None
     hccl_v41_diagnostics: HcclV41DiagnosticBinding | None = None
     _afd_shutdown_prepared = False
     _afd_staged_stop_completed = False
+    _hccl_graph_load_started = False
 
     def __init__(
         self,
@@ -304,6 +312,8 @@ class AFDNPUAttentionModelRunnerV2(AFDMetadataProviderMixin, NPUModelRunnerV2):
             self.hccl_v41_graph_eager = None
             self.hccl_v41_graph_session = None
             self.hccl_v41_graph_coordinator = None
+            self.hccl_v41_graph_bootstrap = None
+            self._hccl_graph_load_started = False
             if isinstance(connector, HcclStagedAFDConnector):
                 self.bind_hccl_v41_transport(connector.transport)
         except BaseException:
@@ -406,10 +416,9 @@ class AFDNPUAttentionModelRunnerV2(AFDMetadataProviderMixin, NPUModelRunnerV2):
     ) -> None:
         """Bind the explicit graph protocol before native pre-KV profiling.
 
-        The caller supplies the cache and generation source after loading the
-        model. Native KV initialization later installs this same session on
-        its U2 runner. This API does not change ordinary connector selection or
-        production model admission.
+        Automatic bootstrap or an explicit caller supplies the cache and fixed
+        generation after loading. Native KV initialization later installs this
+        same session on its U2 runner. Model qualification remains separate.
         """
         transport = self.hccl_v41_transport
         if (
@@ -508,16 +517,46 @@ class AFDNPUAttentionModelRunnerV2(AFDMetadataProviderMixin, NPUModelRunnerV2):
         *args,
         **kwargs,
     ) -> None:
-        super().load_model(load_dummy_weights, *args, **kwargs)
         # ### PATCH START: AFD connector rendezvous
         transport = self.hccl_v41_transport
-        if transport is not None:
-            if not transport.initialized:
-                transport.initialize()
+        graph = (
+            transport is not None
+            and transport.negotiated_capabilities.graph_execution_version == 1
+        )
+        if graph:
+            if self._hccl_graph_load_started or self.hccl_v41_graph_eager is not None:
+                raise RuntimeError("native Graph model loading is single-use")
             validate_hccl_v41_binding(self.vllm_config, transport, self.device)
-        elif not self.connector.is_initialized:
-            self.connector.init_afd_connector()
+            self._hccl_graph_load_started = True
         # ### PATCH END: AFD connector rendezvous
+        try:
+            super().load_model(load_dummy_weights, *args, **kwargs)
+            # ### PATCH START: AFD connector rendezvous
+            if transport is not None:
+                if not transport.initialized:
+                    transport.initialize()
+                validate_hccl_v41_binding(self.vllm_config, transport, self.device)
+                if graph:
+                    self.hccl_v41_graph_bootstrap = HcclV41AttentionGraphBootstrap(
+                        self,
+                        synchronize=partial(torch.npu.synchronize, self.device),
+                        overlap_settings=HcclOverlapSettings.from_environment(
+                            dict(os.environ),
+                            num_stages=2 if self.parallel_config.use_ubatching else 1,
+                        ),
+                    )
+                    self.hccl_v41_graph_bootstrap.bind_loaded_model()
+            elif not self.connector.is_initialized:
+                self.connector.init_afd_connector()
+            # ### PATCH END: AFD connector rendezvous
+        except BaseException:
+            # ### PATCH START: retain failed Graph initialization owners
+            if graph:
+                transport.terminal = True
+                if self.hccl_v41_graph_bootstrap is not None:
+                    self.hccl_v41_graph_bootstrap.fail()
+            # ### PATCH END: retain failed Graph initialization owners
+            raise
 
     # Native MRV2 imports its factory by value; scope that exact binding while
     # preserving Ascend's KV initialization (too large to copy). A controlled
@@ -538,18 +577,30 @@ class AFDNPUAttentionModelRunnerV2(AFDMetadataProviderMixin, NPUModelRunnerV2):
         )
         binding = self.hccl_v41_transport
         graph_session = self.hccl_v41_graph_session
+        bootstrap = self.hccl_v41_graph_bootstrap
         if (
             binding is not None
             and binding.negotiated_capabilities.graph_execution_version == 1
             and graph_session is None
         ):
             raise RuntimeError("bind the graph session before native KV initialization")
-        with use_npu_ubatch_factory(
-            self,
-            hccl_transport=transport,
-            hccl_graph_owner=graph_session if transport is not None else None,
-        ):
-            super().initialize_kv_cache(kv_cache_config, kv_cache_allocation_context)
+        if bootstrap is not None:
+            bootstrap.begin_kv_init()
+        try:
+            with use_npu_ubatch_factory(
+                self,
+                hccl_transport=transport,
+                hccl_graph_owner=graph_session if transport is not None else None,
+            ):
+                super().initialize_kv_cache(
+                    kv_cache_config, kv_cache_allocation_context
+                )
+            if bootstrap is not None:
+                bootstrap.complete_kv_init()
+        except BaseException:
+            if bootstrap is not None:
+                bootstrap.fail()
+            raise
         if self.hccl_v41_diagnostics is not None and isinstance(
             self.ubatch_runner, HcclV41UBatchRunner
         ):
@@ -851,6 +902,7 @@ class AFDNPUAttentionModelRunnerV2(AFDMetadataProviderMixin, NPUModelRunnerV2):
                     self.hccl_v41_graph_coordinator = None
                     self.hccl_v41_graph_session = None
                     self.hccl_v41_graph_eager = None
+                    self.hccl_v41_graph_bootstrap = None
                     native_cleanup_complete = True
                 finally:
                     self._afd_pending_metadata = None

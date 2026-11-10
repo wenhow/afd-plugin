@@ -15,6 +15,7 @@ from typing import TYPE_CHECKING, Any
 
 import torch
 
+from afd_plugin.compat.npu.runtime_config import DeepseekV41TargetShape
 from afd_plugin.config import AFDConfig
 from afd_plugin.connectors.base import AFDConnectorBase
 from afd_plugin.connectors.factory import AFDConnectorFactory
@@ -26,6 +27,7 @@ from afd_plugin.connectors.metadata import (
 )
 from afd_plugin.connectors.npu.hccl_config import (
     HcclExtraInfo,
+    uses_staged_hccl_graph_runtime,
     uses_staged_hccl_runtime,
     validate_staged_hccl_runtime,
 )
@@ -57,8 +59,16 @@ class HcclStagedAFDConnector(AFDConnectorBase):
         vllm_config: VllmConfig,
         afd_config: AFDConfig,
         role_rank: int,
+        *,
+        target_shape: DeepseekV41TargetShape | None = None,
     ) -> None:
-        caps = validate_staged_hccl_runtime(vllm_config, afd_config, role_rank)
+        caps = validate_staged_hccl_runtime(
+            vllm_config,
+            afd_config,
+            role_rank,
+            graph=uses_staged_hccl_graph_runtime(vllm_config, afd_config),
+            target_shape=target_shape,
+        )
         if type(rank) is not int or rank != role_rank:
             raise ValueError("staged HCCL requires caller rank equal to role_rank")
         super().__init__(rank, local_rank, vllm_config, afd_config, role_rank)
@@ -241,6 +251,8 @@ def create_npu_runtime_connector(
     local_rank: int,
     vllm_config: VllmConfig,
     afd_config: AFDConfig,
+    *,
+    target_shape: DeepseekV41TargetShape | None = None,
 ) -> AFDConnectorBase:
     """Select the staged target adapter; preserve other connector factories."""
     if uses_staged_hccl_runtime(vllm_config, afd_config):
@@ -250,6 +262,7 @@ def create_npu_runtime_connector(
             vllm_config,
             afd_config,
             resolve_role_rank(vllm_config, afd_config),
+            target_shape=target_shape,
         )
     return AFDConnectorFactory.create_connector(
         rank, local_rank, vllm_config, afd_config

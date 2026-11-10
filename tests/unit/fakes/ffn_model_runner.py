@@ -26,7 +26,12 @@ class FFNCapacityModel(torch.nn.Module):
 
 
 class FFNCapacityLoader:
+    def __init__(self, *, fail=False):
+        self.fail = fail
+
     def load_model(self, *, vllm_config, model_config):
+        if self.fail:
+            raise RuntimeError("controlled FFN weight loading failure")
         return FFNCapacityModel(vllm_config)
 
 
@@ -43,6 +48,8 @@ def make_ffn_capacity_case(
     speculative_steps=2,
     tp_size=1,
     capacity_mode="decode",
+    graph=False,
+    fail_load=False,
 ):
     """Run plugin construction; replace only admission/native device boundaries.
 
@@ -61,6 +68,9 @@ def make_ffn_capacity_case(
     if speculative_steps is not None:
         source.speculative_config.num_speculative_tokens = speculative_steps
     source.engram_config = SimpleNamespace(dp_shared_memory=False)
+    if graph:
+        source.model_config.enforce_eager = False
+        source.compilation_config.cudagraph_mode = CUDAGraphMode.FULL_DECODE_ONLY
     source.parallel_config.rank = 0
     source.parallel_config.all2all_backend = "flashinfer_all2allv"
     source.scheduler_config.max_num_seqs = 3
@@ -90,9 +100,18 @@ def make_ffn_capacity_case(
         runner_module, "fail_if_unsupported_npu_afd_features", lambda *a, **k: None
     )
     monkeypatch.setattr(runner_module, "_resolve_world_ranks", lambda: (0, 0))
-    monkeypatch.setattr(
-        runner_module, "create_npu_runtime_connector", lambda *a: SimpleNamespace()
-    )
+    if not graph:
+        monkeypatch.setattr(
+            runner_module,
+            "create_npu_runtime_connector",
+            lambda *a, **k: SimpleNamespace(),
+        )
+    else:
+        monkeypatch.setattr(
+            runner_module,
+            "current_platform",
+            SimpleNamespace(get_global_graph_pool=lambda: None),
+        )
     monkeypatch.setattr(
         runner_module, "create_deferred_afd_npu_profiler", lambda *a, **k: None
     )
@@ -105,7 +124,9 @@ def make_ffn_capacity_case(
     monkeypatch.setattr(native_context, "set_mc2_mask", lambda *a: None)
     monkeypatch.setattr(mem_utils, "DeviceMemoryProfiler", cpu_memory_profiler)
     monkeypatch.setattr(
-        model_loader, "get_model_loader", lambda config: FFNCapacityLoader()
+        model_loader,
+        "get_model_loader",
+        lambda config: FFNCapacityLoader(fail=fail_load),
     )
     worker = worker_module.AFDNPUFFNWorker(source, 0, 0, "cpu-constructor-seam")
     return SimpleNamespace(source=source, worker=worker, device=device)

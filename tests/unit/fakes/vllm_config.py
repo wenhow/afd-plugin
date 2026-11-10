@@ -96,6 +96,7 @@ def npu_vllm_config(
         parallel_config=npu_parallel_config(**parallel_overrides),
         model_config=SimpleNamespace(
             enforce_eager=True,
+            enable_sleep_mode=False,
             hf_config=text_config,
             hf_text_config=text_config,
             use_mla=use_mla,
@@ -112,6 +113,7 @@ def npu_vllm_config(
         speculative_config=speculative_config,
         engram_config=engram_config,
         kv_transfer_config=kv_transfer_config,
+        weight_transfer_config=None,
         cache_config=SimpleNamespace(enable_prefix_caching=False),
         scheduler_config=SimpleNamespace(max_num_batched_tokens=16),
     )

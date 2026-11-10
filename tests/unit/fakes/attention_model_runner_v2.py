@@ -14,9 +14,11 @@ from tests.unit.fakes.hccl_v41_graph_coordinator import make_coordinator_case
 from tests.unit.fakes.hccl_v41_graph_eager import make_graph_eager_case
 
 
-def make_graph_runner_case(*, fail_close=False):
+def make_graph_runner_case(*, fail_close=False, stages=1, target_query_len=1):
     """Use the actual AFD runner with CPU-only model/control collaborators."""
-    case = make_graph_eager_case()
+    case = make_graph_eager_case(stages=stages, target_query_len=target_query_len)
+    # Binding precedes real KV/native runner construction, even for U2 config.
+    case.owner.ubatch_runner = None
     case.events = []
 
     def synchronize():

@@ -105,12 +105,14 @@ The separate [v3 eager transport](../../../afd_plugin/connectors/npu/hccl_staged
 implements the rank-local Gloo handshake and per-stage HCCL domains. Its
 [NPU component probe](../../../tests/npu/hccl_staged_probe.py) checks actual
 aggregation/fanout, stage-local transfer, native TP ownership and shutdown
-using controlled arithmetic, without constructing a model. The production
+using controlled arithmetic, without constructing a model. The generic
 connector factory retains v2/U1. The backend-local runtime selector chooses
 [`HcclStagedAFDConnector`](../../../afd_plugin/connectors/npu/hccl_staged.py) for
-V4.1 HCCL with U2 configured and speculation off, then A/F bind its single
-transport before initialization. Default U1 and DSpark/U1 retain v2. Graph,
-overlap and failed-device recovery remain separate integration work.
+V4.1 HCCL with eager U2 or native Graph U1/U2, then A/F bind its single
+transport before initialization. Eager default U1 and DSpark/U1 retain v2.
+Graph uses strict FULL_DECODE_ONLY admission and retains the original FFN
+target width before draft isolation. Full-model qualification and failed-device
+recovery remain separate from software owner assembly.
 
 The opt-in v3 capability `local_counts_version=1` requires A-size = F-size =
 native TP size. Every Attention worker submits its actual U1/U2 valid and
@@ -153,8 +155,9 @@ retain `tokens = requests * query_width`; native token-midpoint U2 slices may
 split a request. A shorter batch replays only when its complete padded native
 request/token layout matches the retained key. Draft execution remains local
 to Attention and cannot inherit target HCCL context or mutate retained target
-resources. This explicit component contract does not select Graph in the
-normal connector factory or qualify full-model DSpark execution. Separate CPU
+resources. Normal Graph startup now assembles the pre-KV bridge, real-KV
+coordinator and headless FFN service through the backend-local selector. This
+does not qualify full-model DSpark execution; the model guard stays closed. Separate CPU
 and device records live in the
 [combination evidence](../../../openspec/changes/afd-hccl-full-parity/evidence/).
 

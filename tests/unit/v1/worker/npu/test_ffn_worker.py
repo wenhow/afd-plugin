@@ -37,6 +37,7 @@ from tests.unit.fakes.hccl import (
     make_hccl_worker,
     make_staged_ffn_service_case,
 )
+from tests.unit.fakes.hccl_v41_graph_bootstrap import make_ffn_graph_bootstrap_case
 from tests.unit.fakes.hccl_v41_graph_service import make_graph_service_case
 from tests.unit.fakes.profiler import (
     PROFILER_TEST_TIMEOUT_SECONDS,
@@ -129,6 +130,50 @@ def test_graph_worker_preserves_failed_capture_and_communicator_ownership(
     assert case.cache.terminal and not case.cache.closed
     assert case.transport.terminal and not case.transport.closed
     assert "graph-reset" not in case.events and "groups-close" not in case.events
+
+
+def test_headless_start_assembles_graph_service_without_attention_kv_initialization(
+    monkeypatch,
+):
+    case = make_ffn_graph_bootstrap_case(service_module, worker_module, monkeypatch)
+    case.transport.queue_parent("replay", identifier="early-profile", fallback=True)
+    case.transport.queue_stop()
+
+    case.worker.start_ffn_server_loop()
+    join_hccl_worker(case.worker)
+    service = case.runner.hccl_v41_graph_service
+    assert service is not None and service.acknowledged_stop
+    assert service.generation() == 0
+    assert service.cache.is_empty and not service.cache.closed
+    assert not service.overlap_settings.stage_diagnostics
+    assert not service.overlap_settings.ffn_compute_sync_diagnostics
+    with pytest.raises(RuntimeError, match="acknowledged staged HCCL STOP"):
+        case.worker.start_ffn_server_loop()
+    assert case.worker.poll_hccl_ffn_service() is False
+    case.worker.stop_ffn_server_loop()
+
+    assert service.cache.closed and case.transport.closed
+    assert case.events[-2:] == ["device-sync", "groups-close"]
+    sent = [
+        m.kind
+        for direction, _, _, m in case.transport.transcript
+        if direction == "send"
+    ]
+    assert "GRAPH_REPORT" in sent and "ACCEPT" in sent and "COMPLETE" in sent
+    assert "STOP_ACK" in sent
+
+
+def test_headless_graph_start_rejects_unloaded_weights_and_retains_the_session(
+    monkeypatch,
+):
+    case = make_ffn_graph_bootstrap_case(service_module, worker_module, monkeypatch)
+    case.runner.model = None
+    with pytest.raises(RuntimeError, match="not been loaded"):
+        case.worker.start_ffn_server_loop()
+    assert case.transport.terminal and not case.transport.closed
+    assert case.transport.transcript == []
+    with pytest.raises(RuntimeError, match="terminal staged"):
+        case.worker.start_ffn_server_loop()
 
 
 @pytest.fixture

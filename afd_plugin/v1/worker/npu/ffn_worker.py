@@ -5,7 +5,9 @@
 from __future__ import annotations
 
 import logging
+import os
 import threading
+from functools import partial
 from typing import TYPE_CHECKING, cast
 
 import torch
@@ -38,11 +40,15 @@ from afd_plugin.config import AFD_ASYNC_CONNECTOR, parse_afd_config
 from afd_plugin.connectors import AFDConnectorFactory
 from afd_plugin.connectors.npu.async_cam import CAMAsyncAFDConnector
 from afd_plugin.connectors.npu.hccl_config import validate_staged_hccl_binding
+from afd_plugin.connectors.npu.hccl_overlap import HcclOverlapSettings
 from afd_plugin.connectors.npu.hccl_staged import HcclStagedAFDConnector
 from afd_plugin.connectors.npu.p2p_hccl import P2pHcclAFDConnector
 from afd_plugin.model_executor.models.model_utils import get_afd_model_config
 from afd_plugin.v1.worker.npu.async_ffn_model_runner import AsyncNPUFFNModelRunner
 from afd_plugin.v1.worker.npu.ffn_model_runner import AFDNPUFFNModelRunner
+from afd_plugin.v1.worker.npu.hccl_v41_graph_bootstrap import (
+    create_hccl_v41_ffn_graph_service,
+)
 from afd_plugin.validation import (
     NPU_FFN_WORKER_FQCN,
     assert_compatible_afd_stack,
@@ -263,10 +269,34 @@ class AFDNPUFFNWorker(NPUWorker):
         connector = self.model_runner.connector
         staged = self._hccl_v41_transport
         if staged is not None:
+            if self._hccl_stop_received:
+                raise RuntimeError("cannot restart an acknowledged staged HCCL STOP")
             if staged.closed or staged.terminal:
                 raise RuntimeError("cannot restart a terminal staged HCCL service")
             if not staged.initialized:
                 staged.initialize()
+            if (
+                staged.negotiated_capabilities.graph_execution_version == 1
+                and self.model_runner.hccl_v41_graph_service is None
+            ):
+                try:
+                    service = create_hccl_v41_ffn_graph_service(
+                        self.model_runner,
+                        staged,
+                        synchronize=partial(torch.npu.synchronize, self.device),
+                        overlap_settings=HcclOverlapSettings.from_environment(
+                            dict(os.environ),
+                            num_stages=2
+                            if self.vllm_config.parallel_config.use_ubatching
+                            else 1,
+                        ),
+                    )
+                    self.model_runner.bind_hccl_v41_graph_service(service)
+                except BaseException:
+                    # No STOP or PG destroy can be inferred from local setup
+                    # failure; loaded model/transport remain supervisor-owned.
+                    staged.terminal = True
+                    raise
         elif not connector.is_initialized:
             self.model_runner.initialize_afd_connector()
 

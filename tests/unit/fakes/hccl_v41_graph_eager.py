@@ -45,15 +45,27 @@ class PreKVAttentionPeer(AttentionGraphControlPeer):
         return output
 
 
-def make_graph_eager_case(*, stages=1, scheduled=(1, 1, 1, 1), stage_diagnostics=False):
+def make_graph_eager_case(
+    *, stages=1, scheduled=None, stage_diagnostics=False, target_query_len=1
+):
     """Reuse native/model/control builders, then select pre-KV owner fields."""
-    case = make_coordinator_case(stages=stages)
+    case = make_coordinator_case(stages=stages, target_query_len=target_query_len)
     peer = PreKVAttentionPeer(case.transport.negotiated_capabilities)
     config = hccl_vllm_config(
         dtype=torch.bfloat16,
         compilation_mode=CompilationMode.NONE,
         cudagraph_mode=CUDAGraphMode.FULL_DECODE_ONLY,
+        dspark=target_query_len > 1,
+        num_ubatches=stages,
     )
+    if target_query_len > 1:
+        config.speculative_config.num_speculative_tokens = target_query_len - 1
+        config.model_config.hf_text_config.dspark_target_layer_ids = [1, 2]
+        config.model_config.hf_text_config.num_hidden_layers = 2
+        draft = config.speculative_config.draft_model_config.hf_text_config
+        draft.dspark_target_layer_ids = [1, 2]
+    if scheduled is None:
+        scheduled = (1, 1, 1, 1) if target_query_len == 1 else (target_query_len,) * 3
     config.model_config.enforce_eager = False
     config.model_config.hf_text_config.hidden_size = 4
     config.model_config.hf_text_config.vocab_size = 128
@@ -83,7 +95,9 @@ def make_graph_eager_case(*, stages=1, scheduled=(1, 1, 1, 1), stage_diagnostics
     case.native_state = make_batch_req_state(scheduled)
     owner.gather_batch_req_state = lambda output, dummy: (
         None if dummy else case.native_state,
-        1 if not dummy and all(count == 1 for count in scheduled) else None,
+        target_query_len
+        if not dummy and all(count == target_query_len for count in scheduled)
+        else None,
     )
     owner.model.register_forward_pre_hook(
         owner.model_state._prepare_engram_before_forward, with_kwargs=True

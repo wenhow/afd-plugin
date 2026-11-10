@@ -1,12 +1,12 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: Copyright contributors to the AFD plugin project
-"""Explicit FFN graph-phase service; no production factory selects this owner.
+"""FFN graph-phase service assembled by staged Graph startup or explicit callers.
 
 The caller initializes native TP/model/MC2 state and owns the transport and
 cache. After acknowledged STOP, close() retires the cache before the caller
 closes groups. A failed service retains its active dependencies and marks the
 session/cache terminal; only external supervision can recover peers blocked
-in device communication.
+in device communication. Automatic assembly does not open model qualification.
 """
 
 from __future__ import annotations

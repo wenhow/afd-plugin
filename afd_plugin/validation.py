@@ -199,13 +199,19 @@ def validate_npu_model_runner_v2_config(
         # NPU-only admission is deferred so this common validator stays usable
         # on CPU hosts. The model feature guard remains independently closed.
         from afd_plugin.connectors.npu.hccl_config import (
+            uses_staged_hccl_graph_runtime,
             uses_staged_hccl_runtime,
             validate_hccl_runtime,
             validate_staged_hccl_runtime,
         )
 
         if uses_staged_hccl_runtime(vllm_config, afd_config):
-            validate_staged_hccl_runtime(vllm_config, afd_config, role_rank=0)
+            validate_staged_hccl_runtime(
+                vllm_config,
+                afd_config,
+                role_rank=0,
+                graph=uses_staged_hccl_graph_runtime(vllm_config, afd_config),
+            )
         else:
             validate_hccl_runtime(vllm_config, afd_config, role_rank=0)
         return

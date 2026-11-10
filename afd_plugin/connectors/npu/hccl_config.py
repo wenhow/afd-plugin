@@ -86,8 +86,8 @@ def validate_staged_hccl_runtime(
 
     Logical U1 and native U2 share the counts-enabled protocol. The existing
     model guard still controls production admission; this allocates no groups.
-    Normal connector construction retains eager admission. Only an explicitly
-    injected graph session requests the restricted FULL_DECODE_ONLY contract.
+    Connector construction selects the restricted FULL_DECODE_ONLY contract
+    from the same native mode on both roles; model admission stays separate.
     Plugin-only target_shape retains the original target width on isolated F;
     it affects Graph capabilities only. A derives and checks its native width.
     """
@@ -120,20 +120,41 @@ def validate_staged_hccl_runtime(
     return result
 
 
+def uses_staged_hccl_graph_runtime(
+    vllm_config: VllmConfig, afd_config: AFDConfig
+) -> bool:
+    """Preserve native Graph intent across F's draft/Engram isolation.
+
+    Strict admission subsequently rejects unsupported Graph modes. Choosing
+    by model/mode, rather than draft presence, keeps A and isolated F on the
+    same protocol and includes native Graph U1.
+    """
+    return (
+        afd_config.connector == HCCL_P2P_CONNECTOR
+        and is_deepseek_v41_model(vllm_config)
+        and not vllm_config.model_config.enforce_eager
+    )
+
+
 def uses_staged_hccl_runtime(vllm_config: VllmConfig, afd_config: AFDConfig) -> bool:
-    """Select the U2 target service on both sides of draft role isolation."""
+    """Select Graph U1/U2 or eager U2 before either role rendezvous."""
+    graph = uses_staged_hccl_graph_runtime(vllm_config, afd_config)
     selected = (
         afd_config.connector == HCCL_P2P_CONNECTOR
         and is_deepseek_v41_model(vllm_config)
         and (
-            vllm_config.parallel_config.enable_dbo
+            graph
+            or vllm_config.parallel_config.enable_dbo
             or vllm_config.parallel_config.use_ubatching
         )
     )
     if selected:
         # A retains the validated native drafter, while F's private config has
         # already removed it. Neither side may silently fall back to legacy U1.
-        validate_deepseek_v41_speculation(vllm_config)
+        if graph:
+            validate_deepseek_v41_graph_speculation(vllm_config)
+        else:
+            validate_deepseek_v41_speculation(vllm_config)
     return selected
 
 
@@ -263,6 +284,10 @@ def _validate_hccl_runtime(
         raise ValueError("P2pHcclAFDConnector supports decoder-only text models")
     if graph and model.enforce_eager:
         raise ValueError("graph HCCL requires enforce_eager=False")
+    if graph and (
+        model.enable_sleep_mode or vllm_config.weight_transfer_config is not None
+    ):
+        raise ValueError("graph HCCL requires fixed storage: sleep/weight transfer off")
     if not graph and not model.enforce_eager:
         raise ValueError("P2pHcclAFDConnector requires enforce_eager=True")
     if model.dtype != torch.bfloat16:
@@ -328,4 +353,5 @@ __all__ = [
     "validate_staged_hccl_binding",
     "validate_staged_hccl_runtime",
     "uses_staged_hccl_runtime",
+    "uses_staged_hccl_graph_runtime",
 ]
