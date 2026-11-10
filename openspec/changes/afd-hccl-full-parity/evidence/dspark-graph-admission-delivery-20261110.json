@@ -1,0 +1,32 @@
+{
+  "scope": "Strict fixed DSpark target Graph admission/shape binding only",
+  "sha256": {
+    "afd_plugin/compat/npu/runtime_config.py": "74c206ae788d30722678c882e1d1d1401498f674c09351ce0e1f2c9c4ed62bf0",
+    "afd_plugin/connectors/npu/hccl_config.py": "7981e31baa9e3004d07b94cd1cd42c87a251dac522b0fb2cbe1a6e4f24272660",
+    "afd_plugin/v1/worker/npu/hccl_v41_ubatch_runner.py": "5eb91545be95489a7357de70ae6620cc1cbbdc22fd35c8e6971b2301654af6d7",
+    "openspec/changes/afd-hccl-full-parity/evidence/a3-dspark-graph-cpu-20261110/admission-001/delivery.json": "1f5a957565f54ecc33219126d2999d32001ffaee4925012a29f72866c60363a1",
+    "openspec/changes/afd-hccl-full-parity/evidence/a3-dspark-graph-cpu-20261110/admission-001/identity.json": "b8b3f3d1f3be5bc59f5e5c3fc11a53c20da0193b91884d9b3ea3c8102bebbe71",
+    "openspec/changes/afd-hccl-full-parity/evidence/a3-dspark-graph-cpu-20261110/admission-001/remote-run.log": "f0692810f0333dcd2b6886c42ca128ce564fd1f93177ab3df9e478a7635d51d1",
+    "openspec/changes/afd-hccl-full-parity/evidence/a3-dspark-graph-cpu-20261110/admission-001/results/source-check.json": "547fd7ce8a056f0549c982280a4b84b582e7f98bdeceb464c30e8a1a6b9fd96b",
+    "openspec/changes/afd-hccl-full-parity/evidence/a3-dspark-graph-cpu-20261110/admission-002/delivery.json": "e8b36ce343f363d07afb4efb244f823aac0ecad8ff06735ddda346c8fd72c2b9",
+    "openspec/changes/afd-hccl-full-parity/evidence/a3-dspark-graph-cpu-20261110/admission-002/identity.json": "443c224f3053b5902a45f26f40efc0ccd58937d713b9fe39e1574dcad3811f1a",
+    "openspec/changes/afd-hccl-full-parity/evidence/a3-dspark-graph-cpu-20261110/admission-002/remote-run.log": "aa003b3d68d4e743f76633a303a25dda7d6884b0785f21994c9f71449e1bff31",
+    "openspec/changes/afd-hccl-full-parity/evidence/a3-dspark-graph-cpu-20261110/admission-002/results/cpu.stderr.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "openspec/changes/afd-hccl-full-parity/evidence/a3-dspark-graph-cpu-20261110/admission-002/results/cpu.stdout.log": "65c412f0416091866e4cbec83f4368fac86eff38a2b0f4900c282eef1e82e96e",
+    "openspec/changes/afd-hccl-full-parity/evidence/a3-dspark-graph-cpu-20261110/admission-002/results/cpu.xml": "f9bf806f8e08cd698ddd7e3f95d8f1df3b82ecadba4180adf2cf60d6b1fdc288",
+    "openspec/changes/afd-hccl-full-parity/evidence/a3-dspark-graph-cpu-20261110/admission-002/results/effective-env.json": "e58bb7bd62b92ec50ef0cd80edcef5d70aaf9936f156c8d0c6c1278c545a649f",
+    "openspec/changes/afd-hccl-full-parity/evidence/a3-dspark-graph-cpu-20261110/admission-002/results/source-check.json": "d7060f18def4a19c90301b091b24197ff84cb252671ad0497cee22a104c3dcf7",
+    "openspec/changes/afd-hccl-full-parity/evidence/a3-dspark-graph-cpu-20261110/admission-002/results/summary.json": "317b76231763d0db84f547c817bfcf7db559873e4aa6c6cc63e057b3f64e8e7a",
+    "openspec/changes/afd-hccl-full-parity/evidence/a3-dspark-graph-cpu-20261110/admission-002/results/versions.json": "8aa40a41b53ecde5293ad581f313555c4e948071ce87c879c3b93ac6d8ad2601",
+    "openspec/changes/afd-hccl-full-parity/evidence/a3-dspark-graph-cpu-20261110/admission-README.md": "dbcfc3ab6b620a34c74cb43289c128f937ccc9f95477f273f53ae61e67fea4d7",
+    "openspec/changes/afd-hccl-full-parity/evidence/a3-dspark-graph-cpu-20261110/admission-summary.json": "992168084950772519f327e0d60b8ed177d5ee7b4d08c1a4a47201e9a70e9cfe",
+    "openspec/changes/afd-hccl-full-parity/evidence/dspark-graph-admission-contract-20261110.md": "d9b4c77dbf7e5a3a4a96e26a3d6f3a5d22fc5078e8d6bf80cc09c17848807699",
+    "openspec/changes/afd-hccl-full-parity/evidence/dspark-graph-admission-independent-review-20261110.md": "9cde450ab1c9a18cdbff7ef8714dde820181371566466ca693e0e1c9cb42fe3e",
+    "openspec/changes/afd-hccl-full-parity/evidence/dspark-graph-source-identity-20261110.json": "a6a81d4554fdeeaae8fe0c730a5a724c09ffe97b5567658d0a1c0c094151fdba",
+    "openspec/changes/afd-hccl-full-parity/evidence/run_a3_dspark_graph_cpu.py": "1947030c724563906752032635e2c07392bde8a9307e4e8dd9b7c94d5d448169",
+    "tests/unit/compat/npu/test_runtime_config.py": "a071c994815497e597f1cb49c29a0751c1aad11d6e16c2242b20599f7772e091",
+    "tests/unit/connectors/npu/test_hccl_config.py": "2341c7eadaaef9c2a3bb458b47038be7fae6e7e8bed8768e5a458ce293b7d4b3",
+    "tests/unit/fakes/vllm_config.py": "19cae0453579c57d7734d06e57e01683ad5af9dc522f9b97d5316725022054b0",
+    "tests/unit/v1/worker/npu/test_hccl_v41_ubatch_runner.py": "dcc80aa354ffc1d58a97a592bfec88bbec6c6cfba6117ff726ef15649ee090f4"
+  }
+}

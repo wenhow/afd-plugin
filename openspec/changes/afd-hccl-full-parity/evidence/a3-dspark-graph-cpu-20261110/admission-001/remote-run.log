@@ -1,0 +1,11 @@
+Warning: Permanently added '[127.0.0.1]:43078' (ED25519) to the list of known hosts.
+Traceback (most recent call last):
+  File "/mnt/workspace/tmp/afd-c0-20261104.hVgsIf/c5-control-cpu-20261109-d47ru2x3/run_a3_graph_cpu.py", line 338, in <module>
+    raise SystemExit(main())
+                     ^^^^^^
+  File "/mnt/workspace/tmp/afd-c0-20261104.hVgsIf/c5-control-cpu-20261109-d47ru2x3/run_a3_graph_cpu.py", line 211, in main
+    return remote_run(args.remote_root, targets, exclusions)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/mnt/workspace/tmp/afd-c0-20261104.hVgsIf/c5-control-cpu-20261109-d47ru2x3/run_a3_graph_cpu.py", line 82, in remote_run
+    raise RuntimeError("installed upstream source hashes differ")
+RuntimeError: installed upstream source hashes differ

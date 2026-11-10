@@ -43,6 +43,7 @@ from tests.unit.fakes.input_batch import (  # noqa: E402
     make_ascend_decode_batch,
     make_hccl_ubatch_seam,
 )
+from tests.unit.fakes.vllm_config import v41_dspark_config  # noqa: E402
 
 
 @pytest.fixture
@@ -659,9 +660,12 @@ def graph_constructor(scoped_factory_case):
     config.model_config.enforce_eager = False
     config.compilation_config.cudagraph_mode = CUDAGraphMode.FULL_DECODE_ONLY
     config.speculative_config = None
+    config.model_config.hf_config.model_type = "deepseek_v41"
+    config.model_config.hf_config.architectures = ["DeepseekV41ForCausalLM"]
     case.peer.negotiated_capabilities.graph_execution_version = 1
     case.peer.negotiated_capabilities.local_counts_version = 1
     case.peer.negotiated_capabilities.ffn_size = 1
+    case.peer.negotiated_capabilities.target_query_len = 1
     case.graph_owner = GraphUBatchOwner(case.peer, case.parent)
 
     def construct():
@@ -692,13 +696,59 @@ def test_explicit_graph_owner_admits_only_controlled_native_graph_construction(
     assert not case.peer.completed and case.peer.messages == []
 
 
+@pytest.fixture
+def dspark_graph_constructor(graph_constructor):
+    case = graph_constructor
+    config = case.runner.vllm_config
+    source = v41_dspark_config()
+    config.model_config = source.model_config
+    config.model_config.enforce_eager = False
+    config.speculative_config = source.speculative_config
+    config.speculative_config.num_speculative_tokens = 2
+    case.peer.negotiated_capabilities.target_query_len = 3
+    return case
+
+
+def test_graph_owner_accepts_a_fixed_dspark_target_and_eager_local_draft(
+    dspark_graph_constructor,
+):
+    case = dspark_graph_constructor
+    runner = case.construct()
+    with pytest.raises(ValueError, match="prepared FULL capture"):
+        runner.begin_capturable_run(case.model, case.inputs, case.prepared)
+    assert not case.peer.completed and case.peer.messages == []
+
+
+@pytest.mark.parametrize(
+    "boundary,reason",
+    [
+        ("shape", "negotiated target shape"),
+        ("draft_graph", "eager DSpark draft"),
+        ("adaptive", "adaptive verification off"),
+    ],
+)
+def test_graph_owner_rejects_mismatched_or_unqualified_dspark_before_forward(
+    dspark_graph_constructor, boundary, reason
+):
+    case = dspark_graph_constructor
+    if boundary == "shape":
+        case.peer.negotiated_capabilities.target_query_len = 1
+    elif boundary == "draft_graph":
+        case.runner.vllm_config.speculative_config.enforce_eager = False
+    else:
+        case.runner.vllm_config.speculative_config.enable_adaptive_verification = True
+    with pytest.raises(ValueError, match=reason):
+        case.construct()
+    assert not case.peer.completed and case.peer.messages == []
+
+
 @pytest.mark.parametrize(
     "boundary,error",
     [
         ("eager", "FULL_DECODE_ONLY"),
         ("none", "FULL_DECODE_ONLY"),
         ("full", "FULL_DECODE_ONLY"),
-        ("speculation", "speculation off"),
+        ("speculation", "method='dspark'"),
         ("graph-version", "graph protocol v1"),
         ("counts-version", "graph protocol v1"),
         ("ffn-size", "paired native TP"),
@@ -717,7 +767,8 @@ def test_graph_construction_rejects_unaccepted_modes_and_protocols(
             CUDAGraphMode.NONE if boundary == "none" else CUDAGraphMode.FULL
         )
     elif boundary == "speculation":
-        config.speculative_config = SimpleNamespace()
+        config.speculative_config = v41_dspark_config().speculative_config
+        config.speculative_config.method = "mtp"
     elif boundary == "graph-version":
         case.peer.negotiated_capabilities.graph_execution_version = 0
     elif boundary == "counts-version":

@@ -12,7 +12,11 @@ from types import SimpleNamespace
 
 import pytest
 
-from afd_plugin.compat.npu.runtime_config import get_npu_ffn_config
+from afd_plugin.compat.npu.runtime_config import (
+    DeepseekV41TargetShape,
+    get_npu_ffn_config,
+    resolve_deepseek_v41_target_shape,
+)
 from afd_plugin.config import (
     HCCL_P2P_CONNECTOR,
     SUPPORTED_AFD_CONNECTORS,
@@ -270,7 +274,6 @@ def test_explicit_graph_component_reports_its_protocol_without_mutating_config(
             "compilation NONE",
         ),
         ("parallel_config", "data_parallel_size", 2, "data_parallel_size=1"),
-        (None, "speculative_config", True, "speculation off"),
         (None, "kv_transfer_config", pd_kv_transfer_config(), "KV transfer/PD"),
         (None, "lora_config", True, "LoRA"),
     ],
@@ -563,30 +566,82 @@ def test_staged_dspark_target_admits_eager_attention_without_consuming_the_draft
     assert dspark_runtime == before
 
 
-@pytest.mark.parametrize("boundary", ["ffn", "graph", "checkpoint", "method"])
+@pytest.mark.parametrize("boundary", ["ffn", "checkpoint", "method"])
 def test_staged_dspark_target_keeps_role_graph_and_checkpoint_boundaries(
     hccl_config_module, dspark_runtime, afd_config, boundary
 ):
-    graph = boundary == "graph"
-    if graph:
-        dspark_runtime.model_config.enforce_eager = False
-        dspark_runtime.compilation_config.cudagraph_mode = (
-            hccl_config_module.CUDAGraphMode.FULL_DECODE_ONLY
-        )
-    elif boundary == "checkpoint":
+    if boundary == "checkpoint":
         dspark_runtime.speculative_config.draft_model_config.model = "foreign-model"
     elif boundary == "method":
         dspark_runtime.speculative_config.method = "mtp"
     role = replace(afd_config, role="ffn") if boundary == "ffn" else afd_config
     reason = {
         "ffn": "speculation off on FFN",
-        "graph": "speculation off",
         "checkpoint": "same target checkpoint",
         "method": "method='dspark'",
     }[boundary]
     with pytest.raises(ValueError, match=reason):
+        hccl_config_module.validate_staged_hccl_runtime(dspark_runtime, role, 0)
+
+
+@pytest.fixture
+def dspark_graph_runtime(dspark_runtime, hccl_config_module):
+    config = dspark_runtime
+    config.model_config.enforce_eager = False
+    config.compilation_config.cudagraph_mode = (
+        hccl_config_module.CUDAGraphMode.FULL_DECODE_ONLY
+    )
+    config.parallel_config.rank = 0
+    return config
+
+
+@pytest.mark.parametrize("steps", [1, 2, 5])
+def test_graph_peers_retain_target_width_after_private_ffn_isolation(
+    hccl_config_module, dspark_graph_runtime, steps
+):
+    source = dspark_graph_runtime
+    source.speculative_config.num_speculative_tokens = steps
+    ffn = deepcopy(source)
+    ffn.additional_config["afd"]["role"] = "ffn"
+    shape = resolve_deepseek_v41_target_shape(ffn)
+    private = get_npu_ffn_config(ffn)
+    a_caps = hccl_config_module.validate_staged_hccl_runtime(
+        source, hccl_config_module.parse_afd_config(source), 0, graph=True
+    )
+    f_caps = hccl_config_module.validate_staged_hccl_runtime(
+        private,
+        hccl_config_module.parse_afd_config(private),
+        0,
+        graph=True,
+        target_shape=shape,
+    )
+    assert a_caps == f_caps
+    assert a_caps.target_query_len == steps + 1
+    assert private.speculative_config is private.engram_config is None
+    assert source.speculative_config.num_speculative_tokens == steps
+
+
+@pytest.mark.parametrize("provided_query_len", [1, 2, 7])
+def test_graph_attention_rejects_a_foreign_retained_target_shape(
+    hccl_config_module, dspark_graph_runtime, afd_config, provided_query_len
+):
+    with pytest.raises(ValueError, match="match Attention config"):
         hccl_config_module.validate_staged_hccl_runtime(
-            dspark_runtime, role, 0, graph=graph
+            dspark_graph_runtime,
+            afd_config,
+            0,
+            graph=True,
+            target_shape=DeepseekV41TargetShape(provided_query_len),
+        )
+
+
+def test_graph_target_width_cannot_exceed_the_transfer_ceiling(
+    hccl_config_module, dspark_graph_runtime, afd_config
+):
+    narrow = replace(afd_config, connector_extra_config={"max_tokens": 4})
+    with pytest.raises(ValueError, match="exceeds native token capacity"):
+        hccl_config_module.validate_staged_hccl_runtime(
+            dspark_graph_runtime, narrow, 0, graph=True
         )
 
 

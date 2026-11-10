@@ -31,6 +31,9 @@ from vllm.v1.worker.ubatch_utils import UBatchSlices
 from vllm.v1.worker.utils import AttentionGroup
 from vllm_ascend.models.deepseek_v41.engram.model_state import EngramModelState
 
+from afd_plugin.compat.npu.runtime_config import (
+    validate_deepseek_v41_graph_speculation,
+)
 from afd_plugin.config import HCCL_P2P_CONNECTOR, parse_afd_config
 from afd_plugin.connectors.npu.hccl_staged_transport import HcclStagedTransport
 from afd_plugin.model_executor.models.npu.deepseek_v41 import (
@@ -122,12 +125,13 @@ class HcclV41UBatchRunner(NPUUBatchRunner):
             vllm_config.model_config.enforce_eager
             or vllm_config.compilation_config.cudagraph_mode
             != CUDAGraphMode.FULL_DECODE_ONLY
-            or vllm_config.speculative_config is not None
         ):
-            raise ValueError(
-                "explicit HCCL graph owner requires FULL_DECODE_ONLY "
-                "and speculation off"
-            )
+            raise ValueError("explicit HCCL graph owner requires FULL_DECODE_ONLY")
+        target_shape = (
+            validate_deepseek_v41_graph_speculation(vllm_config)
+            if graph_owner is not None
+            else None
+        )
         if (
             parallel.pipeline_parallel_size != 1
             or parallel.prefill_context_parallel_size != 1
@@ -159,6 +163,11 @@ class HcclV41UBatchRunner(NPUUBatchRunner):
             )
         if graph_owner is not None and graph_owner.transport is not transport:
             raise ValueError("explicit HCCL graph owner must own the bound transport")
+        if graph_owner is not None and (
+            target_shape is None
+            or target_shape.target_query_len != capabilities.target_query_len
+        ):
+            raise ValueError("HCCL graph owner requires its negotiated target shape")
         # WorkerBase writes the actual native rank to parallel.rank. With
         # DP1/PP1/CP1, one Attention role is exactly that native TP world.
         if parallel.rank != transport.role_rank:

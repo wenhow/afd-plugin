@@ -1,0 +1,43 @@
+{
+  "scope": "CPU target Graph scheduling/geometry/isolation seams; no device or model admission",
+  "source_expected": {
+    "vllm/model_executor/model_loader/base_loader.py": "5291c330c4ed5634a9ea1d535364c26162b60251aa2af03fd409b88c34d836e2",
+    "vllm/model_executor/model_loader/utils.py": "aa398e74ee835537403e60186f2e9a81e8741a4b35fec68b47df6537716a45b7",
+    "vllm/distributed/parallel_state.py": "d9b10ad56833ebc08a753e1a050ef0989c30d4134021b7b7b00150b7bd01adc6",
+    "vllm/config/parallel.py": "f012ace89e3fb730a467f729f602679bc145c49f0d10721811c9d818570e7b2b",
+    "vllm/forward_context.py": "cc1473477dcc7b762c3901b25cc7bf35c06a2c42f193136fed553abf6fe33f0e",
+    "vllm_ascend/distributed/parallel_state.py": "b7ea7d6fb74530c50aec718d34266bae952ed96cc5a85766d7e208b952b10445",
+    "vllm_ascend/worker/v2/model_runner.py": "a3471a9f181b45742b8f985c86137cdaafc2871d2ef6f96aa6a45236a242969b",
+    "vllm_ascend/models/deepseek_v41/model.py": "989aec6db1e344dca76159dcbef0d5876874facedaa36b47e993146d5b8a2b9f",
+    "vllm_ascend/models/deepseek_v41/dspark.py": "fcee256905928917154d8dac94d6611bb83d02da441e8aa154a525ef51e6a601",
+    "vllm_ascend/models/deepseek_v41/engram/model_state.py": "677cb13bb86ad80a154e0ff9a43620aa3344e7e93170a05e27aba0cc1f10aa8b",
+    "vllm_ascend/ascend_forward_context.py": "848112214c9f56371b4bf43a59d39fadbed0e0e864581e300a3a89778d4083cb",
+    "vllm/v1/worker/gpu/model_runner.py": "174c93db921c23cf0396eee4764be25b2bd2d4b6a06e9fa41ce3598b884ce8ce",
+    "vllm/v1/worker/gpu/cudagraph_utils.py": "6e9c042890603535e300a40df8ee159dbed1058a64a83ae50ff0329e332e05ff",
+    "vllm/v1/worker/ubatch_utils.py": "b34dce551b5195c414e6a3a997c75961cc7a17f24c7c980487fe3d3e2ba7a798",
+    "vllm/v1/worker/gpu/ubatch_utils.py": "5092e2e58af0561c8dc12e62847cfc6dda9ca20dfbd33e7f0cd77a83fe87f7c5",
+    "vllm/v1/worker/gpu/spec_decode/dspark/speculator.py": "dcf4abdedbd2bddd0d76be198ccf5b4e467c46f645038c35fcab821491a35b03",
+    "vllm/v1/worker/gpu/spec_decode/dflash/speculator.py": "f9c100f42f9326e48eb84e89281897e859ba761943f54d593523555ccd98dc63",
+    "vllm/v1/worker/gpu/spec_decode/dflash/cudagraph.py": "beab567ae2df6a2ba2cd92fe7ee452c6b959b8a7037a4b5f493993a1824619bb",
+    "vllm_ascend/worker/v2/spec_decode/dspark/speculator.py": "51faf4e6b4d633863d1f7c74db84986fb7c15453e7ce0305d3d965abbd5d14c1",
+    "vllm_ascend/worker/v2/aclgraph_utils.py": "b2271eb4aab5876e85370897236a99ece7e9a9541b05f2fc0dd923b32bb8193d",
+    "vllm_ascend/worker/v2/spec_decode/dflash/aclgraph.py": "dc4ee25fee88ef1f82f24a64743904a0eda2d191c756e234136cfbb3b1ad1ecb"
+  },
+  "base_source_identity": "openspec/changes/afd-hccl-v2-microbatch/evidence/a3-staged-20261109/reject-digest-001/identity.json",
+  "capacity_source": {
+    "id": "A05",
+    "path": "vllm_ascend/ascend_forward_context.py",
+    "sha256": "848112214c9f56371b4bf43a59d39fadbed0e0e864581e300a3a89778d4083cb",
+    "bytes": 18843,
+    "line_count": 488,
+    "repository": "vllm_ascend",
+    "repository_path": "D:/openSource/vllm-ascend",
+    "commit": "7e37e29a7803d6897a7113088e2b771f83205bc0",
+    "git_blob": "6b9b985f371480d6f87b24b4f9fce244c9aa026a",
+    "read_method": "git show <locked-commit>:<path>"
+  },
+  "donor_source_only": {
+    "afd_plugin/connectors/npu/p2p_hccl.py": "594ac53c8c8008ba05da4d12db1c38511e94fdcb8e13340322a0587e940df0ef"
+  },
+  "graph_source_audit": "dspark-graph-source-contract-20261110.json"
+}

@@ -12,6 +12,7 @@ from afd_plugin.compat.npu.runtime_config import (
     DeepseekV41TargetShape,
     get_npu_ffn_config,
     resolve_deepseek_v41_target_shape,
+    validate_deepseek_v41_graph_speculation,
     validate_deepseek_v41_pd,
     validate_deepseek_v41_speculation,
 )
@@ -66,6 +67,49 @@ def test_target_shape_rejects_width_above_native_token_capacity_before_isolation
 
 def test_target_shape_keeps_other_models_on_the_existing_path():
     assert resolve_deepseek_v41_target_shape(npu_vllm_config()) is None
+
+
+@pytest.mark.parametrize("steps", [None, 1, 2, 5])
+def test_graph_target_shape_keeps_fixed_dspark_and_eager_draft_config(steps):
+    config = v41_dspark_config()
+    if steps is None:
+        config.speculative_config = None
+    else:
+        config.speculative_config.num_speculative_tokens = steps
+    before = deepcopy(config)
+    assert validate_deepseek_v41_graph_speculation(config) == DeepseekV41TargetShape(
+        1 if steps is None else steps + 1
+    )
+    assert config == before
+
+
+@pytest.mark.parametrize(
+    "boundary,reason",
+    [
+        ("draft_graph", "eager DSpark draft"),
+        ("adaptive", "adaptive verification off"),
+        ("pd", "KV transfer/PD"),
+        ("method", "method='dspark'"),
+    ],
+)
+def test_graph_target_shape_rejects_unqualified_dspark_combinations(boundary, reason):
+    config = v41_dspark_config()
+    if boundary == "draft_graph":
+        config.speculative_config.enforce_eager = False
+    elif boundary == "adaptive":
+        config.speculative_config.enable_adaptive_verification = True
+    elif boundary == "pd":
+        config.kv_transfer_config = pd_kv_transfer_config()
+    else:
+        config.speculative_config.method = "mtp"
+    before = deepcopy(config)
+    with pytest.raises(ValueError, match=reason):
+        validate_deepseek_v41_graph_speculation(config)
+    assert config == before
+
+
+def test_graph_target_shape_keeps_foreign_models_on_the_existing_path():
+    assert validate_deepseek_v41_graph_speculation(npu_vllm_config()) is None
 
 
 @pytest.mark.parametrize("has_engram", [False, True])

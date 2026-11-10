@@ -64,6 +64,28 @@ def resolve_deepseek_v41_target_shape(
     return shape
 
 
+def validate_deepseek_v41_graph_speculation(
+    vllm_config: VllmConfig,
+) -> DeepseekV41TargetShape | None:
+    """Limit explicit target Graph components to fixed DSpark with eager draft.
+
+    This validates scheduling shape without enabling production model admission.
+    Native draft capture/proposal and acceptance remain Attention-local.
+    """
+    shape = resolve_deepseek_v41_target_shape(vllm_config)
+    if shape is None:
+        return None
+    speculative = vllm_config.speculative_config
+    if speculative is not None:
+        if speculative.enforce_eager is not True:
+            raise ValueError("V4.1 target Graph requires an eager DSpark draft")
+        if speculative.enable_adaptive_verification:
+            raise ValueError("V4.1 target Graph requires adaptive verification off")
+        if vllm_config.kv_transfer_config is not None:
+            raise ValueError("V4.1 DSpark Graph does not support KV transfer/PD")
+    return shape
+
+
 def is_deepseek_v41_model(vllm_config: VllmConfig) -> bool:
     """Match the native or AFD V4.1 identity without matching V4 prefixes."""
     hf_config = vllm_config.model_config.hf_config
@@ -322,5 +344,6 @@ __all__ = [
     "resolve_deepseek_v41_target_shape",
     "uses_async_cam_dbo",
     "validate_deepseek_v41_pd",
+    "validate_deepseek_v41_graph_speculation",
     "validate_deepseek_v41_speculation",
 ]

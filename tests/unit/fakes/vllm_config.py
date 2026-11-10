@@ -189,6 +189,7 @@ class DSparkSpeculativeConfig:
     num_speculative_tokens: int = 5
     rejection_sample_method: str = "standard"
     enable_adaptive_verification: bool = False
+    enforce_eager: bool = True
 
     def use_dspark(self):
         return self.method == "dspark"

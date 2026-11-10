@@ -17,7 +17,9 @@ from vllm.config import CompilationMode
 from vllm.config.compilation import CUDAGraphMode
 
 from afd_plugin.compat.npu.runtime_config import (
+    DeepseekV41TargetShape,
     is_deepseek_v41_model,
+    validate_deepseek_v41_graph_speculation,
     validate_deepseek_v41_pd,
     validate_deepseek_v41_speculation,
 )
@@ -78,6 +80,7 @@ def validate_staged_hccl_runtime(
     role_rank: int,
     *,
     graph: bool = False,
+    target_shape: DeepseekV41TargetShape | None = None,
 ) -> HcclPlanCapabilities:
     """Describe a V4.1 DP1 native-TP component without admitting models.
 
@@ -85,10 +88,22 @@ def validate_staged_hccl_runtime(
     model guard still controls production admission; this allocates no groups.
     Normal connector construction retains eager admission. Only an explicitly
     injected graph session requests the restricted FULL_DECODE_ONLY contract.
+    Plugin-only target_shape retains the original target width on isolated F;
+    it affects Graph capabilities only. A derives and checks its native width.
     """
     caps = _validate_hccl_runtime(
         vllm_config, afd_config, role_rank, staged=True, graph=graph
     )
+    query_len = 1
+    if graph:
+        shape = validate_deepseek_v41_graph_speculation(vllm_config)
+        assert shape is not None
+        if target_shape is not None:
+            if afd_config.role == "attention" and target_shape != shape:
+                raise ValueError("Graph target shape must match Attention config")
+            shape = target_shape
+        shape.validate_capacity(caps.max_tokens)
+        query_len = shape.target_query_len
     result = HcclPlanCapabilities(
         hidden_size=caps.hidden_size,
         vocab_size=caps.vocab_size,
@@ -99,6 +114,7 @@ def validate_staged_hccl_runtime(
         native_tp_size=caps.native_tp_size,
         local_counts_version=1,
         graph_execution_version=1 if graph else 0,
+        target_query_len=query_len,
     )
     result.validate()
     return result
@@ -125,8 +141,14 @@ def validate_staged_hccl_binding(
     vllm_config: VllmConfig,
     transport: HcclStagedTransport,
     device: torch.device,
+    *,
+    target_shape: DeepseekV41TargetShape | None = None,
 ) -> None:
-    """Bind an injected wire to its actual model, native rank and device."""
+    """Bind a wire to its model/rank/device and isolated F's target shape.
+
+    Plugin-only target_shape is forwarded to Graph capability validation;
+    eager wire admission keeps its existing default query-width contract.
+    """
     afd_config = parse_afd_config(vllm_config, expected_role=transport.role)
     caps = transport.negotiated_capabilities
     caps.validate()
@@ -135,6 +157,7 @@ def validate_staged_hccl_binding(
         afd_config,
         transport.role_rank,
         graph=caps.graph_execution_version == 1,
+        target_shape=target_shape,
     )
     if (
         device.type != "npu"
@@ -153,6 +176,7 @@ def validate_staged_hccl_binding(
         or caps.native_tp_size != expected.native_tp_size
         or caps.local_counts_version != expected.local_counts_version
         or caps.graph_execution_version != expected.graph_execution_version
+        or caps.target_query_len != expected.target_query_len
         or caps.max_tokens > expected.max_tokens
     ):
         raise ValueError(
@@ -261,11 +285,12 @@ def _validate_hccl_runtime(
             "P2pHcclAFDConnector requires compilation and graph modes NONE"
         )
     if vllm_config.speculative_config is not None:
-        if graph:
-            raise ValueError("graph HCCL requires speculation off")
         if afd_config.role != "attention":
             raise ValueError("P2pHcclAFDConnector requires speculation off on FFN")
-        validate_deepseek_v41_speculation(vllm_config)
+        if graph:
+            validate_deepseek_v41_graph_speculation(vllm_config)
+        else:
+            validate_deepseek_v41_speculation(vllm_config)
     if vllm_config.kv_transfer_config is not None:
         if graph:
             raise ValueError("graph HCCL does not support KV transfer/PD")
