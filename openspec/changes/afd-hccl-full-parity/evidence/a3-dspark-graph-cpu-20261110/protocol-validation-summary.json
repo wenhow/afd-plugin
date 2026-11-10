@@ -1,0 +1,82 @@
+{
+  "scope": "Actual-dependency CPU protocol/lifecycle tests only; no NPU or DSpark model acceptance",
+  "run": "protocol-001",
+  "head": "06b9d620379944eb30ec41e99746f8e6f5ef6637",
+  "manifest_sha256": "555b1619cdb4dfffdbbc53e825f04b00dc0900c131acbbaeccb98c69bad6654e",
+  "source_files": {
+    "afd_plugin/distributed/hccl_plan.py": "4ae86a77ccd36a2dff905526c66309cd3e1947c7dc1801d7b8177acc9f063c47",
+    "afd_plugin/connectors/npu/hccl_staged_transport.py": "43e7c1ae034108f44a878d070d934d4d7658cd8fc6ac47cb9e3e22ef6d4b54e4",
+    "tests/unit/distributed/test_hccl_plan.py": "e1a96f4254cab40af96a359a812d3d8a088a933ceaa81c8c1aedfbf8ceb31d62",
+    "tests/unit/connectors/npu/test_hccl_staged_transport.py": "80fcb4df31cb59ec288c9bce644303649ce2b7c1f7f1e3fbf18528cb22f2a652",
+    "tests/unit/fakes/hccl.py": "8e17f0cda846d70fc55cad743febe212a371353b60b3fb35a17974c72eb42237"
+  },
+  "summary": {
+    "scope": "CPU module seams with actual installed dependencies; no device probe",
+    "remote": "/mnt/workspace/tmp/afd-c0-20261104.hVgsIf/c5-control-cpu-20261109-gp4dbjs8",
+    "command": [
+      "/mnt/workspace/code/.venvs/afd-v030-dsv41-c0/bin/python",
+      "-B",
+      "-m",
+      "pytest",
+      "-o",
+      "addopts=",
+      "-q",
+      "-rs",
+      "--tb=short",
+      "-p",
+      "no:cacheprovider",
+      "-m",
+      "not npu and not gpu",
+      "--junitxml=/mnt/workspace/tmp/afd-c0-20261104.hVgsIf/c5-control-cpu-20261109-gp4dbjs8/results/cpu.xml",
+      "tests/unit/distributed/test_hccl_plan.py",
+      "tests/unit/connectors/npu/test_hccl_staged_transport.py"
+    ],
+    "returncode": 0,
+    "source_files_match": true,
+    "snapshot_exclusions": [],
+    "device_probe_started": false,
+    "success": true
+  },
+  "modules": {
+    "tests.unit.distributed.test_hccl_plan": {
+      "passed": 208
+    },
+    "tests.unit.connectors.npu.test_hccl_staged_transport": {
+      "passed": 113
+    }
+  },
+  "junit_suites": [
+    {
+      "name": "pytest",
+      "errors": "0",
+      "failures": "0",
+      "skipped": "0",
+      "tests": "321",
+      "time": "0.708",
+      "timestamp": "2026-11-10T16:11:43.989923+08:00",
+      "hostname": "4ff038c993bf40219c03182f786a9def"
+    }
+  ],
+  "upstream_source_checks": 21,
+  "all_upstream_match": true,
+  "warnings": 14,
+  "raw_sha256": {
+    "delivery.json": "ad286c66739bccf8bc22bf71f34c05a118227b7381a89852d45326d579503e4b",
+    "identity.json": "80b17d17c729a465219e0b86647b7d16d9388563a5e0a85af6075e6de8083a83",
+    "remote-run.log": "3c12abf40c6b2aaeae3a4193f22405a0fa42879807b022f4a68b83f6311b4094",
+    "results/cpu.stderr.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "results/cpu.stdout.log": "c306f23097aee60ec054f2ee4c039d51e27e57a10c389069b91952c376e93be6",
+    "results/cpu.xml": "51dffd19f2aba4ef47dd471b76712d6dc7a57e8df571c870c4ce16a32d360a2f",
+    "results/effective-env.json": "bfe1f414481e52977d405895a12d0cdbac66046aca743dac3954b903e12ecff8",
+    "results/source-check.json": "d7060f18def4a19c90301b091b24197ff84cb252671ad0497cee22a104c3dcf7",
+    "results/summary.json": "7f5e62f3d5033c2a506d5e8583feb16aeb023896f8b8f4ad93878af52ed5d890",
+    "results/versions.json": "8aa40a41b53ecde5293ad581f313555c4e948071ce87c879c3b93ac6d8ad2601"
+  },
+  "not_claimed": [
+    "NPU group creation or tensor transport",
+    "q>1 NPUGraph capture/replay",
+    "native target/draft proposal acceptance",
+    "native MoE/HC/Engram",
+    "full model or performance"
+  ]
+}

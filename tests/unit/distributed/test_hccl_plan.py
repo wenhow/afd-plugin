@@ -119,6 +119,105 @@ def test_graph_bulk_requires_the_supported_static_session(graph_round, change, o
         ).validate()
 
 
+def test_target_query_len_one_preserves_the_original_hello_bytes(capabilities):
+    message = HcclPlanMessage(
+        "HELLO", role="attention", world_rank=2, capabilities=capabilities
+    )
+    expected = (
+        b'{"capabilities":{"attention_size":1,"ffn_size":2,"hidden_size":16,'
+        b'"layer_indices":[0,1,3],"max_stages":2,"max_tokens":8,'
+        b'"native_tp_size":1,"vocab_size":128},"kind":"HELLO",'
+        b'"payload_format":"bf16-fp32-int32-per-layer","role":"attention",'
+        b'"schedule":"layer-major","version":3,"world_rank":2}'
+    )
+    assert encode_hccl_plan_message(message) == expected
+    assert decode_hccl_plan_message(expected) == message
+    assert capabilities.target_query_len == 1
+
+
+@pytest.mark.parametrize("query_len", [1, 2, 3, 8])
+@pytest.mark.parametrize("native_tp", [1, 2])
+@pytest.mark.parametrize("order", ["stage_serial", "bulk_v1", "cross_layer_v1"])
+def test_target_query_len_roundtrips_explicit_target_session(
+    graph_round, query_len, native_tp, order
+):
+    cap = replace(
+        graph_round.capabilities,
+        attention_size=native_tp,
+        ffn_size=native_tp,
+        native_tp_size=native_tp,
+        target_query_len=query_len,
+        graph_exchange_order=order,
+    )
+    message = HcclPlanMessage(
+        "HELLO", role="attention", world_rank=native_tp, capabilities=cap
+    )
+    encoded = encode_hccl_plan_message(message)
+    assert decode_hccl_plan_message(encoded) == message
+    assert cap.negotiate(cap) == cap
+    wire_cap = json.loads(encoded)["capabilities"]
+    assert ("target_query_len" in wire_cap) == (query_len != 1)
+    if query_len != 1:
+        assert wire_cap["target_query_len"] == query_len
+
+
+@pytest.mark.parametrize("query_len", [True, False, None, 0, -1, 9, 1.5, "3", [], {}])
+@pytest.mark.parametrize("through_wire", [False, True])
+def test_target_query_len_rejects_invalid_or_over_capacity_values(
+    graph_round, query_len, through_wire
+):
+    cap = graph_round.capabilities
+    with pytest.raises(ValueError, match="target_query_len"):
+        if through_wire:
+            message = HcclPlanMessage(
+                "HELLO", role="attention", world_rank=2, capabilities=cap
+            )
+            wire = json.loads(encode_hccl_plan_message(message))
+            wire["capabilities"]["target_query_len"] = query_len
+            decode_hccl_plan_message(json.dumps(wire).encode())
+        else:
+            replace(cap, target_query_len=query_len).validate()
+
+
+@pytest.mark.parametrize(
+    "change",
+    [
+        {"graph_execution_version": 0},
+        {"local_counts_version": 0},
+        {"native_tp_size": 4, "attention_size": 4, "ffn_size": 4},
+        {"native_tp_size": 1},
+        {"attention_size": 1},
+        {"ffn_size": 1},
+    ],
+)
+def test_target_query_len_above_one_requires_the_supported_target_world(
+    graph_round, change
+):
+    with pytest.raises(ValueError, match="target_query_len > 1 requires"):
+        replace(graph_round.capabilities, target_query_len=3, **change).validate()
+
+
+@pytest.mark.parametrize("local_query_len,peer_query_len", [(1, 3), (3, 1), (2, 3)])
+def test_target_query_len_cannot_downgrade_or_change_across_peers(
+    graph_round, local_query_len, peer_query_len
+):
+    local = replace(graph_round.capabilities, target_query_len=local_query_len)
+    peer = replace(graph_round.capabilities, target_query_len=peer_query_len)
+    with pytest.raises(ValueError, match="peer target_query_len does not match"):
+        local.negotiate(peer)
+    with pytest.raises(ValueError, match="peer target_query_len does not match"):
+        peer.negotiate(local)
+
+
+def test_target_query_len_is_preserved_when_capacity_and_stages_are_bounded(
+    graph_round,
+):
+    local = replace(graph_round.capabilities, target_query_len=3)
+    peer = replace(local, max_tokens=3, max_stages=1)
+    assert local.negotiate(peer) == peer
+    assert peer.negotiate(local) == peer
+
+
 def test_graph_parent_digest_binds_phase_and_static_key(graph_round):
     plan = graph_round.plan
     changed = replace(

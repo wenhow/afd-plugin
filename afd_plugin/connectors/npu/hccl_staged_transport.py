@@ -394,6 +394,11 @@ class HcclStagedTransport:
 
     def _validate_graph_candidate(self, candidate: HcclGraphCandidate) -> None:
         capabilities = self.negotiated_capabilities
+        if candidate.key is not None and (
+            candidate.key.uniform_token_count != capabilities.target_query_len
+            or candidate.key.max_query_len != capabilities.target_query_len
+        ):
+            raise ValueError("graph key does not match negotiated target_query_len")
         for rows in (
             candidate.eager_padded_tokens,
             candidate.key.padded_tokens if candidate.key is not None else (),

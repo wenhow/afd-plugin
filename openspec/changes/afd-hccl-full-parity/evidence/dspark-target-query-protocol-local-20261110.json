@@ -1,0 +1,24 @@
+{
+  "scope": "DSpark phase2 target query capability/codec and public lifecycle CPU seams; no device execution or full-model acceptance",
+  "head": "06b9d620379944eb30ec41e99746f8e6f5ef6637",
+  "source_files": {
+    "afd_plugin/distributed/hccl_plan.py": "4ae86a77ccd36a2dff905526c66309cd3e1947c7dc1801d7b8177acc9f063c47",
+    "afd_plugin/connectors/npu/hccl_staged_transport.py": "43e7c1ae034108f44a878d070d934d4d7658cd8fc6ac47cb9e3e22ef6d4b54e4",
+    "tests/unit/distributed/test_hccl_plan.py": "e1a96f4254cab40af96a359a812d3d8a088a933ceaa81c8c1aedfbf8ceb31d62",
+    "tests/unit/connectors/npu/test_hccl_staged_transport.py": "80fcb4df31cb59ec288c9bce644303649ce2b7c1f7f1e3fbf18528cb22f2a652",
+    "tests/unit/fakes/hccl.py": "8e17f0cda846d70fc55cad743febe212a371353b60b3fb35a17974c72eb42237"
+  },
+  "python311_ast": 5,
+  "ruff": "passed",
+  "diff_check": "passed",
+  "local_pytest": {
+    "passed": 208,
+    "module_skipped": 1,
+    "skip_reason": "torch is not installed on the local CPU-only host; the entire staged transport mirror is gated before runtime imports",
+    "xml": "dspark-target-query-protocol-local-20261110.xml"
+  },
+  "actual_dependency_lifecycle_cpu": "pending parent-controlled A3 CPU snapshot",
+  "device": "not run",
+  "validation_owner": "docs/design/module/connector_contracts.md covers existing mirrored distributed/connectors tests and shared fakes",
+  "upstream_sources_modified": false
+}

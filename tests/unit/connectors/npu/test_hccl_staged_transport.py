@@ -20,7 +20,7 @@ from afd_plugin.distributed.hccl_plan import (
     HcclPlanCapabilities,
     HcclPlanMessage,
 )
-from tests.unit.fakes.hccl import ScriptedStagedControlPeer
+from tests.unit.fakes.hccl import ScriptedStagedControlPeer, make_staged_hello_runtime
 from tests.unit.fakes.hccl_graph_control import (
     make_graph_control_round,
     make_graph_key,
@@ -82,6 +82,45 @@ def test_graph_peer_waits_for_query_and_global_commit_before_return(
         ("send", "GRAPH_ACK"),
         ("recv", "GRAPH_ACK"),
     ]
+
+
+@pytest.mark.parametrize("phase", ["warmup", "capture", "replay"])
+@pytest.mark.parametrize(
+    "role,role_rank", [("attention", 0), ("attention", 1), ("ffn", 0)]
+)
+def test_graph_query_rejects_different_target_width_before_native_resolver(
+    phase, role, role_rank
+):
+    case = make_graph_control_round(phase=phase)
+    capabilities = replace(case.capabilities, target_query_len=3)
+    peer = ScriptedStagedControlPeer(
+        role,
+        role_rank,
+        capabilities,
+        {2: [case.query, HcclPlanMessage("ERROR", error="target_query_len mismatch")]},
+    )
+
+    def resolve(candidate):
+        raise AssertionError("incompatible key reached native preparation")
+
+    with pytest.raises(RuntimeError, match="target_query_len"):
+        if peer.is_coordinator:
+            peer.reserve_attention_forward(
+                resolve, candidate=case.candidate, transaction_id="graph-1"
+            )
+        elif role == "attention":
+            peer.reserve_attention_forward(resolve)
+        else:
+            peer.receive_graph_reservation(resolve)
+    sent = [
+        message for direction, _, _, message in peer.transcript if direction == "send"
+    ]
+    assert len(sent) == (3 if peer.is_coordinator else 1)
+    assert all(
+        message.kind == "ERROR" and "target_query_len" in message.error
+        for message in sent
+    )
+    assert peer.terminal and peer.plan is None and peer.graph_reservation is None
 
 
 @pytest.mark.parametrize("role,rank", [("attention", 1), ("ffn", 0)])
@@ -502,6 +541,61 @@ def test_closed_endpoint_cannot_be_initialized(capabilities):
     transport.close()
     with pytest.raises(RuntimeError, match="cannot be initialized again"):
         transport.initialize()
+
+
+@pytest.mark.parametrize("local_q,peer_q", [(1, 3), (3, 1), (3, 2)])
+@pytest.mark.parametrize(
+    "role,role_rank", [("attention", 0), ("attention", 1), ("ffn", 0), ("ffn", 1)]
+)
+def test_target_query_hello_mismatch_closes_before_creating_a_data_group(
+    monkeypatch, graph_round, local_q, peer_q, role, role_rank
+):
+    capabilities = replace(graph_round.capabilities, target_query_len=local_q)
+    case = make_staged_hello_runtime(
+        monkeypatch,
+        capabilities,
+        replace(capabilities, target_query_len=peer_q),
+        role=role,
+        role_rank=role_rank,
+    )
+    with pytest.raises((ValueError, RuntimeError), match="target_query_len"):
+        case.peer.initialize()
+    assert [group.backend for group in case.created_groups] == ["gloo"]
+    assert case.destroyed_groups == case.created_groups
+    assert case.peer.terminal and case.peer.closed and not case.peer.initialized
+    if case.peer.is_coordinator:
+        assert [message.kind for _, _, _, message in case.peer.transcript] == [
+            "HELLO",
+            "HELLO",
+            "HELLO",
+            "ERROR",
+            "ERROR",
+            "ERROR",
+        ]
+    else:
+        assert [message.kind for _, _, _, message in case.peer.transcript] == [
+            "HELLO",
+            "HELLO",
+        ]
+
+
+@pytest.mark.parametrize("query_len", [1, 3])
+@pytest.mark.parametrize(
+    "role,role_rank", [("attention", 0), ("attention", 1), ("ffn", 0), ("ffn", 1)]
+)
+def test_matching_target_query_hello_creates_the_stage_groups_after_agreement(
+    monkeypatch, graph_round, query_len, role, role_rank
+):
+    capabilities = replace(graph_round.capabilities, target_query_len=query_len)
+    case = make_staged_hello_runtime(
+        monkeypatch, capabilities, capabilities, role=role, role_rank=role_rank
+    )
+    case.peer.initialize()
+    assert case.peer.negotiated_capabilities == capabilities
+    assert case.peer.initialized and not case.peer.terminal
+    assert [group.backend for group in case.created_groups] == ["gloo", "hccl", "hccl"]
+    case.peer.close()
+    assert case.destroyed_groups == list(reversed(case.created_groups))
 
 
 @pytest.fixture

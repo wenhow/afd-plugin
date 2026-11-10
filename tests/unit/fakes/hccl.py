@@ -12,7 +12,9 @@ import torch
 from vllm.config.compilation import CompilationMode, CUDAGraphMode
 from vllm.forward_context import get_forward_context
 
+from afd_plugin.compat.npu.runtime_config import resolve_deepseek_v41_target_shape
 from afd_plugin.config import HCCL_P2P_CONNECTOR, AFDConfig
+from afd_plugin.connectors.npu import hccl_staged_transport as staged_transport_module
 from afd_plugin.connectors.npu import p2p_hccl as connector_module
 from afd_plugin.connectors.npu.hccl_protocol import (
     HcclCapabilities,
@@ -177,6 +179,7 @@ def make_hccl_runner(runner_type, connector, model):
     runner = object.__new__(runner_type)
     runner.connector = connector
     runner.vllm_config = connector.vllm_config
+    runner.target_shape = resolve_deepseek_v41_target_shape(runner.vllm_config)
     runner.model = model
     runner.hccl_v41_graph_service = None
     runner.hccl_v41_eager_session = None
@@ -191,6 +194,7 @@ def make_hccl_worker(worker_type, runner):
     worker.model_runner = runner
     runner.prof = None
     worker.vllm_config = runner.vllm_config
+    worker.target_shape = runner.target_shape
     worker.device = torch.device("cpu")
     worker.local_rank = 0
     worker._ffn_thread = None
@@ -699,6 +703,8 @@ class ScriptedStagedControlPeer(HcclStagedTransport):
         role_rank: int,
         capabilities: HcclPlanCapabilities,
         incoming: dict[int, list[HcclPlanMessage | Exception]],
+        *,
+        initialized: bool = True,
     ) -> None:
         super().__init__(
             role,
@@ -707,7 +713,7 @@ class ScriptedStagedControlPeer(HcclStagedTransport):
             init_method="tcp://localhost:1",
             local_device=0,
         )
-        self.initialized = True
+        self.initialized = initialized
         self.incoming = {rank: deque(messages) for rank, messages in incoming.items()}
         self.transcript: list[tuple[str, int, int, HcclPlanMessage | Exception]] = []
 
@@ -721,3 +727,56 @@ class ScriptedStagedControlPeer(HcclStagedTransport):
         if isinstance(message, Exception):
             raise message
         return decode_hccl_plan_message(encode_hccl_plan_message(message))
+
+
+def make_staged_hello_runtime(
+    monkeypatch, capabilities, peer_capabilities, *, role="attention", role_rank=0
+):
+    """Real public initialize/HELLO with host PG/device construction boundaries.
+
+    Group records describe this CPU backend factory's environment, not NPU
+    groups. Framed peer messages still use the real codec and negotiation.
+    """
+    coordinator = capabilities.ffn_size
+    if role == "attention" and role_rank == 0:
+        incoming = {
+            rank: [
+                HcclPlanMessage(
+                    "HELLO",
+                    role="ffn" if rank < coordinator else "attention",
+                    world_rank=rank,
+                    capabilities=peer_capabilities,
+                )
+            ]
+            for rank in range(capabilities.attention_size + capabilities.ffn_size)
+            if rank != coordinator
+        }
+    else:
+        incoming = {
+            coordinator: [
+                HcclPlanMessage(
+                    "HELLO",
+                    role="attention",
+                    world_rank=coordinator,
+                    capabilities=peer_capabilities,
+                )
+            ]
+        }
+    peer = ScriptedStagedControlPeer(
+        role, role_rank, capabilities, incoming, initialized=False
+    )
+    created, destroyed, devices = [], [], []
+
+    def create_group(**kwargs):
+        group = SimpleNamespace(backend=kwargs["backend"], name=kwargs["group_name"])
+        created.append(group)
+        return group
+
+    monkeypatch.setattr(staged_transport_module, "init_afd_process_group", create_group)
+    monkeypatch.setattr(
+        staged_transport_module.dist, "destroy_process_group", destroyed.append
+    )
+    monkeypatch.setattr(staged_transport_module.torch.npu, "set_device", devices.append)
+    return SimpleNamespace(
+        peer=peer, created_groups=created, destroyed_groups=destroyed, devices=devices
+    )
