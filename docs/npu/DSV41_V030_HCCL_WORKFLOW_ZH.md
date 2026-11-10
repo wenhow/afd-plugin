@@ -37,16 +37,18 @@ A5 使用 `/usr/local/python3.11.10/bin/python`，无 venv，也不要求 ATB �
 组件退出码 0 不能代替完整权重加载、native FP4 MoE 或完整模型验收。
 
 950DT 8 卡、每卡显示 98304 MB 的环境，下一步按
-[A5 原生 TP8 完整模型控制组](../../openspec/changes/afd-v41-hccl-text-eager/evidence/A5_NATIVE_EAGER_ZH.md)
+[A5 原生 DP8/TP1/EP8 eager 基线](../../openspec/changes/afd-v41-hccl-text-eager/evidence/A5_NATIVE_EAGER_ZH.md)
 核对 checkpoint、空闲设备并手工验证首次文本请求。该说明使用原生 vLLM CLI，
-保留 Engram，关闭 DSpark/graph/EP/SP/DBO，不加载 AFD 插件。
-完整 checkpoint 控制组尚未执行，实际解析、算子和内存结果均以该轮日志为准。
+Engram CPU offload/DP shared memory，关闭 DSpark/graph/SP/DBO，保留小请求限制，不加载 AFD 或 TP8 量化兼容入口。
+先准备足够的主机 RAM 和共享内存，所有启动日志直接写文件。此前 TP8 完整启动在 profile 失败；
+新的 DP8/EP8 基线尚未在 A5 验收，实际解析、算子和内存结果均以该轮日志为准。
 
-按每卡 96 GiB 的容量估算，原生 TP8 约 78.790 GiB/rank；AFD 的容量候选为
+此前 Engram 留 NPU 的容量估算中，原生 TP8 约 78.790 GiB/rank；AFD 的容量候选为
 A4/F4、两侧各 native TP4，约 A 69.135、F 68.006 GiB/rank。
 [容量预算及假设](../../openspec/changes/afd-v41-hccl-text-eager/evidence/a5-topology-budget-20261109.json)
 未包含全部复制参数、格式转换、KV、workspace、通信和加载峰值，不能保证可运行。
-原生 TP8 与 AFD TP4 存在 TP 差异，不能直接归因性能提升或声称固定 TP 数值等价。
+该预算不适用于本轮 DP8/EP8 + CPU Engram；本轮与 AFD TP4 的并行和 Engram 放置均不同，
+不能直接归因性能提升或声称固定条件的数值等价，后续须另建匹配的 AFD 对照。
 
 原生控制组通过后，继续完整 AFD 冷加载、路由数值、Engram 请求复用与结束、
 prefill/decode、连续/并发请求及资源回收验收；通过后再进行 DSpark 硬件验收。

@@ -1,18 +1,142 @@
-# A5 950DT 8×96 GiB：原生完整模型控制组
+# A5 950DT 8×96 GiB：原生 DP8/TP1/EP8 eager 基线
 
-更新：2026-11-10。用户确认 950DT、8 卡、每卡显存显示 98304 MB。
-本页按 NPU 工具通常的 MiB 口径解释为每卡 96 GiB，总计 768 GiB；
-实际可用显存仍以运行前 `npu-smi info` 为准。
-此前的 MXFP base、原生 wheel norm、缩小构造和 TP2 组件已经通过。
-**完整 checkpoint 控制组已回传三次启动：首次参数解析失败，第二次加载后在
-MXFP8 Linear scale 打包失败；第三次 Linear 探针 6 项通过，但 routed MoE 的
-MXFP4 scale 打包失败。后续 MoE 探针前 6 项通过，在 K=288 的 W2 遇到
-WeightNz 的 K 对齐要求；补物理 K 对齐后的 12 项 MoE 探针已于 11-10 回传通过。
-随后完整启动在 profile 的原生模型前向失败；第四次回传已确认融合 SwiGLU 的
-576-wide 输入未满足 128 对齐。已补 gate/up 分半对齐，新增链路探针待 A5 执行。
-服务和首请求尚未通过，模型支持和 AFD 总 guard 均未放开。**
+更新：2026-11-10。用户确认 950DT、8 卡、每卡显示 98304 MB；
+按 NPU 工具的 MiB 口径为每卡 96 GiB，实际可用显存以运行前采集为准。
+**本轮改用 DP8/TP1/EP8 + Engram CPU offload/DP shared memory，
+保留 eager、DSpark off 和小请求限制。服务启动、profile 和首请求均待 A5 验证；
+不解除 AFD 模型 guard，不将既有 TP8 组件结果记作此基线通过。**
 
-## 容量候选
+## 本轮配置与官方参考
+
+参考 [vLLM Ascend v0.30.0 单机部署的 950DT 配置](https://docs.vllm.ai/projects/ascend/en/v0.30.0/tutorials/models/DeepSeek-V4.1-Flash.html#51-single-node-colocated-deployment)。
+这是保留官方并行布局和 Engram 放置的简化 smoke 配置，不是完整官方性能配方复现。
+
+| 项目 | 本轮实际设置 |
+| --- | --- |
+| 并行与设备 | DP8 / TP1 / EP8，0–7 卡；PP/PCP/DCP=1 |
+| 模型与量化 | 完整原 checkpoint，text-only，V2，`deepseek_v4_fp8`，safetensors |
+| Engram | `cpu_offload=true`，`dp_shared_memory=true`，`embedding_across_dp=false`（官方默认） |
+| 执行与负载 | eager；DSpark/DBO 关闭；每个 DP engine 的 `max_num_seqs=1`，长度/批 token 上限均 1024 |
+| 其他 | block size 128，`deepseek_v41` tokenizer；async scheduling/prefix caching 关闭 |
+| 原生优化 | 沿用官方 CPU binding、Engram/shared-expert/DSA overlap 和 `combine_quant_mode=4`；FlashComm1/DSA CP 关闭 |
+| 插件 | 仅 Ascend 入口；默认不加载 `afd` 或 `afd_dsv41_mxfp8`，显式令量化兼容开关为 0 |
+
+EP 分配完整专家，384 个专家由 8 个 rank 分担，每个 rank 48 个；
+专家中间维度保持 2304，有 72 个 32-wide scale，SwiGLU 输入宽度为 4608。
+此前 non-EP TP8 将单专家切成 288，出现 9 个 scale 和 576-wide SwiGLU 输入。
+新布局避开这些特定的奇数 scale/128 对齐形状；这不保证其他算子或整模型已通过。
+旧 DSV4 已使用相关 MXFP/GMM/SwiGLU 算子，不能把本轮异常归为首次引入这些算子。
+
+官方文档验证的是 vLLM/vLLM-Ascend v0.30.0。项目仍锁定 vLLM `ced6857a…`、
+Ascend RFC `7e37e29a…`，不自动改锁或切换上游；第四次回传实际 Ascend 为 `4ec6dc77…`，
+包元数据仍显示旧 `2db8549c…`。保留此差异和本轮实际源文件 hash，不能直接套用官方版本的验收结论。
+
+## 运行前准备
+
+使用现有 `/usr/local/python3.11.10/bin/python` 与 `/home/models/DeepSeek-V4.1-Flash`，
+不创建 venv，不修改 checkpoint、层数、专家数或 Engram 表，不重装上游依赖。
+先确认 0–7 卡均空闲且属于本次作业；脚本记录 `npu-smi`，不会替用户清理其他作业。
+
+Engram 从 HBM 移到主机 pinned/shared memory，需要足够的主机 RAM、`/dev/shm` 可用空间，
+以及本地 DP worker 可共享的 IPC namespace。官方容器示例使用 `--shm-size=512g`；
+已有容器若仍是很小的默认 `/dev/shm`，应先准备足够的共享内存再运行。
+脚本将 `free -h`、`df -h /dev/shm` 保存到 `environment.txt`，不自行改容器配置。
+此前 TP8 的 HBM 估算不适用于本轮；DP/EP 复制、host offload、KV、workspace 和加载峰值需重新实测。
+
+## 更新并启动（全部日志写文件）
+
+在 A5 的 afd-plugin 源码根目录更新已配置的分支；若有本地修改或分叉，保留现场，
+不要用 reset/clean 覆盖。默认基线不要求安装或启用 TP8 兼容插件。
+
+```bash
+git pull --ff-only origin feat/dsv41-flash-hccl-v030
+bash tools/diagnostics/run_dsv41_a5_native_eager.sh
+```
+
+需要覆盖路径时使用：
+
+```bash
+AFD_PYTHON=/usr/local/python3.11.10/bin/python AFD_MODEL=/home/models/DeepSeek-V4.1-Flash bash tools/diagnostics/run_dsv41_a5_native_eager.sh
+```
+
+控制台只打印 `results: .../results/dsv41-native-dp8-ep8.XXXXXX`。
+服务前台运行，stdout/stderr 直接写 `native-server.log`，启动器写 `launcher.log`，不使用 `tee`。
+脚本检查既定 config/index SHA256、48 个 shard 存在性并保存 `preflight.json`；
+这不是全部权重 payload 校验。它同时记录模块路径、实际 Ascend 源文件 hash、包版本和运行前后设备状态。
+默认不执行 K=288 的 TP8 探针，也不要求其插件入口存在。
+
+日志中应确认 TP1、DP8、EP8、V2、真实 safetensors、`deepseek_v4_fp8`、
+Engram `cpu_offload=True`/`dp_shared_memory=True`、eager、无 speculation。
+`AFD_DSV41_MXFP8_SCALE_PATCH=0`，不应出现启用 DS MXFP 兼容修正的消息。
+三项 Engram 配置继续采用逐字段 CLI，避免此前复制内联 JSON 时的布尔值截断。
+
+将打印的绝对路径记为 `afd_native_run`。服务自然退出时记录 `server-exit-code.txt`，
+启动器退出或 Ctrl+C 时记录 `launcher-exit-code.txt`；未生成文件按实际失败阶段说明。
+无需 `cat`/`tail -f` 持续打印日志。失败时保留完整目录，先分析最早的 worker 根 traceback。
+
+## 首次文本请求与退出
+
+在第二个终端设置刚才的目录。以下 `/health` 失败会停止本次请求并将原因写入文件；
+若模型尚在加载，等待后重试。全部请求输出也重定向，不在终端刷日志。
+
+```bash
+afd_native_run=/absolute/path/printed/above
+(
+  set -eu
+  curl --silent --show-error --fail --max-time 10 http://127.0.0.1:18030/health \
+    > "$afd_native_run/health.txt"
+  cat > "$afd_native_run/request.json" <<'JSON'
+{"model":"dsv41-native","prompt":"The capital of France is","temperature":0,"seed":0,"max_tokens":32,"logprobs":5,"return_token_ids":true,"stream":false}
+JSON
+  npu-smi info > "$afd_native_run/npu-ready.log" 2>&1
+  curl --silent --show-error --fail-with-body --max-time 300 \
+    -H 'Content-Type: application/json' \
+    --data-binary "@$afd_native_run/request.json" \
+    http://127.0.0.1:18030/v1/completions \
+    > "$afd_native_run/response.json"
+  npu-smi info > "$afd_native_run/npu-after-request.log" 2>&1
+) > "$afd_native_run/request.log" 2>&1
+afd_request_status=$?
+printf '%s\n' "$afd_request_status" > "$afd_native_run/request-exit-code.txt"
+```
+
+保存响应后在第一个终端 Ctrl+C，等待 worker 退出和 `npu-after.log` 生成。
+一次 HTTP 成功仅是首次推理 smoke，不代表连续/并发、数值精度、请求回收或性能验收。
+
+回传该新目录，尤其是 `native-server.log`、`launcher.log`、`environment.txt`、
+`preflight.json`、退出码文件、`request.json`/`response.json`/`request.log` 和设备状态日志。
+可在服务停止后打包，不必复制终端 traceback：
+
+```bash
+tar -czf "$afd_native_run.tar.gz" -C "$(dirname "$afd_native_run")" "$(basename "$afd_native_run")"
+```
+
+本轮 DP8/EP8 + CPU Engram 与 AFD A4/F4 TP4 + NPU Engram 的并行和放置不同。
+它先建立原生可用性基线，不构成固定 TP/Engram 放置的 AFD 等价或性能对照；
+后续 AFD 验收须另建条件匹配的验证单元，不直接沿用本轮结果。
+本地 [启动器检查记录](a5-20261110-native-ep8-baseline/launcher-validation.json)
+仅覆盖 CPU stub 的传参、日志和退出码，以及语法/上游保护检查，不包含 NPU 执行。
+
+## 可选：独立 TP8 兼容探针
+
+以下仅用于继续诊断此前 TP8 路径，不是 DP8/EP8 基线的启动前置条件：
+
+```bash
+bash tools/diagnostics/run_dsv41_a5_native_eager.sh --probe-only
+```
+
+它单独建立 `results/dsv41-tp8-activation-probe.XXXXXX`，显式启用已有量化兼容入口，
+执行 synthetic W13→SwiGLU/MX quant→W2，保存 `activation-probe.json`/`.log` 和退出码；
+不会启动整模型。该模式仍要求此前安装的 `afd_dsv41_mxfp8` entry point，
+必要时仅刷新 afd-plugin editable 安装，不安装或修改上游。
+
+## 此前 TP8 容量候选与诊断历史
+
+以下保留此前 Engram 留 NPU、EP 关闭的 TP8 证据和修复步骤，供回溯；
+不是本轮 DP8/TP1/EP8 的操作顺序，也不要求重新执行旧探针。
+完整服务及首请求一直未通过；12 项 MoE GMM 组件已回传通过，新增 SwiGLU 链路仍待设备执行。
+
+### 历史容量参考
 
 按同一 checkpoint 的 header、native A5 Engram FP8/E8M0 存储和已测得的两层 RoPE buffer 计算：
 
@@ -30,54 +154,11 @@ A 和原生估算均包含每 rank 20 GiB 的 40 层 RoPE 候选；Engram 表按
 容量参考距该预算只余约 7.61 GiB，并非已测可用空间。
 细项与全部假设见 [预算 JSON](a5-topology-budget-20261109.json)。
 
-因此先执行原生 TP8 控制组；其加载、路由、专家计算和首次请求通过后，再验证 A4/F4。
+这是此前 Engram 留 NPU 的 TP8/A4F4 容量候选，不用于估算本轮 DP8/EP8 + CPU offload。
 A4/F4 暂定 A 使用 0–3、F 使用 4–7，实际映射必须服从目标机器拓扑。
 原生 TP8 与 AFD 两侧 TP4 改变了 native TP 大小：可作为明确记录此差异的输出对照，
 不构成固定 TP 下的 AFD 等价或性能提升证据。若出现数值差异，要同时排查 TP 归约；
 后续严格固定 TP 对照需另建容量可行、Engram 放置一致的验证单元。
-
-## 先确认 checkpoint 与空闲设备
-
-使用当前已经通过组件检查的 Python/CANN/ATB 环境，无需创建 venv 或更换包。
-本次将 Engram 明确留在 NPU；上游默认可能启用 CPU offload，不能省略对应配置。
-不更改 checkpoint，不缩小层数/专家/Engram，不启用 DSpark、graph、EP、SP 或 DBO。
-
-在更新后的 afd-plugin 源码根目录运行，保留输出的新目录路径：
-
-```bash
-afd_python=/usr/local/python3.11.10/bin/python
-afd_model=/home/models/DeepSeek-V4.1-Flash
-mkdir -p results
-afd_native_run=$(mktemp -d "$PWD/results/dsv41-native-tp8.XXXXXX")
-printf '%s\n' "$afd_native_run"
-npu-smi info > "$afd_native_run/npu-before.log" 2>&1
-"$afd_python" - "$afd_model" <<'PY' > "$afd_native_run/checkpoint-identity.json"
-import hashlib
-import json
-import sys
-from pathlib import Path
-
-root = Path(sys.argv[1])
-expected = {
-    "config.json": "8be45ce0476004a3f529fd896115a4a2e800a129ad2d3ec05b16050f52e21879",
-    "model.safetensors.index.json": "74b0686a3d2891980d5e303251b075a3bccae2c2ff650747db2620a649b98fa8",
-}
-actual = {name: hashlib.sha256((root / name).read_bytes()).hexdigest() for name in expected}
-index = json.loads((root / "model.safetensors.index.json").read_text())
-shards = sorted(set(index["weight_map"].values()))
-missing = [name for name in shards if not (root / name).is_file()]
-report = {"path": str(root), "sha256": actual, "expected_sha256": expected,
-          "shard_count": len(shards), "missing_shards": missing,
-          "matches": actual == expected and not missing}
-print(json.dumps(report, indent=2))
-raise SystemExit(0 if report["matches"] else 1)
-PY
-```
-
-先查看 `checkpoint-identity.json`，只有 `matches=true` 且 48 个 shard 均存在才继续。
-这核对配置/index 和文件存在性，不是完整权重 payload 校验。
-同时查看 `npu-before.log`：8 个目标逻辑设备均须可用且显存充足。
-下面假定该容器的目标设备为 0–7；若实际可见映射不同，先调整映射并记录。
 
 ## 第二次启动错误与修复前检查
 
@@ -144,7 +225,7 @@ printf 'probe exit=%s\n' "$afd_probe_status"
 该探针真实执行 MX 动态量化与矩阵乘，覆盖 K=256/288/320、N=5120、
 两种 scale 算法，并单独激活最后一个有效 group 对照 CPU 数值。
 它不加载模型、checkpoint 或 Engram，不创建通信组。
-只有退出码 0、`passed=true` 且 6 个 case 全部通过，才继续启动；
+当时的 TP8 验证要求退出码 0、`passed=true` 且 6 个 case 全部通过，才继续启动；
 否则先回传 `mxfp8-linear-probe.json` 和 `.log`，不重复加载整模型。
 第三次回传中该探针的 6 项均已通过；这不覆盖下面新发现的 MoE FP4 路径。
 
@@ -223,7 +304,7 @@ printf 'MoE probe exit=%s\n' "$afd_probe_status"
 W2 通过与生产相同的 `scheme.apply_gmm2` 调用，报告 logical/physical K、
 实际 hook 源文件 hash；发生错误时也保留本次失败 case 的形状和调用入口。
 每个 expert 分别检查全 K 与最后一个有效 group 的输出，对照 CPU 数值。
-只有退出码 0、`passed=true` 且 12 项均通过才继续下面 TP8 启动；
+当时的 TP8 验证要求退出码 0、`passed=true` 且 12 项均通过才继续 TP8 启动；
 否则回传 `mxfp4-moe-probe.json` 和 `.log`，先诊断组件异常。
 探针不覆盖 routing、SwiGLU、TP 通信、Engram 或完整模型推理。
 
@@ -288,96 +369,10 @@ W13 输出为两半 `gate[288] + up[288]`，总宽 576。此前探针没有执�
 融合量化的输出宽 320 与之前已补齐的 W2 一致，保留有效元素、原生 clamp 和分组参数。
 每个 token 多 64 个 BF16 零值；新增一次 padding/copy，无额外权重补齐。
 
-启动脚本现在先执行新增的 W13→融合 SwiGLU/MX 量化→W2 单卡探针，
+`c279c4f` 版本的启动脚本先执行新增的 W13→融合 SwiGLU/MX 量化→W2 单卡探针，
 覆盖 intermediate=256/288/320、clamp=0/6、cumulative/count 两种 group list，共 12 项。
 与之前的矩阵乘探针分别记录，不将新探针的未执行状态视为通过。
 探针使用两个 synthetic experts，检查不同 gate/up、最后一个有效 group、补零输出及 W2 数值；
 不覆盖路由、EPLB/MegaMoE、TP/Engram 或完整 checkpoint。
-默认只有它通过才继续加载整模型，全部日志继续直接写文件。
-
-## 启动原生 TP8（显式量化修正）
-
-以下使用标准 vLLM CLI，加载 Ascend 插件及独立的量化修正入口；不加载 `afd` 入口。
-命令不绕过 AFD guard，不进行 AFD 推理。前台运行，日志中应确认 TP8、V2、
-真实 safetensors、`deepseek_v4_fp8`、Engram `cpu_offload=False`、eager、无 speculation。
-同时保留实际 router/MoE 选择、权重加载和内存日志；组件检查没有覆盖这些路径。
-
-用户要求日志全部写入文件。使用
-[`run_dsv41_a5_native_eager.sh`](../../../../tools/diagnostics/run_dsv41_a5_native_eager.sh)
-保留上述 TP8 控制组配置：stdout/stderr 直接写入 `native-server.log`，不使用 `tee`。
-控制台只打印新结果目录；`launcher.log` 记录启动器输出，`launcher-exit-code.txt`
-记录正常/异常或 Ctrl+C 退出码，服务自然退出时另写 `server-exit-code.txt`。
-新增探针的输出分别为 `activation-probe.json`、`activation-probe.log` 和
-`activation-probe-exit-code.txt`；探针失败时停止，保留该轮结果，不加载整模型。
-脚本重新记录 checkpoint header/index、48 个 shard 存在性、实际模块路径及插件入口，
-并保存环境和运行前后 `npu-smi`。这不校验全部权重 payload 或设备空闲状态；
-仍须先完成前文 checkpoint/空闲卡和探针检查，运行期间服务占用 0–7 卡。
-
-在 afd-plugin 源码根目录执行；默认 Python 和模型路径与前文相同，可显式传入：
-
-```bash
-AFD_PYTHON="$afd_python" AFD_MODEL="$afd_model" bash tools/diagnostics/run_dsv41_a5_native_eager.sh
-```
-
-如只执行新增的单卡探针，在上述命令末尾追加 `--probe-only`。
-
-将控制台打印的新路径赋给 `afd_native_run`，用于下面的请求和日志回传。
-如果使用默认路径且没有前文变量，可直接运行
-`bash tools/diagnostics/run_dsv41_a5_native_eager.sh`。
-不要用 `cat`/`tail -f` 持续输出日志；发生失败后直接回传该目录的
-`activation-probe.json`、`activation-probe.log`、`native-server.log`、`launcher.log`、
-`environment.txt`、`preflight.json` 与退出码文件；未生成的文件按实际阶段说明。
-
-2026-11-09 17:20 用户回传的启动日志停在 `--engram-config` 的
-`Invalid JSON: expected ident at line 2 column 0`，尚未进入模型加载。
-原内联 JSON 本身合法；实际传入的文本可能在复制时被插入了换行，截断布尔字面量。
-上面已改为锁定 vLLM 支持的逐字段写法，三项会合成为布尔值 `false`；
-重试时用这三行替换原来的整行 `--engram-config '...'`。
-第二次 A5 回传已确认这三项均解析为 `False` 并进入模型加载。
-量化修正后的完整启动和首请求仍待验证；日志应出现
-`Enabled DS MXFP8 linear and MXFP4 MoE scale-pair corrections with MXFP4 GMM K alignment and fused SwiGLU alignment`，
-确认独立补丁入口已加载。
-
-如果加载、profile、路由算子或首请求失败，保留本轮目录，先诊断原生根异常；
-不要转去启动 AFD，也不要混入更换 checkpoint、关闭 Engram 或改 TP 的重试。
-如需改变配置，另开新目录并明确记录该验证单元的差异。
-更新后的启动命令和补丁仍以 A5 实际日志及首请求结果为准。
-
-## 发出首次正确性请求并结束
-
-在第二个终端，先把 `afd_native_run` 改成刚才打印的绝对路径。
-等待第一个终端报告服务就绪后执行；若 `/health` 失败，先查看服务日志。
-本轮只发一个请求，保留输出 token IDs 和 logprobs 供后续同参数对照。
-
-```bash
-afd_native_run=/absolute/path/printed/above
-(
-  set -eu
-  curl --fail --max-time 10 http://127.0.0.1:18030/health \
-    > "$afd_native_run/health.txt"
-  cat > "$afd_native_run/request.json" <<'JSON'
-{"model":"dsv41-native","prompt":"The capital of France is","temperature":0,"seed":0,"max_tokens":32,"logprobs":5,"return_token_ids":true,"stream":false}
-JSON
-  npu-smi info > "$afd_native_run/npu-ready.log" 2>&1
-  curl --fail-with-body --max-time 300 \
-    -H 'Content-Type: application/json' \
-    --data-binary "@$afd_native_run/request.json" \
-    http://127.0.0.1:18030/v1/completions \
-    > "$afd_native_run/response.json"
-  npu-smi info > "$afd_native_run/npu-after-request.log" 2>&1
-)
-```
-
-保存响应并确认无报错后，在第一个终端 Ctrl+C 正常结束服务，等待子进程退出及
-`npu-after.log` 生成。不要用全局进程名清理其他作业。
-一次 HTTP 成功只构成首次推理 smoke，不能代替连续/并发、请求回收、数值精度或性能验收。
-
-## 回传最小结果
-
-优先回传 `mxfp8-linear-probe.json`、`mxfp8-linear-probe.log`、
-`mxfp4-moe-probe.json`、`mxfp4-moe-probe.log`、
-`checkpoint-identity.json`、`environment.txt`、`request.json`、`response.json`、
-`server-exit-code.txt` 和 `npu-before/ready/after.log`；没有生成的文件按实际失败阶段说明。
-启动失败时最关键的是 `native-server.log` 中最先出现的 worker 根 traceback，
-优先回传完整日志文件，避免终端复制截断；完整日志继续保留本地。
-原生通过并核对实际路由/FP4 和资源后，才进入 AFD A4/F4 开发验证。
+当时只有它通过才继续加载 TP8 整模型。当前 DP8/TP1/EP8 默认不执行该探针；
+仅显式 `--probe-only` 保留此诊断，全部日志继续直接写文件。

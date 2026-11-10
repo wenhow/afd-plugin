@@ -1,0 +1,77 @@
+{
+  "date": "2026-11-10",
+  "scope": "CPU-only launcher CLI/logging checks with stub executables; no NPU, HCCL, checkpoint loading or inference",
+  "cases": [
+    {
+      "case": "baseline_success",
+      "passed": true,
+      "exit_code": 0,
+      "server_started": true,
+      "tp8_probe_started": false,
+      "console_line_count": 1,
+      "stdout_stderr_captured": true
+    },
+    {
+      "case": "baseline_server_failure",
+      "passed": true,
+      "exit_code": 17,
+      "server_started": true,
+      "tp8_probe_started": false,
+      "console_line_count": 1,
+      "stdout_stderr_captured": true
+    },
+    {
+      "case": "baseline_preflight_failure",
+      "passed": true,
+      "exit_code": 23,
+      "server_started": false,
+      "tp8_probe_started": false,
+      "console_line_count": 1,
+      "stdout_stderr_captured": true
+    },
+    {
+      "case": "tp8_probe_only_success",
+      "passed": true,
+      "exit_code": 0,
+      "server_started": false,
+      "tp8_probe_started": true,
+      "console_line_count": 1,
+      "stdout_stderr_captured": true
+    },
+    {
+      "case": "tp8_probe_only_failure",
+      "passed": true,
+      "exit_code": 19,
+      "server_started": false,
+      "tp8_probe_started": true,
+      "console_line_count": 1,
+      "stdout_stderr_captured": true
+    }
+  ],
+  "guide_bash_blocks_checked": 5,
+  "passed": true,
+  "a5_runtime_acceptance": "pending",
+  "reference": "https://docs.vllm.ai/projects/ascend/en/v0.30.0/tutorials/models/DeepSeek-V4.1-Flash.html#51-single-node-colocated-deployment",
+  "baseline": {
+    "dp": 8,
+    "tp": 1,
+    "ep": 8,
+    "engram_cpu_offload": true,
+    "engram_dp_shared_memory": true,
+    "engram_embedding_across_dp": false,
+    "enforce_eager": true,
+    "dspark": false,
+    "max_model_len": 1024,
+    "max_num_seqs_per_dp_engine": 1,
+    "max_num_batched_tokens": 1024,
+    "afd_quantization_compat_plugin_enabled": false
+  },
+  "static_checks": {
+    "bash_n_exit_code": 0,
+    "git_diff_check_exit_code": 0,
+    "harness_check_exit_code": 0,
+    "harness_files": 431,
+    "harness_source_objects": 56,
+    "upstreams_unchanged": true
+  }
+}

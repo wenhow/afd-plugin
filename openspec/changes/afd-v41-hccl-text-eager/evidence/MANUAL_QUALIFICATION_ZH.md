@@ -249,8 +249,10 @@ fallback 成功不能替代融合 norm、native top-k 或完整模型验收；�
 ## 950DT 8 卡的下一步
 
 2026-11-09 用户确认 950DT、8 卡、每卡显示 98304 MB。
-按 96 GiB/卡估算，先做 [原生 TP8 完整 checkpoint 控制组](A5_NATIVE_EAGER_ZH.md)，
-AFD 候选为 A4/F4，两侧各 native TP4；具体容量和未知项见
-[A5 预算](a5-topology-budget-20261109.json)。
+2026-11-10 改用 [原生 DP8/TP1/EP8 eager 基线](A5_NATIVE_EAGER_ZH.md)：
+Engram CPU offload/DP shared memory，关闭 DSpark，长度和批 token 上限 1024、每 DP engine 单请求。
+先准备足够的主机 RAM 和 `/dev/shm`；日志全部写文件，默认不启用 TP8 量化兼容补丁或运行其探针。
+此前 AFD A4/F4、两侧各 native TP4 的 [容量候选](a5-topology-budget-20261109.json)继续保留，
+该 NPU Engram 预算不适用于本轮原生布局，也不能作为固定并行/Engram 放置的精度或性能对照。
 原生命令继续使用 `/usr/local/python3.11.10/bin/python`，不要求 venv 或 ATB 脚本。
 这是独立的后续完整模型验证，组件采集器仍不会自动启动它或解除 AFD guard。
