@@ -1,0 +1,338 @@
+{
+  "scope": "DS MoE post-load, W13 GMM and native apply_gmm2 with K alignment",
+  "torch": "2.10.0+cpu",
+  "torch_npu": "2.10.0.post4",
+  "device": "npu:0",
+  "device_name": "Ascend950DT_9582",
+  "upstream_file": "/opt/vllm-ascend/vllm_ascend/quantization/methods/w4a8/w4a8_mxfp4.py",
+  "upstream_sha256": "3185d3c7194b95357c57c345b7b1e1041a3039d7cb3089d398a7d63a09fc96a5",
+  "cases": [
+    {
+      "intermediate_width": 256,
+      "projection": "w13",
+      "scale_alg": 0,
+      "logical_input_width": 5120,
+      "physical_weight_input_width": 5120,
+      "weight_shape": [
+        2,
+        2560,
+        512
+      ],
+      "scale_shape": [
+        2,
+        80,
+        512,
+        2
+      ],
+      "call": "npu_grouped_matmul",
+      "passed": true,
+      "activation_scale_shape": [
+        4,
+        80,
+        2
+      ],
+      "max_absolute_error": 0.0,
+      "last_group_nonzero": true
+    },
+    {
+      "intermediate_width": 256,
+      "projection": "w13",
+      "scale_alg": 1,
+      "logical_input_width": 5120,
+      "physical_weight_input_width": 5120,
+      "weight_shape": [
+        2,
+        2560,
+        512
+      ],
+      "scale_shape": [
+        2,
+        80,
+        512,
+        2
+      ],
+      "call": "npu_grouped_matmul",
+      "passed": true,
+      "activation_scale_shape": [
+        4,
+        80,
+        2
+      ],
+      "max_absolute_error": 0.0,
+      "last_group_nonzero": true
+    },
+    {
+      "intermediate_width": 256,
+      "projection": "w2",
+      "scale_alg": 0,
+      "logical_input_width": 256,
+      "physical_weight_input_width": 256,
+      "weight_shape": [
+        2,
+        128,
+        5120
+      ],
+      "scale_shape": [
+        2,
+        4,
+        5120,
+        2
+      ],
+      "call": "native_scheme.apply_gmm2",
+      "passed": true,
+      "activation_scale_shape": [
+        4,
+        4,
+        2
+      ],
+      "max_absolute_error": 0.0,
+      "last_group_nonzero": true
+    },
+    {
+      "intermediate_width": 256,
+      "projection": "w2",
+      "scale_alg": 1,
+      "logical_input_width": 256,
+      "physical_weight_input_width": 256,
+      "weight_shape": [
+        2,
+        128,
+        5120
+      ],
+      "scale_shape": [
+        2,
+        4,
+        5120,
+        2
+      ],
+      "call": "native_scheme.apply_gmm2",
+      "passed": true,
+      "activation_scale_shape": [
+        4,
+        4,
+        2
+      ],
+      "max_absolute_error": 0.0,
+      "last_group_nonzero": true
+    },
+    {
+      "intermediate_width": 288,
+      "projection": "w13",
+      "scale_alg": 0,
+      "logical_input_width": 5120,
+      "physical_weight_input_width": 5120,
+      "weight_shape": [
+        2,
+        2560,
+        576
+      ],
+      "scale_shape": [
+        2,
+        80,
+        576,
+        2
+      ],
+      "call": "npu_grouped_matmul",
+      "passed": true,
+      "activation_scale_shape": [
+        4,
+        80,
+        2
+      ],
+      "max_absolute_error": 0.0,
+      "last_group_nonzero": true
+    },
+    {
+      "intermediate_width": 288,
+      "projection": "w13",
+      "scale_alg": 1,
+      "logical_input_width": 5120,
+      "physical_weight_input_width": 5120,
+      "weight_shape": [
+        2,
+        2560,
+        576
+      ],
+      "scale_shape": [
+        2,
+        80,
+        576,
+        2
+      ],
+      "call": "npu_grouped_matmul",
+      "passed": true,
+      "activation_scale_shape": [
+        4,
+        80,
+        2
+      ],
+      "max_absolute_error": 0.0,
+      "last_group_nonzero": true
+    },
+    {
+      "intermediate_width": 288,
+      "projection": "w2",
+      "scale_alg": 0,
+      "logical_input_width": 288,
+      "physical_weight_input_width": 320,
+      "weight_shape": [
+        2,
+        160,
+        5120
+      ],
+      "scale_shape": [
+        2,
+        5,
+        5120,
+        2
+      ],
+      "call": "native_scheme.apply_gmm2",
+      "passed": true,
+      "activation_scale_shape": [
+        4,
+        5,
+        2
+      ],
+      "max_absolute_error": 0.0,
+      "last_group_nonzero": true
+    },
+    {
+      "intermediate_width": 288,
+      "projection": "w2",
+      "scale_alg": 1,
+      "logical_input_width": 288,
+      "physical_weight_input_width": 320,
+      "weight_shape": [
+        2,
+        160,
+        5120
+      ],
+      "scale_shape": [
+        2,
+        5,
+        5120,
+        2
+      ],
+      "call": "native_scheme.apply_gmm2",
+      "passed": true,
+      "activation_scale_shape": [
+        4,
+        5,
+        2
+      ],
+      "max_absolute_error": 0.0,
+      "last_group_nonzero": true
+    },
+    {
+      "intermediate_width": 320,
+      "projection": "w13",
+      "scale_alg": 0,
+      "logical_input_width": 5120,
+      "physical_weight_input_width": 5120,
+      "weight_shape": [
+        2,
+        2560,
+        640
+      ],
+      "scale_shape": [
+        2,
+        80,
+        640,
+        2
+      ],
+      "call": "npu_grouped_matmul",
+      "passed": true,
+      "activation_scale_shape": [
+        4,
+        80,
+        2
+      ],
+      "max_absolute_error": 0.0,
+      "last_group_nonzero": true
+    },
+    {
+      "intermediate_width": 320,
+      "projection": "w13",
+      "scale_alg": 1,
+      "logical_input_width": 5120,
+      "physical_weight_input_width": 5120,
+      "weight_shape": [
+        2,
+        2560,
+        640
+      ],
+      "scale_shape": [
+        2,
+        80,
+        640,
+        2
+      ],
+      "call": "npu_grouped_matmul",
+      "passed": true,
+      "activation_scale_shape": [
+        4,
+        80,
+        2
+      ],
+      "max_absolute_error": 0.0,
+      "last_group_nonzero": true
+    },
+    {
+      "intermediate_width": 320,
+      "projection": "w2",
+      "scale_alg": 0,
+      "logical_input_width": 320,
+      "physical_weight_input_width": 320,
+      "weight_shape": [
+        2,
+        160,
+        5120
+      ],
+      "scale_shape": [
+        2,
+        5,
+        5120,
+        2
+      ],
+      "call": "native_scheme.apply_gmm2",
+      "passed": true,
+      "activation_scale_shape": [
+        4,
+        5,
+        2
+      ],
+      "max_absolute_error": 0.0,
+      "last_group_nonzero": true
+    },
+    {
+      "intermediate_width": 320,
+      "projection": "w2",
+      "scale_alg": 1,
+      "logical_input_width": 320,
+      "physical_weight_input_width": 320,
+      "weight_shape": [
+        2,
+        160,
+        5120
+      ],
+      "scale_shape": [
+        2,
+        5,
+        5120,
+        2
+      ],
+      "call": "native_scheme.apply_gmm2",
+      "passed": true,
+      "activation_scale_shape": [
+        4,
+        5,
+        2
+      ],
+      "max_absolute_error": 0.0,
+      "last_group_nonzero": true
+    }
+  ],
+  "gmm2_file": "/home/z00569729/dsv41-afd/src/afd-plugin-dsv41-a5/afd_plugin/compat/patches/npu/mxfp4.py",
+  "gmm2_sha256": "b016ff5403061e2d045819c61a7d7bb0c518408e763469b86f256423015a982d",
+  "passed": true
+}

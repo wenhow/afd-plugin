@@ -1,0 +1,77 @@
+
+回传环境的 Ascend HEAD 为 2db8549c548731611baeb169fa1ef13aa55fc6aa， 不是项目锁定的 7e37e29a7803d6897a7113088e2b771f83205bc0；
+---代码仓已经 目标commit，是否使用如下命令进行安装？ "$afd_python" -m pip install --no-deps --no-build-isolation -e .
+
+mxfp4-moe-probe 已经通过，还是启动失败，是否与Ascend HEAD非目标 有关
+Worker_TP6 pid=28180) ERROR 11-10 09:13:40 [multiproc_executor.py:1055] WorkerProc hit an exception.
+(Worker_TP6 pid=28180) ERROR 11-10 09:13:40 [multiproc_executor.py:1055] Traceback (most recent call last):
+(Worker_TP6 pid=28180) ERROR 11-10 09:13:40 [multiproc_executor.py:1055]   File "/usr/local/python3.11.10/lib/python3.11/site-packages/vllm/v1/executor/multiproc_executor.py", line 1047, in _execute_worker_rpc
+(Worker_TP6 pid=28180) ERROR 11-10 09:13:40 [multiproc_executor.py:1055]     output = func(*args, **kwargs)
+(Worker_TP6 pid=28180) ERROR 11-10 09:13:40 [multiproc_executor.py:1055]              ^^^^^^^^^^^^^^^^^^^^^
+(Worker_TP6 pid=28180) ERROR 11-10 09:13:40 [multiproc_executor.py:1055]   File "/usr/local/python3.11.10/lib/python3.11/site-packages/torch/utils/_contextlib.py", line 124, in decorate_context
+(Worker_TP6 pid=28180) ERROR 11-10 09:13:40 [multiproc_executor.py:1055]     return func(*args, **kwargs)
+(Worker_TP6 pid=28180) ERROR 11-10 09:13:40 [multiproc_executor.py:1055]            ^^^^^^^^^^^^^^^^^^^^^
+(Worker_TP6 pid=28180) ERROR 11-10 09:13:40 [multiproc_executor.py:1055]   File "/opt/vllm-ascend/vllm_ascend/worker/worker.py", line 595, in determine_available_memory
+(Worker_TP6 pid=28180) ERROR 11-10 09:13:40 [multiproc_executor.py:1055]     self.model_runner.profile_run()
+(Worker_TP6 pid=28180) ERROR 11-10 09:13:40 [multiproc_executor.py:1055]   File "/usr/local/python3.11.10/lib/python3.11/site-packages/torch/utils/_contextlib.py", line 124, in decorate_context
+(Worker_TP6 pid=28180) ERROR 11-10 09:13:40 [multiproc_executor.py:1055]     return func(*args, **kwargs)
+(Worker_TP6 pid=28180) ERROR 11-10 09:13:40 [multiproc_executor.py:1055]            ^^^^^^^^^^^^^^^^^^^^^
+(Worker_TP6 pid=28180) ERROR 11-10 09:13:40 [multiproc_executor.py:1055]   File "/opt/vllm-ascend/vllm_ascend/worker/v2/model_runner.py", line 611, in profile_run
+(Worker_TP6 pid=28180) ERROR 11-10 09:13:40 [multiproc_executor.py:1055]     super().profile_run()
+(Worker_TP6 pid=28180) ERROR 11-10 09:13:40 [multiproc_executor.py:1055]   File "/usr/local/python3.11.10/lib/python3.11/site-packages/torch/utils/_contextlib.py", line 124, in decorate_context
+(Worker_TP6 pid=28180) ERROR 11-10 09:13:40 [multiproc_executor.py:1055]     return func(*args, **kwargs)
+(Worker_TP6 pid=28180) ERROR 11-10 09:13:40 [multiproc_executor.py:1055]            ^^^^^^^^^^^^^^^^^^^^^
+(Worker_TP6 pid=28180) ERROR 11-10 09:13:40 [multiproc_executor.py:1055]   File "/usr/local/python3.11.10/lib/python3.11/site-packages/vllm/v1/worker/gpu/model_runner.py", line 955, in profile_run
+(Worker_TP6 pid=28180) ERROR 11-10 09:13:40 [multiproc_executor.py:1055]     hidden_states, sample_hidden_states = self._dummy_run(
+(Worker_TP6 pid=28180) ERROR 11-10 09:13:40 [multiproc_executor.py:1055]                                           ^^^^^^^^^^^^^^^^
+(Worker_TP6 pid=28180) ERROR 11-10 09:13:40 [multiproc_executor.py:1055]   File "/usr/local/python3.11.10/lib/python3.11/site-packages/vllm/v1/worker/gpu/eplb_utils.py", line 27, in wrapper
+(Worker_TP6 pid=28180) ERROR 11-10 09:13:40 [multiproc_executor.py:1055]     result = fn(self, *args, **kwargs)
+(Worker_TP6 pid=28180) ERROR 11-10 09:13:40 [multiproc_executor.py:1055]              ^^^^^^^^^^^^^^^^^^^^^^^^^
+(Worker_TP6 pid=28180) ERROR 11-10 09:13:40 [multiproc_executor.py:1055]   File "/opt/vllm-ascend/vllm_ascend/worker/v2/model_runner.py", line 1045, in _dummy_run
+(Worker_TP6 pid=28180) ERROR 11-10 09:13:40 [multiproc_executor.py:1055]     return super()._dummy_run(
+(Worker_TP6 pid=28180) ERROR 11-10 09:13:40 [multiproc_executor.py:1055]            ^^^^^^^^^^^^^^^^^^^
+(Worker_TP6 pid=28180) ERROR 11-10 09:13:40 [multiproc_executor.py:1055]   File "/usr/local/python3.11.10/lib/python3.11/site-packages/torch/utils/_contextlib.py", line 124, in decorate_context
+(Worker_TP6 pid=28180) ERROR 11-10 09:13:40 [multiproc_executor.py:1055]     return func(*args, **kwargs)
+(Worker_TP6 pid=28180) ERROR 11-10 09:13:40 [multiproc_executor.py:1055]            ^^^^^^^^^^^^^^^^^^^^^
+(Worker_TP6 pid=28180) ERROR 11-10 09:13:40 [multiproc_executor.py:1055]   File "/usr/local/python3.11.10/lib/python3.11/site-packages/vllm/v1/worker/gpu/eplb_utils.py", line 27, in wrapper
+(Worker_TP6 pid=28180) ERROR 11-10 09:13:40 [multiproc_executor.py:1055]     result = fn(self, *args, **kwargs)
+(Worker_TP6 pid=28180) ERROR 11-10 09:13:40 [multiproc_executor.py:1055]              ^^^^^^^^^^^^^^^^^^^^^^^^^
+(Worker_TP6 pid=28180) ERROR 11-10 09:13:40 [multiproc_executor.py:1055]   File "/usr/local/python3.11.10/lib/python3.11/site-packages/vllm/v1/worker/gpu/model_runner.py", line 835, in _dummy_run
+(Worker_TP6 pid=28180) ERROR 11-10 09:13:40 [multiproc_executor.py:1055]     self.execute_model(
+(Worker_TP6 pid=28180) ERROR 11-10 09:13:40 [multiproc_executor.py:1055]   File "/usr/local/python3.11.10/lib/python3.11/site-packages/torch/utils/_contextlib.py", line 124, in decorate_context
+(Worker_TP6 pid=28180) ERROR 11-10 09:13:40 [multiproc_executor.py:1055]     return func(*args, **kwargs)
+(Worker_TP6 pid=28180) ERROR 11-10 09:13:40 [multiproc_executor.py:1055]            ^^^^^^^^^^^^^^^^^^^^^
+(Worker_TP6 pid=28180) ERROR 11-10 09:13:40 [multiproc_executor.py:1055]   File "/opt/vllm-ascend/vllm_ascend/worker/v2/model_runner.py", line 517, in execute_model
+(Worker_TP6 pid=28180) ERROR 11-10 09:13:40 [multiproc_executor.py:1055]     output = super().execute_model(
+(Worker_TP6 pid=28180) ERROR 11-10 09:13:40 [multiproc_executor.py:1055]              ^^^^^^^^^^^^^^^^^^^^^^
+(Worker_TP6 pid=28180) ERROR 11-10 09:13:40 [multiproc_executor.py:1055]   File "/usr/local/python3.11.10/lib/python3.11/site-packages/torch/utils/_contextlib.py", line 124, in decorate_context
+(Worker_TP6 pid=28180) ERROR 11-10 09:13:40 [multiproc_executor.py:1055]     return func(*args, **kwargs)
+(Worker_TP6 pid=28180) ERROR 11-10 09:13:40 [multiproc_executor.py:1055]            ^^^^^^^^^^^^^^^^^^^^^
+(Worker_TP6 pid=28180) ERROR 11-10 09:13:40 [multiproc_executor.py:1055]   File "/usr/local/python3.11.10/lib/python3.11/site-packages/vllm/v1/worker/gpu/model_runner.py", line 1948, in execute_model
+(Worker_TP6 pid=28180) ERROR 11-10 09:13:40 [multiproc_executor.py:1055]     model_output = self.model(**model_inputs)
+(Worker_TP6 pid=28180) ERROR 11-10 09:13:40 [multiproc_executor.py:1055]                    ^^^^^^^^^^^^^^^^^^^^^^^^^^
+(Worker_TP6 pid=28180) ERROR 11-10 09:13:40 [multiproc_executor.py:1055]   File "/usr/local/python3.11.10/lib/python3.11/site-packages/torch/nn/modules/module.py", line 1776, in _wrapped_call_impl
+(Worker_TP6 pid=28180) ERROR 11-10 09:13:40 [multiproc_executor.py:1055]     return self._call_impl(*args, **kwargs)
+(Worker_TP6 pid=28180) ERROR 11-10 09:13:40 [multiproc_executor.py:1055]            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(Worker_TP6 pid=28180) ERROR 11-10 09:13:40 [multiproc_executor.py:1055]   File "/usr/local/python3.11.10/lib/python3.11/site-packages/torch/nn/modules/module.py", line 1882, in _call_impl
+(Worker_TP6 pid=28180) ERROR 11-10 09:13:40 [multiproc_executor.py:1055]     return inner()
+(Worker_TP6 pid=28180) ERROR 11-10 09:13:40 [multiproc_executor.py:1055]            ^^^^^^^
+(Worker_TP6 pid=28180) ERROR 11-10 09:13:40 [multiproc_executor.py:1055]   File "/usr/local/python3.11.10/lib/python3.11/site-packages/torch/nn/modules/module.py", line 1830, in inner
+(Worker_TP6 pid=28180) ERROR 11-10 09:13:40 [multiproc_executor.py:1055]     result = forward_call(*args, **kwargs)
+(Worker_TP6 pid=28180) ERROR 11-10 09:13:40 [multiproc_executor.py:1055]              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(Worker_TP6 pid=28180) ERROR 11-10 09:13:40 [multiproc_executor.py:1055]   File "/opt/vllm-ascend/vllm_ascend/models/deepseek_v41/vl_model.py", line 269, in forward
+(Worker_TP6 pid=28180) ERROR 11-10 09:13:40 [multiproc_executor.py:1055]     return self.language_model(
+(Worker_TP6 pid=28180) ERROR 11-10 09:13:40 [multiproc_executor.py:1055]            ^^^^^^^^^^^^^^^^^^^^
+(Worker_TP6 pid=28180) ERROR 11-10 09:13:40 [multiproc_executor.py:1055]   File "/usr/local/python3.11.10/lib/python3.11/site-packages/torch/nn/modules/module.py", line 1776, in _wrapped_call_impl
+(Worker_TP6 pid=28180) ERROR 11-10 09:13:40 [multiproc_executor.py:1055]     return self._call_impl(*args, **kwargs)
+(Worker_TP6 pid=28180) ERROR 11-10 09:13:40 [multiproc_executor.py:1055]            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(Worker_TP6 pid=28180) ERROR 11-10 09:13:40 [multiproc_executor.py:1055]   File "/usr/local/python3.11.10/lib/python3.11/site-packages/torch/nn/modules/module.py", line 1787, in _call_impl
+(Worker_TP6 pid=28180) ERROR 11-10 09:13:40 [multiproc_executor.py:1055]     return forward_call(*args, **kwargs)
+(Worker_TP6 pid=28180) ERROR 11-10 09:13:40 [multiproc_executor.py:1055]            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(Worker_TP6 pid=28180) ERROR 11-10 09:13:40 [multiproc_executor.py:1055]   File "/opt/vllm-ascend/vllm_ascend/models/deepseek_v41/model.py", line 1766, in forward
+(Worker_TP6 pid=28180) ERROR 11-10 09:13:40 [multiproc_executor.py:1055]     return self.model(
+(Worker_TP6 pid=28180) ERROR 11-10 09:13:40 [multiproc_executor.py:1055]            ^^^^^^^^^^^
+(Worker_TP6 pid=28180) ERROR 11-10 09:13:40 [multiproc_executor.py:1055]   File "/usr/local/python3.11.10/lib/python3.11/site-packages/torch/nn/modules/module.py", line 1776, in _wrapped_call_impl
+(Worker_TP6 pid=28180) ERROR 11-10 09:13:40 [multiproc_executor.py:1055]     return self._call_impl(*args, **kwargs)
+(Worker_TP6 pid=28180) ERROR 11-10 09:13:40 [multiproc_executor.py:1055]            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(Worker_TP6 pid=28180) ERROR 11-10 09:13:40 [multiproc_executor.py:1055]   File "/usr/local/python3.11.10/lib/python3.11/site-

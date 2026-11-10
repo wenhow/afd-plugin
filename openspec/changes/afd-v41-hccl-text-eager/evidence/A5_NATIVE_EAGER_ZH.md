@@ -1,13 +1,14 @@
 # A5 950DT 8×96 GiB：原生完整模型控制组
 
-更新：2026-11-09。用户确认 950DT、8 卡、每卡显存显示 98304 MB。
+更新：2026-11-10。用户确认 950DT、8 卡、每卡显存显示 98304 MB。
 本页按 NPU 工具通常的 MiB 口径解释为每卡 96 GiB，总计 768 GiB；
 实际可用显存仍以运行前 `npu-smi info` 为准。
 此前的 MXFP base、原生 wheel norm、缩小构造和 TP2 组件已经通过。
 **完整 checkpoint 控制组已回传三次启动：首次参数解析失败，第二次加载后在
 MXFP8 Linear scale 打包失败；第三次 Linear 探针 6 项通过，但 routed MoE 的
 MXFP4 scale 打包失败。后续 MoE 探针前 6 项通过，在 K=288 的 W2 遇到
-WeightNz 的 K 对齐要求；已补物理 K 对齐，待重新探测。
+WeightNz 的 K 对齐要求；补物理 K 对齐后的 12 项 MoE 探针已于 11-10 回传通过。
+随后完整启动在 profile 的原生模型前向失败，当前 traceback 截断，根异常待补。
 服务和首请求尚未通过，模型支持和 AFD 总 guard 均未放开。**
 
 ## 容量候选
@@ -225,6 +226,42 @@ W2 通过与生产相同的 `scheme.apply_gmm2` 调用，报告 logical/physical
 否则回传 `mxfp4-moe-probe.json` 和 `.log`，先诊断组件异常。
 探针不覆盖 routing、SwiGLU、TP 通信、Engram 或完整模型推理。
 
+### 2026-11-10 回传：MoE 12 项通过，启动根异常待补
+
+`61e977854ce049b8ad8e6454eb60bfd6.txt` 的 12 项均为 `passed=true`，
+全 K 和最后一个有效 group 的最大绝对误差均为 0；W2 的逻辑 K=288、物理 K=320。
+回传 `gmm2_sha256=b016ff5403061e2d045819c61a7d7bb0c518408e763469b86f256423015a982d`
+与本地已交付补丁一致，相关 Ascend FP4 源文件也与锁定源文件同 hash。
+这确认该单卡组件修正生效，仍不覆盖完整模型路由、SwiGLU、Engram 或 TP8。
+结果见 [探针 JSON](a5-20261110-mxfp4-probe-002/probe.json) 和
+[诊断记录](a5-20261110-mxfp4-probe-002/diagnosis.json)。
+
+同次粘贴的启动片段在 09:13:40 报 TP6 worker 异常，调用已到达
+`determine_available_memory → profile_run → _dummy_run → execute_model → V4.1 forward`。
+片段结尾为未完成的 `/site-` 文件路径，缺少异常类型和消息，不能据此归因显存、算子或源码版本。
+`determine_available_memory` 内执行了 profile 前向，出现这个函数名本身不能证明 OOM。
+
+本地重新比对此前回传的 Ascend `2db8549c…` 与锁定 `7e37e29a…`：
+当前片段涉及的 V4.1 `model.py`、`vl_model.py`、worker、V2 runner，以及 FP4 量化文件均逐字节相同。
+这不证明所有文件或编译扩展一致，也不能确定本轮实际运行 HEAD；先补完整 traceback，
+不把切换版本或重装包作为已确认的修复。
+
+在 **afd-plugin 源码根目录** 执行
+`"$afd_python" -m pip install --no-deps --no-build-isolation -e .`
+只刷新该插件的 editable 安装及入口元数据，不会改变 Ascend 的 Git HEAD。
+如果插件已 editable 安装且仅更新 Python 文件，通常无需重复安装；
+editable 安装也不自动重编译上游 C++ 扩展，见 [pip 官方说明](https://pip.pypa.io/en/stable/topics/local-project-installs/#editable-installs)。
+探针直接安装补丁，不验证 CLI 的 general-plugin 入口，启动日志仍须确认下述启用消息。
+
+保留现有失败目录，无需为了收集日志重新加载模型。补充完整 `native-server.log` 与
+`environment.txt`，或先执行以下只读命令并回传输出；若尾部只有 EngineCore 汇总，
+继续提供日志中第一个 worker 的完整 traceback：
+
+```bash
+tail -n 300 "$afd_native_run/native-server.log"
+cat "$afd_native_run/environment.txt"
+```
+
 ## 启动原生 TP8（显式量化修正）
 
 以下使用标准 vLLM CLI，加载 Ascend 插件及独立的量化修正入口；不加载 `afd` 入口。
@@ -281,7 +318,8 @@ W2 通过与生产相同的 `scheme.apply_gmm2` 调用，报告 logical/physical
 重试时用这三行替换原来的整行 `--engram-config '...'`。
 第二次 A5 回传已确认这三项均解析为 `False` 并进入模型加载。
 量化修正后的完整启动和首请求仍待验证；日志应出现
-`Enabled DS MXFP8 odd scale-pair packing correction`，确认独立补丁入口已加载。
+`Enabled DS MXFP8 linear and MXFP4 MoE scale-pair corrections with MXFP4 GMM K alignment`，
+确认独立补丁入口已加载。
 
 如果加载、profile、路由算子或首请求失败，保留本轮目录，先诊断原生根异常；
 不要转去启动 AFD，也不要混入更换 checkpoint、关闭 Engram 或改 TP 的重试。

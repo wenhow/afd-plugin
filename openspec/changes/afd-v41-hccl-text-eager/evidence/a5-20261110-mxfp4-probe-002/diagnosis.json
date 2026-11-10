@@ -1,0 +1,97 @@
+{
+  "date": "2026-11-10",
+  "scope": "User-supplied A5 component result and incomplete native TP8 startup traceback; no new device execution",
+  "inputs": [
+    {
+      "filename": "61e977854ce049b8ad8e6454eb60bfd6.txt",
+      "sha256": "8170ea14e8a1637be0b9f3fcbf4cabbf9da7c10fc5e6ce56a70bf7bea86dc990"
+    },
+    {
+      "filename": "\u5df2\u7c98\u8d34\u7684\u6587\u672c.txt",
+      "sha256": "4aa7f85f5168bd89e70f794a7c10862d564ce16cc52f1efba7b1187ed31bc0e3"
+    }
+  ],
+  "probe": {
+    "passed": true,
+    "case_count": 12,
+    "max_absolute_error": 0.0,
+    "last_valid_group_checked_in_all_cases": true,
+    "gmm2_sha256_matches_workspace": true,
+    "upstream_sha256_matches_locked_source": true,
+    "w2_288_physical_k": 320,
+    "device": "Ascend950DT_9582",
+    "torch": "2.10.0+cpu",
+    "torch_npu": "2.10.0.post4",
+    "exit_code": null
+  },
+  "startup": {
+    "time_from_excerpt": "2026-11-10 09:13:40",
+    "worker": "TP6",
+    "stage": "determine_available_memory -> profile_run -> _dummy_run -> execute_model -> native V4.1 forward",
+    "traceback_complete": false,
+    "last_complete_model_frame": "vllm_ascend/models/deepseek_v41/model.py:1766 forward -> self.model",
+    "terminal_exception": null,
+    "root_cause": null,
+    "runtime_plugin_entrypoint_confirmed": false
+  },
+  "source_alignment": {
+    "locked_ascend_commit": "7e37e29a7803d6897a7113088e2b771f83205bc0",
+    "previously_reported_ascend_commit": "2db8549c548731611baeb169fa1ef13aa55fc6aa",
+    "current_runtime_ascend_head": null,
+    "afd_commit_from_report": null,
+    "files": [
+      {
+        "path": "vllm_ascend/quantization/methods/w4a8/w4a8_mxfp4.py",
+        "identical": true,
+        "previous_sha256": "3185d3c7194b95357c57c345b7b1e1041a3039d7cb3089d398a7d63a09fc96a5",
+        "locked_sha256": "3185d3c7194b95357c57c345b7b1e1041a3039d7cb3089d398a7d63a09fc96a5"
+      },
+      {
+        "path": "vllm_ascend/worker/worker.py",
+        "identical": true,
+        "previous_sha256": "51cfb3da18046af8c72ccefe940de5f24d9502bfdae75b941e1798c0a165cda4",
+        "locked_sha256": "51cfb3da18046af8c72ccefe940de5f24d9502bfdae75b941e1798c0a165cda4"
+      },
+      {
+        "path": "vllm_ascend/worker/v2/model_runner.py",
+        "identical": true,
+        "previous_sha256": "a3471a9f181b45742b8f985c86137cdaafc2871d2ef6f96aa6a45236a242969b",
+        "locked_sha256": "a3471a9f181b45742b8f985c86137cdaafc2871d2ef6f96aa6a45236a242969b"
+      },
+      {
+        "path": "vllm_ascend/models/deepseek_v41/model.py",
+        "identical": true,
+        "previous_sha256": "989aec6db1e344dca76159dcbef0d5876874facedaa36b47e993146d5b8a2b9f",
+        "locked_sha256": "989aec6db1e344dca76159dcbef0d5876874facedaa36b47e993146d5b8a2b9f"
+      },
+      {
+        "path": "vllm_ascend/models/deepseek_v41/vl_model.py",
+        "identical": true,
+        "previous_sha256": "bb98a2e2a0e24c18aafe17229eb593937aaed2e37c1fd7cc2003c45ce872d282",
+        "locked_sha256": "bb98a2e2a0e24c18aafe17229eb593937aaed2e37c1fd7cc2003c45ce872d282"
+      }
+    ],
+    "conclusion": "These exact source files are identical across the two commits. HEAD mismatch alone does not establish this startup cause. Other files, native extensions and current runtime revision are not validated by this excerpt."
+  },
+  "probe_exclusions": [
+    "routing",
+    "SwiGLU",
+    "TP collectives",
+    "Engram",
+    "full checkpoint forward",
+    "service readiness",
+    "first request",
+    "AFD numerical equivalence"
+  ],
+  "next_evidence": [
+    "Complete first worker traceback including terminal exception",
+    "native-server.log tail and environment.txt",
+    "Runtime loaded afd/vllm/Ascend paths and source HEAD",
+    "Startup plugin-enabled log message"
+  ],
+  "status": {
+    "npu_mxfp4_component": "12 supplied cases passed",
+    "native_tp8": "startup failed; root cause pending complete traceback",
+    "afd_acceptance": "pending"
+  }
+}
