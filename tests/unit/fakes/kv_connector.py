@@ -19,10 +19,17 @@ from vllm.distributed.kv_transfer.kv_connector.v1.base import (
     KVConnectorTransferResults,
 )
 from vllm.v1.core.sched.output import SchedulerOutput
-from vllm.v1.worker.gpu.async_utils import StepTimingCollector
+from vllm.v1.worker.gpu import model_runner as gpu_runner
+from vllm.v1.worker.gpu.async_utils import (
+    AsyncOutput,
+    StepTimingCollector,
+    async_copy_to_np,
+)
 from vllm.v1.worker.gpu.ec_connector import ECConnector
 from vllm.v1.worker.gpu.eplb_utils import EPLBController
 from vllm.v1.worker.gpu.kv_connector import ActiveKVConnector
+from vllm.v1.worker.gpu.sample.output import SamplerOutput
+from vllm.v1.worker.gpu.sample.prompt_logprob import PromptLogprobsWorker
 from vllm_ascend.attention.sfa_v1 import AscendSFABackend, AscendSFAImpl
 from vllm_ascend.models.deepseek_v41.engram.model_state import EngramModelState
 from vllm_ascend.worker.v2 import model_runner as native_runner
@@ -41,7 +48,7 @@ from tests.unit.fakes.attention_model_runner_v2 import (
     install_graph_runner_coordinator,
     make_graph_runner_case,
 )
-from tests.unit.fakes.graph_cache import ReplayGraph
+from tests.unit.fakes.graph_cache import DeviceCompletion, ReplayGraph
 from tests.unit.fakes.input_batch import make_ascend_decode_batch
 from tests.unit.fakes.platform import stub_platform_forward_context
 
@@ -472,4 +479,157 @@ def make_native_full_kv_replay_case(monkeypatch, *, fail_replay=False):
         return manager.hidden_states
 
     case.manager._graph_relay = MethodType(replay_device, case.manager)
+    return case
+
+
+class DecodeLogitsBoundary:
+    """Deterministic CPU head, reached through the real model wrapper."""
+
+    def __call__(self, hidden_states):
+        centers = torch.arange(FULL_REPLAY_ROWS, dtype=hidden_states.dtype)
+        centers *= hidden_states.shape[1]
+        return -(hidden_states[:, :1] - centers).square()
+
+
+class DecodeSamplerBoundary:
+    """A q1/no-prefill CPU operator returning the real native output type."""
+
+    def __init__(self, events, *, fail):
+        self.events = events
+        self.error = RuntimeError("controlled sampler failure") if fail else None
+        self.penalties_state = SimpleNamespace(output_bin_counts=None)
+
+    def apply_staged_writes(self):
+        # There are no new requests or pending sampling state in this fixture.
+        pass
+
+    def __call__(self, logits, batch):
+        if (
+            logits.device.type != "cpu"
+            or batch.num_draft_tokens != 0
+            or not np.all(batch.num_scheduled_tokens == 1)
+            or not np.all(batch.num_computed_prefill_tokens_np == batch.prefill_len_np)
+        ):
+            raise AssertionError("sampling boundary is resident decode q1 only")
+        self.events.append("sample-boundary")
+        if self.error is not None:
+            raise self.error
+        return SamplerOutput(
+            sampled_token_ids=logits.argmax(dim=-1, keepdim=True),
+            logprobs_tensors=None,
+            num_nans=None,
+            num_sampled=torch.ones(batch.num_reqs, dtype=torch.int32),
+            num_rejected=torch.zeros(batch.num_reqs, dtype=torch.int32),
+        )
+
+
+def update_decode_history_cpu(
+    idx_mapping,
+    num_computed_tokens,
+    last_sampled_tokens,
+    output_bin_counts,
+    sampled_tokens,
+    num_sampled,
+    num_rejected,
+    query_start_loc,
+    all_token_ids,
+    total_len,
+):
+    """Explicit replacement for input_batch.post_update's Triton operator.
+
+    This implements only unmasked q1, one sampled token and zero rejections.
+    Native postprocess_sampled and ModelState.postprocess_state stay unchanged;
+    it does not establish the device kernel or DSpark history semantics.
+    """
+    if (
+        output_bin_counts is not None
+        or sampled_tokens.shape != (idx_mapping.numel(), 1)
+        or not torch.all(num_sampled == 1)
+        or not torch.all(num_rejected == 0)
+        or not torch.all(torch.diff(query_start_loc) == 1)
+        or not torch.all(idx_mapping >= 0)
+    ):
+        raise AssertionError("history boundary supports unmasked decode q1 only")
+    for row, request_index in enumerate(idx_mapping.tolist()):
+        position = int(total_len[request_index])
+        token = sampled_tokens[row, 0]
+        all_token_ids[request_index, position] = token
+        last_sampled_tokens[request_index] = token
+        total_len[request_index] += 1
+        num_computed_tokens[request_index] += 1
+
+
+class CPUCopyAsyncOutput(AsyncOutput):
+    """Supply a CPU copy owner; inherit the actual native get_output body.
+
+    Only constructor event/stream/D2H work is outside this seam. The native
+    tensor-to-NumPy helper and final output assembly remain real. No device
+    synchronization or async-copy behavior is simulated as accepted.
+    """
+
+    def __init__(
+        self,
+        model_runner_output,
+        sampler_output,
+        num_sampled_tokens,
+        main_stream,
+        copy_stream,
+        check_ep_fault=False,
+        routed_experts=None,
+    ):
+        if (
+            check_ep_fault
+            or routed_experts is not None
+            or sampler_output.logprobs_tensors is not None
+            or sampler_output.num_nans is not None
+            or sampler_output.sampling_mask_tensors is not None
+            or model_runner_output.prompt_logprobs_dict
+            or sampler_output.sampled_token_ids.device.type != "cpu"
+        ):
+            raise AssertionError("copy boundary supports CPU token-only output")
+        self.model_runner_output = model_runner_output
+        self.sampler_output = sampler_output
+        self.num_sampled_tokens = num_sampled_tokens
+        self.routed_experts = None
+        self.copy_event = DeviceCompletion()
+        self.sampled_token_ids = async_copy_to_np(sampler_output.sampled_token_ids)
+        self.num_sampled_tokens_np = async_copy_to_np(num_sampled_tokens)
+        self.logprobs_tensors = self.num_nans = self.sampling_mask_tensors = None
+        self.routed_experts_cpu = None
+        self.prompt_logprobs_dict = {}
+        self._has_fault = None
+
+
+def make_native_full_kv_sampling_case(monkeypatch, *, fail_sample=False):
+    """Continue the actual FULL execute(None) on the same sampling owner.
+
+    There is no new request/prefill, TP head, grammar, rejection or drafter.
+    The only new native module substitutions are head-TP configuration, the
+    post_update device operator and AsyncOutput's device-copy constructor.
+    """
+    case = make_native_full_kv_replay_case(monkeypatch)
+    owner = case.owner
+    monkeypatch.setattr(native_runner, "lmhead_tp_enable", lambda: False)
+    monkeypatch.setattr(gpu_runner, "post_update", update_decode_history_cpu)
+    monkeypatch.setattr(gpu_runner, "AsyncOutput", CPUCopyAsyncOutput)
+    owner.model.language_model.compute_logits = DecodeLogitsBoundary()
+    owner.sampler = DecodeSamplerBoundary(case.native_events, fail=fail_sample)
+    owner.prompt_logprobs_worker = PromptLogprobsWorker(FULL_REPLAY_ROWS)
+    owner.batch_sharder = owner.rejection_sampler = owner.pcp_manager = None
+    owner.main_stream = owner.output_copy_stream = None
+    owner.check_ep_fault = owner.use_pp = owner.sync_spec_pp_cpu_counts = False
+    owner.num_speculative_steps = 0
+    state = owner.req_states
+    state.prompt_len = SimpleNamespace(np=case.batch.prefill_len_np.copy())
+    state.last_sampled_tokens = torch.full((FULL_REPLAY_ROWS,), -1, dtype=torch.int64)
+    state.total_len = SimpleNamespace(
+        gpu=torch.full((FULL_REPLAY_ROWS,), FULL_REPLAY_HISTORY_TOKENS)
+    )
+    history = torch.full(
+        (FULL_REPLAY_ROWS, owner.model_state.max_model_len), -1, dtype=torch.int64
+    )
+    history[:, :FULL_REPLAY_HISTORY_TOKENS] = torch.arange(FULL_REPLAY_HISTORY_TOKENS)
+    state.all_token_ids = SimpleNamespace(gpu=history)
+    case.initial_history = history.clone()
+    case.sampling_error = owner.sampler.error
     return case

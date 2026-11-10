@@ -14,6 +14,7 @@ pytest.importorskip("vllm")
 pytest.importorskip("torch_npu")
 pytest.importorskip("vllm_ascend")
 
+import torch
 from vllm_ascend.attention.sfa_v1 import AscendSFABackend
 from vllm_ascend.worker.v2.model_runner import NPUModelRunner
 
@@ -30,7 +31,9 @@ from tests.unit.fakes.hccl_v41_graph_bootstrap import (
 )
 from tests.unit.fakes.hccl_v41_graph_eager import run_graph_eager_parent
 from tests.unit.fakes.kv_connector import (
+    FULL_REPLAY_HISTORY_TOKENS,
     make_native_full_kv_replay_case,
+    make_native_full_kv_sampling_case,
     make_native_kv_runner_case,
 )
 
@@ -469,3 +472,81 @@ def test_real_native_full_replay_fixture_failure_retains_kv_and_graph_owners(
     assert messages[0].plan.graph_execution.phase == "replay"
     assert case.transport.tensor_peer.messages == []
     assert all(endpoint.messages == [] for endpoint in case.model_case.endpoints)
+
+
+def test_real_native_full_replay_fixture_sampling_returns_tokens_and_kv_results(
+    monkeypatch,
+):
+    case = make_native_full_kv_sampling_case(monkeypatch)
+    assert case.owner.execute_model(case.scheduler) is None
+    assert case.kv_transfer.bound_metadata is case.scheduler.kv_connector_metadata
+    completed_protocol = tuple(case.transport.transcript)
+
+    async_output = case.owner.sample_tokens(None)
+    output = async_output.get_output()
+
+    assert output.req_ids == case.batch.req_ids
+    assert output.sampled_token_ids == [[0], [1], [2], [3]]
+    assert output.prompt_logprobs_dict == {}
+    result = output.kv_connector_output
+    assert result.finished_sending == {"sent"}
+    assert result.finished_recving == {"received", "failed"}
+    assert result.failed_recving == {"failed"}
+    assert result.invalid_block_ids == {3, 7}
+    expected = case.initial_history.clone()
+    expected[:, FULL_REPLAY_HISTORY_TOKENS] = torch.arange(case.batch.num_reqs)
+    state = case.owner.req_states
+    assert torch.equal(state.all_token_ids.gpu, expected)
+    assert state.last_sampled_tokens.tolist() == [0, 1, 2, 3]
+    assert state.total_len.gpu.tolist() == [FULL_REPLAY_HISTORY_TOKENS + 1] * 4
+    assert (
+        state.num_computed_tokens.gpu.tolist() == [FULL_REPLAY_HISTORY_TOKENS + 1] * 4
+    )
+    assert case.kv_transfer.bound_metadata is None
+    assert case.kv_transfer.registered_views is case.kv_views
+    assert case.native_events[-4:] == [
+        "sample-boundary",
+        "kv-wait-save",
+        "kv-results",
+        "kv-clear",
+    ]
+    assert tuple(case.transport.transcript) == completed_protocol
+    assert case.transport.tensor_peer.messages == []
+    assert all(endpoint.messages == [] for endpoint in case.model_case.endpoints)
+    resources = case.recorded_resources
+    entry = case.cache.find(resources.bank.key, case.generation())
+    assert entry.graph is case.recorded_graph and entry.resources is resources
+    assert not case.cache.terminal and not case.transport.terminal
+    assert case.owner.sample_tokens(None) is None
+    assert async_output.get_output() is output
+
+
+def test_real_native_full_replay_fixture_sampling_error_retains_unposted_kv(
+    monkeypatch,
+):
+    case = make_native_full_kv_sampling_case(monkeypatch, fail_sample=True)
+    assert case.owner.execute_model(case.scheduler) is None
+    completed_protocol = tuple(case.transport.transcript)
+    retired_events = tuple(case.native_events)
+
+    with pytest.raises(RuntimeError, match="controlled sampler failure") as raised:
+        case.owner.sample_tokens(None)
+
+    assert raised.value is case.sampling_error
+    assert case.owner.sample_tokens(None) is None
+    assert tuple(case.native_events) == retired_events + ("sample-boundary",)
+    assert case.kv_transfer.bound_metadata is case.scheduler.kv_connector_metadata
+    assert case.kv_transfer.registered_views is case.kv_views
+    assert torch.equal(case.owner.req_states.all_token_ids.gpu, case.initial_history)
+    assert case.owner.req_states.last_sampled_tokens.tolist() == [-1] * 4
+    assert (
+        case.owner.req_states.total_len.gpu.tolist() == [FULL_REPLAY_HISTORY_TOKENS] * 4
+    )
+    assert tuple(case.transport.transcript) == completed_protocol
+    assert case.transport.tensor_peer.messages == []
+    assert all(endpoint.messages == [] for endpoint in case.model_case.endpoints)
+    resources = case.recorded_resources
+    entry = case.cache.find(resources.bank.key, case.generation())
+    assert entry.graph is case.recorded_graph and entry.resources is resources
+    assert not case.cache.terminal and not case.transport.terminal
+    assert not case.recorded_graph.closed
