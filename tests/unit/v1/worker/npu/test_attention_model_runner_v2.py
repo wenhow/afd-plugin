@@ -29,7 +29,10 @@ from tests.unit.fakes.hccl_v41_graph_bootstrap import (
     set_graph_bootstrap_environment,
 )
 from tests.unit.fakes.hccl_v41_graph_eager import run_graph_eager_parent
-from tests.unit.fakes.kv_connector import make_native_kv_runner_case
+from tests.unit.fakes.kv_connector import (
+    make_native_full_kv_replay_case,
+    make_native_kv_runner_case,
+)
 
 
 @pytest.fixture
@@ -375,3 +378,94 @@ def test_real_native_zero_work_load_error_retires_engram_without_a_false_parent(
     assert case.transport.tensor_peer.messages == []
     assert case.transport.terminal and not case.transport.closed
     assert case.cache.terminal and not case.cache.closed
+
+
+def test_real_native_full_replay_fixture_returns_none_before_sampling(monkeypatch):
+    case = make_native_full_kv_replay_case(monkeypatch)
+    resources = case.recorded_resources
+
+    assert case.owner.execute_model(case.scheduler) is None
+
+    assert case.kv_transfer.bound_metadata is case.scheduler.kv_connector_metadata
+    assert case.kv_transfer.registered_views is case.kv_views
+    assert case.native_events == [
+        "inputs-ready",
+        "attn-ready",
+        "kv-bind",
+        "kv-load",
+        "replay-device-boundary",
+        "metadata-replay-finish",
+        "kv-finish",
+        "engram-finish",
+        "metadata-finish",
+    ]
+    assert not case.auxiliary_device.lookup_live
+    assert not case.auxiliary_device.metadata_live
+    assert not case.auxiliary_device.replay_live
+    assert case.auxiliary_device.reset_events is False
+    entry = case.cache.find(resources.bank.key, case.generation())
+    assert entry.resources is resources and entry.graph is case.recorded_graph
+    assert case.manager.hidden_states is resources.hidden_states
+    assert not case.recorded_graph.closed
+    messages = [
+        message
+        for direction, _, _, message in case.transport.transcript[
+            len(case.replay_baseline) :
+        ]
+        if direction == "send" and message.kind in ("FORWARD", "COMPLETE")
+    ]
+    assert [message.kind for message in messages] == ["FORWARD", "COMPLETE"]
+    plan = messages[0].plan
+    assert plan.graph_execution.phase == "replay"
+    assert plan.stages[0].attention_valid_tokens == (case.batch.num_tokens,)
+    assert plan.stages[0].attention_padded_tokens == resources.bank.stage_rows
+    assert messages[1].transaction_id == plan.transaction_id
+    assert messages[1].plan_digest == plan.digest
+    assert case.transport.tensor_peer.messages == []
+    assert all(endpoint.messages == [] for endpoint in case.model_case.endpoints)
+    assert case.transport.plan is None and case.transport.graph_reservation is None
+    assert not case.transport.terminal
+
+
+def test_real_native_full_replay_fixture_failure_retains_kv_and_graph_owners(
+    monkeypatch,
+):
+    case = make_native_full_kv_replay_case(monkeypatch, fail_replay=True)
+    resources = case.recorded_resources
+
+    with pytest.raises(RuntimeError, match="controlled FULL replay failure") as raised:
+        case.owner.execute_model(case.scheduler)
+
+    assert raised.value is case.replay_error
+    assert case.kv_transfer.bound_metadata is case.scheduler.kv_connector_metadata
+    assert case.kv_transfer.registered_views is case.kv_views
+    assert case.native_events == [
+        "inputs-ready",
+        "attn-ready",
+        "kv-bind",
+        "kv-load",
+        "replay-device-boundary",
+        "metadata-replay-finish",
+        "engram-failed",
+        "metadata-finish",
+    ]
+    assert not case.auxiliary_device.lookup_live
+    assert not case.auxiliary_device.metadata_live
+    assert not case.auxiliary_device.replay_live
+    assert case.auxiliary_device.reset_events is True
+    assert case.manager.hidden_states is resources.hidden_states
+    assert not case.recorded_graph.closed
+    assert not case.cache.is_empty
+    assert case.cache.terminal and not case.cache.closed
+    assert case.transport.terminal and not case.transport.closed
+    messages = [
+        message
+        for direction, _, _, message in case.transport.transcript[
+            len(case.replay_baseline) :
+        ]
+        if direction == "send" and message.kind in ("FORWARD", "COMPLETE")
+    ]
+    assert [message.kind for message in messages] == ["FORWARD"]
+    assert messages[0].plan.graph_execution.phase == "replay"
+    assert case.transport.tensor_peer.messages == []
+    assert all(endpoint.messages == [] for endpoint in case.model_case.endpoints)
