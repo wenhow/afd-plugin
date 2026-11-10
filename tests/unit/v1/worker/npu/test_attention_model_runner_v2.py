@@ -2,7 +2,7 @@
 # SPDX-FileCopyrightText: Copyright contributors to the AFD plugin project
 # Runtime imports follow CPU dependency gates.
 # ruff: noqa: E402
-"""Host lifecycle entry seams; these tests do not execute NPU graphs or KV."""
+"""Host lifecycle entry seams; no NPU graph or transfer-engine I/O."""
 
 from types import SimpleNamespace
 
@@ -29,6 +29,7 @@ from tests.unit.fakes.hccl_v41_graph_bootstrap import (
     set_graph_bootstrap_environment,
 )
 from tests.unit.fakes.hccl_v41_graph_eager import run_graph_eager_parent
+from tests.unit.fakes.kv_connector import make_native_kv_runner_case
 
 
 @pytest.fixture
@@ -298,3 +299,79 @@ def test_automatic_graph_native_initialization_failure_retains_terminal_owners(
             case.owner.load_model()
         else:
             case.owner.initialize_kv_cache(case.owner.kv_cache_config)
+
+
+@pytest.mark.parametrize("post_kv", [False, True])
+@pytest.mark.parametrize("sync_load", [False, True])
+def test_real_native_zero_work_preserves_kv_results_and_single_retirement(
+    monkeypatch, post_kv, sync_load
+):
+    case = make_native_kv_runner_case(monkeypatch, post_kv=post_kv, sync_load=sync_load)
+
+    output = case.owner.execute_model(case.scheduler)
+
+    result = output.kv_connector_output
+    assert result.finished_sending == {"sent"}
+    assert result.finished_recving == {"received", "failed"}
+    assert result.failed_recving == {"failed"}
+    assert result.invalid_block_ids == {3, 7}
+    assert case.kv_transfer.bound_metadata is None
+    assert case.kv_transfer.registered_views is case.kv_views
+    assert not case.auxiliary_device.lookup_live
+    assert not case.auxiliary_device.metadata_live
+    assert case.auxiliary_device.reset_events is False
+    # This is the native no_forward lifecycle, including no wait_for_save;
+    # it is not a rewritten execute body or a hand-invoked pre/post sequence.
+    expected = ["kv-bind", "kv-load", "kv-finish"]
+    if not sync_load:
+        expected = ["kv-bind", "kv-finish", "kv-load"]
+    assert case.native_events == expected + [
+        "kv-results",
+        "kv-clear",
+        "engram-finish",
+        "metadata-finish",
+    ]
+    plans = [
+        message.plan
+        for direction, _, _, message in case.transport.transcript
+        if direction == "send" and message.kind == "FORWARD"
+    ]
+    assert len(plans) == 1
+    assert plans[0].mode == "target"
+    assert plans[0].graph_execution.phase == "eager"
+    assert plans[0].stages[0].attention_valid_tokens == (0,)
+    assert plans[0].stages[0].attention_padded_tokens == (0,)
+    assert case.transport.tensor_peer.messages == []
+    assert case.transport.plan is None and case.transport.graph_reservation is None
+    assert not case.transport.terminal
+
+
+@pytest.mark.parametrize("post_kv", [False, True])
+@pytest.mark.parametrize("sync_load", [False, True])
+def test_real_native_zero_work_load_error_retires_engram_without_a_false_parent(
+    monkeypatch, post_kv, sync_load
+):
+    case = make_native_kv_runner_case(
+        monkeypatch, post_kv=post_kv, sync_load=sync_load, fail_load=True
+    )
+
+    with pytest.raises(RuntimeError, match="controlled KV load failure") as raised:
+        case.owner.execute_model(case.scheduler)
+
+    assert raised.value is case.kv_transfer.load_error
+    assert case.kv_transfer.bound_metadata is case.scheduler.kv_connector_metadata
+    assert case.kv_transfer.registered_views is case.kv_views
+    assert not case.auxiliary_device.lookup_live
+    assert not case.auxiliary_device.metadata_live
+    assert case.auxiliary_device.reset_events is True
+    expected = ["kv-bind", "kv-load"]
+    if not sync_load:
+        expected = ["kv-bind", "kv-finish", "kv-load"]
+    assert case.native_events == expected + ["engram-failed", "metadata-finish"]
+    assert not any(
+        direction == "send" and message.kind in ("FORWARD", "COMPLETE")
+        for direction, _, _, message in case.transport.transcript
+    )
+    assert case.transport.tensor_peer.messages == []
+    assert case.transport.terminal and not case.transport.closed
+    assert case.cache.terminal and not case.cache.closed
