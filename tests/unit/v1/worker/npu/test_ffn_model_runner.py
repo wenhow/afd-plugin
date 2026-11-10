@@ -15,10 +15,13 @@ torch = pytest.importorskip("torch")
 pytest.importorskip("vllm")
 pytest.importorskip("vllm_ascend")
 
+from afd_plugin.compat.npu.runtime_config import DeepseekV41TargetShape
 from afd_plugin.connectors.metadata import AFDTransferContext, AFDTransferMetadata
 from afd_plugin.connectors.npu.hccl_protocol import HcclForwardPlan
 from afd_plugin.v1.worker.npu import ffn_model_runner as runner_module
+from afd_plugin.v1.worker.npu import ffn_worker as worker_module
 from afd_plugin.v1.worker.npu import hccl_v41_graph_service as service_module
+from tests.unit.fakes.ffn_model_runner import make_ffn_capacity_case
 from tests.unit.fakes.hccl import (
     ROUTER_DELTA_SCALE,
     HcclContractModel,
@@ -30,6 +33,23 @@ from tests.unit.fakes.hccl import (
     unexpected_hccl_forward_context,
 )
 from tests.unit.fakes.hccl_v41_graph_service import make_graph_service_case
+
+
+@pytest.mark.parametrize("foreign_model", [False, True])
+def test_ffn_runner_rejects_target_shape_for_wrong_model_or_capacity(
+    monkeypatch, foreign_model
+):
+    case = make_ffn_capacity_case(monkeypatch, worker_module, runner_module)
+    config = case.worker.vllm_config
+    if foreign_model:
+        config.model_config.hf_config.model_type = "deepseek_v2"
+        config.model_config.hf_config.architectures = ["DeepseekV2ForCausalLM"]
+    query_len = 3 if foreign_model else 17
+    reason = "requires the V4.1 FFN model" if foreign_model else "exceeds native token"
+    with pytest.raises(ValueError, match=reason):
+        runner_module.AFDNPUFFNModelRunner(
+            config, case.device, target_shape=DeepseekV41TargetShape(query_len)
+        )
 
 
 @pytest.fixture

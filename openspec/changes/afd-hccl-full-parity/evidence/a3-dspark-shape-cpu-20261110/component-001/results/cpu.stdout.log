@@ -1,0 +1,77 @@
+........................................................................ [ 26%]
+........................................................................ [ 52%]
+........................................................................ [ 79%]
+............................................FFFFFF...FFFF                [100%]
+=================================== FAILURES ===================================
+__________ test_worker_retains_resources_until_clean_exit[False-live] __________
+tests/unit/test_async_cam_startup_wiring.py:393: in test_worker_retains_resources_until_clean_exit
+    worker.stop_ffn_server_loop()
+afd_plugin/v1/worker/npu/ffn_worker.py:464: in stop_ffn_server_loop
+    if self._uses_hccl_service():
+afd_plugin/v1/worker/npu/ffn_worker.py:207: in _uses_hccl_service
+    return self._hccl_v41_transport is not None or isinstance(
+E   AttributeError: 'AFDNPUFFNWorker' object has no attribute '_hccl_v41_transport'. Did you mean: 'bind_hccl_v41_transport'?
+_________ test_worker_retains_resources_until_clean_exit[False-failed] _________
+tests/unit/test_async_cam_startup_wiring.py:393: in test_worker_retains_resources_until_clean_exit
+    worker.stop_ffn_server_loop()
+afd_plugin/v1/worker/npu/ffn_worker.py:464: in stop_ffn_server_loop
+    if self._uses_hccl_service():
+afd_plugin/v1/worker/npu/ffn_worker.py:207: in _uses_hccl_service
+    return self._hccl_v41_transport is not None or isinstance(
+E   AttributeError: 'AFDNPUFFNWorker' object has no attribute '_hccl_v41_transport'. Did you mean: 'bind_hccl_v41_transport'?
+________ test_worker_retains_resources_until_clean_exit[False-drained] _________
+tests/unit/test_async_cam_startup_wiring.py:389: in test_worker_retains_resources_until_clean_exit
+    worker.stop_ffn_server_loop()
+afd_plugin/v1/worker/npu/ffn_worker.py:464: in stop_ffn_server_loop
+    if self._uses_hccl_service():
+afd_plugin/v1/worker/npu/ffn_worker.py:207: in _uses_hccl_service
+    return self._hccl_v41_transport is not None or isinstance(
+E   AttributeError: 'AFDNPUFFNWorker' object has no attribute '_hccl_v41_transport'. Did you mean: 'bind_hccl_v41_transport'?
+__________ test_worker_retains_resources_until_clean_exit[True-live] ___________
+tests/unit/test_async_cam_startup_wiring.py:393: in test_worker_retains_resources_until_clean_exit
+    worker.stop_ffn_server_loop()
+afd_plugin/v1/worker/npu/ffn_worker.py:464: in stop_ffn_server_loop
+    if self._uses_hccl_service():
+afd_plugin/v1/worker/npu/ffn_worker.py:207: in _uses_hccl_service
+    return self._hccl_v41_transport is not None or isinstance(
+E   AttributeError: 'AFDNPUFFNWorker' object has no attribute '_hccl_v41_transport'. Did you mean: 'bind_hccl_v41_transport'?
+_________ test_worker_retains_resources_until_clean_exit[True-failed] __________
+tests/unit/test_async_cam_startup_wiring.py:393: in test_worker_retains_resources_until_clean_exit
+    worker.stop_ffn_server_loop()
+afd_plugin/v1/worker/npu/ffn_worker.py:464: in stop_ffn_server_loop
+    if self._uses_hccl_service():
+afd_plugin/v1/worker/npu/ffn_worker.py:207: in _uses_hccl_service
+    return self._hccl_v41_transport is not None or isinstance(
+E   AttributeError: 'AFDNPUFFNWorker' object has no attribute '_hccl_v41_transport'. Did you mean: 'bind_hccl_v41_transport'?
+_________ test_worker_retains_resources_until_clean_exit[True-drained] _________
+tests/unit/test_async_cam_startup_wiring.py:389: in test_worker_retains_resources_until_clean_exit
+    worker.stop_ffn_server_loop()
+afd_plugin/v1/worker/npu/ffn_worker.py:464: in stop_ffn_server_loop
+    if self._uses_hccl_service():
+afd_plugin/v1/worker/npu/ffn_worker.py:207: in _uses_hccl_service
+    return self._hccl_v41_transport is not None or isinstance(
+E   AttributeError: 'AFDNPUFFNWorker' object has no attribute '_hccl_v41_transport'. Did you mean: 'bind_hccl_v41_transport'?
+_ test_separate_owners_construct_and_load_without_cross_graph_pool[None-False] _
+tests/unit/test_async_cam_startup_wiring.py:461: in test_separate_owners_construct_and_load_without_cross_graph_pool
+    monkeypatch.setattr(runtime, "create_afd_npu_profiler", lambda role: None)
+E   AttributeError: <module 'afd_plugin.v1.worker.npu.ffn_model_runner' from '/mnt/workspace/tmp/afd-c0-20261104.hVgsIf/c5-control-cpu-20261109-w4z5v5kh/snapshot/afd_plugin/v1/worker/npu/ffn_model_runner.py'> has no attribute 'create_afd_npu_profiler'
+_ test_separate_owners_construct_and_load_without_cross_graph_pool[None-True] __
+tests/unit/test_async_cam_startup_wiring.py:461: in test_separate_owners_construct_and_load_without_cross_graph_pool
+    monkeypatch.setattr(runtime, "create_afd_npu_profiler", lambda role: None)
+E   AttributeError: <module 'afd_plugin.v1.worker.npu.async_ffn_model_runner' from '/mnt/workspace/tmp/afd-c0-20261104.hVgsIf/c5-control-cpu-20261109-w4z5v5kh/snapshot/afd_plugin/v1/worker/npu/async_ffn_model_runner.py'> has no attribute 'create_afd_npu_profiler'
+__ test_separate_owners_construct_and_load_without_cross_graph_pool[3-False] ___
+tests/unit/test_async_cam_startup_wiring.py:461: in test_separate_owners_construct_and_load_without_cross_graph_pool
+    monkeypatch.setattr(runtime, "create_afd_npu_profiler", lambda role: None)
+E   AttributeError: <module 'afd_plugin.v1.worker.npu.ffn_model_runner' from '/mnt/workspace/tmp/afd-c0-20261104.hVgsIf/c5-control-cpu-20261109-w4z5v5kh/snapshot/afd_plugin/v1/worker/npu/ffn_model_runner.py'> has no attribute 'create_afd_npu_profiler'
+___ test_separate_owners_construct_and_load_without_cross_graph_pool[3-True] ___
+tests/unit/test_async_cam_startup_wiring.py:461: in test_separate_owners_construct_and_load_without_cross_graph_pool
+    monkeypatch.setattr(runtime, "create_afd_npu_profiler", lambda role: None)
+E   AttributeError: <module 'afd_plugin.v1.worker.npu.async_ffn_model_runner' from '/mnt/workspace/tmp/afd-c0-20261104.hVgsIf/c5-control-cpu-20261109-w4z5v5kh/snapshot/afd_plugin/v1/worker/npu/async_ffn_model_runner.py'> has no attribute 'create_afd_npu_profiler'
+=============================== warnings summary ===============================
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/torch/jit/_script.py:362: 14 warnings
+  /mnt/workspace/code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/torch/jit/_script.py:362: DeprecationWarning: `torch.jit.script_method` is deprecated. Please switch to `torch.compile` or `torch.export`.
+    warnings.warn(
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+- generated xml file: /mnt/workspace/tmp/afd-c0-20261104.hVgsIf/c5-control-cpu-20261109-w4z5v5kh/results/cpu.xml -
+10 failed, 263 passed, 14 warnings in 4.67s

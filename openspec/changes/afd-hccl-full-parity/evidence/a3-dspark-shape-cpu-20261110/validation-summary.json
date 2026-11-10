@@ -1,0 +1,306 @@
+{
+  "schema_version": 1,
+  "date": "2026-11-10",
+  "scope": "Phase-one V4.1 immutable target shape / FFN isolation / actual native MC2 capacity; actual-dependency CPU only",
+  "attempts_are_independent": true,
+  "production_sources_frozen_across_attempts": true,
+  "local_static": {
+    "python_3_11_grammar": "all plugin/unit files passed before component-001; selected final files rechecked",
+    "ruff_check_format": "passed",
+    "pure_runtime_config": {
+      "passed": 97,
+      "dependencies": "local Python3.14, no torch/vLLM"
+    },
+    "local_async_closure": {
+      "passed": 42,
+      "dependency_skipped": 13,
+      "scope": "runtime constructor cases require installed torch/vLLM/Ascend"
+    }
+  },
+  "versions": {
+    "python": "3.12.9",
+    "packages": {
+      "torch": "2.10.0",
+      "torch-npu": "2.10.0.post4",
+      "vllm": "0.30.0+empty",
+      "vllm-ascend": "0.1.dev1+g7e37e29a7",
+      "fastapi": "0.123.10"
+    }
+  },
+  "not_executed": [
+    "NPU device probe",
+    "HCCL",
+    "MC2 NPU kernel",
+    "native checkpoint model",
+    "Graph capture/replay",
+    "DSpark proposed/accepted token evaluation"
+  ],
+  "runs": [
+    {
+      "label": "component-001",
+      "xml_counts": {
+        "passed": 263,
+        "failed": 10
+      },
+      "modules": {
+        "tests.unit.compat.npu.test_runtime_config": {
+          "passed": 97
+        },
+        "tests.unit.v1.worker.npu.test_ffn_worker": {
+          "passed": 47
+        },
+        "tests.unit.v1.worker.npu.test_ffn_model_runner": {
+          "passed": 19
+        },
+        "tests.unit.v1.worker.test_npu_runtime": {
+          "passed": 55
+        },
+        "tests.unit.test_async_cam_startup_wiring": {
+          "passed": 45,
+          "failed": 10
+        }
+      },
+      "returncode": 1,
+      "success": false,
+      "source_files_match": true,
+      "source_pin_count": 11,
+      "device_probe_started": false,
+      "head_commit": "c153a4f372aad238f1849082408b5295996572a2",
+      "source_snapshot_manifest_sha256": "c8285ef70c6ec5bbae7c3b0fe5819e64620f2db00842077074f24955a324ea7e",
+      "source_archive_sha256": "63372457571590996819bea46a34c4fb9d33dc406418418ba24177e8bf5101b8",
+      "source_expected": {
+        "vllm/model_executor/model_loader/base_loader.py": "5291c330c4ed5634a9ea1d535364c26162b60251aa2af03fd409b88c34d836e2",
+        "vllm/model_executor/model_loader/utils.py": "aa398e74ee835537403e60186f2e9a81e8741a4b35fec68b47df6537716a45b7",
+        "vllm/distributed/parallel_state.py": "d9b10ad56833ebc08a753e1a050ef0989c30d4134021b7b7b00150b7bd01adc6",
+        "vllm/config/parallel.py": "f012ace89e3fb730a467f729f602679bc145c49f0d10721811c9d818570e7b2b",
+        "vllm/forward_context.py": "cc1473477dcc7b762c3901b25cc7bf35c06a2c42f193136fed553abf6fe33f0e",
+        "vllm_ascend/distributed/parallel_state.py": "b7ea7d6fb74530c50aec718d34266bae952ed96cc5a85766d7e208b952b10445",
+        "vllm_ascend/worker/v2/model_runner.py": "a3471a9f181b45742b8f985c86137cdaafc2871d2ef6f96aa6a45236a242969b",
+        "vllm_ascend/models/deepseek_v41/model.py": "989aec6db1e344dca76159dcbef0d5876874facedaa36b47e993146d5b8a2b9f",
+        "vllm_ascend/models/deepseek_v41/dspark.py": "fcee256905928917154d8dac94d6611bb83d02da441e8aa154a525ef51e6a601",
+        "vllm_ascend/models/deepseek_v41/engram/model_state.py": "677cb13bb86ad80a154e0ff9a43620aa3344e7e93170a05e27aba0cc1f10aa8b",
+        "vllm_ascend/ascend_forward_context.py": "848112214c9f56371b4bf43a59d39fadbed0e0e864581e300a3a89778d4083cb"
+      },
+      "selected_source_hashes": {
+        "afd_plugin/compat/npu/runtime_config.py": "79f7041a41aef55129f094a1a0b7954d50b80b0285edbb25f0eb103f25569d40",
+        "afd_plugin/v1/worker/npu/ffn_worker.py": "685d2afad186a5236f791a972e6a79b5c22b13f109b991f8fb74f49d6864cc73",
+        "afd_plugin/v1/worker/npu/ffn_model_runner.py": "dce2aa725607f9e2d2453ab6e557e309f2a98b049642cfcd1c89f7d6d54a197d",
+        "tests/unit/fakes/ffn_model_runner.py": "92884402ae4dc06e8583af2c7964f97bbc5690e8108bfbfaefa3d8176c28910f",
+        "tests/unit/compat/npu/test_runtime_config.py": "59bbd7512bb9cc94c86de5b3d784d4d950dca97e926ea604244af8690703edfd",
+        "tests/unit/v1/worker/npu/test_ffn_worker.py": "1b7442c2b26f0904052bcb4b236f66a1ec6f581354bc30fab0b8a0cdd3c84beb",
+        "tests/unit/v1/worker/npu/test_ffn_model_runner.py": "abb127408b91f09cda03e778036b16cda39d919293dad4931de6236e5b95b7b9",
+        "tests/unit/test_async_cam_startup_wiring.py": "1cea2ba748e3d20562e799c68eed67790e5de0239b3333581de5eec632494db1"
+      },
+      "selected_source_matches_at_freeze": {
+        "afd_plugin/compat/npu/runtime_config.py": true,
+        "afd_plugin/v1/worker/npu/ffn_worker.py": true,
+        "afd_plugin/v1/worker/npu/ffn_model_runner.py": true,
+        "tests/unit/fakes/ffn_model_runner.py": true,
+        "tests/unit/compat/npu/test_runtime_config.py": true,
+        "tests/unit/v1/worker/npu/test_ffn_worker.py": true,
+        "tests/unit/v1/worker/npu/test_ffn_model_runner.py": true,
+        "tests/unit/test_async_cam_startup_wiring.py": false
+      },
+      "command": [
+        "/mnt/workspace/code/.venvs/afd-v030-dsv41-c0/bin/python",
+        "-B",
+        "-m",
+        "pytest",
+        "-o",
+        "addopts=",
+        "-q",
+        "-rs",
+        "--tb=short",
+        "-p",
+        "no:cacheprovider",
+        "-m",
+        "not npu and not gpu",
+        "--junitxml=/mnt/workspace/tmp/afd-c0-20261104.hVgsIf/c5-control-cpu-20261109-w4z5v5kh/results/cpu.xml",
+        "tests/unit/compat/npu/test_runtime_config.py",
+        "tests/unit/v1/worker/npu/test_ffn_worker.py",
+        "tests/unit/v1/worker/npu/test_ffn_model_runner.py",
+        "tests/unit/v1/worker/test_npu_runtime.py",
+        "tests/unit/test_async_cam_startup_wiring.py"
+      ],
+      "remote": "/mnt/workspace/tmp/afd-c0-20261104.hVgsIf/c5-control-cpu-20261109-w4z5v5kh",
+      "raw_sha256": {
+        "delivery.json": "f0b27ff7e3437bcd2ea35036cb7c2e227a95c7a1fcc18fef7fdf2b0ebd3e0be1",
+        "identity.json": "80390d11f3da996bb584eb736a5d12c451576f2c97799f4007230d64f1d1e01e",
+        "remote-run.log": "1af89986d3a2c4ebd9dbd62ae9416c5675871a46db7a3b09bbd28e9d04cc7d05",
+        "results/cpu.stderr.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "results/cpu.stdout.log": "bf2d367e41bc3a10801c106ed0eaa5218158b4232c1b2e1f282a21fb38633210",
+        "results/cpu.xml": "b61c07609b7bf04c4fc0db5a958e2f115f6bc7ab999ba0f05138fdd528243497",
+        "results/effective-env.json": "80e918683a218d5eca951107a12b77ff1d7ebc9d3acc8edf7c153cdd50311b57",
+        "results/source-check.json": "fc50253d279617318142a1ca1b8b7369f08844a5688a1a4365ca8ecd33b08b28",
+        "results/summary.json": "d2dc4f011ac49284c4ec097b851ba8396587f53a0f5615801dc81b5711b3ccd8",
+        "results/versions.json": "8aa40a41b53ecde5293ad581f313555c4e948071ce87c879c3b93ac6d8ad2601"
+      }
+    },
+    {
+      "label": "component-002",
+      "xml_counts": {
+        "passed": 53,
+        "failed": 2
+      },
+      "modules": {
+        "tests.unit.test_async_cam_startup_wiring": {
+          "passed": 53,
+          "failed": 2
+        }
+      },
+      "returncode": 1,
+      "success": false,
+      "source_files_match": true,
+      "source_pin_count": 11,
+      "device_probe_started": false,
+      "head_commit": "c153a4f372aad238f1849082408b5295996572a2",
+      "source_snapshot_manifest_sha256": "831e7d8fc42e052ac8d2e599e532b9e9d42f9300b4160c2fd99957dac83c3d8e",
+      "source_archive_sha256": "54cc9bb043dd46190e18ca4d55ad8e4b11a581737227de6d3d0d8eecd0bbc541",
+      "source_expected": {
+        "vllm/model_executor/model_loader/base_loader.py": "5291c330c4ed5634a9ea1d535364c26162b60251aa2af03fd409b88c34d836e2",
+        "vllm/model_executor/model_loader/utils.py": "aa398e74ee835537403e60186f2e9a81e8741a4b35fec68b47df6537716a45b7",
+        "vllm/distributed/parallel_state.py": "d9b10ad56833ebc08a753e1a050ef0989c30d4134021b7b7b00150b7bd01adc6",
+        "vllm/config/parallel.py": "f012ace89e3fb730a467f729f602679bc145c49f0d10721811c9d818570e7b2b",
+        "vllm/forward_context.py": "cc1473477dcc7b762c3901b25cc7bf35c06a2c42f193136fed553abf6fe33f0e",
+        "vllm_ascend/distributed/parallel_state.py": "b7ea7d6fb74530c50aec718d34266bae952ed96cc5a85766d7e208b952b10445",
+        "vllm_ascend/worker/v2/model_runner.py": "a3471a9f181b45742b8f985c86137cdaafc2871d2ef6f96aa6a45236a242969b",
+        "vllm_ascend/models/deepseek_v41/model.py": "989aec6db1e344dca76159dcbef0d5876874facedaa36b47e993146d5b8a2b9f",
+        "vllm_ascend/models/deepseek_v41/dspark.py": "fcee256905928917154d8dac94d6611bb83d02da441e8aa154a525ef51e6a601",
+        "vllm_ascend/models/deepseek_v41/engram/model_state.py": "677cb13bb86ad80a154e0ff9a43620aa3344e7e93170a05e27aba0cc1f10aa8b",
+        "vllm_ascend/ascend_forward_context.py": "848112214c9f56371b4bf43a59d39fadbed0e0e864581e300a3a89778d4083cb"
+      },
+      "selected_source_hashes": {
+        "afd_plugin/compat/npu/runtime_config.py": "79f7041a41aef55129f094a1a0b7954d50b80b0285edbb25f0eb103f25569d40",
+        "afd_plugin/v1/worker/npu/ffn_worker.py": "685d2afad186a5236f791a972e6a79b5c22b13f109b991f8fb74f49d6864cc73",
+        "afd_plugin/v1/worker/npu/ffn_model_runner.py": "dce2aa725607f9e2d2453ab6e557e309f2a98b049642cfcd1c89f7d6d54a197d",
+        "tests/unit/fakes/ffn_model_runner.py": "92884402ae4dc06e8583af2c7964f97bbc5690e8108bfbfaefa3d8176c28910f",
+        "tests/unit/compat/npu/test_runtime_config.py": "59bbd7512bb9cc94c86de5b3d784d4d950dca97e926ea604244af8690703edfd",
+        "tests/unit/v1/worker/npu/test_ffn_worker.py": "1b7442c2b26f0904052bcb4b236f66a1ec6f581354bc30fab0b8a0cdd3c84beb",
+        "tests/unit/v1/worker/npu/test_ffn_model_runner.py": "abb127408b91f09cda03e778036b16cda39d919293dad4931de6236e5b95b7b9",
+        "tests/unit/test_async_cam_startup_wiring.py": "c2bffe134f07ac90fca351cc87d8ec46a258f8871db08f091f8949efcbbba802"
+      },
+      "selected_source_matches_at_freeze": {
+        "afd_plugin/compat/npu/runtime_config.py": true,
+        "afd_plugin/v1/worker/npu/ffn_worker.py": true,
+        "afd_plugin/v1/worker/npu/ffn_model_runner.py": true,
+        "tests/unit/fakes/ffn_model_runner.py": true,
+        "tests/unit/compat/npu/test_runtime_config.py": true,
+        "tests/unit/v1/worker/npu/test_ffn_worker.py": true,
+        "tests/unit/v1/worker/npu/test_ffn_model_runner.py": true,
+        "tests/unit/test_async_cam_startup_wiring.py": false
+      },
+      "command": [
+        "/mnt/workspace/code/.venvs/afd-v030-dsv41-c0/bin/python",
+        "-B",
+        "-m",
+        "pytest",
+        "-o",
+        "addopts=",
+        "-q",
+        "-rs",
+        "--tb=short",
+        "-p",
+        "no:cacheprovider",
+        "-m",
+        "not npu and not gpu",
+        "--junitxml=/mnt/workspace/tmp/afd-c0-20261104.hVgsIf/c5-control-cpu-20261109-gd19_9r3/results/cpu.xml",
+        "tests/unit/test_async_cam_startup_wiring.py"
+      ],
+      "remote": "/mnt/workspace/tmp/afd-c0-20261104.hVgsIf/c5-control-cpu-20261109-gd19_9r3",
+      "raw_sha256": {
+        "delivery.json": "14fe7eb9dd1d2d26ef516a8f794e5a4320cab0873434127ba7e2e31c1fa74699",
+        "identity.json": "c3031256dd4c1cfbfc43157a7d6a2881b3be4a68865834a523bbcf966f1d60de",
+        "remote-run.log": "bdaf35ec41a2b3eb6aab6b5242aec47f6bc59d9a9c0ab99c9e84e467c33cd2fa",
+        "results/cpu.stderr.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "results/cpu.stdout.log": "df3b84c9930c7fcd5c755480eaed8bb746986b626b10e3dc3428a6d230800e48",
+        "results/cpu.xml": "2f6f925b5f8dc82e9bcd5817af289b4983d64daefd8e8abbea2f77e0490fa546",
+        "results/effective-env.json": "599ad52e10532d43847f6d9995ef9af1afff5a728b3a6e0bebde9794adbe195d",
+        "results/source-check.json": "fc50253d279617318142a1ca1b8b7369f08844a5688a1a4365ca8ecd33b08b28",
+        "results/summary.json": "42f13a025277132ee969a7e046a1c1c93067dd60051684e5c1074f5021d9f087",
+        "results/versions.json": "8aa40a41b53ecde5293ad581f313555c4e948071ce87c879c3b93ac6d8ad2601"
+      }
+    },
+    {
+      "label": "component-003",
+      "xml_counts": {
+        "passed": 55
+      },
+      "modules": {
+        "tests.unit.test_async_cam_startup_wiring": {
+          "passed": 55
+        }
+      },
+      "returncode": 0,
+      "success": true,
+      "source_files_match": true,
+      "source_pin_count": 11,
+      "device_probe_started": false,
+      "head_commit": "c153a4f372aad238f1849082408b5295996572a2",
+      "source_snapshot_manifest_sha256": "ff2f5763ac7d3644555e0a73f08df3f4ce4b1aba56df4225c5718bd6cb70170f",
+      "source_archive_sha256": "8e2a4d38ba6b11394b22b1154f16df67b4882b4e323a3eb5a72e9f4543874cba",
+      "source_expected": {
+        "vllm/model_executor/model_loader/base_loader.py": "5291c330c4ed5634a9ea1d535364c26162b60251aa2af03fd409b88c34d836e2",
+        "vllm/model_executor/model_loader/utils.py": "aa398e74ee835537403e60186f2e9a81e8741a4b35fec68b47df6537716a45b7",
+        "vllm/distributed/parallel_state.py": "d9b10ad56833ebc08a753e1a050ef0989c30d4134021b7b7b00150b7bd01adc6",
+        "vllm/config/parallel.py": "f012ace89e3fb730a467f729f602679bc145c49f0d10721811c9d818570e7b2b",
+        "vllm/forward_context.py": "cc1473477dcc7b762c3901b25cc7bf35c06a2c42f193136fed553abf6fe33f0e",
+        "vllm_ascend/distributed/parallel_state.py": "b7ea7d6fb74530c50aec718d34266bae952ed96cc5a85766d7e208b952b10445",
+        "vllm_ascend/worker/v2/model_runner.py": "a3471a9f181b45742b8f985c86137cdaafc2871d2ef6f96aa6a45236a242969b",
+        "vllm_ascend/models/deepseek_v41/model.py": "989aec6db1e344dca76159dcbef0d5876874facedaa36b47e993146d5b8a2b9f",
+        "vllm_ascend/models/deepseek_v41/dspark.py": "fcee256905928917154d8dac94d6611bb83d02da441e8aa154a525ef51e6a601",
+        "vllm_ascend/models/deepseek_v41/engram/model_state.py": "677cb13bb86ad80a154e0ff9a43620aa3344e7e93170a05e27aba0cc1f10aa8b",
+        "vllm_ascend/ascend_forward_context.py": "848112214c9f56371b4bf43a59d39fadbed0e0e864581e300a3a89778d4083cb"
+      },
+      "selected_source_hashes": {
+        "afd_plugin/compat/npu/runtime_config.py": "79f7041a41aef55129f094a1a0b7954d50b80b0285edbb25f0eb103f25569d40",
+        "afd_plugin/v1/worker/npu/ffn_worker.py": "685d2afad186a5236f791a972e6a79b5c22b13f109b991f8fb74f49d6864cc73",
+        "afd_plugin/v1/worker/npu/ffn_model_runner.py": "dce2aa725607f9e2d2453ab6e557e309f2a98b049642cfcd1c89f7d6d54a197d",
+        "tests/unit/fakes/ffn_model_runner.py": "92884402ae4dc06e8583af2c7964f97bbc5690e8108bfbfaefa3d8176c28910f",
+        "tests/unit/compat/npu/test_runtime_config.py": "59bbd7512bb9cc94c86de5b3d784d4d950dca97e926ea604244af8690703edfd",
+        "tests/unit/v1/worker/npu/test_ffn_worker.py": "1b7442c2b26f0904052bcb4b236f66a1ec6f581354bc30fab0b8a0cdd3c84beb",
+        "tests/unit/v1/worker/npu/test_ffn_model_runner.py": "abb127408b91f09cda03e778036b16cda39d919293dad4931de6236e5b95b7b9",
+        "tests/unit/test_async_cam_startup_wiring.py": "dd6cc018be0ac60c8680b4c9cb1232856d433608c3261c71809c9d8e339309e9"
+      },
+      "selected_source_matches_at_freeze": {
+        "afd_plugin/compat/npu/runtime_config.py": true,
+        "afd_plugin/v1/worker/npu/ffn_worker.py": true,
+        "afd_plugin/v1/worker/npu/ffn_model_runner.py": true,
+        "tests/unit/fakes/ffn_model_runner.py": true,
+        "tests/unit/compat/npu/test_runtime_config.py": true,
+        "tests/unit/v1/worker/npu/test_ffn_worker.py": true,
+        "tests/unit/v1/worker/npu/test_ffn_model_runner.py": true,
+        "tests/unit/test_async_cam_startup_wiring.py": true
+      },
+      "command": [
+        "/mnt/workspace/code/.venvs/afd-v030-dsv41-c0/bin/python",
+        "-B",
+        "-m",
+        "pytest",
+        "-o",
+        "addopts=",
+        "-q",
+        "-rs",
+        "--tb=short",
+        "-p",
+        "no:cacheprovider",
+        "-m",
+        "not npu and not gpu",
+        "--junitxml=/mnt/workspace/tmp/afd-c0-20261104.hVgsIf/c5-control-cpu-20261109-ad3d5_xe/results/cpu.xml",
+        "tests/unit/test_async_cam_startup_wiring.py"
+      ],
+      "remote": "/mnt/workspace/tmp/afd-c0-20261104.hVgsIf/c5-control-cpu-20261109-ad3d5_xe",
+      "raw_sha256": {
+        "delivery.json": "a13a59278aec56c8ca4eac1223887b5c832c145a638fafcbaccd57469ae698d5",
+        "identity.json": "17bea241386265a05f714ca0f4194da56e8fe23ae1ece18bd960b6a013456962",
+        "remote-run.log": "7742753495230d2bf6f504d5c2e62acf2671a3ca3bb1f353dbaad4453355f4b8",
+        "results/cpu.stderr.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "results/cpu.stdout.log": "3108bbfb9e0881451346755598cb099c942ef46651abea470ce33a713f5c2c86",
+        "results/cpu.xml": "f9a8ae25d7f5f5ce33ebffd5b18783269f389b0246ac3020e1445a15ffa38314",
+        "results/effective-env.json": "bc7ff3bf9f985653cb0a2c5e6362a54412ea3e520615c16c9f6506d974c24560",
+        "results/source-check.json": "fc50253d279617318142a1ca1b8b7369f08844a5688a1a4365ca8ecd33b08b28",
+        "results/summary.json": "395e9ab6d57e3982ea346d95bc0274394ec5deea1218c31b3f3baeec8dd9ff20",
+        "results/versions.json": "8aa40a41b53ecde5293ad581f313555c4e948071ce87c879c3b93ac6d8ad2601"
+      }
+    }
+  ]
+}

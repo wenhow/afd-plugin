@@ -22,6 +22,11 @@ from afd_plugin.compat.npu.profiler import (
     step_afd_npu_profiler,
     stop_afd_npu_profiler,
 )
+from afd_plugin.compat.npu.runtime_config import (
+    DeepseekV41TargetShape,
+    is_deepseek_v41_model,
+    resolve_deepseek_v41_target_shape,
+)
 from afd_plugin.config import AFDConfig, parse_afd_config
 from afd_plugin.connectors import (
     AFDControlPayload,
@@ -73,13 +78,21 @@ class AFDNPUFFNModelRunner:
 
     afd_expected_role = "ffn"
 
+    # Plugin-only target_shape retains the original validated target's N+1
+    # width after FFN config isolation. None derives the local/default shape;
+    # other models keep their existing speculative sizing. No upstream
+    # constructor or drafter is changed by this keyword-only dependency.
     def __init__(
         self,
         vllm_config: VllmConfig,
         device: torch.device,
         connector: AFDConnectorBase | None = None,
+        *,
+        target_shape: DeepseekV41TargetShape | None = None,
     ) -> None:
         afd_config = self.parse_config(vllm_config)
+        if target_shape is not None and not is_deepseek_v41_model(vllm_config):
+            raise ValueError("target shape requires the V4.1 FFN model")
         validate_npu_model_runner_v2_config(
             vllm_config, expected_role="ffn", device_type=device.type
         )
@@ -87,6 +100,15 @@ class AFDNPUFFNModelRunner:
         self.model_config = vllm_config.model_config
         self.device = device
         self.max_num_tokens = vllm_config.scheduler_config.max_num_batched_tokens
+        local_shape = resolve_deepseek_v41_target_shape(vllm_config)
+        if target_shape is not None:
+            target_shape.validate_capacity(self.max_num_tokens)
+            if (
+                vllm_config.speculative_config is not None
+                and target_shape != local_shape
+            ):
+                raise ValueError("target shape does not match the V4.1 target config")
+        self.target_shape = local_shape if target_shape is None else target_shape
         self.model: torch.nn.Module | None = None
         self.model_memory_usage = 0
         self.afd_config = afd_config
@@ -132,11 +154,14 @@ class AFDNPUFFNModelRunner:
         if self.model is not None:
             raise RuntimeError("NPU FFN weights are already loaded")
         speculative_config = self.vllm_config.speculative_config
-        decode_query_len = 1 + (
-            speculative_config.num_speculative_tokens
-            if speculative_config is not None
-            else 0
-        )
+        if self.target_shape is not None:
+            decode_query_len = self.target_shape.target_query_len
+        else:
+            decode_query_len = 1 + (
+                speculative_config.num_speculative_tokens
+                if speculative_config is not None
+                else 0
+            )
         # Ascend MoE dispatchers read these helpers during model construction,
         # including when CAMP2P supplies their input hidden states.
         set_mc2_tokens_capacity(

@@ -336,8 +336,20 @@ def test_attention_keeps_paired_warmup_and_waits_for_receiver(modules):
 
 
 @pytest.fixture
-def ffn_owners(modules, monkeypatch):
-    _, _, async_runtime = modules
+def ffn_owners(monkeypatch):
+    pytest.importorskip("torch")
+    pytest.importorskip("vllm")
+    pytest.importorskip("vllm_ascend")
+    # Resolve HCCL/runtime collaborators before replacing host orchestration
+    # imports. These constructor seams need installed runtime dependencies.
+    pytest.importorskip("afd_plugin.v1.worker.npu.ffn_worker")
+    profiler = pytest.importorskip("afd_plugin.compat.npu.profiler")
+    _, _, async_runtime = load_async_modules(monkeypatch)
+    monkeypatch.setattr(
+        sys.modules["afd_plugin.compat.npu.profiler"],
+        "AFDNPUProfilerSession",
+        profiler.AFDNPUProfilerSession,
+    )
     for name in (
         "vllm.compilation.monitor",
         "vllm.config",
@@ -375,9 +387,11 @@ def test_worker_retains_resources_until_clean_exit(ffn_owners, state, two_stream
     runner.effective_mode = "eager" if two_stream else "full"
     runner._two_stream = object() if two_stream else None
     runner.connector = SimpleNamespace(close=lambda: calls.append("connector-close"))
+    runner.prof = None
     runner.shutdown = lambda: calls.append("release")
     worker = module.AFDNPUFFNWorker.__new__(module.AFDNPUFFNWorker)
     worker.model_runner = runner
+    worker._hccl_v41_transport = None
     worker._ffn_shutdown_event = SimpleNamespace(set=lambda: calls.append("stop"))
     worker._ffn_thread = SimpleNamespace(
         join=lambda **kw: calls.append("join"), is_alive=lambda: state == "live"
@@ -452,19 +466,20 @@ def test_worker_rejects_v1_before_constructing_either_owner(ffn_owners, monkeypa
 @pytest.mark.parametrize("speculative_tokens", [None, 3])
 def test_separate_owners_construct_and_load_without_cross_graph_pool(
     ffn_owners, monkeypatch, async_connector, speculative_tokens
-):
+):  # long-test: preserve the separate constructor and loader lifecycle seam
     sync_runtime, async_runtime, _ = ffn_owners
     runtime = async_runtime if async_connector else sync_runtime
     calls = MagicMock()
     monkeypatch.setattr(runtime, "validate_npu_model_runner_v2_config", calls.validate)
     monkeypatch.setattr(runtime, "fail_if_unsupported_npu_afd_features", calls.validate)
-    monkeypatch.setattr(runtime, "create_afd_npu_profiler", lambda role: None)
+    monkeypatch.setattr(
+        runtime, "create_deferred_afd_npu_profiler", lambda *a, **k: None
+    )
     connector, device, model = object(), SimpleNamespace(type="npu"), object()
     connector_name = "CAMAsyncAFDConnector" if async_connector else "CAMP2pAFDConnector"
-    config = npu_vllm_config(role="ffn", connector=connector_name)
+    config = npu_vllm_config(role="ffn", connector=connector_name, rank=0)
     config.model_config.enforce_eager = False
-    config.model_config.hf_config = SimpleNamespace(num_hidden_layers=43)
-    config.model_config.hf_text_config = config.model_config.hf_config
+    config.model_config.hf_config.num_hidden_layers = 43
     config.scheduler_config.max_num_seqs = 6
     config.load_config = object()
     if speculative_tokens is not None:

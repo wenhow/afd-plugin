@@ -29,7 +29,11 @@ from afd_plugin.compat.npu.profiler import (
     afd_npu_profiler_owner,
     step_afd_npu_profiler,
 )
-from afd_plugin.compat.npu.runtime_config import get_npu_ffn_config
+from afd_plugin.compat.npu.runtime_config import (
+    DeepseekV41TargetShape,
+    get_npu_ffn_config,
+    resolve_deepseek_v41_target_shape,
+)
 from afd_plugin.config import AFD_ASYNC_CONNECTOR, parse_afd_config
 from afd_plugin.connectors import AFDConnectorFactory
 from afd_plugin.connectors.npu.async_cam import CAMAsyncAFDConnector
@@ -60,9 +64,16 @@ FFN_SHUTDOWN_TIMEOUT_SECONDS = 5
 
 
 def create_npu_ffn_model_runner(
-    vllm_config: VllmConfig, device: torch.device
+    vllm_config: VllmConfig,
+    device: torch.device,
+    *,
+    target_shape: DeepseekV41TargetShape | None = None,
 ) -> AFDNPUFFNModelRunner | AsyncNPUFFNModelRunner:
-    """Select the execution owner from the connector, with no MRV1 fallback."""
+    """Select the execution owner from the connector, with no MRV1 fallback.
+
+    Plugin-owned target_shape comes from the worker's original V4.1 target,
+    before role isolation. None preserves the existing non-V4.1 factory path.
+    """
     validate_npu_model_runner_v2_config(
         vllm_config, expected_role="ffn", device_type=device.type
     )
@@ -74,7 +85,9 @@ def create_npu_ffn_model_runner(
         return AsyncNPUFFNModelRunner(
             vllm_config, device, cast(CAMAsyncAFDConnector, connector)
         )
-    return AFDNPUFFNModelRunner(vllm_config, device)
+    if target_shape is None:
+        return AFDNPUFFNModelRunner(vllm_config, device)
+    return AFDNPUFFNModelRunner(vllm_config, device, target_shape=target_shape)
 
 
 class AFDNPUFFNWorker(NPUWorker):
@@ -85,7 +98,8 @@ class AFDNPUFFNWorker(NPUWorker):
     # Upstream: vllm_ascend/worker/worker.py, NPUWorker.__init__,
     # 7e37e29a7803d6897a7113088e2b771f83205bc0.
     # Reason: native Ascend derives Engram settings before binding worker config.
-    # Functionality: detach F's Engram/draft bindings before any parent code.
+    # Functionality: retain immutable target scheduling shape, then detach F's
+    # Engram/draft bindings before any parent code.
     # Signature matches upstream, including no return annotation; no added args.
     # Delegation exception: the large native constructor owns ops registration,
     # config derivation, logging and cache/sleep setup. Keep that lifecycle in
@@ -102,6 +116,7 @@ class AFDNPUFFNWorker(NPUWorker):
     ):
         apply_afd_ascend_patches_if_needed()
         # ### PATCH START: A-owned Engram and draft
+        self.target_shape = resolve_deepseek_v41_target_shape(vllm_config)
         vllm_config = get_npu_ffn_config(vllm_config)
         # ### PATCH END: A-owned Engram and draft
         super().__init__(
@@ -143,7 +158,9 @@ class AFDNPUFFNWorker(NPUWorker):
             self.vllm_config.model_config,
             device_type="npu",
         )
-        self.model_runner = create_npu_ffn_model_runner(self.vllm_config, self.device)
+        self.model_runner = create_npu_ffn_model_runner(
+            self.vllm_config, self.device, target_shape=self.target_shape
+        )
         if isinstance(self.model_runner.connector, HcclStagedAFDConnector):
             self.bind_hccl_v41_transport(self.model_runner.connector.transport)
 

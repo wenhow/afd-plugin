@@ -1,0 +1,26 @@
+...........................................F..F........                  [100%]
+=================================== FAILURES ===================================
+_________ test_worker_retains_resources_until_clean_exit[False-failed] _________
+tests/unit/test_async_cam_startup_wiring.py:407: in test_worker_retains_resources_until_clean_exit
+    worker.start_ffn_server_loop()
+afd_plugin/v1/worker/npu/ffn_worker.py:244: in start_ffn_server_loop
+    self._validate_profiler_owner()
+afd_plugin/v1/worker/npu/ffn_worker.py:314: in _validate_profiler_owner
+    isinstance(self.model_runner.prof, AFDNPUProfilerSession)
+E   AttributeError: 'AsyncNPUFFNModelRunner' object has no attribute 'prof'
+_________ test_worker_retains_resources_until_clean_exit[True-failed] __________
+tests/unit/test_async_cam_startup_wiring.py:407: in test_worker_retains_resources_until_clean_exit
+    worker.start_ffn_server_loop()
+afd_plugin/v1/worker/npu/ffn_worker.py:244: in start_ffn_server_loop
+    self._validate_profiler_owner()
+afd_plugin/v1/worker/npu/ffn_worker.py:314: in _validate_profiler_owner
+    isinstance(self.model_runner.prof, AFDNPUProfilerSession)
+E   AttributeError: 'AsyncNPUFFNModelRunner' object has no attribute 'prof'
+=============================== warnings summary ===============================
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/torch/jit/_script.py:362: 14 warnings
+  /mnt/workspace/code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/torch/jit/_script.py:362: DeprecationWarning: `torch.jit.script_method` is deprecated. Please switch to `torch.compile` or `torch.export`.
+    warnings.warn(
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+- generated xml file: /mnt/workspace/tmp/afd-c0-20261104.hVgsIf/c5-control-cpu-20261109-gd19_9r3/results/cpu.xml -
+2 failed, 53 passed, 14 warnings in 3.70s

@@ -13,6 +13,7 @@ pytest.importorskip("torch")
 pytest.importorskip("vllm")
 pytest.importorskip("vllm_ascend")
 
+from afd_plugin.compat.npu.runtime_config import DeepseekV41TargetShape
 from afd_plugin.config import parse_afd_config
 from afd_plugin.connectors.metadata import AFDTransferContext, AFDTransferMetadata
 from afd_plugin.connectors.npu.hccl_protocol import HcclForwardPlan
@@ -22,6 +23,7 @@ from afd_plugin.distributed.hccl_plan import HcclParentPlan
 from afd_plugin.v1.worker.npu import ffn_model_runner as runner_module
 from afd_plugin.v1.worker.npu import ffn_worker as worker_module
 from afd_plugin.v1.worker.npu import hccl_v41_graph_service as service_module
+from tests.unit.fakes.ffn_model_runner import make_ffn_capacity_case
 from tests.unit.fakes.hccl import (
     ExitedHcclWorkerThread,
     HcclCpuDeviceRuntime,
@@ -43,6 +45,44 @@ from tests.unit.fakes.profiler import (
     make_profiled_worker_case,
     make_profiler_session_case,
 )
+
+
+@pytest.mark.parametrize("steps", [None, 2, 5])
+@pytest.mark.parametrize("tp_size", [1, 2])
+@pytest.mark.parametrize("capacity_mode", ["decode", "capture", "scheduler"])
+def test_ffn_worker_retains_target_shape_through_factory_and_native_capacity(
+    monkeypatch, steps, tp_size, capacity_mode
+):
+    case = make_ffn_capacity_case(
+        monkeypatch,
+        worker_module,
+        runner_module,
+        speculative_steps=steps,
+        tp_size=tp_size,
+        capacity_mode=capacity_mode,
+    )
+    shape = DeepseekV41TargetShape(1 if steps is None else steps + 1)
+    assert case.worker.target_shape == shape
+    assert case.worker.vllm_config.speculative_config is None
+    assert case.worker.vllm_config.engram_config is None
+
+    case.worker.init_device()
+    case.worker.model_runner.load_model()
+
+    model = case.worker.model_runner.get_model()
+    raw_capacity = {
+        "decode": 3 * shape.target_query_len,
+        "capture": 12,
+        "scheduler": 16,
+    }[capacity_mode]
+    expected_capacity = ((raw_capacity + tp_size - 1) // tp_size) * tp_size
+    assert case.worker.model_runner.target_shape is case.worker.target_shape
+    assert model.routing_workspace.numel() == expected_capacity
+    assert model.vllm_config.speculative_config is None
+    assert model.vllm_config.engram_config is None
+    assert case.source.engram_config.dp_shared_memory is False
+    if steps is not None:
+        assert case.source.speculative_config.num_speculative_tokens == steps
 
 
 @pytest.fixture

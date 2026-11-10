@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 from copy import copy
+from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from afd_plugin.config import (
@@ -22,6 +23,45 @@ HCCL_NATIVE_PD_CONNECTOR = "MooncakeHybridConnector"
 DEEPSEEK_V2_MODEL_TYPES = frozenset(
     ("deepseek", "deepseek_v2", "deepseek_v3", "deepseek_v32", "glm_moe_dsa")
 )
+
+
+@dataclass(frozen=True, slots=True)
+class DeepseekV41TargetShape:
+    """Target scheduling shape retained independently of the A-local drafter."""
+
+    target_query_len: int = 1
+
+    def __post_init__(self) -> None:
+        if type(self.target_query_len) is not int or self.target_query_len <= 0:
+            raise ValueError("V4.1 target query length must be a positive integer")
+
+    def validate_capacity(self, max_num_batched_tokens: int) -> None:
+        if self.target_query_len > max_num_batched_tokens:
+            raise ValueError("V4.1 target query length exceeds native token capacity")
+
+
+def resolve_deepseek_v41_target_shape(
+    vllm_config: VllmConfig,
+) -> DeepseekV41TargetShape | None:
+    """Read the original validated target before FFN role isolation.
+
+    The pinned Ascend runner uses num_speculative_tokens + 1 for the target;
+    draft query width and HF checkpoint draft block size are separate values.
+    No drafter, mutable config child or model state is retained in this object.
+    """
+    if not is_deepseek_v41_model(vllm_config):
+        return None
+    validate_deepseek_v41_speculation(vllm_config)
+    speculative = vllm_config.speculative_config
+    query_len = 1
+    if speculative is not None:
+        steps = speculative.num_speculative_tokens
+        if type(steps) is not int or steps <= 0:
+            raise ValueError("V4.1 DSpark requires positive integer speculative steps")
+        query_len += steps
+    shape = DeepseekV41TargetShape(query_len)
+    shape.validate_capacity(vllm_config.scheduler_config.max_num_batched_tokens)
+    return shape
 
 
 def is_deepseek_v41_model(vllm_config: VllmConfig) -> bool:
@@ -271,6 +311,7 @@ def fix_all2all_backend_for_afd(vllm_config: VllmConfig) -> None:
 
 
 __all__ = [
+    "DeepseekV41TargetShape",
     "configure_async_cam_dbo",
     "fix_all2all_backend_for_afd",
     "get_npu_ffn_config",
@@ -278,6 +319,7 @@ __all__ = [
     "npu_afd_num_ubatches",
     "npu_model_uses_sequence_parallel_moe",
     "npu_model_uses_sharded_pp_tensors",
+    "resolve_deepseek_v41_target_shape",
     "uses_async_cam_dbo",
     "validate_deepseek_v41_pd",
     "validate_deepseek_v41_speculation",

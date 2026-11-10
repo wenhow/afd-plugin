@@ -3,12 +3,15 @@
 """Role configuration outcomes, without a device or upstream imports."""
 
 from copy import deepcopy
+from dataclasses import FrozenInstanceError
 from types import SimpleNamespace
 
 import pytest
 
 from afd_plugin.compat.npu.runtime_config import (
+    DeepseekV41TargetShape,
     get_npu_ffn_config,
+    resolve_deepseek_v41_target_shape,
     validate_deepseek_v41_pd,
     validate_deepseek_v41_speculation,
 )
@@ -17,6 +20,52 @@ from tests.unit.fakes.vllm_config import (
     pd_kv_transfer_config,
     v41_dspark_config,
 )
+
+
+@pytest.mark.parametrize("steps", [None, 1, 5, 15])
+def test_target_shape_retains_only_immutable_target_width_across_ffn_isolation(steps):
+    source = v41_dspark_config(role="ffn")
+    if steps is None:
+        source.speculative_config = None
+    else:
+        source.speculative_config.num_speculative_tokens = steps
+    before = deepcopy(source)
+
+    shape = resolve_deepseek_v41_target_shape(source)
+    isolated = get_npu_ffn_config(source)
+
+    assert shape == DeepseekV41TargetShape(1 if steps is None else steps + 1)
+    assert isolated.speculative_config is isolated.engram_config is None
+    assert source == before
+    with pytest.raises(FrozenInstanceError):
+        shape.target_query_len = 1
+
+
+@pytest.mark.parametrize("query_len", [True, False, 0, -1, 1.5, "3"])
+def test_target_shape_rejects_nonpositive_or_noninteger_width(query_len):
+    with pytest.raises(ValueError, match="positive integer"):
+        DeepseekV41TargetShape(query_len)
+
+
+@pytest.mark.parametrize("steps", [True, 0, -1, 1.5])
+def test_target_shape_rejects_invalid_native_speculative_steps(steps):
+    source = v41_dspark_config(role="ffn")
+    source.speculative_config.num_speculative_tokens = steps
+    with pytest.raises(ValueError, match="positive integer speculative steps"):
+        resolve_deepseek_v41_target_shape(source)
+
+
+def test_target_shape_rejects_width_above_native_token_capacity_before_isolation():
+    source = v41_dspark_config(role="ffn")
+    source.speculative_config.num_speculative_tokens = 16
+    before = deepcopy(source)
+    with pytest.raises(ValueError, match="exceeds native token capacity"):
+        resolve_deepseek_v41_target_shape(source)
+    assert source == before
+
+
+def test_target_shape_keeps_other_models_on_the_existing_path():
+    assert resolve_deepseek_v41_target_shape(npu_vllm_config()) is None
 
 
 @pytest.mark.parametrize("has_engram", [False, True])
