@@ -1,0 +1,64 @@
+Tue Nov 10 08:10:14 UTC 2026
+Linux localhost.localdomain 6.6.0-159.4.9.163.oe2403sp4.aarch64 #1 SMP Mon Aug 10 19:39:03 CST 2026 aarch64 aarch64 aarch64 GNU/Linux
+Python 3.11.10
+Name: cann_ops_transformer
+Version: 1.0.0
+Summary: CannOpsTransformer
+Home-page: https://gitcode.com/cann/ops-transformer/tree/master/torch_extension
+Author: CANN
+Author-email:
+License: CANN Open Software License Agreement Version 2.0
+Location: /usr/local/python3.11.10/lib/python3.11/site-packages
+Requires: torch, torch_npu
+Required-by:
+---
+Name: cann_ops_nn
+Version: 1.0.1
+Summary: AscendOpsNn
+Home-page: https://gitcode.com/cann/ops-nn/tree/master/torch_extension
+Author: CANN
+Author-email:
+License: CANN Open Software License Agreement Version 2.0
+Location: /usr/local/Ascend/cann-9.2.0/python/site-packages
+Requires: ninja, torch, torch-npu
+Required-by:
+---
+Name: torch
+Version: 2.10.0
+Summary: Tensors and Dynamic neural networks in Python with strong GPU acceleration
+Home-page:
+Author:
+Author-email: PyTorch Team <packages@pytorch.org>
+License: BSD-3-Clause
+Location: /usr/local/python3.11.10/lib/python3.11/site-packages
+Requires: filelock, fsspec, jinja2, networkx, sympy, typing-extensions
+Required-by: accelerate, ais_bench_benchmark, cann_ops_nn, cann_ops_transformer, cannbot-arena-net, cannbot-arena-net-ops, compressed-tensors, flash-linear-attention-npu-a5, torch_npu, torchaudio, torchvision, vllm_ascend, xgrammar
+---
+Name: torch_npu
+Version: 2.10.0.post4
+Summary: NPU bridge for PyTorch
+Home-page: https://gitcode.com/ascend/pytorch
+Author:
+Author-email:
+License: BSD License
+Location: /usr/local/python3.11.10/lib/python3.11/site-packages
+Requires: torch
+Required-by: cann_ops_nn, cann_ops_transformer, flash-linear-attention-npu-a5, vllm_ascend
+---
+Name: vllm_ascend
+Version: 0.19.1rc2.dev637+g2db8549c5
+Summary: vLLM Ascend backend plugin
+Home-page: https://github.com/vllm-project/vllm-ascend
+Author: vLLM-Ascend team
+Author-email:
+License: Apache 2.0
+Location: /usr/local/python3.11.10/lib/python3.11/site-packages
+Editable project location: /opt/vllm-ascend
+Requires: arctic-inference, cmake, compressed_tensors, decorator, einops, fastapi, fastokens, memcache_hybrid, memfabric_hybrid, msgpack, numba, numpy, packaging, pandas, pandas-stubs, pip, psutil, pybind11, pyyaml, quart, regex, scipy, setuptools, setuptools-scm, torch, torch-npu, torchaudio, torchvision, transformers, triton-ascend, wheel, xgrammar
+Required-by:
+06b9d620379944eb30ec41e99746f8e6f5ef6637
+ASCEND_HOME_PATH=/usr/local/Ascend/cann-9.2.0
+ASCEND_TOOLKIT_HOME=/usr/local/Ascend/cann-9.2.0
+ASCEND_OPP_PATH=/usr/local/Ascend/cann-9.2.0/opp
+ASCEND_CUSTOM_OPP_PATH=
+LD_LIBRARY_PATH=/usr/local/Ascend/nnal/atb/latest/atb/cxx_abi_1/lib:/usr/local/Ascend/nnal/atb/latest/atb/cxx_abi_1/examples:/usr/local/Ascend/nnal/atb/latest/atb/cxx_abi_1/tests/atbopstest:/usr/local/Ascend/ascend-toolkit/latest/tools/aml/lib64:/usr/local/Ascend/ascend-toolkit/latest/tools/aml/lib64/plugin:/usr/local/Ascend/ascend-toolkit/latest/lib64:/usr/local/Ascend/ascend-toolkit/latest/lib64/plugin/opskernel:/usr/local/Ascend/ascend-toolkit/latest/lib64/plugin/nnengine:/usr/local/Ascend/ascend-toolkit/latest/opp/built-in/op_impl/ai_core/tbe/op_tiling:/usr/local/Ascend/driver/lib64/common/:/usr/local/Ascend/driver/lib64/driver/:/usr/local/lib::/usr/local/Ascend/ascend-toolkit/latest/aarch64-linux/devlib:/usr/lib64

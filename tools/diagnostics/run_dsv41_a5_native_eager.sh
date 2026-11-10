@@ -9,8 +9,9 @@ set -uo pipefail
 if [[ "${1:-}" == "--help" ]]; then
     cat <<'HELP'
 Usage: bash tools/diagnostics/run_dsv41_a5_native_eager.sh [--probe-only]
-Optional environment: AFD_PYTHON, AFD_MODEL.
+Optional environment: AFD_PYTHON, AFD_MODEL, AFD_TRANSFORMER_VENDOR.
 Defaults: /usr/local/python3.11.10/bin/python, /home/models/DeepSeek-V4.1-Flash.
+Transformer vendor defaults to $ASCEND_OPP_PATH/vendors/custom_transformer.
 The console prints one fresh results directory. All other output goes to files.
 Run in the existing validated A5 environment; no packages are installed.
 Default: DP8/TP1/EP8, shared CPU Engram, eager, DSpark off, small text requests.
@@ -54,6 +55,15 @@ trap finish EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
 
+# The A5 library probe found CompressorV2 in this vendor, not the built-in
+# opapi libraries. Export before importing native extensions or spawning workers.
+afd_opp_root=${ASCEND_OPP_PATH:-${ASCEND_HOME_PATH:-/usr/local/Ascend/cann-9.2.0}/opp}
+afd_transformer_vendor=${AFD_TRANSFORMER_VENDOR:-$afd_opp_root/vendors/custom_transformer}
+if (( ! afd_probe_only )); then
+    export ASCEND_CUSTOM_OPP_PATH="$afd_transformer_vendor${ASCEND_CUSTOM_OPP_PATH:+:$ASCEND_CUSTOM_OPP_PATH}"
+    export LD_LIBRARY_PATH="$afd_transformer_vendor/op_api/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+fi
+
 export ASCEND_RT_VISIBLE_DEVICES=0,1,2,3,4,5,6,7
 export VLLM_USE_V2_MODEL_RUNNER=1
 export VLLM_PLUGINS=ascend,ascend_model,ascend_model_loader,ascend_kv_connector,ascend_service_profiling
@@ -82,6 +92,9 @@ export PYTHONUNBUFFERED=1
     git -C /opt/vllm-ascend rev-parse HEAD
     git -C /opt/vllm-ascend status --short
     printf 'python=%s\nmodel=%s\n' "$afd_python" "$afd_model"
+    printf 'transformer_vendor=%s\n' "$afd_transformer_vendor"
+    printf 'ASCEND_OPP_PATH=%s\nASCEND_CUSTOM_OPP_PATH=%s\n' "${ASCEND_OPP_PATH:-}" "${ASCEND_CUSTOM_OPP_PATH:-}"
+    printf 'LD_LIBRARY_PATH=%s\n' "${LD_LIBRARY_PATH:-}"
     printf 'ASCEND_RT_VISIBLE_DEVICES=%s\n' "$ASCEND_RT_VISIBLE_DEVICES"
     printf 'VLLM_PLUGINS=%s\n' "$VLLM_PLUGINS"
     printf 'AFD_DSV41_MXFP8_SCALE_PATCH=%s\n' "$AFD_DSV41_MXFP8_SCALE_PATCH"
@@ -95,6 +108,40 @@ export PYTHONUNBUFFERED=1
     df -h /dev/shm
 } > "$afd_native_run/environment.txt" 2>&1
 npu-smi info > "$afd_native_run/npu-before.log" 2>&1 || exit 1
+
+if (( ! afd_probe_only )); then
+    "$afd_python" - "$afd_transformer_vendor" <<'PY' > "$afd_native_run/opapi-preflight.json" 2> "$afd_native_run/opapi-preflight.log"
+import ctypes
+import json
+import os
+import sys
+from pathlib import Path
+
+library_path = Path(sys.argv[1]) / "op_api/lib/libcust_opapi.so"
+symbols = ("aclnnCompressorV2", "aclnnCompressorV2GetWorkspaceSize")
+report = {"library": str(library_path), "loaded": False, "symbols": {}}
+try:
+    library = ctypes.CDLL(str(library_path), mode=os.RTLD_LAZY | os.RTLD_LOCAL)
+    report["loaded"] = True
+    for symbol in symbols:
+        try:
+            library[symbol]
+            report["symbols"][symbol] = True
+        except AttributeError:
+            report["symbols"][symbol] = False
+except OSError as error:
+    report["error"] = str(error)
+report["passed"] = report["loaded"] and all(report["symbols"].values())
+report["scope"] = "Library load and symbol lookup only; no operator execution or inference"
+print(json.dumps(report, indent=2))
+raise SystemExit(0 if report["passed"] else 1)
+PY
+    afd_opapi_status=$?
+    if (( afd_opapi_status != 0 )); then
+        printf 'CompressorV2 library check failed; see opapi-preflight.json and .log.\n'
+        exit "$afd_opapi_status"
+    fi
+fi
 
 "$afd_python" - "$afd_model" "$afd_probe_only" <<'PY' > "$afd_native_run/preflight.json" 2> "$afd_native_run/preflight.log"
 import hashlib

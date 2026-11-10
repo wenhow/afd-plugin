@@ -5,9 +5,10 @@
 **本轮改用 DP8/TP1/EP8 + Engram CPU offload/DP shared memory，
 保留 eager、DSpark off 和小请求限制。最新回传已完成 8 rank 加载和服务启动，
 `/health` 返回 200；首请求在原生 Attention 的 CompressorV2 动态库解析失败，返回 500。
+后续库探测已定位到 custom_transformer vendor 路径未导出；启动器已补环境与加载前符号检查，待重跑请求。
 不解除 AFD 模型 guard，完整原生推理与 AFD 对照仍未通过。**
 
-## 当前下一步：检查 CompressorV2 算子库
+## 当前下一步：补齐 custom_transformer 路径后重跑
 
 回传 `b0a1f0ab6acf4ebc993ca3cc9342f698.gz` 已确认 `/dev/shm=512G`、
 DP8/TP1/EP8、Engram CPU offload/shared memory 和默认关闭的 TP8 兼容补丁。
@@ -18,22 +19,39 @@ DP8/TP1/EP8、Engram CPU offload/shared memory 和默认关闭的 TP8 兼容补�
 因此 HTTP 500 是 worker 失败的后果，不是请求 JSON 校验错误，也不是此前的 2 GiB shm 限制。
 详见 [本轮诊断](a5-20261110-native-ep8-request-001/diagnosis.json)。
 
-Python wrapper 已导入不代表 ACLNN 动态库包含接口。当前仍需区分库缺失、版本缺少符号、
-依赖库加载失败和搜索路径未生效，不据此盲目重装 Python 包或修改模型实现。
-先在同一容器、同一 CANN shell 和 afd-plugin 目录执行只读检查：
+回传 `f1a363f791b04b38baef5cafbec28c46.gz` 的只读探测进一步确认：
+
+| 库 | 加载结果 | 两个 CompressorV2 符号 |
+| --- | --- | --- |
+| 内置 `libopapi.so` / `libopapi_transformer.so` | 可加载 | 均不存在 |
+| 裸库名 `libcust_opapi.so` | 找不到文件 | 未解析 |
+| `/usr/local/Ascend/cann-9.2.0/opp/vendors/custom_transformer/op_api/lib/libcust_opapi.so` | 可加载 | 均存在 |
+
+同一回传的 `ASCEND_CUSTOM_OPP_PATH` 为空，`LD_LIBRARY_PATH` 未包含该 vendor 的 `op_api/lib`。
+因此本轮先修正已确认库的发现路径，无需重装 CANN/Python 包。
+启动器会在任何 Python/native extension 导入前，在现有路径前追加：
+
+```bash
+export ASCEND_CUSTOM_OPP_PATH="/usr/local/Ascend/cann-9.2.0/opp/vendors/custom_transformer${ASCEND_CUSTOM_OPP_PATH:+:$ASCEND_CUSTOM_OPP_PATH}"
+export LD_LIBRARY_PATH="/usr/local/Ascend/cann-9.2.0/opp/vendors/custom_transformer/op_api/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+```
+
+这两行由新启动器自动完成，不要求手工执行。`ASCEND_CUSTOM_OPP_PATH` 的值是 **vendor 根目录**，
+不含 `/op_api/lib` 后缀；动态库目录只加入 `LD_LIBRARY_PATH`。原有其他 vendor/依赖路径保留。
+必须启动全新的服务进程，不能在已导入 native extension 的进程内修改环境后继续执行。
+来源与范围见 [库诊断](a5-20261110-opapi-001/README.md) 和 [原始符号报告](a5-20261110-opapi-001/libraries.json)。
+
+在同一容器、同一 CANN shell 和 afd-plugin 目录更新后启动：
 
 ```bash
 git pull --ff-only origin feat/dsv41-flash-hccl-v030
-bash tools/diagnostics/collect_dsv41_a5_opapi.sh
+bash tools/diagnostics/run_dsv41_a5_native_eager.sh
 ```
 
-控制台仅打印 `results/dsv41-opapi.XXXXXX`，同时生成同名 `.tar.gz`，回传此压缩包。
-工具保存指定 CANN 环境变量、包版本、CANN 库文件、绝对路径/裸库名的加载错误、
-两个 CompressorV2 符号及实际已映射的 opapi 路径。
-它不导入 torch、不使用 NPU、不加载 checkpoint、不执行算子、不安装包或改上游。
-若已有库包含符号但裸库名加载失败，后续仅对确认的匹配目录修正环境；
-若库不含接口，再按实际版本补齐匹配的 ops-transformer 二进制和 kernel 包。
-检查成功仅表示采集完成；在环境问题定位前不重复加载整模型。
+启动器先把目标库加载和两个符号的检查写入 `opapi-preflight.json` / `.log`；
+失败就退出，不加载模型。通过后按下文执行同一个小请求，回传完整的新结果目录。
+此检查仅解析符号，不执行 CompressorV2；它不能代替实际 kernel、首请求或完整推理验收。
+若需要独立复查路径，可继续运行 `bash tools/diagnostics/collect_dsv41_a5_opapi.sh`。
 
 ## 本轮配置与官方参考
 
@@ -88,6 +106,10 @@ bash tools/diagnostics/run_dsv41_a5_native_eager.sh
 AFD_PYTHON=/usr/local/python3.11.10/bin/python AFD_MODEL=/home/models/DeepSeek-V4.1-Flash bash tools/diagnostics/run_dsv41_a5_native_eager.sh
 ```
 
+算子 vendor 默认采用 `$ASCEND_OPP_PATH/vendors/custom_transformer`；
+若 `ASCEND_OPP_PATH` 未设置，则采用 `${ASCEND_HOME_PATH:-/usr/local/Ascend/cann-9.2.0}/opp` 下同名 vendor。
+另一路径只能通过 `AFD_TRANSFORMER_VENDOR=/absolute/vendor/root` 明确指定；启动器不扫描/混用其他 CANN 安装。
+
 控制台只打印 `results: .../results/dsv41-native-dp8-ep8.XXXXXX`。
 服务前台运行，stdout/stderr 直接写 `native-server.log`，启动器写 `launcher.log`，不使用 `tee`。
 脚本检查既定 config/index SHA256、48 个 shard 存在性并保存 `preflight.json`；
@@ -133,7 +155,7 @@ printf '%s\n' "$afd_request_status" > "$afd_native_run/request-exit-code.txt"
 一次 HTTP 成功仅是首次推理 smoke，不代表连续/并发、数值精度、请求回收或性能验收。
 
 回传该新目录，尤其是 `native-server.log`、`launcher.log`、`environment.txt`、
-`preflight.json`、退出码文件、`request.json`/`response.json`/`request.log` 和设备状态日志。
+`preflight.json`、`opapi-preflight.json` / `.log`、退出码文件、`request.json`/`response.json`/`request.log` 和设备状态日志。
 可在服务停止后打包，不必复制终端 traceback：
 
 ```bash

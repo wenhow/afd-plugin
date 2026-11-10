@@ -1,0 +1,37 @@
+{
+  "date": "2026-11-10",
+  "archive": "f1a363f791b04b38baef5cafbec28c46.gz",
+  "archive_sha256": "6c34c5208dd633188c267c4b377e9323968c99ce4b12288e580b9f27930c9f1e",
+  "archive_results_directory": "dsv41-opapi.OgEtIk",
+  "collector_exit_code": 0,
+  "scope": "Library discovery and symbol lookup only; no torch import, NPU execution or inference",
+  "diagnosis": "CompressorV2 APIs are available in the installed custom_transformer library, but that vendor is absent from ASCEND_CUSTOM_OPP_PATH and its library directory is absent from LD_LIBRARY_PATH.",
+  "confirmed_vendor": "/usr/local/Ascend/cann-9.2.0/opp/vendors/custom_transformer",
+  "custom_library": {
+    "requested": "/usr/local/Ascend/cann-9.2.0/opp/vendors/custom_transformer/op_api/lib/libcust_opapi.so",
+    "loaded": true,
+    "symbols": {
+      "aclnnCompressorV2": true,
+      "aclnnCompressorV2GetWorkspaceSize": true
+    },
+    "mapped_opapi_paths": [
+      "/usr/local/Ascend/cann-9.2.0/aarch64-linux/lib64/libopapi_math.so",
+      "/usr/local/Ascend/cann-9.2.0/opp/vendors/custom_transformer/op_api/lib/libcust_opapi.so"
+    ]
+  },
+  "bare_custom_library": {
+    "requested": "libcust_opapi.so",
+    "loaded": false,
+    "error": "libcust_opapi.so: cannot open shared object file: No such file or directory"
+  },
+  "builtin_libraries_have_required_symbols": false,
+  "correction": {
+    "ASCEND_CUSTOM_OPP_PATH": "Prepend the confirmed vendor root, preserving existing entries",
+    "LD_LIBRARY_PATH": "Prepend the confirmed vendor root plus /op_api/lib, preserving existing entries",
+    "timing": "Before any Python/native extension imports and worker process startup",
+    "preflight": "Load that absolute library and look up both CompressorV2 symbols before checkpoint loading"
+  },
+  "npu_operator_execution": "not performed by collector",
+  "native_first_request_after_correction": "pending",
+  "full_native_and_afd_acceptance": "pending"
+}

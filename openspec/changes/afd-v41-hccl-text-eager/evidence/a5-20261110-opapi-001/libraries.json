@@ -1,0 +1,149 @@
+{
+  "scope": "Library discovery and symbol lookup only; no torch import, NPU execution or inference",
+  "packages": {
+    "cann_ops_transformer": {
+      "installed": true,
+      "version": "1.0.0",
+      "root": "/usr/local/python3.11.10/lib/python3.11/site-packages"
+    },
+    "cann_ops_nn": {
+      "installed": true,
+      "version": "1.0.1",
+      "root": "/usr/local/Ascend/cann-9.2.0/python/site-packages"
+    }
+  },
+  "libraries": [
+    {
+      "requested": "libopapi_transformer.so",
+      "loaded": true,
+      "symbols": {
+        "aclnnCompressorV2": false,
+        "aclnnCompressorV2GetWorkspaceSize": false
+      },
+      "mapped_opapi_paths": [
+        "/usr/local/Ascend/cann-9.2.0/aarch64-linux/lib64/libopapi_math.so",
+        "/usr/local/Ascend/cann-9.2.0/aarch64-linux/lib64/libopapi_transformer.so"
+      ]
+    },
+    {
+      "requested": "libopapi.so",
+      "loaded": true,
+      "symbols": {
+        "aclnnCompressorV2": false,
+        "aclnnCompressorV2GetWorkspaceSize": false
+      },
+      "mapped_opapi_paths": [
+        "/usr/local/Ascend/cann-9.2.0/aarch64-linux/lib64/libopapi.so"
+      ]
+    },
+    {
+      "requested": "libcust_opapi.so",
+      "loaded": false,
+      "error": "libcust_opapi.so: cannot open shared object file: No such file or directory"
+    },
+    {
+      "requested": "/usr/local/Ascend/cann-9.2.0/opp/vendors/custom_transformer/op_api/lib/libcust_opapi.so",
+      "loaded": true,
+      "symbols": {
+        "aclnnCompressorV2": true,
+        "aclnnCompressorV2GetWorkspaceSize": true
+      },
+      "mapped_opapi_paths": [
+        "/usr/local/Ascend/cann-9.2.0/aarch64-linux/lib64/libopapi_math.so",
+        "/usr/local/Ascend/cann-9.2.0/opp/vendors/custom_transformer/op_api/lib/libcust_opapi.so"
+      ]
+    },
+    {
+      "requested": "/usr/local/Ascend/cann-9.2.0/opp/vendors/customize/op_api/lib/libcust_opapi.so",
+      "loaded": true,
+      "symbols": {
+        "aclnnCompressorV2": false,
+        "aclnnCompressorV2GetWorkspaceSize": false
+      },
+      "mapped_opapi_paths": [
+        "/usr/local/Ascend/cann-9.2.0/opp/vendors/customize/op_api/lib/libcust_opapi.so"
+      ]
+    },
+    {
+      "requested": "/usr/local/Ascend/cann-9.2.0/aarch64-linux/lib64/libopapi.so",
+      "loaded": true,
+      "symbols": {
+        "aclnnCompressorV2": false,
+        "aclnnCompressorV2GetWorkspaceSize": false
+      },
+      "mapped_opapi_paths": [
+        "/usr/local/Ascend/cann-9.2.0/aarch64-linux/lib64/libopapi.so"
+      ]
+    },
+    {
+      "requested": "/usr/local/Ascend/cann-9.2.0/aarch64-linux/lib64/libopapi_transformer.so",
+      "loaded": true,
+      "symbols": {
+        "aclnnCompressorV2": false,
+        "aclnnCompressorV2GetWorkspaceSize": false
+      },
+      "mapped_opapi_paths": [
+        "/usr/local/Ascend/cann-9.2.0/aarch64-linux/lib64/libopapi_math.so",
+        "/usr/local/Ascend/cann-9.2.0/aarch64-linux/lib64/libopapi_transformer.so"
+      ]
+    },
+    {
+      "requested": "/usr/local/Ascend/ascend-toolkit/latest/lib64/libopapi_transformer.so",
+      "loaded": true,
+      "symbols": {
+        "aclnnCompressorV2": false,
+        "aclnnCompressorV2GetWorkspaceSize": false
+      },
+      "mapped_opapi_paths": [
+        "/usr/local/Ascend/cann-9.2.0/aarch64-linux/lib64/libopapi_math.so",
+        "/usr/local/Ascend/cann-9.2.0/aarch64-linux/lib64/libopapi_transformer.so"
+      ]
+    },
+    {
+      "requested": "/usr/local/Ascend/ascend-toolkit/latest/lib64/libopapi.so",
+      "loaded": true,
+      "symbols": {
+        "aclnnCompressorV2": false,
+        "aclnnCompressorV2GetWorkspaceSize": false
+      },
+      "mapped_opapi_paths": [
+        "/usr/local/Ascend/cann-9.2.0/aarch64-linux/lib64/libopapi.so"
+      ]
+    },
+    {
+      "requested": "/usr/local/python3.11.10/lib/python3.11/site-packages/fla_npu/opp/vendors/fla_npu_transformer/op_api/lib/libcust_opapi.so",
+      "loaded": true,
+      "symbols": {
+        "aclnnCompressorV2": false,
+        "aclnnCompressorV2GetWorkspaceSize": false
+      },
+      "mapped_opapi_paths": [
+        "/usr/local/Ascend/cann-9.2.0/aarch64-linux/lib64/libopapi_math.so",
+        "/usr/local/python3.11.10/lib/python3.11/site-packages/fla_npu/opp/vendors/fla_npu_transformer/op_api/lib/libcust_opapi.so"
+      ]
+    },
+    {
+      "requested": "/usr/local/Ascend/cann-9.2.0/lib64/libopapi_transformer.so",
+      "loaded": true,
+      "symbols": {
+        "aclnnCompressorV2": false,
+        "aclnnCompressorV2GetWorkspaceSize": false
+      },
+      "mapped_opapi_paths": [
+        "/usr/local/Ascend/cann-9.2.0/aarch64-linux/lib64/libopapi_math.so",
+        "/usr/local/Ascend/cann-9.2.0/aarch64-linux/lib64/libopapi_transformer.so"
+      ]
+    },
+    {
+      "requested": "/usr/local/Ascend/cann-9.2.0/lib64/libopapi.so",
+      "loaded": true,
+      "symbols": {
+        "aclnnCompressorV2": false,
+        "aclnnCompressorV2GetWorkspaceSize": false
+      },
+      "mapped_opapi_paths": [
+        "/usr/local/Ascend/cann-9.2.0/aarch64-linux/lib64/libopapi.so"
+      ]
+    }
+  ]
+}

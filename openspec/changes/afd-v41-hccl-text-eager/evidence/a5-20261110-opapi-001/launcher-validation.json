@@ -1,0 +1,148 @@
+{
+  "date": "2026-11-10",
+  "scope": "CPU-only launcher CLI/logging checks with stub executables; no NPU, HCCL, checkpoint loading or inference",
+  "cases": [
+    {
+      "case": "baseline_success",
+      "passed": true,
+      "exit_code": 0,
+      "server_started": true,
+      "tp8_probe_started": false,
+      "console_line_count": 1,
+      "stdout_stderr_captured": true,
+      "custom_vendor": "/stub/cann/opp/vendors/custom_transformer",
+      "existing_paths_preserved": true,
+      "environment_set_before_first_python": true,
+      "opapi_gate_skipped": false
+    },
+    {
+      "case": "baseline_server_failure",
+      "passed": true,
+      "exit_code": 17,
+      "server_started": true,
+      "tp8_probe_started": false,
+      "console_line_count": 1,
+      "stdout_stderr_captured": true,
+      "custom_vendor": "/stub/cann/opp/vendors/custom_transformer",
+      "existing_paths_preserved": true,
+      "environment_set_before_first_python": true,
+      "opapi_gate_skipped": false
+    },
+    {
+      "case": "baseline_preflight_failure",
+      "passed": true,
+      "exit_code": 23,
+      "server_started": false,
+      "tp8_probe_started": false,
+      "console_line_count": 1,
+      "stdout_stderr_captured": true,
+      "custom_vendor": "/stub/cann/opp/vendors/custom_transformer",
+      "existing_paths_preserved": true,
+      "environment_set_before_first_python": true,
+      "opapi_gate_skipped": false
+    },
+    {
+      "case": "tp8_probe_only_success",
+      "passed": true,
+      "exit_code": 0,
+      "server_started": false,
+      "tp8_probe_started": true,
+      "console_line_count": 1,
+      "stdout_stderr_captured": true,
+      "custom_vendor": "/stub/cann/opp/vendors/custom_transformer",
+      "existing_paths_preserved": true,
+      "environment_set_before_first_python": true,
+      "opapi_gate_skipped": true
+    },
+    {
+      "case": "tp8_probe_only_failure",
+      "passed": true,
+      "exit_code": 19,
+      "server_started": false,
+      "tp8_probe_started": true,
+      "console_line_count": 1,
+      "stdout_stderr_captured": true,
+      "custom_vendor": "/stub/cann/opp/vendors/custom_transformer",
+      "existing_paths_preserved": true,
+      "environment_set_before_first_python": true,
+      "opapi_gate_skipped": true
+    },
+    {
+      "case": "baseline_opapi_failure",
+      "passed": true,
+      "exit_code": 27,
+      "server_started": false,
+      "tp8_probe_started": false,
+      "console_line_count": 1,
+      "stdout_stderr_captured": true,
+      "custom_vendor": "/stub/cann/opp/vendors/custom_transformer",
+      "existing_paths_preserved": true,
+      "environment_set_before_first_python": true,
+      "opapi_gate_skipped": false
+    },
+    {
+      "case": "baseline_vendor_override",
+      "passed": true,
+      "exit_code": 0,
+      "server_started": true,
+      "tp8_probe_started": false,
+      "console_line_count": 1,
+      "stdout_stderr_captured": true,
+      "custom_vendor": "/explicit/vendor with spaces",
+      "existing_paths_preserved": true,
+      "environment_set_before_first_python": true,
+      "opapi_gate_skipped": false
+    },
+    {
+      "case": "baseline_no_cann_environment",
+      "passed": true,
+      "exit_code": 0,
+      "server_started": true,
+      "tp8_probe_started": false,
+      "console_line_count": 1,
+      "stdout_stderr_captured": true,
+      "custom_vendor": "/usr/local/Ascend/cann-9.2.0/opp/vendors/custom_transformer",
+      "existing_paths_preserved": true,
+      "environment_set_before_first_python": true,
+      "opapi_gate_skipped": false
+    },
+    {
+      "case": "baseline_home_fallback",
+      "passed": true,
+      "exit_code": 0,
+      "server_started": true,
+      "tp8_probe_started": false,
+      "console_line_count": 1,
+      "stdout_stderr_captured": true,
+      "custom_vendor": "/current/cann/opp/vendors/custom_transformer",
+      "existing_paths_preserved": true,
+      "environment_set_before_first_python": true,
+      "opapi_gate_skipped": false
+    }
+  ],
+  "guide_bash_blocks_checked": 7,
+  "passed": true,
+  "a5_runtime_acceptance": "pending",
+  "local_command": "python -B .tmp/validate_dsv41_opapi_launcher.py",
+  "launcher_sha256": "13e989b365de57fdf1c1ff4acee319c558978a76b5544bdf5ac95efa28df729e",
+  "static_checks": {
+    "bash_syntax": {
+      "command": "bash -n tools/diagnostics/run_dsv41_a5_native_eager.sh",
+      "exit_code": 0
+    },
+    "planning_harness": {
+      "command": "python -B .agents/dsv41/harness.py check",
+      "exit_code": 0,
+      "ok": true,
+      "files": 431,
+      "changes": 8,
+      "tasks": 102,
+      "source_objects": 56
+    },
+    "upstream_guard": {
+      "command": "python -B .agents/dsv41/harness.py guard",
+      "exit_code": 0,
+      "upstreams_unchanged": true
+    }
+  }
+}
