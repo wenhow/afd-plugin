@@ -15,6 +15,7 @@ pytest.importorskip("vllm_ascend")
 msgspec = pytest.importorskip("msgspec")
 
 from vllm.distributed.kv_transfer.kv_connector.factory import KVConnectorFactory
+from vllm.v1.outputs import KVConnectorOutput, ModelRunnerOutput
 from vllm.v1.request import RequestStatus
 
 from afd_plugin.compat.npu import kv_layout_connector as adapter
@@ -48,9 +49,11 @@ from tests.unit.fakes.kv_layout_connector import (
     request_map,
     sender_request,
 )
+from tests.unit.fakes.scheduler import make_native_pd_scheduler_case
 
 RETIREMENT_TEST_DEADLINE = 0.01
 BYTE_VALUE_COUNT = 256
+SCHEDULER_CPU_BLOCKS = 64
 
 
 @pytest.fixture
@@ -66,6 +69,38 @@ def receiver_case(monkeypatch):
         yield case
     finally:
         case.close()
+
+
+@pytest.fixture
+def native_pd_scheduler_case(monkeypatch, request):
+    def create(prompt_length):
+        prefix = make_dspark_pd_prefix_case(
+            monkeypatch,
+            original_tokens=prompt_length,
+            num_blocks=SCHEDULER_CPU_BLOCKS,
+            bind=False,
+        )
+        source = prefix.source
+        case = make_native_pd_scheduler_case(
+            monkeypatch,
+            config=prefix.config,
+            kv_cache_config=prefix.kv_config,
+            request_id="destination-request",
+            prompt_token_ids=list(range(prompt_length)),
+            kv_transfer_params={
+                "do_remote_prefill": True,
+                "remote_request_id": source.request_id,
+                "remote_engine_id": source.source_engine_id,
+                "remote_host": "127.0.0.1",
+                "remote_port": REMOTE_HANDSHAKE_PORT,
+                "remote_block_ids": source.transfer_block_ids,
+                adapter.DSPARK_SOURCE_PARAM: source_request_payload(source),
+            },
+        )
+        request.addfinalizer(case.close)
+        return prefix, case
+
+    return create
 
 
 def test_external_factory_selects_only_the_configured_attesting_connector():
@@ -906,6 +941,79 @@ def test_destination_scheduler_rejects_a_wrong_source_before_queue_admission(
         case.new_request(
             list(range(prefix.source.original_prompt_tokens)), params=params
         )
+
+
+@pytest.mark.parametrize("prompt_length", [1, 6])
+def test_native_scheduler_waits_for_remote_prefix(
+    native_pd_scheduler_case, prompt_length
+):
+    prefix, case = native_pd_scheduler_case(prompt_length)
+    first = case.scheduler.schedule()
+    assert first.total_num_scheduled_tokens == 0
+    assert first.scheduled_new_reqs == []
+    assert case.request.status == RequestStatus.WAITING_FOR_REMOTE_KVS
+    destinations = first.kv_connector_metadata.dspark_destinations
+    assert set(destinations) == {case.request.request_id}
+    assert destinations[case.request.request_id].source == prefix.source
+    assert len(destinations[case.request.request_id].block_ids) == len(
+        prefix.layout.groups
+    )
+    # Worker completion is an explicit external input for this scheduler seam.
+    # This case does not run ActiveKVConnector, the receiver, or a target model.
+    case.scheduler.update_from_output(
+        first, ModelRunnerOutput.with_kv_conn_output_only(KVConnectorOutput())
+    )
+    pending = case.scheduler.schedule()
+    assert pending.total_num_scheduled_tokens == 0
+    assert pending.scheduled_new_reqs == []
+    assert case.request.status == RequestStatus.WAITING_FOR_REMOTE_KVS
+    completed = KVConnectorOutput(finished_recving={case.request.request_id})
+    case.scheduler.update_from_output(
+        pending, ModelRunnerOutput.with_kv_conn_output_only(completed)
+    )
+    resumed = case.scheduler.schedule()
+    assert len(resumed.scheduled_new_reqs) == 1
+    new_request = resumed.scheduled_new_reqs[0]
+    assert new_request.req_id == case.request.request_id
+    assert new_request.prompt_token_ids == list(range(prompt_length))
+    assert new_request.num_computed_tokens == prompt_length - 1
+    assert len(new_request.block_ids) == len(prefix.layout.groups)
+    query_width = (
+        1
+        if prompt_length == 1
+        else 1 + case.config.speculative_config.num_speculative_tokens
+    )
+    assert resumed.num_scheduled_tokens == {case.request.request_id: query_width}
+    assert resumed.scheduled_spec_decode_tokens == (
+        {} if query_width == 1 else {case.request.request_id: [-1] * (query_width - 1)}
+    )
+
+
+def test_aborted_native_pd_request_keeps_storage_until_receive_completes(
+    native_pd_scheduler_case,
+):
+    _, case = native_pd_scheduler_case(6)
+    baseline_usage = case.scheduler.get_kv_cache_usage()
+    pending = case.scheduler.schedule()
+    loading_usage = case.scheduler.get_kv_cache_usage()
+    assert loading_usage > baseline_usage
+
+    case.scheduler.finish_requests(
+        case.request.request_id, RequestStatus.FINISHED_ABORTED
+    )
+    assert case.request.status == RequestStatus.FINISHED_ABORTED
+    assert case.scheduler.get_request_counts() == (0, 0)
+    assert case.scheduler.get_kv_cache_usage() == loading_usage
+    assert case.scheduler.schedule().total_num_scheduled_tokens == 0
+
+    # The worker completion input explicitly represents a drained read; no
+    # receiver or actual DMA is executed by this scheduler-only case.
+    completed = KVConnectorOutput(finished_recving={case.request.request_id})
+    case.scheduler.update_from_output(
+        pending, ModelRunnerOutput.with_kv_conn_output_only(completed)
+    )
+    assert case.scheduler.get_kv_cache_usage() == baseline_usage
+    assert case.scheduler.schedule().scheduled_new_reqs == []
 
 
 @pytest.mark.parametrize("role", ["kv_producer", "kv_consumer"])
