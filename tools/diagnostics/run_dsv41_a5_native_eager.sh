@@ -214,6 +214,8 @@ if dspark_tokens:
             "v1/worker/gpu/spec_decode/dflash/speculator.py",
             "v1/worker/gpu/spec_decode/rejection_sampler.py",
             "v1/spec_decode/metrics.py",
+            "v1/metrics/stats.py",
+            "entrypoints/openai/completion/protocol.py",
         )),
         ("vllm_ascend", ascend_root, (
             "worker/v2/spec_decode/dspark/speculator.py",

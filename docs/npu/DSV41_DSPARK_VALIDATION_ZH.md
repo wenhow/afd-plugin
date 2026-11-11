@@ -88,6 +88,10 @@ history、computed frontier、下一轮 Engram lookback 和 KV 生命周期。
 的请求与正常退出，再对比同 checkpoint、tokenizer 和采样参数下的原生 DSpark
 与 AFD DSpark。
 
+[原生 DSpark eager 操作说明](DSV41_A5_NATIVE_DSPARK_ZH.md)提供服务启动后的统一
+请求采集命令，保存每轮 token IDs、原生详细接受/拒绝指标和 HTTP 失败现场。
+先完成 N=1 单请求，再进行同服务的不同长度/重复请求；A5 结果后续集中回传。
+
 | 验收项 | 必须取得的实际结果 |
 | --- | --- |
 | Proposal 与验证 | 实际 proposed/accepted token、拒绝位置、fallback 和输出一致性；不强制接受 |

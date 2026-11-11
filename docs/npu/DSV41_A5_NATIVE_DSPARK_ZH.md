@@ -41,31 +41,32 @@ N 表示本轮 speculative token 数，target 验证宽度为 N+1，draft 根据
 
 ## 请求、指标和退出
 
-在另一个终端设置刚才打印的真实结果目录。先检查 `/health`，再执行一个固定 seed 的单序列请求；`ignore_eos` 仅用于形成固定长度 decode，不强制接受 draft。
+在另一个终端设置刚才打印的真实结果目录。采集工具先检查 `/health`，再执行一个固定 seed 的单序列请求；`ignore_eos` 用于形成固定长度 decode。工具使用 Python 标准库，沿用已启动的服务，每次运行创建独立子目录。
 
 ```bash
 afd_native_run=/absolute/path/printed/above
-(
-  set -eu
-  curl --silent --show-error --fail --max-time 10 \
-    http://127.0.0.1:18030/health > "$afd_native_run/health.txt"
-  curl --silent --show-error --fail --max-time 10 \
-    http://127.0.0.1:18030/metrics > "$afd_native_run/metrics-before.txt"
-  npu-smi info > "$afd_native_run/npu-ready.log" 2>&1
-  cat > "$afd_native_run/request.json" <<'JSON'
-{"model":"dsv41-native","prompt":"Explain how to keep a simple daily work log.","temperature":0,"seed":0,"max_tokens":64,"ignore_eos":true,"n":1,"return_token_ids":true,"stream":false}
-JSON
-  curl --silent --show-error --fail-with-body --max-time 300 \
-    -H 'Content-Type: application/json' \
-    --data-binary "@$afd_native_run/request.json" \
-    http://127.0.0.1:18030/v1/completions > "$afd_native_run/response.json"
-  curl --silent --show-error --fail --max-time 10 \
-    http://127.0.0.1:18030/metrics > "$afd_native_run/metrics-after.txt"
-  npu-smi info > "$afd_native_run/npu-after-request.log" 2>&1
-) > "$afd_native_run/request.log" 2>&1
+afd_python=/usr/local/python3.11.10/bin/python
+npu-smi info > "$afd_native_run/npu-ready.log" 2>&1
+"$afd_python" -B tools/diagnostics/collect_dsv41_dspark_requests.py \
+  --output-root "$afd_native_run" --spec-tokens 1 --max-tokens 64 \
+  > "$afd_native_run/request-collector.log" 2>&1
 afd_request_status=$?
 printf '%s\n' "$afd_request_status" > "$afd_native_run/request-exit-code.txt"
+cat "$afd_native_run/request-collector.log"
+npu-smi info > "$afd_native_run/npu-after-request.log" 2>&1
 ```
+
+控制台和日志会打印新的 `dspark-requests-*` 子目录。其 `summary.json` 汇总每轮
+token IDs、finish reason 和原生详细 DSpark 指标；各 `request-001/` 子目录保存
+请求、原始响应、HTTP 状态及请求前后的 `/metrics` 全文，保留 engine/rank 标签。
+HTTP 错误或不完整响应也保留 body。首个失败后停止后续请求，退出码为 1；
+参数错误为 2；全部请求和数据检查通过为 0。
+
+工具核对 N、histogram、逐步 accepted/drafted 数组及聚合计数/比率的一致性，
+允许真实 accepted=0。缺 token IDs、缺详细指标或没有有效 proposal 均记为
+未通过，不补成零值。`--spec-tokens` 必须与本轮启动 N 相同；默认端点为
+`http://127.0.0.1:18030`，需要时显式传 `--base-url` 和 `--model`。
+本工具的本地受控 HTTP 回归不代表已经在 A5 或完整模型运行通过。
 
 如需实际观测 HBM 峰值，可在第三个终端于请求前启动这段有界监控；其超时退出码 124 表示正常到达采集时限。它不终止模型服务。请求若超过窗口，不能把窗口内最大值称为整轮峰值。
 
@@ -84,8 +85,20 @@ timeout 120s bash -c 'while true; do date -u; npu-smi info; sleep 1; done' \
 
 draft 接受率为 accepted/drafted；平均接受长度按原生口径含 bonus token，为 `1 + accepted/drafts`。缺指标不能记为零，也不能据 HTTP 200 推断发生了有效 proposal。原生 DP8 的 dummy 协调和每个 engine 的计数须按实际标签保存。
 
-成功后再用同一服务执行不同长度和重复 prompt 的独立请求，分别保存 JSON、响应与指标快照；不要覆盖第一次请求。随后在服务终端 Ctrl+C，等待退出码与 `npu-after.log`，再检查八卡是否空闲、原 worker 是否仍存活。未退出或残留必须如实记录，不能只凭请求成功认定已回收。
+首次成功后，可用同一服务执行不同长度及重复 prompt。以下命令在新的采集目录
+顺序运行 32、64、32 token 三个请求；prompt 和 seed 相同，方便比较前后请求。
+
+```bash
+"$afd_python" -B tools/diagnostics/collect_dsv41_dspark_requests.py \
+  --output-root "$afd_native_run" --spec-tokens 1 --max-tokens 32 64 32
+```
+
+随后在服务终端 Ctrl+C，等待退出码与 `npu-after.log`，再检查八卡是否空闲、原 worker 是否仍存活。未退出或残留必须如实记录，不能只凭请求成功认定已回收。
 
 应回传新结果目录中的 `environment.txt`、`preflight.json`、`opapi-preflight.json`、`native-server.log`、`launcher.log`、请求/响应/指标、显存采样和退出码文件。`preflight.json` 新增实际 DSpark、rejection、Engram 与指标源码 hash；实际 A5 上游版本与项目锁不同须保留差异。Engram 使用主机内存，同时记录 RAM 与 `/dev/shm`，不要只看 HBM。
+
+上传受限时，先提供最新 `dspark-requests-*/summary.json`、`exit-code.txt`、
+失败请求的 `request.json`/`response.json`，以及父目录 `preflight.json`、
+`request-collector.log` 和匹配错误的服务日志。指标全文和显存采样先保留在环境中。
 
 完成 N=1 的数据、退出和资源复核后，N=2/3 可各用同一入口启动全新进程、全新结果目录。DSpark-off 对照也使用全新进程及相同 prompt、seed、长度和并发布局。token 对照与计数可以暴露行为差异，但不能直接证明 Engram/KV 内部历史正确，更不能替代 AFD target-only、多流或 Graph/PD 组合验收。整体开发边界见 [DSpark 验证说明](DSV41_DSPARK_VALIDATION_ZH.md)。
