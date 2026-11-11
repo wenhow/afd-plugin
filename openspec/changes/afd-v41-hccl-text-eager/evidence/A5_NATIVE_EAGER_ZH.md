@@ -1,5 +1,7 @@
 # A5 950DT 8×96 GiB：原生 DP8/TP1/EP8 eager 基线
 
+显式原生 DSpark eager 对照另见 [A5 DSpark 操作说明](../../../../docs/npu/DSV41_A5_NATIVE_DSPARK_ZH.md)；本页无参数入口仍默认关闭 DSpark。
+
 更新：2026-11-10。用户确认 950DT、8 卡、每卡显示 98304 MB；
 按 NPU 工具的 MiB 口径为每卡 96 GiB，实际可用显存以运行前采集为准。
 **本轮改用 DP8/TP1/EP8 + Engram CPU offload/DP shared memory，
