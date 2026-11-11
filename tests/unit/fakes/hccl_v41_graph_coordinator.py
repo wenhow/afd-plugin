@@ -605,9 +605,11 @@ def run_runtime_eager_parent(case, descriptor, *, token_offset, position_offset)
     return batch, result
 
 
-def reference_runtime_eager_output(batch):
-    """Native unsplit CPU model schedule, independent of HCCL continuations."""
+def reference_runtime_eager_output(batch, *, embed_tokens=None):
+    """Unsplit CPU schedule; optional frozen CPU weights are borrowed read-only."""
     model = make_staged_model(capacity=batch.num_tokens_after_padding, engram=False)
+    if embed_tokens is not None:
+        model.embed_tokens = embed_tokens
     return model(
         input_ids=batch.input_ids,
         positions=batch.positions,

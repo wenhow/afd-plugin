@@ -56,7 +56,14 @@ from tests.unit.fakes.attention_model_runner_v2 import (
 )
 from tests.unit.fakes.device_metadata import make_cpu_target_metadata
 from tests.unit.fakes.graph_cache import DeviceCompletion, ReplayGraph
-from tests.unit.fakes.input_batch import make_ascend_decode_batch
+from tests.unit.fakes.hccl_v41_graph_coordinator import (
+    install_runtime_eager_tensor_boundary,
+    reference_runtime_eager_output,
+)
+from tests.unit.fakes.input_batch import (
+    make_ascend_decode_batch,
+    snapshot_ascend_child,
+)
 from tests.unit.fakes.platform import stub_platform_forward_context
 from tests.unit.fakes.rejection_sampler import (
     CPULookbackGather,
@@ -245,14 +252,15 @@ class ReplayDeviceMetadata(AuxiliaryDeviceBoundary):
         self.native_metadata = native_metadata
         self.executor = None if native_metadata is None else native_metadata.executor
 
-    def begin_preparation(self):
+    def begin_preparation(self, *, full_graph=True):
         if self.replay_live or (
             self.prepared_once and (self.lookup_live or self.metadata_live)
         ):
             raise AssertionError(
                 "previous target metadata/lookup lease was not retired"
             )
-        self.lookup_live = self.metadata_live = self.replay_live = True
+        self.lookup_live = self.metadata_live = True
+        self.replay_live = full_graph
         self.reset_events = None
         self.prepared_once = True
 
@@ -260,7 +268,7 @@ class ReplayDeviceMetadata(AuxiliaryDeviceBoundary):
     def build(self, attn_groups, full_graph):
         # U2 retains the real native single-parent build frontier. Providers
         # and its task executor are the existing shared CPU device boundary.
-        self.begin_preparation()
+        self.begin_preparation(full_graph=full_graph)
         with self.native_metadata.build(attn_groups, full_graph):
             yield
         self.events.append("attn-ready")
@@ -268,7 +276,7 @@ class ReplayDeviceMetadata(AuxiliaryDeviceBoundary):
     def run_build(self, build_metadata, **kwargs):
         # Keep native EngramModelState.prepare_attn, including its real FULL
         # mode and buffer ownership. Do not invoke a device metadata kernel.
-        self.begin_preparation()
+        self.begin_preparation(full_graph=kwargs["full_graph_mode"])
         self.attn_metadata = {
             "child": SimpleNamespace(
                 padded_tokens=kwargs["num_tokens"],
@@ -280,6 +288,34 @@ class ReplayDeviceMetadata(AuxiliaryDeviceBoundary):
         }
         self.events.append("attn-ready")
         return self.attn_metadata
+
+    def prepare_child(
+        self,
+        input_batch,
+        cudagraph_mode,
+        block_tables,
+        slot_mappings,
+        attn_groups,
+        kv_cache_config,
+        for_capture=False,
+        ubatch_idx=0,
+    ):
+        # The native HCCL runner builds one FULL metadata parent, but NONE
+        # reaches this existing CPU child-operator leaf directly. Open its
+        # parent lease at the first actual child preparation, never in a test.
+        # No eager SFA metadata task execution is claimed by this snapshot.
+        if cudagraph_mode == CUDAGraphMode.NONE and ubatch_idx == 0:
+            self.begin_preparation(full_graph=False)
+        return snapshot_ascend_child(
+            input_batch,
+            cudagraph_mode,
+            block_tables,
+            slot_mappings,
+            attn_groups,
+            kv_cache_config,
+            for_capture,
+            ubatch_idx,
+        )
 
     def finish_replay(self):
         if not self.replay_live:
@@ -304,27 +340,36 @@ class ReplayKVTransferBoundary(KVTransferBoundary):
         self.stages = stages
 
     def start_load_kv(self, context, **kwargs):
+        expected_metadata = None if self.stages == 2 else self.metadata.attn_metadata
+        # Native FULL invokes pre_forward before its model context, passing
+        # explicit metadata. NONE invokes it inside its real parent context
+        # without that keyword. U2 retains native parent metadata=None in both.
+        full_graph = "attn_metadata" in kwargs
+        actual_metadata = (
+            kwargs["attn_metadata"] if full_graph else context.attn_metadata
+        )
         if (
-            context.attn_metadata is not None
-            or kwargs["attn_metadata"]
-            is not (None if self.stages == 2 else self.metadata.attn_metadata)
-            or kwargs["request_ids"] != self.batch.req_ids
+            full_graph
+            and context.attn_metadata is not None
+            or actual_metadata is not expected_metadata
+        ):
+            raise AssertionError("KV load lost the native FULL/NONE metadata boundary")
+        if (
+            kwargs["request_ids"] != self.batch.req_ids
             or kwargs["request_state_indices"] is not self.batch.idx_mapping
             or kwargs["num_tokens"] != self.batch.num_tokens
         ):
             raise AssertionError("positive KV load lost native prepared coordinates")
-        # Native FULL pre_forward precedes run_fullgraph's context. It passes
-        # U1 metadata explicitly, or U2's native parent None. It creates an empty
-        # maintenance context rather than pretending replay has already begun.
         self.events.append("kv-load")
 
 
 class PreparedReplayInputs:
     """Replace only input-materialization kernels, preserving native gather."""
 
-    def __init__(self, batch, events, *, stages=1):
+    def __init__(self, batch, events, *, stages=1, allow_eager=False):
         self.batch, self.events = batch, events
         self.stages = stages
+        self.allow_eager = allow_eager
 
     def __call__(self, scheduler, state, descriptor):
         if (
@@ -332,7 +377,12 @@ class PreparedReplayInputs:
             or tuple(state.num_scheduled_tokens)
             != tuple(self.batch.num_scheduled_tokens)
             or state.num_tokens != self.batch.num_tokens
-            or descriptor.cg_mode != CUDAGraphMode.FULL
+            or descriptor.cg_mode
+            not in (
+                (CUDAGraphMode.FULL, CUDAGraphMode.NONE)
+                if self.allow_eager
+                else (CUDAGraphMode.FULL,)
+            )
             or descriptor.num_tokens != self.batch.num_tokens_after_padding
             or descriptor.num_ubatches != self.stages
         ):
@@ -440,7 +490,13 @@ def _publish_cpu_replay_fixture(case, coordinator):
 
 
 def make_native_full_kv_replay_case(
-    monkeypatch, *, fail_replay=False, target_query_len=1, auxiliary=False, stages=1
+    monkeypatch,
+    *,
+    fail_replay=False,
+    target_query_len=1,
+    auxiliary=False,
+    stages=1,
+    eager_fallback=False,
 ):
     """Real AFD -> Ascend -> GPU FULL execution over explicit CPU inputs.
 
@@ -475,6 +531,7 @@ def make_native_full_kv_replay_case(
     batch.seq_lens.fill_(FULL_REPLAY_HISTORY_TOKENS + target_query_len)
     batch.seq_lens_np.fill(FULL_REPLAY_HISTORY_TOKENS + target_query_len)
     case.batch = batch
+    case.eager_fallback = eager_fallback
     owner.req_states = SimpleNamespace(
         req_id_to_index=dict(zip(batch.req_ids, range(batch.num_reqs), strict=True)),
         num_computed_tokens_np=batch.num_computed_tokens_np,
@@ -488,7 +545,7 @@ def make_native_full_kv_replay_case(
     # preserve the actual native request ordering before the prepared input seam.
     del owner.gather_batch_req_state
     owner.prepare_inputs = PreparedReplayInputs(
-        batch, case.native_events, stages=stages
+        batch, case.native_events, stages=stages, allow_eager=eager_fallback
     )
     owner.block_tables = ReplayBlockTables(rows)
     owner.input_buffers = SimpleNamespace(dcp_local_seq_lens=None)
@@ -516,6 +573,8 @@ def make_native_full_kv_replay_case(
         case.runner.attn_groups = owner.attn_groups
         owner.ubatch_runner = case.runner
     metadata = ReplayDeviceMetadata(case.native_events, native_metadata=native_metadata)
+    if eager_fallback and stages == 2:
+        case.runner._prepare_attn = metadata.prepare_child
     owner.model_state.device_metadata = metadata
     owner.model_state.vllm_config = owner.vllm_config
     owner.model_state.max_model_len = FULL_REPLAY_HISTORY_TOKENS + rows
@@ -528,6 +587,31 @@ def make_native_full_kv_replay_case(
     monkeypatch.setattr(kv_transfer_state, "_KV_CONNECTOR_AGENT", transfer)
     owner.kv_connector = ActiveKVConnector(owner.vllm_config, case.kv_views)
     case.kv_transfer = transfer
+    if eager_fallback:
+        # Freeze the deterministic CPU weights before the recorded bundle.
+        # Actual next anchors can exceed the old toy model's 32-row vocabulary.
+        native = owner.model.language_model.model
+        capabilities = case.transport.negotiated_capabilities
+        native.embed_tokens = torch.nn.Embedding.from_pretrained(
+            torch.arange(capabilities.vocab_size * capabilities.hidden_size)
+            .reshape(capabilities.vocab_size, capabilities.hidden_size)
+            .bfloat16(),
+            freeze=True,
+        )
+        native.engram_rotation = torch.empty(0, dtype=torch.bfloat16)
+        # These are the actual native no-Engram public branches. Their empty
+        # CPU mask storage does not validate lookup/hash or NPU producer work.
+        language_model = owner.model.language_model
+        language_model.prepare_engram_inputs = MethodType(
+            AscendDeepseekV41LLMForCausalLM.prepare_engram_inputs, language_model
+        )
+        language_model.prepare_engram_graph_inputs = MethodType(
+            AscendDeepseekV41LLMForCausalLM.prepare_engram_graph_inputs, language_model
+        )
+        case.engram_hook.remove()
+        # Installs the actual replacement ModelState's pre-hook exactly once;
+        # control/negotiation/cursors stay real, only tensor backend is bounded.
+        install_runtime_eager_tensor_boundary(case)
     case.scheduler.num_scheduled_tokens = dict.fromkeys(batch.req_ids, target_query_len)
     case.scheduler.total_num_scheduled_tokens = rows
     case.transport.data_groups = [
@@ -719,14 +803,19 @@ def make_native_full_kv_sampling_case(monkeypatch, *, fail_sample=False):
 class SpeculativeLogitsBoundary:
     """CPU head whose actual logits independently drive three rejection cases."""
 
-    def __init__(self, hidden_size, vocab_size):
+    def __init__(self, hidden_size, vocab_size, *, ordinal_rows=False):
         self.hidden_size, self.vocab_size = hidden_size, vocab_size
+        self.ordinal_rows = ordinal_rows
         # Request 0: both drafts match; request 1: first draft mismatches;
         # request 2: first matches and second mismatches. Final rows are bonus.
         self.predictions = torch.tensor([11, 12, 13, 29, 22, 23, 31, 39, 33])
 
     def __call__(self, hidden_states):
-        rows = (hidden_states[:, 0] / self.hidden_size).to(torch.int64)
+        rows = (
+            torch.arange(hidden_states.shape[0])
+            if self.ordinal_rows
+            else (hidden_states[:, 0] / self.hidden_size).to(torch.int64)
+        )
         logits = hidden_states.new_full((rows.numel(), self.vocab_size), -20)
         return logits.scatter_(1, self.predictions[rows, None], 20)
 
@@ -739,7 +828,12 @@ class CPUDraftTokensHandler(DraftTokensHandler):
 
 
 def make_native_dspark_sampling_case(
-    monkeypatch, proposal_factory, *, fail_backbone=False, stages=1
+    monkeypatch,
+    proposal_factory,
+    *,
+    fail_backbone=False,
+    stages=1,
+    eager_fallback=False,
 ):
     """Actual target FULL -> sample/reject -> local DSpark -> KV post-forward.
 
@@ -749,7 +843,11 @@ def make_native_dspark_sampling_case(
     native runner, RejectionSampler and DSpark proposal bodies remain real.
     """
     case = make_native_full_kv_replay_case(
-        monkeypatch, target_query_len=3, auxiliary=True, stages=stages
+        monkeypatch,
+        target_query_len=3,
+        auxiliary=True,
+        stages=stages,
+        eager_fallback=eager_fallback,
     )
     owner, batch = case.owner, case.batch
     if (batch.num_reqs, batch.num_tokens, owner.decode_query_len) != (3, 9, 3):
@@ -788,7 +886,9 @@ def make_native_dspark_sampling_case(
     owner.rejection_sampler = RejectionSampler(
         owner.sampler, owner.vllm_config.speculative_config, torch.device("cpu")
     )
-    owner.model.language_model.compute_logits = SpeculativeLogitsBoundary(4, 128)
+    owner.model.language_model.compute_logits = SpeculativeLogitsBoundary(
+        4, 128, ordinal_rows=eager_fallback
+    )
     # Preserve the actual native public getter and its persistent target buffer.
     # DSpark still consumes auxiliary layers; no ordinary-MTP proposal is added.
     owner.model.language_model.get_mtp_target_hidden_states = MethodType(
@@ -825,7 +925,9 @@ def make_native_dspark_sampling_case(
     return case
 
 
-def advance_native_dspark_sampling_case(case, *, fail_backbone=False):
+def advance_native_dspark_sampling_case(
+    case, *, fail_backbone=False, predictions=(41, 15, 16, 13, 42, 43, 6, 7, 44)
+):
     """Prepare a fresh scheduled query from the first native sampling result.
 
     RequestState GPU buffers retain their owner. A real CachedRequestData lets
@@ -889,10 +991,13 @@ def advance_native_dspark_sampling_case(case, *, fail_backbone=False):
     scheduler.kv_connector_metadata = TransferMetadata()
     scheduler.has_sync_kv_loads = True
     owner.prepare_inputs = PreparedReplayInputs(
-        batch, case.native_events, stages=owner.parallel_config.num_ubatches
+        batch,
+        case.native_events,
+        stages=owner.parallel_config.num_ubatches,
+        allow_eager=case.eager_fallback,
     )
     owner.model.language_model.compute_logits.predictions.copy_(
-        torch.tensor([41, 15, 16, 13, 42, 43, 6, 7, 44])
+        torch.tensor(predictions)
     )
     if fail_backbone:
         case.proposal.model.error = RuntimeError(
@@ -906,3 +1011,10 @@ def advance_native_dspark_sampling_case(case, *, fail_backbone=False):
     case.batch, case.scheduler = batch, scheduler
     case.kv_transfer.batch = batch
     return batch
+
+
+def native_dspark_eager_reference(case):
+    """Independent unsplit CPU body, sharing only frozen read-only weights."""
+    return reference_runtime_eager_output(
+        case.batch, embed_tokens=case.owner.model.language_model.model.embed_tokens
+    )

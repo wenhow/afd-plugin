@@ -55,30 +55,27 @@ target Graph 输出由 CPU 夹具提供；draft KV 预计算和模型计算使�
 接受/拒绝用例采用 greedy CPU 叶子，不覆盖随机采样、设备 rejection kernel
 或真实 Engram gather kernel。
 
-2026-11-11 A3 实际依赖回归中，完整 Attention runner 模块在第三轮为 **33 项通过**，
-完整 Graph coordinator 模块在第四轮为 **117 项通过**，两轮均核对 57 项安装源码。
-第三轮的另两项 profile/dummy 断言问题在第四轮修正；各轮独立记录，不合称一次
-150 项全绿。运行基底使用已交付源码加本轮测试，排除了暂停的 MTP 本地改动。
+2026-11-11 最新 A3 实际依赖单轮回归为 **160 项通过、0 失败、0 跳过**
+（完整 runner 41、coordinator 119），64 项安装源码一致。运行快照使用已交付
+源码加四个测试文件，排除了暂停的普通 MTP 工作区改动。
 
-随后 U2 增量的一轮完整回归为 **152 项通过、0 失败、0 跳过**（runner 35、
-coordinator 117），64 项安装源码一致。它使用真实原生 U2 prepare，将三请求
-q3 target 切为 4/5 两段，仍在父级做一次采样与历史推进；draft 期间无新增 F
-事务。它只覆盖一次 target 到下一批 proposal 和下一轮 lookback 准备，连续
-模型解码、真实设备 capture/replay 和 KV 写入仍需独立验收。
+U1/U2 组合用例沿用同一 runner、ModelState、请求状态和 Graph 缓存，连续执行
+FULL 命中、miss 后完成 eager、FULL 再次命中。每轮通过实际 execute、原生
+采样和 DSpark proposal、KV post-forward；后续输入由上一轮生成的 draft、
+bonus 和 computed frontier 派生，并经过原生 cached-request 更新。U2 的
+三请求 q3 target 按 4/5 两段准备，采样与历史推进仍在父级完成。
 
-连续周期增量的单轮完整回归为 **158 项通过、0 失败、0 跳过**（runner 39、
-coordinator 119），64 项安装源码一致。U1/U2 用例沿用同一请求状态，以首轮真实
-draft、bonus 和 computed frontier 构造第二轮输入，并经过原生 cached-request
-更新和采样。两轮采用不同 target logits，使全接受、首步拒绝和中途拒绝的结果
-发生变化；检查最终 token、完整历史、下一轮 lookback 和 KV 收尾。第二轮
-proposal 异常时，保留已更新的历史、上一批 draft 和尚未收尾的 KV 绑定。
+三轮采用不同 target logits，改变全接受、首步拒绝和中途拒绝的结果，检查
+最终 token、完整 history、computed frontier、下一轮 lookback 和 KV 收尾。
+execute 返回后先检查 Engram 执行资源已退役、history 尚未推进且 KV 仍绑定；
+sample 后再检查新历史和 draft。中间 eager 的实际输出与独立算术参考逐值
+比较后，由原生 sampler 继续消费；draft 无 target sidecar，也无新增 F 事务。
+另有第二轮 proposal 异常用例，确认保留已更新历史、上一批 draft 和未收尾 KV。
 
-另一组 U1/U2 组件用例执行 Graph 命中、miss 后完成 eager、再次命中的三个父
-事务，每次结束后调用原生 DSpark proposal。中间路径使用新输入和独立算术
-输出参考；三次 draft 均无新增 F 事务，保留的 Graph 输出存储和值不变。
-F 的 ready/missing/ready 是脚本化可用性回复，不代表真实 F 进程重新捕获，
-也不证明运行失败后的恢复。该组三步未连接完整 execute/sample/history 链；
-连续采样由前一组两轮用例分别覆盖。
+F 的 ready/missing/ready 是脚本化可用性回复。第一、三轮 FULL 使用预供 CPU
+输出；中间 eager 的 child metadata 和无 Engram 模型边界使用 CPU 夹具。
+结果不证明真实 F 重新捕获、设备 Graph 随新输入重算、Engram producer/kernel、
+实际 KV 写入或运行失败后的恢复。这些仍需 A5 完整模型验收。
 
 需要检查的接口行为包括：原生 proposal 的 token 和 Markov 依赖、target/draft
 上下文隔离、异常后的上下文恢复，以及全接受、首步拒绝和中途拒绝后的输出、

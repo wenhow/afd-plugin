@@ -18,6 +18,10 @@ import torch
 from vllm_ascend.attention.sfa_v1 import AscendSFABackend
 from vllm_ascend.worker.v2.model_runner import NPUModelRunner
 
+from afd_plugin.model_executor.models import forward_context as context_module
+from afd_plugin.model_executor.models.npu.deepseek_v41 import (
+    HCCL_V41_PARENT_FORWARD_KEY,
+)
 from afd_plugin.v1.worker.npu import attention_model_runner_v2 as runner_module
 from afd_plugin.v1.worker.npu import hccl_v41_graph_coordinator as coordinator_module
 from tests.unit.fakes.attention_model_runner_v2 import (
@@ -38,6 +42,7 @@ from tests.unit.fakes.kv_connector import (
     make_native_full_kv_replay_case,
     make_native_full_kv_sampling_case,
     make_native_kv_runner_case,
+    native_dspark_eager_reference,
 )
 
 
@@ -636,6 +641,143 @@ def test_second_dspark_proposal_failure_retains_advanced_history_and_kv(
     assert not case.cache.terminal and not case.transport.terminal
     assert not case.recorded_graph.closed
     assert owner.sample_tokens(None) is None
+
+
+@pytest.mark.parametrize("stages", [1, 2])
+def test_native_dspark_hit_miss_hit_keeps_history(  # long-test: three native cycles
+    monkeypatch, stages
+):
+    case = make_native_dspark_sampling_case(
+        monkeypatch, make_dspark_proposal_case, stages=stages, eager_fallback=True
+    )
+    owner, state = case.owner, case.owner.req_states
+    key = case.recorded_resources.bank.key
+    entry = case.cache.find(key, case.generation())
+    retained = entry.resources.hidden_states
+    retained_value, retained_storage = retained.clone(), retained.data_ptr()
+    expected = (
+        dict(
+            readiness="ready",
+            predictions=None,
+            tokens=[[11, 12, 13], [29], [31, 39]],
+            sampled=[3, 1, 2],
+            rejected=[0, 2, 1],
+            computed=[15, 13, 14],
+            total=[16, 14, 15],
+            last=[13, 29, 39],
+            drafts=[[14, 15], [13, 14], [6, 7]],
+        ),
+        dict(
+            readiness="missing",
+            predictions=(41, 15, 16, 13, 42, 43, 6, 7, 44),
+            tokens=[[41], [13, 42], [6, 7, 44]],
+            sampled=[1, 2, 3],
+            rejected=[2, 1, 0],
+            computed=[16, 15, 17],
+            total=[17, 16, 18],
+            last=[41, 42, 44],
+            drafts=[[8, 9], [9, 10], [11, 12]],
+        ),
+        dict(
+            readiness="ready",
+            predictions=(8, 47, 48, 9, 10, 49, 50, 12, 51),
+            tokens=[[8, 47], [9, 10, 49], [50]],
+            sampled=[2, 3, 1],
+            rejected=[1, 0, 2],
+            computed=[18, 18, 18],
+            total=[19, 19, 19],
+            last=[47, 49, 50],
+            drafts=[[14, 15], [16, 0], [0, 1]],
+        ),
+    )
+    for index, result in enumerate(expected):
+        if index:
+            advance_native_dspark_sampling_case(case, predictions=result["predictions"])
+        # Only the external F report changes. The same real coordinator owns
+        # native dispatch/reservation, preparation, replay or eager execution.
+        case.transport.states[0] = result["readiness"]
+        previous_history = state.all_token_ids.gpu.clone()
+        assert owner.execute_model(case.scheduler) is None
+        assert torch.equal(state.all_token_ids.gpu, previous_history)
+        assert case.kv_transfer.bound_metadata is case.scheduler.kv_connector_metadata
+        assert not case.auxiliary_device.lookup_live
+        assert not case.auxiliary_device.metadata_live
+        assert not case.auxiliary_device.replay_live
+        if result["readiness"] == "missing":
+            # ExecuteModelState is native's published execute->sample consumer
+            # seam. Read its actual outputs; never replace them with the oracle.
+            published = owner.execute_model_state
+            hidden, auxiliary = native_dspark_eager_reference(case)
+            torch.testing.assert_close(published.hidden_states, hidden)
+            for actual, reference in zip(
+                published.aux_hidden_states, auxiliary, strict=True
+            ):
+                torch.testing.assert_close(actual, reference)
+            assert not torch.equal(published.hidden_states, retained_value)
+            assert state.num_computed_tokens_np.tolist() == [15, 13, 14]
+        protocol = tuple(case.transport.transcript)
+        sampled = owner.sample_tokens(None)
+        output = sampled.get_output()
+        assert output.sampled_token_ids == result["tokens"]
+        assert sampled.sampler_output.num_sampled.tolist() == result["sampled"]
+        assert sampled.sampler_output.num_rejected.tolist() == result["rejected"]
+        assert state.num_computed_tokens.gpu.tolist() == result["computed"]
+        assert state.total_len.gpu.tolist() == result["total"]
+        assert state.last_sampled_tokens.tolist() == result["last"]
+        assert state.draft_tokens.tolist() == result["drafts"]
+        assert output.kv_connector_output.finished_sending == {"sent"}
+        assert case.kv_transfer.bound_metadata is None
+        assert tuple(case.transport.transcript) == protocol
+        draft_context = case.proposal.model.contexts[-1]
+        assert HCCL_V41_PARENT_FORWARD_KEY not in (
+            draft_context.additional_kwargs or {}
+        )
+        assert (
+            context_module.get_afd_metadata_from_forward_context(draft_context) is None
+        )
+        assert case.cache.find(key, case.generation()) is entry
+        assert retained.data_ptr() == retained_storage
+        torch.testing.assert_close(retained, retained_value)
+
+    expected_history = case.initial_history.clone()
+    expected_history[0, 13:19] = torch.tensor([11, 12, 13, 41, 8, 47])
+    expected_history[1, 13:19] = torch.tensor([29, 13, 42, 9, 10, 49])
+    expected_history[2, 13:19] = torch.tensor([31, 39, 6, 7, 44, 50])
+    assert torch.equal(state.all_token_ids.gpu, expected_history)
+    next_inputs = owner.model_state.prepare_engram_inputs(case.batch, state)
+    assert next_inputs["lookback_token_ids"].tolist() == [
+        [8, 41, 13, 12],
+        [10, 9, 42, 13],
+        [44, 7, 6, 39],
+        [-1, -1, -1, -1],
+    ]
+    messages = [
+        message
+        for direction, _, _, message in protocol[len(case.replay_baseline) :]
+        if direction == "send" and message.kind in ("FORWARD", "COMPLETE")
+    ]
+    assert [message.kind for message in messages] == ["FORWARD", "COMPLETE"] * 3
+    plans = [message.plan for message in messages if message.kind == "FORWARD"]
+    assert [plan.graph_execution.phase for plan in plans] == [
+        "replay",
+        "eager",
+        "replay",
+    ]
+    assert len({plan.transaction_id for plan in plans}) == 3
+    assert plans[0].graph_execution.key == plans[2].graph_execution.key == key
+    payloads = case.transport.tensor_peer.messages
+    for layer in (0, 1):
+        layer_payloads = [payload for payload in payloads if payload[0] == layer]
+        torch.testing.assert_close(
+            torch.cat([payload[4] for payload in layer_payloads]),
+            torch.tensor([13, 14, 15, 29, 13, 14, 39, 6, 7], dtype=torch.int32),
+        )
+        assert all(payload[3].dtype == torch.float32 for payload in layer_payloads)
+        assert any(
+            not torch.equal(payload[3], payload[2].float())
+            for payload in layer_payloads
+        )
+    assert not case.transport.terminal and not case.cache.terminal
 
 
 def test_real_native_full_replay_fixture_failure_retains_kv_and_graph_owners(

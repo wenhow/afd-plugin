@@ -99,7 +99,7 @@ def make_graph_eager_case(
         if not dummy and all(count == target_query_len for count in scheduled)
         else None,
     )
-    owner.model.register_forward_pre_hook(
+    case.engram_hook = owner.model.register_forward_pre_hook(
         owner.model_state._prepare_engram_before_forward, with_kwargs=True
     )
     case.eager = HcclV41GraphEager(
