@@ -165,6 +165,14 @@ D 的原生 target/draft 身份、consumer 与缓存视图在注册前固定；t
 103 项安装源码与锁定 Git 一致；138 个生产 Python 文件仅包含上述查询约束修正。
 前三轮失败及诊断分别保留，未合并计数。没有运行设备、服务或依赖安装。
 
+后续接入组合继续消费上述真实 `NewRequestData`，保留原生 RequestState、block table、
+`add_requests`、`update_requests` 和 Ascend 批次分类。检查原始 prompt、history、computed
+frontier、零值 draft 初态，以及含 SWA null 坐标的完整块表。原生 KVBlockZeroer 对新分配
+物理块执行实际 CPU 字节清零；已接收前缀、跳过的 tuple 缓存及页内空隙保持不变。
+该组合独立单轮 **189 项通过、0 失败、0 跳过**，116 项安装源码一致，138 个生产文件
+保持前轮已交付版本；首次 fixture 缺少 zeroer 的失败单独保留。此轮到请求接入与
+BatchReqState 为止，首步输入准备、target 计算、采样及 proposal 仍需后续组合。
+
 ## 后续 A5 统一验收
 
 完整模型使用实际部署的依赖版本，并记录与锁定版本的差异。先完成

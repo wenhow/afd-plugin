@@ -17,7 +17,11 @@ msgspec = pytest.importorskip("msgspec")
 
 import torch
 from vllm.utils import torch_utils
-from vllm.v1.kv_cache_interface import SlidingWindowSpec, UniformTypeKVCacheSpecs
+from vllm.v1.kv_cache_interface import (
+    AttentionSpec,
+    SlidingWindowSpec,
+    UniformTypeKVCacheSpecs,
+)
 from vllm.v1.request import RequestStatus
 from vllm_ascend.attention.sfa_v1 import AscendSFABackend
 from vllm_ascend.core.kv_cache_interface import is_circular_kv_cache_spec
@@ -25,6 +29,7 @@ from vllm_ascend.worker.v2.model_runner import NPUModelRunner
 
 from afd_plugin.compat.npu import kv_layout_connector as pd_adapter
 from afd_plugin.compat.npu.dspark_pd import (
+    NULL_BLOCK_ID,
     DsparkPdReadQuery,
     read_lease_from_payload,
 )
@@ -61,6 +66,7 @@ from tests.unit.fakes.kv_layout_connector import (
     DESTINATION_SENTINEL,
     make_scheduled_dspark_read_case,
 )
+from tests.unit.fakes.request_state import make_native_request_admission_case
 
 CPU_BYTE_VALUES = 256
 
@@ -88,7 +94,7 @@ def scheduled_pd_zero_case(monkeypatch, request):
 
 @pytest.mark.parametrize("scheduled_pd_zero_case", [1, 6], indirect=True)
 def test_native_zero_work_consumes_typed_pd_completion(  # long-test: P/D handoff
-    scheduled_pd_zero_case,
+    scheduled_pd_zero_case, monkeypatch
 ):
     transfer, runner = scheduled_pd_zero_case
     prefix, destination = transfer.prefix_case, transfer.destination_cache
@@ -175,6 +181,71 @@ def test_native_zero_work_consumes_typed_pd_completion(  # long-test: P/D handof
         else 1 + transfer.config.speculative_config.num_speculative_tokens
     )
     assert resumed.num_scheduled_tokens == {transfer.request.request_id: query_width}
+    zero_ids = resumed.new_block_ids_to_zero
+    transferred_ids = {block for group in allocated.block_ids for block in group}
+    assert zero_ids and NULL_BLOCK_ID not in zero_ids
+    assert not set(zero_ids) & transferred_ids
+    expected_after_admission = [page.clone() for page in expected]
+    zeroable_layers = set()
+    for group in prefix.kv_config.kv_cache_groups:
+        for name in group.layer_names:
+            spec = group.kv_cache_spec
+            if isinstance(spec, UniformTypeKVCacheSpecs):
+                spec = spec.kv_cache_specs[name]
+            if isinstance(spec, AttentionSpec):
+                zeroable_layers.add(name)
+    # Native zeroing owns AttentionSpec tensor spans, including overlays.
+    # Tuple index/scale caches and gaps in a shared physical page stay intact.
+    for view in destination.layout.views:
+        cache = transfer.destination_cache.caches[view.layer_name]
+        if view.layer_name not in zeroable_layers or not isinstance(
+            cache, torch.Tensor
+        ):
+            continue
+        inner_span = view.element_bytes + sum(
+            (size - 1) * stride
+            for size, stride in zip(view.shape[1:], view.strides_bytes[1:], strict=True)
+        )
+        assert inner_span == cache[0].numel() * view.element_bytes
+        expected_cache = cache.new_empty(0).set_(
+            expected_after_admission[view.page_index].untyped_storage(),
+            view.page_offset_bytes // view.element_bytes,
+            view.shape,
+            tuple(stride // view.element_bytes for stride in view.strides_bytes),
+        )
+        expected_cache[zero_ids] = 0
+    admission = make_native_request_admission_case(
+        monkeypatch, runner.owner, kv_cache_views=runner.kv_views
+    )
+    batch, uniform = admission.admit(resumed)
+    state = runner.owner.req_states
+    index = state.req_id_to_index[transfer.request.request_id]
+    prompt = new_request.prompt_token_ids
+    assert state.all_token_ids.gpu[index, : len(prompt)].tolist() == prompt
+    assert state.prompt_len.np[index] == state.prefill_len.np[index] == len(prompt)
+    assert state.total_len.gpu[index].item() == len(prompt)
+    assert (
+        state.num_computed_tokens.gpu[index].item() == new_request.num_computed_tokens
+    )
+    assert state.num_computed_tokens_np[index] == new_request.num_computed_tokens
+    assert (
+        state.draft_tokens[index].tolist()
+        == [0] * transfer.config.speculative_config.num_speculative_tokens
+    )
+    for table, block_ids in zip(
+        runner.owner.block_tables.block_tables, new_request.block_ids, strict=True
+    ):
+        assert table.gpu[index, : len(block_ids)].tolist() == block_ids
+    assert batch.req_ids == [transfer.request.request_id]
+    assert batch.num_tokens == query_width
+    assert batch.num_scheduled_tokens.tolist() == [query_width]
+    assert batch.num_computed_prefill_tokens_np.tolist() == [
+        new_request.num_computed_tokens
+    ]
+    assert batch.is_prefilling_np.tolist() == [True]
+    assert batch.has_prefill and uniform is None
+    for actual, target in zip(destination.pages, expected_after_admission, strict=True):
+        torch.testing.assert_close(actual, target, rtol=0, atol=0)
     assert [msgspec.msgpack.decode(frame)[0] for frame in transfer.sent] == [
         pd_adapter.GET_META_MSG,
         pd_adapter.GET_DSPARK_READY_MSG,
