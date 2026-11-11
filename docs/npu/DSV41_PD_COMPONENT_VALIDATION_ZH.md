@@ -5,10 +5,13 @@ Mooncake worker、内存注册、后台线程、请求完成与 DONE 协议。P/
 进程，默认使用 NPU 0、2。探针手工建立小型 V4.1 typed shared-page 视图，不加载
 模型权重，不使用模型原生 KV allocator，也不验证请求历史或 Engram。生产模型门禁仍关闭。
 
-当前首轮 A3 组件会话整体失败：四个请求的真实字节校验、冲突拒绝和 DONE 均完成，
+2026-11-10 的首轮 A3 组件会话整体失败：四个请求的真实字节校验、冲突拒绝和 DONE 均完成，
 但 D 进程在退出时收到 SIGABRT，末尾日志为 `terminate called without an active exception`。
-八卡恢复空闲且监督器没有强制终止，仍不能把这个结果记为通过。下述命令用于复现与后续
-受审验证；当前不要自动继续第二个负例会话，也不要仅凭 role JSON 的 `success` 判断成功。
+八卡恢复空闲且监督器没有强制终止，该首轮失败原始结果保持不变。2026-11-11 使用独立新进程和
+`--retire-receiver` 的 transfer、layout-mismatch 两个受控组件会话均通过，P/D 正常退出、
+无超时或强制终止、运行前后八卡空闲。成功范围限下述小型 typed 页、DONE 和新退出路径，
+不能推广为完整模型 PD、原生 allocator、历史或 Engram 验收。仍须以整体 summary 和退出码判断，
+不能仅凭 role JSON 的 `success` 判断成功；失败时停止后续会话并保留结果。
 
 `tools/diagnostics/run_a3_pd_layout.py` 面向当前锁定的 A3 环境；默认复用已有 venv、
 CANN 和 ATB，不安装依赖。其他容器须先核对脚本中的源码锁点及实际二进制，不能直接
@@ -86,8 +89,9 @@ if ($LASTEXITCODE -ne 0) { throw "transfer 失败：保留结果并先诊断" }
 底层 `TransferEngine` 实际公开 `unregister_memory` 和 `batch_unregister_memory`，
 本探针没有调用它们；这些方法也不等于引擎 close。探针分别记录请求排空、接收 executor
 的 `shutdown(wait=True)` 返回，以及两个进程的实际退出状态；注册依赖保留到进程
-finalization。原生接收 daemon 在 executor 排空后仍运行，当前退出故障尚未归因到具体
-原生对象。上述观察不能合并称为完整主动注销，role 报告的成功也不能替代进程正常退出。
+finalization。不开启插件退休时，原生接收 daemon 在 executor 排空后仍运行；首轮退出故障
+未归因到具体原生对象。开启新退休路径的两次成功观察不证明底层析构根因，也不能称为完整主动注销，
+role 报告的成功不能替代进程正常退出。
 
 内部监督上限 240 秒，外层上限 280 秒，回收最多共享 10 秒预算，另有只读空闲采样。
 监督器只会终止本次记录且 PID start ticks 仍匹配的进程。超时、强制终止、未排空、
@@ -95,3 +99,37 @@ finalization。原生接收 daemon 在 executor 排空后仍运行，当前退�
 
 最小回传为两个会话各自的 summary、result、P/D role JSON、源码检查、布局快照和
 首错原始日志；完整归档保留在环境或本地。运行结果、环境及二进制身份不随代码和说明推送。
+
+## 可选 D 接收线程合作退出
+
+`run --retire-receiver` 显式启用插件接收线程退休，默认关闭。它先关闭整个原生批次的准入，
+等待每个已接纳任务的原生 DONE/ACK，再使用本地专用 sentinel 退出并 join 接收线程，最后
+等待 executor 退出。原生 `None` 队列项仍表示继续运行。该参数不停止 P 发送线程，不调用
+`unregister_memory`，不关闭引擎，也不重置 GlobalTE 的注册生命周期。
+
+该路径于 2026-11-11 在锁定 A3 环境完成两个独立受控会话。transfer 的空请求、非连续映射、
+窗口尾部和整页别名冲突均完成整 slab 字节核对及 DONE；layout-mismatch 的 BF16/FP16 scale
+布局差异在地址发布前被拒绝，接收 slab 未变且失败请求仍完成 DONE。两次均确认 D 接收线程
+退出、executor 返回、双端原生 TP 前后不变、P/D 退出码为零以及八卡空闲；不安装依赖、不注销引擎内存。
+首轮 SIGABRT 仍保留为独立失败，未将其原始结果改成成功。
+
+复现时须重新 prepare 并审核新源码快照，不能复用原先未包含该实现的 prepared identity。
+使用新 label，并在第一个会话整体成功后再运行布局负例，例如：
+
+```powershell
+& $afd_python tools/diagnostics/run_a3_pd_layout.py run `
+  --prepared $afd_identity --identity-sha256 $afd_identity_sha `
+  --case transfer --devices 0,2 --retire-receiver `
+  --label transfer-retire-001 --output-dir .tmp/pd-component-transfer-retire-001
+if ($LASTEXITCODE -ne 0) { throw "transfer 失败：保留结果并先诊断" }
+
+& $afd_python tools/diagnostics/run_a3_pd_layout.py run `
+  --prepared $afd_identity --identity-sha256 $afd_identity_sha `
+  --case layout-mismatch --devices 0,2 --retire-receiver `
+  --label mismatch-retire-001 --output-dir .tmp/pd-component-mismatch-retire-001
+```
+
+`consumer.json` 应另外记录 `receiver_retirement_requested=true`、`receiver_retired=true`、
+`receiver_input_thread_joined=true`。进程退出码、八卡空闲和原有全部字节/DONE 校验仍须独立通过。
+API 的 timeout 覆盖准入、已接纳任务和接收线程 join；最后的 Python executor shutdown 没有
+内部 timeout，由已有外层进程监督提供最终上限。超时或 ACK 错误保留资源并判失败，不能宣称硬件 abort。

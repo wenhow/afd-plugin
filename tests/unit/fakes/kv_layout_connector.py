@@ -8,6 +8,7 @@ storage, transfer-engine registration or execution.
 """
 
 import threading
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
 from types import SimpleNamespace
 
@@ -24,6 +25,7 @@ REMOTE_BASE_ADDRESS = 1_048_576
 REMOTE_HANDSHAKE_PORT = 9001
 LOCAL_HANDSHAKE_PORT = 9000
 TRANSFER_PORT = 9876
+THREAD_TEST_TIMEOUT = 5.0
 
 
 def connector_config(*, role="kv_consumer"):
@@ -160,7 +162,13 @@ class _ReceiverNetworkBoundary(adapter.AFDMooncakeRecvingThread):
         self.done.append(("done", request_id))
 
 
-def make_receiver_case(monkeypatch, *, source_blocks=5, destination_blocks=3):
+def make_receiver_case(
+    monkeypatch,
+    *,
+    source_blocks=5,
+    destination_blocks=3,
+    receiver_type=_ReceiverNetworkBoundary,
+):
     local = make_native_kv_cache_case(num_blocks=destination_blocks)
     remote = make_native_kv_cache_case(num_blocks=source_blocks)
     layout = wire_layout(local)
@@ -172,7 +180,7 @@ def make_receiver_case(monkeypatch, *, source_blocks=5, destination_blocks=3):
     )
     config = connector_config()
     engine = ReadBoundary()
-    receiver = _ReceiverNetworkBoundary(
+    receiver = receiver_type(
         0,
         1,
         1,
@@ -241,6 +249,133 @@ def make_receiver_case(monkeypatch, *, source_blocks=5, destination_blocks=3):
         context.destroy(linger=0),
     )
     return case
+
+
+class _ReceiverSocketBoundary(adapter.AFDMooncakeRecvingThread):
+    """Keep native run/handle/DONE; replace only the CPU transport socket."""
+
+    def _get_remote_socket(self, host, port):
+        return self.socket
+
+    def _return_remote_socket(self, socket, host, port):
+        pass
+
+
+def make_retiring_receiver_case(monkeypatch, *, ack=b"ACK", start=True):
+    case = make_receiver_case(monkeypatch, receiver_type=_ReceiverSocketBoundary)
+    receiver = case.receiver
+    receiver.executor.shutdown(wait=True)
+    # This is a real CPU thread seam, not a simulated NPU executor.
+    receiver.executor = ThreadPoolExecutor(max_workers=1)
+    case.ack_entered = threading.Event()
+    case.allow_ack = threading.Event()
+    case.ack = ack
+
+    def receive(socket, path):
+        kind = msgspec.msgpack.decode(case.request_sent[-1])[0]
+        if kind == adapter.GET_META_MSG:
+            return msgspec.msgpack.encode(case.metadata)
+        if kind != adapter.DONE_RECVING_MSG:
+            raise AssertionError("unexpected native CPU control frame")
+        case.ack_entered.set()
+        if not case.allow_ack.wait(THREAD_TEST_TIMEOUT):
+            raise RuntimeError("CPU test did not release the ACK gate")
+        return case.ack
+
+    monkeypatch.setattr(adapter, "ensure_zmq_recv", receive)
+    original_close = case.close
+
+    def close():
+        case.allow_ack.set()
+        if receiver.is_alive():
+            # Test-only cleanup of a deliberately failed retirement. Production
+            # failure retains this owner for the outer process supervisor.
+            receiver.request_queue.put(adapter._ReceiverControl.RETIRE)
+            receiver.join(THREAD_TEST_TIMEOUT)
+            if receiver.is_alive():
+                raise AssertionError("CPU test receiver did not exit")
+        original_close()
+
+    case.close = close
+    case.submit = lambda: submit_receiver_request(case)
+    if start:
+        receiver.start()
+        if not receiver.ready_event.wait(THREAD_TEST_TIMEOUT):
+            raise AssertionError("CPU test receiver did not become ready")
+    return case
+
+
+def submit_receiver_request(case):
+    request = request_map(case)
+    # The native worker publishes the parent tracker within the same admission
+    # scope as queue publication. Reproduce that public protocol here.
+    with case.receiver.admission_scope():
+        case.receiver.task_tracker.add_req_to_process(request["request_id"])
+        case.receiver.add_request(**request)
+    if not case.ack_entered.wait(THREAD_TEST_TIMEOUT):
+        raise AssertionError("native DONE did not reach the CPU ACK gate")
+
+
+def attach_consumer_worker(case):
+    """Native TP1 batch construction using the actual started CPU receiver."""
+    worker = adapter.AFDMooncakeConnectorWorker.__new__(
+        adapter.AFDMooncakeConnectorWorker
+    )
+    vars(worker).update(
+        kv_role="kv_consumer",
+        kv_recv_thread=case.receiver,
+        kv_send_thread=None,
+        vllm_config=case.receiver.vllm_config,
+        use_mamba=False,
+        tp_rank=0,
+        tp_size=1,
+        _decode_tp_size=1,
+        _prefill_tp_size=1,
+        _prefill_pp_size=1,
+        tp_num_need_pulls=1,
+    )
+    metadata = adapter.MooncakeConnectorMetadata()
+    for request_id in ("first", "second"):
+        metadata.add_new_req(
+            request_id,
+            [[] for _ in case.layout.groups],
+            0,
+            {
+                "remote_block_ids": [[] for _ in case.layout.groups],
+                "remote_engine_id": "remote",
+                "remote_request_id": "remote-" + request_id,
+                "remote_host": "127.0.0.1",
+                "remote_port": REMOTE_HANDSHAKE_PORT,
+                "remote_ptp_size": 1,
+                "remote_pcp_size": 1,
+            },
+        )
+        metadata.reqs_in_batch.add(request_id)
+    case.worker = worker
+    case.batch = metadata
+    return case
+
+
+def hold_receiver_admission(case):
+    """A caller-owned batch gate; all test waits are explicit Event handshakes."""
+    entered = threading.Event()
+    release = threading.Event()
+    errors = []
+
+    def hold():
+        try:
+            with case.receiver.admission_scope():
+                entered.set()
+                if not release.wait(THREAD_TEST_TIMEOUT):
+                    raise AssertionError("CPU test did not release batch admission")
+        except BaseException as error:
+            errors.append(error)
+
+    thread = threading.Thread(target=hold)
+    thread.start()
+    if not entered.wait(THREAD_TEST_TIMEOUT):
+        raise AssertionError("CPU test batch did not acquire admission")
+    return SimpleNamespace(thread=thread, release=release, errors=errors)
 
 
 def request_map(case, *, source=None, destination=None):

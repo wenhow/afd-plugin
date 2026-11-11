@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: Copyright contributors to the AFD plugin project
 # ruff: noqa: E402
-"""Actual codec/native CPU metadata seams; no engine, thread or NPU execution."""
+"""Actual codec/native metadata and CPU thread seams; no engine/NPU execution."""
 
 import json
 from dataclasses import replace
@@ -22,14 +22,20 @@ from afd_plugin.compat.npu.kv_layout_native import collect_deepseek_v41_kv_layou
 from tests.unit.fakes.kv_layout_connector import (
     REMOTE_BASE_ADDRESS,
     REMOTE_HANDSHAKE_PORT,
+    THREAD_TEST_TIMEOUT,
     TRANSFER_PORT,
     RegistrationBoundary,
+    attach_consumer_worker,
     connector_config,
+    hold_receiver_admission,
     make_receiver_case,
     make_registration_case,
+    make_retiring_receiver_case,
     peer_is_published,
     request_map,
 )
+
+RETIREMENT_TEST_DEADLINE = 0.01
 
 
 @pytest.fixture
@@ -323,3 +329,150 @@ def test_evicted_native_mirror_refetches_the_whole_attestation(receiver_case):
     case.receiver._transfer_kv_cache_all_groups(request_map(case))
     assert case.request_sent == [msgspec.msgpack.encode((adapter.GET_META_MSG, ""))] * 2
     assert len(case.engine.reads) == 1
+
+
+@pytest.fixture
+def retiring_receiver_case(monkeypatch):
+    case = make_retiring_receiver_case(monkeypatch)
+    try:
+        yield case
+    finally:
+        case.close()
+
+
+def test_receiver_retirement_joins_input_after_real_native_done_ack(
+    retiring_receiver_case,
+):
+    case = retiring_receiver_case
+    case.submit()
+    case.allow_ack.set()
+    case.receiver.retire(timeout=THREAD_TEST_TIMEOUT)
+    assert case.receiver.retired
+    assert not case.receiver.is_alive()
+    assert case.receiver.get_and_clear_finished_requests() == {"request"}
+    assert case.engine.reads
+    frames = [msgspec.msgpack.decode(data) for data in case.request_sent]
+    assert frames[-1][0:2] == [adapter.DONE_RECVING_MSG, "remote-request"]
+    case.receiver.retire(timeout=THREAD_TEST_TIMEOUT)
+    with pytest.raises(RuntimeError, match="admission is closed"):
+        case.receiver.add_request(**request_map(case))
+
+
+def test_local_queue_done_cannot_replace_remote_ack_for_retirement(
+    retiring_receiver_case,
+):
+    case = retiring_receiver_case
+    case.submit()
+    # Native task_done and local completion precede the blocked final ACK.
+    case.receiver.request_queue.join()
+    assert case.receiver.get_and_clear_finished_requests() == {"request"}
+    with pytest.raises(TimeoutError, match="finish DONE/ACK"):
+        case.receiver.retire(timeout=RETIREMENT_TEST_DEADLINE)
+    assert not case.receiver.retired
+    assert case.receiver.is_alive()
+    with pytest.raises(RuntimeError, match="admission is closed"):
+        case.receiver.add_request(**request_map(case))
+
+
+def test_invalid_remote_ack_is_retained_as_retirement_failure(
+    monkeypatch,
+):
+    case = make_retiring_receiver_case(monkeypatch, ack=b"NOT_ACK")
+    try:
+        case.submit()
+        case.allow_ack.set()
+        with pytest.raises(RuntimeError, match="DONE/ACK|retained failure"):
+            case.receiver.retire(timeout=THREAD_TEST_TIMEOUT)
+        assert not case.receiver.retired
+        assert case.receiver.is_alive()
+        assert case.receiver.engine is case.engine
+        assert case.receiver.kv_caches is case.local.caches
+    finally:
+        case.close()
+
+
+def test_native_none_queue_item_does_not_stop_the_receiver(
+    retiring_receiver_case,
+):
+    receiver = retiring_receiver_case.receiver
+    receiver.request_queue.put(None)
+    receiver.retire(timeout=THREAD_TEST_TIMEOUT)
+    assert receiver.retired
+    assert not receiver.is_alive()
+
+
+@pytest.mark.parametrize("timeout", [0, -1, True, float("nan"), float("inf")])
+def test_retirement_rejects_invalid_deadline_before_thread_work(
+    retiring_receiver_case, timeout
+):
+    receiver = retiring_receiver_case.receiver
+    with pytest.raises(ValueError, match="finite and positive"):
+        receiver.retire(timeout=timeout)
+    assert not receiver.retired
+    receiver.retire(timeout=THREAD_TEST_TIMEOUT)
+
+
+def test_receiver_must_be_started_before_retirement(monkeypatch):
+    case = make_retiring_receiver_case(monkeypatch, start=False)
+    try:
+        with pytest.raises(RuntimeError, match="started external receiver"):
+            case.receiver.retire(timeout=THREAD_TEST_TIMEOUT)
+        assert not case.receiver.retired
+    finally:
+        case.close()
+
+
+def test_worker_batch_finishes_native_done_before_closing_admission(
+    retiring_receiver_case,
+):
+    case = attach_consumer_worker(retiring_receiver_case)
+    case.allow_ack.set()
+    case.worker.start_load_kv(case.batch)
+    case.worker.retire_receiver(timeout=THREAD_TEST_TIMEOUT)
+    assert case.receiver.retired
+    assert case.receiver.get_and_clear_finished_requests() == {"first", "second"}
+    assert case.engine.reads == []
+    with pytest.raises(RuntimeError, match="admission is closed"):
+        case.worker.start_load_kv(adapter.MooncakeConnectorMetadata())
+
+
+def test_failed_native_batch_cannot_report_successful_retirement(
+    retiring_receiver_case,
+):
+    case = attach_consumer_worker(retiring_receiver_case)
+    case.allow_ack.set()
+    case.batch.requests["second"].remote_port = "invalid"
+    with pytest.raises(TypeError):
+        case.worker.start_load_kv(case.batch)
+    with pytest.raises(RuntimeError, match="retained failure"):
+        case.worker.retire_receiver(timeout=THREAD_TEST_TIMEOUT)
+    assert not case.receiver.retired
+    assert case.receiver.engine is case.engine
+
+
+def test_retirement_cannot_close_an_in_progress_batch(
+    retiring_receiver_case,
+):
+    case = retiring_receiver_case
+    gate = hold_receiver_admission(case)
+    try:
+        with pytest.raises(TimeoutError, match="batch admission"):
+            case.receiver.retire(timeout=RETIREMENT_TEST_DEADLINE)
+        assert case.receiver.is_alive()
+        assert case.receiver.engine is case.engine
+    finally:
+        gate.release.set()
+        gate.thread.join(timeout=THREAD_TEST_TIMEOUT)
+    assert not gate.thread.is_alive()
+    assert gate.errors == []
+    assert not case.receiver.retired
+    case.receiver.retire(timeout=THREAD_TEST_TIMEOUT)
+    assert case.receiver.retired
+
+
+def test_worker_cannot_retire_the_producer_receiver(retiring_receiver_case):
+    case = attach_consumer_worker(retiring_receiver_case)
+    case.worker.kv_role = "kv_producer"
+    with pytest.raises(RuntimeError, match="registered attested consumer"):
+        case.worker.retire_receiver(timeout=THREAD_TEST_TIMEOUT)
+    assert not case.receiver.retired

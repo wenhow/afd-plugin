@@ -31,6 +31,11 @@ import pytest
         "pd-register",
         "pd-remote-metadata",
         "pd-read",
+        "pd-receiver-run",
+        "pd-receiver-add-request",
+        "pd-receiver-handle-request",
+        "pd-receiver-done",
+        "pd-worker-start-load",
         "ds-mxfp8",
         "ds-mxfp4",
         "ds-mxfp4-expert-scale",
@@ -74,12 +79,40 @@ def test_scoped_patch_preserves_upstream_signature(hook):  # long-test: shared t
                 adapter.AFDMooncakeRecvingThread._get_remote_metadata,
                 "_get_remote_metadata",
             )
-        else:
+        elif hook == "pd-read":
             target, replacement, symbol = (
                 native.KVCacheRecvingThread,
                 adapter.AFDMooncakeRecvingThread._transfer_kv_cache_all_groups,
                 "_transfer_kv_cache_all_groups",
             )
+        else:
+            target, replacement, symbol = {
+                "pd-receiver-run": (
+                    native.KVCacheRecvingThread,
+                    adapter.AFDMooncakeRecvingThread.run,
+                    "run",
+                ),
+                "pd-receiver-add-request": (
+                    native.KVCacheRecvingThread,
+                    adapter.AFDMooncakeRecvingThread.add_request,
+                    "add_request",
+                ),
+                "pd-receiver-handle-request": (
+                    native.KVCacheRecvingThread,
+                    adapter.AFDMooncakeRecvingThread._handle_request,
+                    "_handle_request",
+                ),
+                "pd-receiver-done": (
+                    native.KVCacheRecvingThread,
+                    adapter.AFDMooncakeRecvingThread._send_done_recv_signal,
+                    "_send_done_recv_signal",
+                ),
+                "pd-worker-start-load": (
+                    native.MooncakeConnectorWorker,
+                    adapter.AFDMooncakeConnectorWorker.start_load_kv,
+                    "start_load_kv",
+                ),
+            }[hook]
         scope = patch.object(target, symbol, replacement)
     elif hook == "capture-inputs":
         from vllm.v1.worker.gpu import cudagraph_utils as target

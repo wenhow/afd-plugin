@@ -13,18 +13,23 @@ from __future__ import annotations
 import math
 import threading
 import time
+from _thread import LockType
 from collections import OrderedDict
-from collections.abc import Sequence
+from collections.abc import Iterator, Sequence
+from contextlib import contextmanager
 from dataclasses import dataclass
+from enum import Enum
 from typing import TYPE_CHECKING, Any
 
 import msgspec
 import torch
 import zmq
 from vllm.config import VllmConfig
+from vllm.distributed.kv_transfer.kv_connector.utils import BlockIds
 from vllm.distributed.kv_transfer.kv_connector.v1.base import KVConnectorRole
 from vllm.v1.kv_cache_interface import KVCacheConfig
 from vllm_ascend.distributed.kv_transfer.kv_p2p.mooncake_hybrid_connector import (
+    DONE_RECVING_MSG,
     GET_META_MSG,
     KVCacheRecvingThread,
     KVCacheSendingThread,
@@ -34,6 +39,7 @@ from vllm_ascend.distributed.kv_transfer.kv_p2p.mooncake_hybrid_connector import
     MooncakeConnectorMetadata,
     MooncakeConnectorScheduler,
     MooncakeConnectorWorker,
+    RemotePortInfo,
     _reconstruct_shared_pages,
     as_kv_cache_tensors,
     collect_configured_register_regions,
@@ -80,6 +86,22 @@ class _AttestedPeer:
     addresses: tuple[int, ...]
     host: str
     port: int
+
+
+class _ReceiverControl(Enum):
+    RETIRE = "retire"
+
+
+@contextmanager
+def _before_retirement_deadline(
+    lock: LockType | threading.Condition, deadline: float
+) -> Iterator[None]:
+    if not lock.acquire(timeout=max(0, deadline - time.monotonic())):
+        raise TimeoutError("receiver retirement frontier lock did not drain")
+    try:
+        yield
+    finally:
+        lock.release()
 
 
 def _validate_layout_role(layout: KVLayoutSnapshot) -> None:
@@ -231,6 +253,36 @@ class MooncakeHybridConnector(MooncakeConnector):
 
 
 class AFDMooncakeConnectorWorker(MooncakeConnectorWorker):
+    # Upstream: MooncakeConnectorWorker.start_load_kv @ 7e37e29a:2065-2158.
+    # Reason/functionality: serialize the entire native multi-pull batch with
+    # receiver retirement, so shutdown cannot admit half a native request.
+    # Delegation exception: retain native topology/pull/tracker construction;
+    # the 94-line body is unchanged and only this admission scope is added.
+    # Signature matches upstream, including its omitted return annotation.
+    def start_load_kv(self, metadata: MooncakeConnectorMetadata):
+        # ### PATCH START: atomic consumer batch admission
+        if self.kv_role == "kv_consumer":
+            receiver = self.kv_recv_thread
+            if not isinstance(receiver, AFDMooncakeRecvingThread):
+                raise RuntimeError("attested receiver is not registered")
+            with receiver.admission_scope():
+                return super().start_load_kv(metadata)
+        # ### PATCH END: atomic consumer batch admission
+        return super().start_load_kv(metadata)
+
+    def retire_receiver(self, *, timeout: float) -> None:
+        """Retire this consumer, retaining its engine and fixed registration.
+
+        ``timeout`` bounds admission/drain/join before executor shutdown. Python
+        executor shutdown has no timeout; the calling process supervisor must
+        provide the final bound. This never closes/unregisters the engine.
+        """
+        if self.kv_role != "kv_consumer" or not isinstance(
+            self.kv_recv_thread, AFDMooncakeRecvingThread
+        ):
+            raise RuntimeError("retirement requires a registered attested consumer")
+        self.kv_recv_thread.retire(timeout=timeout)
+
     # Upstream: MooncakeConnectorWorker.__init__ @ 7e37e29a:1750-1862.
     # Reason/functionality: reject unsupported configuration before TE setup.
     # Delegation exception: keep the 113-line native engine/topology constructor
@@ -556,9 +608,276 @@ class AFDMooncakeRecvingThread(KVCacheRecvingThread):
             prefill_pp_layer_partition,
             mooncake_runtime_id,
         )
-        # ### PATCH START: strict extension decoder
+        # ### PATCH START: strict decoder and instance retirement owner
         self.decoder = msgspec.msgpack.Decoder(AttestedMooncakeAgentMetadata)
-        # ### PATCH END: strict extension decoder
+        self._admission_lock = threading.RLock()
+        self._retire_lock = threading.Lock()
+        self._retire_condition = threading.Condition(self._admission_lock)
+        self._accepted_requests: dict[str, int] = {}
+        self._retirement_failed = threading.Event()
+        self._admission_closed = False
+        self._retired = False
+        # ### PATCH END: strict decoder and instance retirement owner
+
+    @property
+    def retired(self) -> bool:
+        """Only true after native ACKs, receiver join and executor shutdown."""
+        with self._retire_condition:
+            return self._retired
+
+    @contextmanager
+    def admission_scope(self) -> Iterator[None]:
+        """One native batch and retirement share this instance-owned lock."""
+        with self._retire_condition:
+            if self._admission_closed or self._retirement_failed.is_set():
+                raise RuntimeError("attested receiver admission is closed")
+            try:
+                yield
+            except BaseException:
+                self._retirement_failed.set()
+                self._retire_condition.notify_all()
+                raise
+
+    # Upstream: KVCacheRecvingThread.add_request @ 7e37e29a:561-593.
+    # Reason/functionality: count every admitted native task before its queue
+    # publication and prevent new tasks once retirement closes admission.
+    # Delegation exception: preserve the complete native rank/port dictionary;
+    # the wrapper owns admission only, not a second request representation.
+    # Signature matches upstream, including its omitted return annotation.
+    def add_request(
+        self,
+        request_id: str,
+        remote_request_id: str,
+        local_block_ids: BlockIds,
+        remote_block_ids: BlockIds,
+        remote_engine_id: str,
+        remote_host: str,
+        remote_handshake_port: int,
+        offset: int,
+        tp_num_need_pulls: int,
+        remote_port_send_num: dict[int, RemotePortInfo] | None = None,
+        all_task_done: bool = False,
+    ):
+        # ### PATCH START: exact task admission before native publication
+        with self.admission_scope():
+            self._accepted_requests[request_id] = (
+                self._accepted_requests.get(request_id, 0) + 1
+            )
+            try:
+                return super().add_request(
+                    request_id,
+                    remote_request_id,
+                    local_block_ids,
+                    remote_block_ids,
+                    remote_engine_id,
+                    remote_host,
+                    remote_handshake_port,
+                    offset,
+                    tp_num_need_pulls,
+                    remote_port_send_num,
+                    all_task_done,
+                )
+            except BaseException:
+                self._retirement_failed.set()
+                self._retire_condition.notify_all()
+                raise
+        # ### PATCH END: exact task admission before native publication
+
+    # Upstream: KVCacheRecvingThread.run @ 7e37e29a:623-635.
+    # Reason/functionality: a private local retirement sentinel exits the input
+    # thread after admission/drain; native None and normal requests are unchanged.
+    # Signature matches upstream. Remove when native owns cooperative retirement.
+    def run(self):
+        """Run the thread to handle KV cache transfer requests."""
+        self.ready_event.set()
+        while True:
+            try:
+                request_data = self.request_queue.get()
+                # ### PATCH START: local receiver retirement
+                if request_data is _ReceiverControl.RETIRE:
+                    self.request_queue.task_done()
+                    return
+                # ### PATCH END: local receiver retirement
+                if request_data is None:
+                    logger.warning("Received a None request. ")
+                    self.request_queue.task_done()
+                    continue
+                self._submit_request(request_data)
+            except Exception as e:
+                # ### PATCH START: failed dispatch cannot retire successfully
+                self._retirement_failed.set()
+                with self._retire_condition:
+                    self._retire_condition.notify_all()
+                # ### PATCH END: failed dispatch cannot retire successfully
+                logger.error("Error in KVCacheTransferThread. error=%s. ", e)
+
+    # Upstream: KVCacheRecvingThread._handle_request @ 7e37e29a:706-745.
+    # Reason/functionality: native task_done precedes DONE/ACK; retain acceptance
+    # through the complete finalization, with a sticky failure on any exception.
+    # Delegation exception: preserve native failed-transfer retirement and both
+    # DONE routes as one owner; only the post-finalization counter is new.
+    # Signature matches upstream, including its omitted return annotation.
+    def _handle_request(self, req_meta: dict[str, Any]):
+        # ### PATCH START: task remains live through final native ACK
+        request_id = req_meta["request_id"]
+        with self._retire_condition:
+            if request_id not in self._accepted_requests:
+                # Native component callers may directly execute one queued task.
+                if self._admission_closed:
+                    raise RuntimeError("unadmitted task after receiver retirement")
+                self._accepted_requests[request_id] = 1
+        try:
+            result = super()._handle_request(req_meta)
+        except BaseException:
+            self._retirement_failed.set()
+            with self._retire_condition:
+                self._retire_condition.notify_all()
+            raise
+        with self._retire_condition:
+            count = self._accepted_requests[request_id] - 1
+            if count:
+                self._accepted_requests[request_id] = count
+            else:
+                del self._accepted_requests[request_id]
+            self._retire_condition.notify_all()
+        return result
+        # ### PATCH END: task remains live through final native ACK
+
+    # Upstream: KVCacheRecvingThread._send_done_recv_signal @ 7e37e29a:1199-1232.
+    # Reason/functionality: a missing/invalid ACK must prevent successful retire;
+    # preserve native framing/socket cleanup but make its swallowed error sticky
+    # and observable to the native per-peer exception handler.
+    # Signature matches upstream, including its omitted return annotation.
+    def _send_done_recv_signal(
+        self,
+        request_id: str,
+        remote_host: str,
+        remote_handshake_port: int,
+        remote_port_send_num: dict[int, RemotePortInfo],
+    ):
+        logger.debug(
+            "Sending done recving signal for request %s to %s:%d",
+            request_id,
+            remote_host,
+            remote_handshake_port,
+        )
+        sock: zmq.Socket | None = None
+        try:
+            sock = self._get_remote_socket(remote_host, remote_handshake_port)
+            data_bytes = self.encoder.encode(
+                (DONE_RECVING_MSG, request_id, remote_port_send_num)
+            )
+            ensure_zmq_send(sock, data_bytes, f"{remote_host}:{remote_handshake_port}")
+            resp = ensure_zmq_recv(sock, f"{remote_host}:{remote_handshake_port}")
+            logger.debug(
+                "Received response for request %s: %s", request_id, resp.decode("utf-8")
+            )
+            if resp != b"ACK":
+                logger.error(
+                    "Failed to receive ACK for request. request_id=%s, source=%s:%d. ",
+                    request_id,
+                    remote_host,
+                    remote_handshake_port,
+                )
+                raise RuntimeError(
+                    f"Failed to receive ACK, resp: {resp.decode('utf-8')}"
+                )
+        except RuntimeError as e:
+            if isinstance(sock, zmq.Socket):
+                sock.close()
+                sock = None
+                logger.warning("Unexpected error occurred in socket. error=%s. ", e)
+            # ### PATCH START: ACK failure forbids successful retirement
+            self._retirement_failed.set()
+            raise
+            # ### PATCH END: ACK failure forbids successful retirement
+        finally:
+            if sock is not None:
+                self._return_remote_socket(sock, remote_host, remote_handshake_port)
+                logger.debug(
+                    "Returned socket to pool for %s:%d",
+                    remote_host,
+                    remote_handshake_port,
+                )
+
+    def retire(self, *, timeout: float) -> None:
+        """Close admission, drain real ACKs and join this consumer's input thread.
+
+        One deadline bounds admission, accepted tasks and receiver join. Native
+        executor shutdown has no timeout and is entered only after those tasks
+        have completed; a process supervisor must bound that final stdlib join.
+        No memory is unregistered and no native engine/global owner is reset.
+        """
+        if isinstance(timeout, bool) or not math.isfinite(timeout) or timeout <= 0:
+            raise ValueError("retirement timeout must be finite and positive")
+        if threading.current_thread() is self or self.ident is None:
+            raise RuntimeError("retirement requires a started external receiver")
+        deadline = time.monotonic() + timeout
+        # A second caller must not poison an in-progress retirement's state.
+        if not self._retire_lock.acquire(blocking=False):
+            raise RuntimeError("receiver retirement is already in progress")
+        try:
+            self._retire_before_deadline(deadline)
+        finally:
+            self._retire_lock.release()
+
+    def _retire_before_deadline(self, deadline: float) -> None:
+        if not self._admission_lock.acquire(
+            timeout=max(0, deadline - time.monotonic())
+        ):
+            # Admission is still owned by a live native batch. Do not poison
+            # its remaining pulls before this caller can close admission.
+            raise TimeoutError("receiver batch admission did not retire")
+        try:
+            if self._retired:
+                return
+            if self._retirement_failed.is_set():
+                raise RuntimeError("receiver retirement has a retained failure")
+            if self._admission_closed:
+                raise RuntimeError("receiver retirement is already in progress")
+            self._admission_closed = True
+            drained = self._retire_condition.wait_for(
+                lambda: not self._accepted_requests or self._retirement_failed.is_set(),
+                timeout=max(0, deadline - time.monotonic()),
+            )
+            if not drained:
+                raise TimeoutError("accepted native requests did not finish DONE/ACK")
+            if self._retirement_failed.is_set():
+                raise RuntimeError("native DONE/ACK or dispatch failed")
+            with _before_retirement_deadline(
+                self.task_tracker.done_task_lock, deadline
+            ):
+                if self.task_tracker.reqs_to_process:
+                    raise RuntimeError(
+                        "native request retirement frontier is incomplete"
+                    )
+            with _before_retirement_deadline(self.request_task_counts_lock, deadline):
+                if self.request_task_counts or self.finished_request_markers:
+                    raise RuntimeError("native pull retirement frontier is incomplete")
+            self.request_queue.put(_ReceiverControl.RETIRE)
+        except BaseException:
+            self._retirement_failed.set()
+            raise
+        finally:
+            self._admission_lock.release()
+        try:
+            self.join(timeout=max(0, deadline - time.monotonic()))
+            if self.is_alive():
+                raise TimeoutError("native receiver input thread did not exit")
+            with _before_retirement_deadline(
+                self.request_queue.all_tasks_done, deadline
+            ):
+                if self.request_queue.unfinished_tasks:
+                    raise RuntimeError("native input queue has unfinished work")
+            self.executor.shutdown(wait=True)
+            with _before_retirement_deadline(self.peer_request_queues_lock, deadline):
+                if self.peer_request_queues or self.active_peer_request_handlers:
+                    raise RuntimeError("native peer handlers did not retire")
+            with self._retire_condition:
+                self._retired = True
+        except BaseException:
+            self._retirement_failed.set()
+            raise
 
     def _validated_request(
         self, request: dict[str, Any]

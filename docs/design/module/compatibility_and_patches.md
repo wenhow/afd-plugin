@@ -117,8 +117,10 @@ registration or thread startup. The receiver requires the layout extension,
 binds it to the ordered native address/stride arrays and validates each complete
 request after native window-tail projection before its batched read. The
 registration and peer resources have one fixed lifetime; partial initialization
-cannot be retried in the same native engine. Scheduler, request retirement and
-the sending thread remain native. This is consistency between cooperating
+cannot be retried in the same native engine. Scheduler and sending-thread
+behavior remain native. Optional consumer retirement closes whole-batch
+admission, waits through native DONE acknowledgements and joins the input
+thread. This is consistency between cooperating
 peers, not remote authentication. The mirrored connector CPU seams replace
 network, transfer-engine and thread-start boundaries; they do not establish
 NPU registration, PD transfer or prompt-history/Engram correctness. The V4.1
@@ -137,7 +139,16 @@ Preparation imports no device package and establishes no transfer result. The
 slabs from native model allocation, and request/executor drain from the native
 worker/GlobalTE wrapper's lack of a shutdown API. The underlying transfer engine
 exposes memory unregistration; the probe does not invoke it or establish engine
-shutdown.
+shutdown. The opt-in `--retire-receiver` path uses two narrowly copied native
+methods (private sentinel in `run`, observable ACK errors in DONE) and short
+admission/finalization wrappers. CPU tests run real queues, receiver threads
+and a CPU executor with gated socket acknowledgements; they do not establish
+safe native-extension process teardown. One deadline bounds admission/drain
+and receiver join; the final stdlib executor shutdown has no timeout and is
+bounded only by the probe's process supervisor. Failure retains the receiver,
+engine, cache storage and single-use registration state. No sender loop,
+registration reset or engine-unregistration behavior is added. Remove these
+retirement seams when the pinned native worker owns cooperative retirement.
 
 The NPU V4.1 loader hook in
 [`model_loader.py`](../../../afd_plugin/compat/patches/npu/model_loader.py)

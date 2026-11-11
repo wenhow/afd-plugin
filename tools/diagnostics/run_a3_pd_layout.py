@@ -175,12 +175,18 @@ def parse_args():
     run.add_argument("--devices", default="0,2")
     run.add_argument("--label", required=True)
     run.add_argument("--output-dir", type=Path, required=True)
+    run.add_argument(
+        "--retire-receiver",
+        action="store_true",
+        help="opt in to plugin receiver retirement; requires a new source freeze",
+    )
     remote = commands.add_parser("remote", help=argparse.SUPPRESS)
     remote.add_argument("--remote-root", type=Path, required=True)
     remote.add_argument("--operation", choices=("prepare", "run"), required=True)
     remote.add_argument("--label")
     remote.add_argument("--case", choices=("transfer", "layout-mismatch"))
     remote.add_argument("--devices", default="0,2")
+    remote.add_argument("--retire-receiver", action="store_true")
     args = parser.parse_args()
     if args.action != "remote" and not re.fullmatch(
         r"[A-Za-z0-9][A-Za-z0-9_-]*", args.label
@@ -437,6 +443,9 @@ def remote_run(args):
             "--timeout",
             str(INNER_TIMEOUT_SECONDS),
         ]
+        if args.retire_receiver:
+            command.append("--retire-receiver")
+        summary["receiver_retirement_requested"] = args.retire_receiver
         summary["command"] = command
         with (folder / "probe.log").open("wb") as log:
             process = subprocess.Popen(
@@ -642,6 +651,8 @@ def local_run(args):
         + " --devices "
         + shlex.quote(args.devices)
     )
+    if args.retire_receiver:
+        command += " --retire-receiver"
     result = ssh(options, command)
     (output / "remote-run.log").write_bytes(result.stdout + result.stderr)
     archive_hash = retrieve(options, remote, "runs/" + args.label, output)

@@ -5,7 +5,8 @@
 Only isolated workers import device packages. The supervisor requires a reviewed
 prepare-only identity, eight idle boards and owned-PID cleanup. Native workers
 have no stop/unregister API: DONE, executor drain and normal process exit are
-separate observations, never a claim of cooperative engine deregistration.
+separate observations. Optional plugin receiver retirement never unregisters
+memory or closes the native engine.
 """
 
 from __future__ import annotations
@@ -57,6 +58,11 @@ def parse_args():
     parser.add_argument("--source-identity", type=Path, required=True)
     parser.add_argument("--output-dir", type=Path, required=True)
     parser.add_argument("--timeout", type=int, default=TOTAL_TIMEOUT_SECONDS)
+    parser.add_argument(
+        "--retire-receiver",
+        action="store_true",
+        help="opt in to plugin consumer admission/drain/thread retirement",
+    )
     parser.add_argument(
         "--role", choices=("producer", "consumer"), help=argparse.SUPPRESS
     )
@@ -350,6 +356,7 @@ def run_worker(args):
         "native_allocator": False,
         "requests": [],
         "native_stop_or_unregister_api": False,
+        "receiver_retirement_requested": args.retire_receiver and not producer,
     }
     output = args.output_dir / f"{args.role}.json"
     connector = raw = views = None
@@ -550,9 +557,16 @@ def run_worker(args):
                 emit("request-finished", role=args.role, name=name)
             receive_command("drain")
             if not producer:
-                receiver.request_queue.join()
+                if args.retire_receiver:
+                    worker.retire_receiver(timeout=REQUEST_TIMEOUT_SECONDS)
+                    report["receiver_retired"] = receiver.retired
+                    report["receiver_input_thread_joined"] = not receiver.is_alive()
+                    if not receiver.retired or receiver.is_alive():
+                        raise RuntimeError("consumer receiver did not retire")
+                else:
+                    receiver.request_queue.join()
+                    receiver.executor.shutdown(wait=True)
                 report["request_queue_drained"] = True
-                receiver.executor.shutdown(wait=True)
                 report["executor_shutdown_returned"] = True
             emit("drained", role=args.role)
             receive_command("exit")
@@ -574,6 +588,7 @@ def supervise(args):
     summary = {
         "scope": "real NPU PD component; controlled pages, no model allocation/history",
         "case": args.case,
+        "receiver_retirement_requested": args.retire_receiver,
         "devices": args.devices,
         "success": False,
         "owned_pid_start_ticks": {},
@@ -659,6 +674,7 @@ def supervise(args):
                     role,
                     "--port",
                     str(port),
+                    *(["--retire-receiver"] if args.retire_receiver else []),
                 ],
                 stdin=subprocess.PIPE,
                 stdout=subprocess.PIPE,
