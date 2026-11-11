@@ -432,10 +432,13 @@ def test_real_native_full_replay_fixture_returns_none_before_sampling(monkeypatc
     assert not case.transport.terminal
 
 
-def test_dspark_native_rejection_history_and_next_proposal(  # long-test: native step
-    monkeypatch,
+@pytest.mark.parametrize("stages", [1, 2])
+def test_dspark_native_rejection_history_and_next_proposal(  # long-test: native cycle
+    monkeypatch, stages
 ):
-    case = make_native_dspark_sampling_case(monkeypatch, make_dspark_proposal_case)
+    case = make_native_dspark_sampling_case(
+        monkeypatch, make_dspark_proposal_case, stages=stages
+    )
     owner = case.owner
     assert owner.execute_model(case.scheduler) is None
     assert case.kv_transfer.bound_metadata is case.scheduler.kv_connector_metadata
@@ -445,6 +448,23 @@ def test_dspark_native_rejection_history_and_next_proposal(  # long-test: native
         for direction, _, _, message in protocol[len(case.replay_baseline) :]
         if direction == "send" and message.kind in ("FORWARD", "COMPLETE")
     ] == ["FORWARD", "COMPLETE"]
+    plan = next(
+        message.plan
+        for direction, _, _, message in protocol[len(case.replay_baseline) :]
+        if direction == "send" and message.kind == "FORWARD"
+    )
+    expected_rows = (9,) if stages == 1 else (4, 5)
+    assert tuple(stage.attention_valid_tokens for stage in plan.stages) == tuple(
+        (rows,) for rows in expected_rows
+    )
+    assert plan.graph_execution.key.padded_tokens == expected_rows
+    assert [
+        (stage.request_start, stage.request_stop, stage.token_start, stage.token_stop)
+        for stage in plan.graph_execution.key.stage_layouts
+    ] == ([(0, 3, 0, 9)] if stages == 1 else [(0, 2, 0, 4), (1, 3, 4, 9)])
+    assert not case.auxiliary_device.lookup_live
+    assert not case.auxiliary_device.metadata_live
+    assert not case.auxiliary_device.replay_live
 
     async_output = owner.sample_tokens(None)
     output = async_output.get_output()
@@ -480,11 +500,12 @@ def test_dspark_native_rejection_history_and_next_proposal(  # long-test: native
     assert not case.cache.terminal and not case.transport.terminal
 
 
+@pytest.mark.parametrize("stages", [1, 2])
 def test_native_dspark_proposal_failure_retains_post_rejection_history_and_kv(
-    monkeypatch,
+    monkeypatch, stages
 ):
     case = make_native_dspark_sampling_case(
-        monkeypatch, make_dspark_proposal_case, fail_backbone=True
+        monkeypatch, make_dspark_proposal_case, fail_backbone=True, stages=stages
     )
     owner = case.owner
     assert owner.execute_model(case.scheduler) is None

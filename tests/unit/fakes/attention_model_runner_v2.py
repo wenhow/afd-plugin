@@ -57,10 +57,11 @@ def make_graph_runner_case(*, fail_close=False, stages=1, target_query_len=1):
 def install_graph_runner_coordinator(case):
     """Install host manager/storage identities; no real KV or NPU capture."""
     native = make_coordinator_case(
-        stages=1, target_query_len=case.owner.decode_query_len
+        stages=case.owner.parallel_config.num_ubatches,
+        target_query_len=case.owner.decode_query_len,
     ).manager
     native.model_runner = case.owner
-    native.ubatch_runner = None
+    native.ubatch_runner = case.owner.ubatch_runner
     case.owner.cudagraph_manager = native
     control = HcclV41GraphControl(
         case.transport,

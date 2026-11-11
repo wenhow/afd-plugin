@@ -8,6 +8,7 @@ host boundaries. FULL replay additionally supplies prepared inputs, metadata
 and an inert graph device boundary. This does not run PD or Graph device work.
 """
 
+from contextlib import contextmanager
 from types import MethodType, SimpleNamespace
 
 import numpy as np
@@ -53,6 +54,7 @@ from tests.unit.fakes.attention_model_runner_v2 import (
     install_graph_runner_coordinator,
     make_graph_runner_case,
 )
+from tests.unit.fakes.device_metadata import make_cpu_target_metadata
 from tests.unit.fakes.graph_cache import DeviceCompletion, ReplayGraph
 from tests.unit.fakes.input_batch import make_ascend_decode_batch
 from tests.unit.fakes.platform import stub_platform_forward_context
@@ -170,7 +172,7 @@ class AuxiliaryDeviceBoundary:
 
 
 def make_native_kv_runner_case(
-    monkeypatch, *, post_kv, sync_load, fail_load=False, target_query_len=1
+    monkeypatch, *, post_kv, sync_load, fail_load=False, target_query_len=1, stages=1
 ):
     """Keep the complete zero-token native execute/no_forward control flow.
 
@@ -178,7 +180,7 @@ def make_native_kv_runner_case(
     singleton below. It is not a serving Graph/PD configuration or handshake.
     All singleton/DP/backend substitutions are restored by pytest monkeypatch.
     """
-    case = make_graph_runner_case(target_query_len=target_query_len)
+    case = make_graph_runner_case(target_query_len=target_query_len, stages=stages)
     owner = case.owner
     events = []
     device = AuxiliaryDeviceBoundary(events)
@@ -235,10 +237,21 @@ def make_native_kv_runner_case(
 class ReplayDeviceMetadata(AuxiliaryDeviceBoundary):
     """Attention metadata and replay device work are explicit CPU boundaries."""
 
-    def __init__(self, events):
+    def __init__(self, events, *, native_metadata=None):
         super().__init__(events)
         self.attn_metadata = None
         self.replay_live = False
+        self.native_metadata = native_metadata
+        self.executor = None if native_metadata is None else native_metadata.executor
+
+    @contextmanager
+    def build(self, attn_groups, full_graph):
+        # U2 retains the real native single-parent build frontier. Providers
+        # and its task executor are the existing shared CPU device boundary.
+        with self.native_metadata.build(attn_groups, full_graph):
+            yield
+        self.replay_live = True
+        self.events.append("attn-ready")
 
     def run_build(self, build_metadata, **kwargs):
         # Keep native EngramModelState.prepare_attn, including its real FULL
@@ -259,28 +272,37 @@ class ReplayDeviceMetadata(AuxiliaryDeviceBoundary):
     def finish_replay(self):
         if not self.replay_live:
             raise AssertionError("replay metadata must have been prepared")
+        if self.native_metadata is not None:
+            self.native_metadata.finish_replay()
         self.replay_live = False
         self.events.append("metadata-replay-finish")
+
+    def finish(self):
+        if self.native_metadata is not None:
+            self.native_metadata.finish()
+        super().finish()
 
 
 class ReplayKVTransferBoundary(KVTransferBoundary):
     """Validate the real positive native pre_forward metadata and coordinates."""
 
-    def __init__(self, events, batch, metadata):
+    def __init__(self, events, batch, metadata, *, stages=1):
         super().__init__(events, fail_load=False)
         self.batch, self.metadata = batch, metadata
+        self.stages = stages
 
     def start_load_kv(self, context, **kwargs):
         if (
             context.attn_metadata is not None
-            or kwargs["attn_metadata"] is not self.metadata.attn_metadata
+            or kwargs["attn_metadata"]
+            is not (None if self.stages == 2 else self.metadata.attn_metadata)
             or kwargs["request_ids"] != self.batch.req_ids
             or kwargs["request_state_indices"] is not self.batch.idx_mapping
             or kwargs["num_tokens"] != self.batch.num_tokens
         ):
             raise AssertionError("positive KV load lost native prepared coordinates")
         # Native FULL pre_forward precedes run_fullgraph's context. It passes
-        # the real metadata explicitly; ActiveKVConnector creates an empty
+        # U1 metadata explicitly, or U2's native parent None. It creates an empty
         # maintenance context rather than pretending replay has already begun.
         self.events.append("kv-load")
 
@@ -288,8 +310,9 @@ class ReplayKVTransferBoundary(KVTransferBoundary):
 class PreparedReplayInputs:
     """Replace only input-materialization kernels, preserving native gather."""
 
-    def __init__(self, batch, events):
+    def __init__(self, batch, events, *, stages=1):
         self.batch, self.events = batch, events
+        self.stages = stages
 
     def __call__(self, scheduler, state, descriptor):
         if (
@@ -299,7 +322,7 @@ class PreparedReplayInputs:
             or state.num_tokens != self.batch.num_tokens
             or descriptor.cg_mode != CUDAGraphMode.FULL
             or descriptor.num_tokens != self.batch.num_tokens_after_padding
-            or descriptor.num_ubatches != 1
+            or descriptor.num_ubatches != self.stages
         ):
             raise AssertionError(
                 "native dispatch must precede CPU input materialization"
@@ -360,7 +383,10 @@ def _publish_cpu_replay_fixture(case, coordinator):
         DeepseekV41GraphStages(
             owner.model.language_model.model,
             tuple(case.model_case.contexts),
-            (slice(0, descriptor.num_tokens),),
+            tuple(
+                slice(stage.token_start, stage.token_stop)
+                for stage in reservation.geometry.stages
+            ),
             bank,
         )
     )
@@ -379,7 +405,7 @@ def _publish_cpu_replay_fixture(case, coordinator):
         execution=execution,
         model_state=owner.model_state,
         input_buffers=owner.input_buffers,
-        ubatch_runner=None,
+        ubatch_runner=owner.ubatch_runner,
         attn_groups=tuple(tuple(group) for group in owner.attn_groups),
         block_tables=owner.block_tables,
         kv_cache_config=owner.kv_cache_config,
@@ -391,7 +417,7 @@ def _publish_cpu_replay_fixture(case, coordinator):
     )
     case.cache.reserve_capture(key, reservation.generation, graph, resources)
     case.transport.submit_forward(
-        HcclLocalForward("warmup", (0,), key.padded_tokens),
+        HcclLocalForward("warmup", (0,) * key.num_ubatches, key.padded_tokens),
         transaction_id=reservation.decision.transaction_id,
     )
     case.transport.complete_graph_forward(key)
@@ -402,7 +428,7 @@ def _publish_cpu_replay_fixture(case, coordinator):
 
 
 def make_native_full_kv_replay_case(
-    monkeypatch, *, fail_replay=False, target_query_len=1, auxiliary=False
+    monkeypatch, *, fail_replay=False, target_query_len=1, auxiliary=False, stages=1
 ):
     """Real AFD -> Ascend -> GPU FULL execution over explicit CPU inputs.
 
@@ -415,6 +441,7 @@ def make_native_full_kv_replay_case(
         post_kv=False,
         sync_load=True,
         target_query_len=target_query_len,
+        stages=stages,
     )
     owner = case.owner
     monkeypatch.setattr(
@@ -448,7 +475,9 @@ def make_native_full_kv_replay_case(
     # Remove the lower-level builder's gather lambda: execute must select and
     # preserve the actual native request ordering before the prepared input seam.
     del owner.gather_batch_req_state
-    owner.prepare_inputs = PreparedReplayInputs(batch, case.native_events)
+    owner.prepare_inputs = PreparedReplayInputs(
+        batch, case.native_events, stages=stages
+    )
     owner.block_tables = ReplayBlockTables(rows)
     owner.input_buffers = SimpleNamespace(dcp_local_seq_lens=None)
     owner.model_config = owner.vllm_config.model_config
@@ -466,14 +495,24 @@ def make_native_full_kv_replay_case(
     owner.eplb = EPLBController(owner.parallel_config, torch.device("cpu"))
     owner.step_timing = StepTimingCollector()
     owner.attn_groups = [[SimpleNamespace(backend=AscendSFABackend)]]
-    metadata = ReplayDeviceMetadata(case.native_events)
+    native_metadata = None
+    if stages == 2:
+        native_metadata, _, case.runner.stage_attn_groups = make_cpu_target_metadata()
+        # The existing CPU metadata leaf consumes the original native sliced
+        # InputBatch. HCCL/NPU/UBatchRunner prepare and FULL contexts remain real.
+        case.runner.model_state = owner.model_state
+        case.runner.attn_groups = owner.attn_groups
+        owner.ubatch_runner = case.runner
+    metadata = ReplayDeviceMetadata(case.native_events, native_metadata=native_metadata)
     owner.model_state.device_metadata = metadata
     owner.model_state.vllm_config = owner.vllm_config
     owner.model_state.max_model_len = FULL_REPLAY_HISTORY_TOKENS + rows
     owner.model_state.rope_state = owner.model_state.lookback_token_ids = None
     owner.model.retire_engram_lookups = metadata.retire_engram_lookups
     case.auxiliary_device = metadata
-    transfer = ReplayKVTransferBoundary(case.native_events, batch, metadata)
+    transfer = ReplayKVTransferBoundary(
+        case.native_events, batch, metadata, stages=stages
+    )
     monkeypatch.setattr(kv_transfer_state, "_KV_CONNECTOR_AGENT", transfer)
     owner.kv_connector = ActiveKVConnector(owner.vllm_config, case.kv_views)
     case.kv_transfer = transfer
@@ -494,8 +533,10 @@ def make_native_full_kv_replay_case(
 
     def replay_device(manager, backend, descriptor, num_tokens, attn_metadata):
         if (
-            attn_metadata is not metadata.attn_metadata
+            owner.model_state.attn_metadata is not attn_metadata
             or num_tokens != batch.num_tokens
+            or attn_metadata["child"].padded_tokens
+            != descriptor.num_tokens // descriptor.num_ubatches
         ):
             raise AssertionError("native replay received another batch's metadata")
         case.native_events.append("replay-device-boundary")
@@ -686,7 +727,7 @@ class CPUDraftTokensHandler(DraftTokensHandler):
 
 
 def make_native_dspark_sampling_case(
-    monkeypatch, proposal_factory, *, fail_backbone=False
+    monkeypatch, proposal_factory, *, fail_backbone=False, stages=1
 ):
     """Actual target FULL -> sample/reject -> local DSpark -> KV post-forward.
 
@@ -696,7 +737,7 @@ def make_native_dspark_sampling_case(
     native runner, RejectionSampler and DSpark proposal bodies remain real.
     """
     case = make_native_full_kv_replay_case(
-        monkeypatch, target_query_len=3, auxiliary=True
+        monkeypatch, target_query_len=3, auxiliary=True, stages=stages
     )
     owner, batch = case.owner, case.batch
     if (batch.num_reqs, batch.num_tokens, owner.decode_query_len) != (3, 9, 3):

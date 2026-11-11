@@ -60,6 +60,12 @@ target Graph 输出由 CPU 夹具提供；draft KV 预计算和模型计算使�
 第三轮的另两项 profile/dummy 断言问题在第四轮修正；各轮独立记录，不合称一次
 150 项全绿。运行基底使用已交付源码加本轮测试，排除了暂停的 MTP 本地改动。
 
+随后 U2 增量的一轮完整回归为 **152 项通过、0 失败、0 跳过**（runner 35、
+coordinator 117），64 项安装源码一致。它使用真实原生 U2 prepare，将三请求
+q3 target 切为 4/5 两段，仍在父级做一次采样与历史推进；draft 期间无新增 F
+事务。它只覆盖一次 target 到下一批 proposal 和下一轮 lookback 准备，连续
+模型解码、真实设备 capture/replay 和 KV 写入仍需独立验收。
+
 需要检查的接口行为包括：原生 proposal 的 token 和 Markov 依赖、target/draft
 上下文隔离、异常后的上下文恢复，以及全接受、首步拒绝和中途拒绝后的输出、
 history、computed frontier、下一轮 Engram lookback 和 KV 生命周期。
