@@ -14,6 +14,7 @@ from dataclasses import replace
 from types import SimpleNamespace
 
 import msgspec
+import torch
 import zmq
 from transformers import PretrainedConfig
 from vllm import SamplingParams
@@ -42,6 +43,7 @@ LOCAL_HANDSHAKE_PORT = 9000
 TRANSFER_PORT = 9876
 THREAD_TEST_TIMEOUT = 5.0
 DSPARK_CPU_COMPRESS_RATIO = 2
+DESTINATION_SENTINEL = 165
 
 
 def connector_config(*, role="kv_consumer"):
@@ -78,6 +80,110 @@ class ReadBoundary:
     def batch_transfer_sync_read(self, session, local, remote, lengths):
         self.reads.append((session, tuple(local), tuple(remote), tuple(lengths)))
         return self.result
+
+
+class CopyReadBoundary(ReadBoundary):
+    """CPU copy leaf for real registered-address batches, with strong storage refs.
+
+    This is neither a Mooncake engine nor a device DMA simulation. Address
+    coalescing and request validation remain in the actual receiver body.
+    """
+
+    def __init__(self, source_pages, destination_pages):
+        super().__init__()
+        self.source_pages, self.destination_pages = source_pages, destination_pages
+
+    @staticmethod
+    def _bytes_at(pages, address, length):
+        for page in pages:
+            start = address - page.data_ptr()
+            if start >= 0 and start + length <= page.numel():
+                return page[start : start + length]
+        raise ValueError("CPU copy span exceeds its registered physical page")
+
+    def batch_transfer_sync_read(self, session, local, remote, lengths):
+        result = super().batch_transfer_sync_read(session, local, remote, lengths)
+        if result < 0:
+            return result
+        spans = [
+            (
+                self._bytes_at(self.destination_pages, local_address, length),
+                self._bytes_at(self.source_pages, remote_address, length),
+            )
+            for local_address, remote_address, length in zip(
+                local, remote, lengths, strict=True
+            )
+        ]
+        for destination, source in spans:
+            destination.copy_(source)
+        return result
+
+
+def _independent_destination_cache(prefix, num_blocks):
+    """Re-materialize the existing typed CPU fixture, preserving page aliases.
+
+    Each descriptor in this shared fixture owns one storage. This helper reuses
+    its typed specs and materialized per-page view ABI; it does not reproduce
+    the upstream allocator or construct a second loaded model/speculator.
+    """
+    layout = prefix.layout
+    if len({page.storage_alias for page in layout.pages}) != len(layout.pages):
+        raise ValueError("CPU destination fixture requires independent page storage")
+    source_pages, destination_pages = [], []
+    for page in layout.pages:
+        if page.offset_bytes or page.storage_offset_bytes:
+            raise ValueError("CPU destination fixture requires zero-offset pages")
+        value = prefix.caches[page.layers[0]]
+        tensor = value[0] if isinstance(value, (tuple, list)) else value
+        source_pages.append(
+            torch.empty(0, dtype=torch.uint8).set_(
+                tensor.untyped_storage(), 0, (page.size_bytes,), (1,)
+            )
+        )
+        destination_pages.append(
+            torch.full(
+                (num_blocks * page.block_stride_bytes,),
+                DESTINATION_SENTINEL,
+                dtype=torch.uint8,
+            )
+        )
+    components = {}
+    for view in layout.views:
+        value = prefix.caches[view.layer_name]
+        original = (
+            value[view.tensor_index] if isinstance(value, (tuple, list)) else value
+        )
+        components[(view.layer_name, view.tensor_index)] = original.new_empty(0).set_(
+            destination_pages[view.page_index].untyped_storage(),
+            view.page_offset_bytes // view.element_bytes,
+            (num_blocks, *view.shape[1:]),
+            tuple(stride // view.element_bytes for stride in view.strides_bytes),
+        )
+    caches = {
+        name: (
+            tuple(components[(name, index)] for index in range(len(value)))
+            if isinstance(value, (tuple, list))
+            else components[(name, 0)]
+        )
+        for name, value in prefix.caches.items()
+    }
+    config = replace(
+        prefix.kv_config,
+        num_blocks=num_blocks,
+        kv_cache_tensors=[
+            replace(descriptor, size=num_blocks * page.block_stride_bytes)
+            for descriptor, page in zip(
+                prefix.kv_config.kv_cache_tensors, layout.pages, strict=True
+            )
+        ],
+    )
+    return SimpleNamespace(
+        config=config,
+        caches=caches,
+        layout=collect_deepseek_v41_kv_layout(config, caches),
+        source_pages=tuple(source_pages),
+        pages=tuple(destination_pages),
+    )
 
 
 class RegistrationBoundary:
@@ -622,24 +728,44 @@ def make_dspark_scheduler_case(monkeypatch, prefix, *, role="kv_producer"):
     )
 
 
-def make_dspark_read_case(monkeypatch, prefix, *, done_ack=b"ACK"):
+def make_dspark_read_case(
+    monkeypatch,
+    prefix,
+    *,
+    done_ack=b"ACK",
+    destination_blocks=None,
+    destination_offset=0,
+    reverse_destination=False,
+    copy_payload=False,
+):
     """Actual ready/GETMETA/DONE dispatch; TE read is an explicit CPU leaf.
 
     Queue dispatch is driven synchronously, without the native NPU thread
     initializer. The public admission/queue envelope and actual handler remain.
     """
     producer = make_dspark_registration_case(monkeypatch, prefix)
-    layout = prefix.layout
+    destination_cache = _independent_destination_cache(
+        prefix,
+        prefix.kv_config.num_blocks
+        if destination_blocks is None
+        else destination_blocks,
+    )
+    layout = destination_cache.layout
     worker = producer.worker
+    engine = (
+        CopyReadBoundary(destination_cache.source_pages, destination_cache.pages)
+        if copy_payload
+        else worker.engine
+    )
     receiver = _ReceiverSocketBoundary(
         worker.tp_rank,
         worker.tp_size,
         1,
-        worker.engine,
+        engine,
         "destination-engine",
         LOCAL_HANDSHAKE_PORT,
         LOCAL_HANDSHAKE_PORT,
-        worker.kv_caches_base_addr,
+        [page.data_ptr() for page in destination_cache.pages],
         worker.block_len_per_addr,
         worker.block_stride_per_addr,
         worker.addr_group_idx,
@@ -649,8 +775,8 @@ def make_dspark_read_case(monkeypatch, prefix, *, done_ack=b"ACK"):
         len(layout.groups),
         threading.Event(),
         prefix.config,
-        prefix.kv_config,
-        prefix.caches,
+        destination_cache.config,
+        destination_cache.caches,
         mooncake_runtime_id="same-runtime",
         local_layout=layout,
         draft_layer_names=prefix.draft_names,
@@ -677,8 +803,22 @@ def make_dspark_read_case(monkeypatch, prefix, *, done_ack=b"ACK"):
         adapter, "ensure_zmq_send", lambda sock, data, path: sent.append(data)
     )
     monkeypatch.setattr(adapter, "ensure_zmq_recv", receive)
+    source_ids = sorted(
+        {block_id for group in prefix.source.transfer_block_ids for block_id in group}
+    )
+    mapped_ids = reversed(source_ids) if reverse_destination else source_ids
+    # Shared logical groups must use the same physical-page permutation.
+    destination_ids = {
+        source_id: destination_id + destination_offset
+        for source_id, destination_id in zip(source_ids, mapped_ids, strict=True)
+    }
     destination = adapter.DsparkPdDestination(
-        prefix.source, "destination-generation", prefix.source.transfer_block_ids
+        prefix.source,
+        "destination-generation",
+        tuple(
+            tuple(destination_ids[block_id] for block_id in ids)
+            for ids in prefix.source.transfer_block_ids
+        ),
     )
     request = request_map(
         producer,
@@ -707,8 +847,10 @@ def make_dspark_read_case(monkeypatch, prefix, *, done_ack=b"ACK"):
     return SimpleNamespace(
         producer=producer,
         receiver=receiver,
-        engine=worker.engine,
+        engine=engine,
         layout=layout,
+        destination=destination,
+        destination_cache=destination_cache,
         sent=sent,
         done_entered=done_entered,
         admit_request=admit_request,

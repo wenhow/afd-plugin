@@ -26,6 +26,7 @@ from afd_plugin.compat.npu.kv_layout import layout_from_json
 from afd_plugin.compat.npu.kv_layout_native import collect_deepseek_v41_kv_layout
 from tests.unit.fakes.dspark_pd import make_dspark_pd_prefix_case
 from tests.unit.fakes.kv_layout_connector import (
+    DESTINATION_SENTINEL,
     REMOTE_BASE_ADDRESS,
     REMOTE_HANDSHAKE_PORT,
     THREAD_TEST_TIMEOUT,
@@ -49,6 +50,7 @@ from tests.unit.fakes.kv_layout_connector import (
 )
 
 RETIREMENT_TEST_DEADLINE = 0.01
+BYTE_VALUE_COUNT = 256
 
 
 @pytest.fixture
@@ -675,6 +677,71 @@ def test_destination_completion_requires_a_drained_read_and_typed_done(
                 case.producer.worker.kv_send_thread.get_and_clear_finished_requests()
                 == {prefix.source.request_id}
             )
+    finally:
+        case.close()
+
+
+@pytest.mark.parametrize(
+    "destination_blocks,destination_offset,reverse_destination",
+    [(4, 0, False), (8, 2, True)],
+)
+def test_pd_read_copies_independent_pages(  # long-test: whole-page transfer oracle
+    monkeypatch, destination_blocks, destination_offset, reverse_destination
+):
+    prefix = make_dspark_pd_prefix_case(monkeypatch, bind=False)
+    case = make_dspark_read_case(
+        monkeypatch,
+        prefix,
+        destination_blocks=destination_blocks,
+        destination_offset=destination_offset,
+        reverse_destination=reverse_destination,
+        copy_payload=True,
+    )
+    source_pages = case.destination_cache.source_pages
+    for index, page in enumerate(source_pages):
+        positions = torch.arange(page.numel())
+        physical_blocks = positions // prefix.layout.pages[index].block_stride_bytes
+        page.copy_(
+            ((positions + physical_blocks + index) % BYTE_VALUE_COUNT).to(torch.uint8)
+        )
+    publish_dspark_prefix(case.producer, acquire=False)
+    before = tuple(page.clone() for page in source_pages)
+    expected = [
+        torch.full_like(page, DESTINATION_SENTINEL)
+        for page in case.destination_cache.pages
+    ]
+    for page_index, page in enumerate(prefix.layout.pages):
+        stride = page.block_stride_bytes
+        for group_index, group in enumerate(prefix.layout.groups):
+            if not set(page.layers) & set(group.layer_names):
+                continue
+            for source_id, destination_id in zip(
+                prefix.source.transfer_block_ids[group_index],
+                case.destination.block_ids[group_index],
+                strict=True,
+            ):
+                expected[page_index][
+                    destination_id * stride : (destination_id + 1) * stride
+                ] = before[page_index][source_id * stride : (source_id + 1) * stride]
+    try:
+        assert {page.data_ptr() for page in source_pages}.isdisjoint(
+            page.data_ptr() for page in case.destination_cache.pages
+        )
+        case.process()
+        for source, unchanged in zip(source_pages, before, strict=True):
+            torch.testing.assert_close(source, unchanged, rtol=0, atol=0)
+        for actual, target in zip(case.destination_cache.pages, expected, strict=True):
+            torch.testing.assert_close(actual, target, rtol=0, atol=0)
+        assert [msgspec.msgpack.decode(frame)[0] for frame in case.sent] == [
+            adapter.GET_META_MSG,
+            adapter.GET_DSPARK_READY_MSG,
+            adapter.DONE_DSPARK_RECV_MSG,
+        ]
+        assert case.receiver.get_and_clear_finished_requests() == {"request"}
+        assert (
+            case.producer.worker.kv_send_thread.get_and_clear_finished_requests()
+            == {prefix.source.request_id}
+        )
     finally:
         case.close()
 
