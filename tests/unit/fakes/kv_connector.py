@@ -19,7 +19,7 @@ from vllm.distributed.kv_transfer.kv_connector.v1.base import (
     KVConnectorMetadata,
     KVConnectorTransferResults,
 )
-from vllm.v1.core.sched.output import SchedulerOutput
+from vllm.v1.core.sched.output import CachedRequestData, SchedulerOutput
 from vllm.v1.worker.gpu import model_runner as gpu_runner
 from vllm.v1.worker.gpu.async_utils import (
     AsyncOutput,
@@ -241,21 +241,34 @@ class ReplayDeviceMetadata(AuxiliaryDeviceBoundary):
         super().__init__(events)
         self.attn_metadata = None
         self.replay_live = False
+        self.prepared_once = False
         self.native_metadata = native_metadata
         self.executor = None if native_metadata is None else native_metadata.executor
+
+    def begin_preparation(self):
+        if self.replay_live or (
+            self.prepared_once and (self.lookup_live or self.metadata_live)
+        ):
+            raise AssertionError(
+                "previous target metadata/lookup lease was not retired"
+            )
+        self.lookup_live = self.metadata_live = self.replay_live = True
+        self.reset_events = None
+        self.prepared_once = True
 
     @contextmanager
     def build(self, attn_groups, full_graph):
         # U2 retains the real native single-parent build frontier. Providers
         # and its task executor are the existing shared CPU device boundary.
+        self.begin_preparation()
         with self.native_metadata.build(attn_groups, full_graph):
             yield
-        self.replay_live = True
         self.events.append("attn-ready")
 
     def run_build(self, build_metadata, **kwargs):
         # Keep native EngramModelState.prepare_attn, including its real FULL
         # mode and buffer ownership. Do not invoke a device metadata kernel.
+        self.begin_preparation()
         self.attn_metadata = {
             "child": SimpleNamespace(
                 padded_tokens=kwargs["num_tokens"],
@@ -265,7 +278,6 @@ class ReplayDeviceMetadata(AuxiliaryDeviceBoundary):
                 slot_mappings=kwargs["slot_mappings"],
             )
         }
-        self.replay_live = True
         self.events.append("attn-ready")
         return self.attn_metadata
 
@@ -811,3 +823,86 @@ def make_native_dspark_sampling_case(
     owner.model_state.pcp_context = None
     case.initial_history, case.proposal = history.clone(), proposal
     return case
+
+
+def advance_native_dspark_sampling_case(case, *, fail_backbone=False):
+    """Prepare a fresh scheduled query from the first native sampling result.
+
+    RequestState GPU buffers retain their owner. A real CachedRequestData lets
+    native update_requests refresh the same CPU mirrors on the next execute.
+    Input-materialization kernels remain a CPU leaf: it derives the new input,
+    positions and lengths from actual last/draft/computed state, not an oracle.
+    Metadata and lookup leases reopen only when native metadata preparation
+    enters run_build/build; this helper does not reset retirement flags.
+    """
+    owner, previous = case.owner, case.batch
+    state = owner.req_states
+    if case.kv_transfer.bound_metadata is not None:
+        raise AssertionError(
+            "finish the first native proposal/KV step before rescheduling"
+        )
+    width = owner.decode_query_len
+    computed = state.num_computed_tokens.gpu[previous.idx_mapping].clone()
+    drafts = state.draft_tokens[previous.idx_mapping].clone()
+    anchors = state.last_sampled_tokens[previous.idx_mapping].clone()
+    batch = make_ascend_decode_batch(previous.num_tokens, target_query_len=width)
+    batch.req_ids = previous.req_ids.copy()
+    batch.is_dummy = False
+    batch.is_padding.fill_(False)
+    batch.input_ids.copy_(torch.cat((anchors[:, None], drafts), dim=1).flatten())
+    batch.positions.copy_((computed[:, None] + torch.arange(width)).flatten())
+    batch.seq_lens.copy_(computed + width)
+    batch.seq_lens_cpu_upper_bound.copy_(computed + width)
+    batch.seq_lens_np = (computed + width).numpy().astype(np.int32)
+    batch.num_computed_tokens_np = computed.numpy().astype(np.int32)
+    batch.prefill_len_np = state.prefill_len.np[batch.idx_mapping_np].copy()
+    batch.num_computed_prefill_tokens_np = np.minimum(
+        batch.num_computed_tokens_np, batch.prefill_len_np
+    )
+    batch.logits_indices = torch.arange(batch.num_tokens)
+    batch.cu_num_logits = batch.query_start_loc[: batch.num_reqs + 1].clone()
+    batch.cu_num_logits_np = batch.query_start_loc_np[: batch.num_reqs + 1].copy()
+    batch.num_draft_tokens_per_req = np.full(batch.num_reqs, width - 1, dtype=np.int32)
+    batch.num_draft_tokens = int(batch.num_draft_tokens_per_req.sum())
+    batch.expanded_idx_mapping = torch.repeat_interleave(batch.idx_mapping, width)
+    batch.expanded_local_pos = torch.arange(width, dtype=torch.int32).repeat(
+        batch.num_reqs
+    )
+    scheduler = SchedulerOutput.make_empty()
+    scheduler.num_scheduled_tokens = dict.fromkeys(batch.req_ids, width)
+    scheduler.total_num_scheduled_tokens = batch.num_tokens
+    scheduler.scheduled_spec_decode_tokens = dict(
+        zip(batch.req_ids, drafts.tolist(), strict=True)
+    )
+    scheduler.scheduled_cached_reqs = CachedRequestData(
+        req_ids=batch.req_ids.copy(),
+        resumed_req_ids=set(),
+        new_token_ids=[],
+        all_token_ids={},
+        new_block_ids=[None] * batch.num_reqs,
+        num_computed_tokens=computed.tolist(),
+        num_output_tokens=(
+            state.total_len.gpu[batch.idx_mapping]
+            - state.prefill_len.gpu[batch.idx_mapping]
+        ).tolist(),
+    )
+    scheduler.kv_connector_metadata = TransferMetadata()
+    scheduler.has_sync_kv_loads = True
+    owner.prepare_inputs = PreparedReplayInputs(
+        batch, case.native_events, stages=owner.parallel_config.num_ubatches
+    )
+    owner.model.language_model.compute_logits.predictions.copy_(
+        torch.tensor([41, 15, 16, 13, 42, 43, 6, 7, 44])
+    )
+    if fail_backbone:
+        case.proposal.model.error = RuntimeError(
+            "controlled second DSpark backbone failure"
+        )
+    expected_history = case.initial_history.clone()
+    expected_history[0, 13:17] = torch.tensor([11, 12, 13, 41])
+    expected_history[1, 13:16] = torch.tensor([29, 13, 42])
+    expected_history[2, 13:18] = torch.tensor([31, 39, 6, 7, 44])
+    case.expected_second_history = expected_history
+    case.batch, case.scheduler = batch, scheduler
+    case.kv_transfer.batch = batch
+    return batch

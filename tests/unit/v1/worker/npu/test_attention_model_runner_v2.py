@@ -33,6 +33,7 @@ from tests.unit.fakes.hccl_v41_graph_bootstrap import (
 from tests.unit.fakes.hccl_v41_graph_eager import run_graph_eager_parent
 from tests.unit.fakes.kv_connector import (
     FULL_REPLAY_HISTORY_TOKENS,
+    advance_native_dspark_sampling_case,
     make_native_dspark_sampling_case,
     make_native_full_kv_replay_case,
     make_native_full_kv_sampling_case,
@@ -521,6 +522,114 @@ def test_native_dspark_proposal_failure_retains_post_rejection_history_and_kv(
     assert owner.req_states.total_len.gpu.tolist() == [16, 14, 15]
     assert owner.req_states.num_computed_tokens.gpu.tolist() == [15, 13, 14]
     assert owner.req_states.draft_tokens.tolist() == [[-1, -1]] * 3
+    assert case.kv_transfer.bound_metadata is case.scheduler.kv_connector_metadata
+    assert tuple(case.transport.transcript) == protocol
+    assert case.transport.tensor_peer.messages == []
+    assert not case.cache.terminal and not case.transport.terminal
+    assert not case.recorded_graph.closed
+    assert owner.sample_tokens(None) is None
+
+
+@pytest.mark.parametrize("stages", [1, 2])
+def test_dspark_cycles_use_updated_queries_and_history(  # long-test: two native steps
+    monkeypatch, stages
+):
+    case = make_native_dspark_sampling_case(
+        monkeypatch, make_dspark_proposal_case, stages=stages
+    )
+    owner = case.owner
+    assert owner.execute_model(case.scheduler) is None
+    assert owner.sample_tokens(None).get_output().sampled_token_ids == [
+        [11, 12, 13],
+        [29],
+        [31, 39],
+    ]
+    next_batch = advance_native_dspark_sampling_case(case)
+
+    assert owner.execute_model(case.scheduler) is None
+    assert owner.model_state.lookback_token_ids.tolist() == [
+        [12, 11, 10, 11],
+        [20, 11, 10, 9],
+        [31, 30, 11, 10],
+        [-1, -1, -1, -1],
+    ]
+    assert owner.req_states.num_computed_tokens_np.tolist() == [15, 13, 14]
+    protocol = tuple(case.transport.transcript)
+    async_output = owner.sample_tokens(None)
+    output = async_output.get_output()
+    assert output.sampled_token_ids == [[41], [13, 42], [6, 7, 44]]
+    assert async_output.sampler_output.num_sampled.tolist() == [1, 2, 3]
+    assert async_output.sampler_output.num_rejected.tolist() == [2, 1, 0]
+    state = owner.req_states
+    assert torch.equal(state.all_token_ids.gpu, case.expected_second_history)
+    assert state.total_len.gpu.tolist() == [17, 16, 18]
+    assert state.num_computed_tokens.gpu.tolist() == [16, 15, 17]
+    assert state.last_sampled_tokens.tolist() == [41, 42, 44]
+    assert state.draft_tokens.tolist() == [[8, 9], [9, 10], [11, 12]]
+    assert output.kv_connector_output.finished_sending == {"sent"}
+    assert case.kv_transfer.bound_metadata is None
+    assert not case.auxiliary_device.lookup_live
+    assert not case.auxiliary_device.metadata_live
+    assert not case.auxiliary_device.replay_live
+    next_inputs = owner.model_state.prepare_engram_inputs(next_batch, state)
+    assert next_inputs["lookback_token_ids"].tolist() == [
+        [13, 12, 11, 10],
+        [13, 29, 20, 11],
+        [7, 6, 39, 31],
+        [-1, -1, -1, -1],
+    ]
+    forwards = [
+        message
+        for direction, _, _, message in protocol[len(case.replay_baseline) :]
+        if direction == "send" and message.kind in ("FORWARD", "COMPLETE")
+    ]
+    assert [message.kind for message in forwards] == [
+        "FORWARD",
+        "COMPLETE",
+        "FORWARD",
+        "COMPLETE",
+    ]
+    first, second = forwards[0].plan, forwards[2].plan
+    assert first.transaction_id != second.transaction_id
+    assert first.graph_execution.key == second.graph_execution.key
+    assert first.graph_execution.key.padded_tokens == ((9,) if stages == 1 else (4, 5))
+    assert tuple(case.transport.transcript) == protocol
+    assert case.transport.tensor_peer.messages == []
+    entry = case.cache.find(case.recorded_resources.bank.key, case.generation())
+    assert entry.graph is case.recorded_graph
+    assert entry.resources is case.recorded_resources
+    assert not case.cache.terminal and not case.transport.terminal
+
+
+@pytest.mark.parametrize("stages", [1, 2])
+def test_second_dspark_proposal_failure_retains_advanced_history_and_kv(
+    monkeypatch, stages
+):
+    case = make_native_dspark_sampling_case(
+        monkeypatch, make_dspark_proposal_case, stages=stages
+    )
+    owner = case.owner
+    assert owner.execute_model(case.scheduler) is None
+    assert owner.sample_tokens(None).get_output().sampled_token_ids == [
+        [11, 12, 13],
+        [29],
+        [31, 39],
+    ]
+    advance_native_dspark_sampling_case(case, fail_backbone=True)
+    assert owner.execute_model(case.scheduler) is None
+    protocol = tuple(case.transport.transcript)
+
+    with pytest.raises(
+        RuntimeError, match="controlled second DSpark backbone failure"
+    ) as raised:
+        owner.sample_tokens(None)
+
+    assert raised.value is case.proposal.model.error
+    assert owner.req_states.last_sampled_tokens.tolist() == [41, 42, 44]
+    assert owner.req_states.total_len.gpu.tolist() == [17, 16, 18]
+    assert owner.req_states.num_computed_tokens.gpu.tolist() == [16, 15, 17]
+    assert owner.req_states.draft_tokens.tolist() == [[14, 15], [13, 14], [6, 7]]
+    assert torch.equal(owner.req_states.all_token_ids.gpu, case.expected_second_history)
     assert case.kv_transfer.bound_metadata is case.scheduler.kv_connector_metadata
     assert tuple(case.transport.transcript) == protocol
     assert case.transport.tensor_peer.messages == []

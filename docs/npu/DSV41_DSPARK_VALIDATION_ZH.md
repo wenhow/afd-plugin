@@ -66,6 +66,20 @@ q3 target 切为 4/5 两段，仍在父级做一次采样与历史推进；draft
 事务。它只覆盖一次 target 到下一批 proposal 和下一轮 lookback 准备，连续
 模型解码、真实设备 capture/replay 和 KV 写入仍需独立验收。
 
+连续周期增量的单轮完整回归为 **158 项通过、0 失败、0 跳过**（runner 39、
+coordinator 119），64 项安装源码一致。U1/U2 用例沿用同一请求状态，以首轮真实
+draft、bonus 和 computed frontier 构造第二轮输入，并经过原生 cached-request
+更新和采样。两轮采用不同 target logits，使全接受、首步拒绝和中途拒绝的结果
+发生变化；检查最终 token、完整历史、下一轮 lookback 和 KV 收尾。第二轮
+proposal 异常时，保留已更新的历史、上一批 draft 和尚未收尾的 KV 绑定。
+
+另一组 U1/U2 组件用例执行 Graph 命中、miss 后完成 eager、再次命中的三个父
+事务，每次结束后调用原生 DSpark proposal。中间路径使用新输入和独立算术
+输出参考；三次 draft 均无新增 F 事务，保留的 Graph 输出存储和值不变。
+F 的 ready/missing/ready 是脚本化可用性回复，不代表真实 F 进程重新捕获，
+也不证明运行失败后的恢复。该组三步未连接完整 execute/sample/history 链；
+连续采样由前一组两轮用例分别覆盖。
+
 需要检查的接口行为包括：原生 proposal 的 token 和 Markov 依赖、target/draft
 上下文隔离、异常后的上下文恢复，以及全接受、首步拒绝和中途拒绝后的输出、
 history、computed frontier、下一轮 Engram lookback 和 KV 生命周期。

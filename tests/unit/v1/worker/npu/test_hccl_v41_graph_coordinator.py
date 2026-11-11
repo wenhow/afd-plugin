@@ -45,6 +45,7 @@ from afd_plugin.model_executor.models.npu.deepseek_v41 import (
 )
 from afd_plugin.v1.worker.npu.hccl_v41_graph_coordinator import HcclV41GraphCoordinator
 from tests.unit.fakes.dspark_speculator import (
+    DSPARK_CPU_VOCAB_SIZE,
     bind_dspark_proposal_after_target_capture,
     make_dspark_proposal_case,
 )
@@ -55,14 +56,17 @@ from tests.unit.fakes.hccl_v41_graph_coordinator import (
     cpu_runner_capture,
     cpu_target_manager_capture,
     dispatch_runtime,
+    install_runtime_eager_tensor_boundary,
     install_runtime_replay_boundary,
     make_coordinator_case,
     native_keys,
     prepare_native_draft_capture,
     prepare_runtime_full,
     queue_preflight,
+    reference_runtime_eager_output,
     replace_cached_bundle,
     replace_cached_pipeline,
+    run_runtime_eager_parent,
     set_runtime_rows,
 )
 from tests.unit.fakes.input_batch import snapshot_ascend_child
@@ -197,6 +201,25 @@ def native_dspark_proposal_case(native_draft_capture_case, monkeypatch):
             fail_backbone=fail_backbone,
         )
         bind_dspark_proposal_after_target_capture(case, proposal, mode=mode)
+        return case, proposal
+
+    return build
+
+
+@pytest.fixture
+def runtime_dspark_triplet_case(capture_case, monkeypatch):
+    def build(stages):
+        case = capture_case(stages=stages, target_query_len=3)
+        assert case.coordinator.preflight_capture()
+        case.coordinator.capture_native()
+        install_runtime_replay_boundary(case)
+        install_runtime_eager_tensor_boundary(case)
+        proposal = make_dspark_proposal_case(
+            monkeypatch,
+            vllm_config=case.owner.vllm_config,
+            num_reqs=3,
+            reverse_requests=True,
+        )
         return case, proposal
 
     return build
@@ -1027,6 +1050,108 @@ def test_global_cache_miss_selects_fresh_eager_inputs_before_preparation(capture
     assert decision.phase == "eager" and decision.reason == "cache_miss"
     assert decision.padded_tokens == (1, 1)
     assert case.transport.terminal
+
+
+@pytest.mark.parametrize("stages", [1, 2])
+def test_dspark_hit_miss_hit_keeps_draft_local(  # long-test: parent/draft protocol
+    runtime_dspark_triplet_case, stages
+):
+    case, proposal = runtime_dspark_triplet_case(stages)
+    key = native_keys(case)[0]
+    entry = case.cache.find(key, 0)
+    retained = entry.resources.hidden_states
+    retained_value, retained_storage = retained.clone(), retained.data_ptr()
+    before_parents = len(case.transport.transcript)
+    previous = SimpleNamespace(additional_kwargs={"caller": "triplet"})
+    # Readiness is a scripted F reply, not recovery after a failed runtime or
+    # evidence of an actual F process recapturing its graph.
+    for index, availability in enumerate(("ready", "missing", "ready")):
+        case.transport.states[0] = availability
+        with override_forward_context(previous):
+            with case.coordinator.execution_scope(
+                mode="target", valid_tokens=9, dummy_run=False
+            ):
+                descriptor = dispatch_runtime(case)
+                if availability == "ready":
+                    assert descriptor.cg_mode == CUDAGraphMode.FULL
+                    batch = prepare_runtime_full(case, descriptor)
+                    output, auxiliary = case.manager.run_fullgraph(descriptor)
+                    assert output is retained
+                else:
+                    assert descriptor.cg_mode == CUDAGraphMode.NONE
+                    batch, (output, auxiliary) = run_runtime_eager_parent(
+                        case, descriptor, token_offset=11, position_offset=23
+                    )
+            assert get_forward_context() is previous
+            before_draft = tuple(case.transport.transcript)
+            batch.is_dummy = False
+            batch.is_prefilling_np.fill(False)
+            anchors = torch.tensor([7, 11, 13]) + index
+            drafts = proposal.speculator.propose(
+                **{
+                    **proposal.kwargs,
+                    "input_batch": batch,
+                    "last_hidden_states": output,
+                    "aux_hidden_states": auxiliary,
+                    "last_sampled": anchors,
+                }
+            )
+            assert get_forward_context() is previous
+        # Native prepare gathers rows in idx_mapping order. Greedy Markov
+        # transitions depend on the preceding sampled token, not independent
+        # per-column logits; this is an output oracle, not a callback counter.
+        expected = (
+            anchors[batch.idx_mapping.long(), None] + torch.arange(1, 3)
+        ) % DSPARK_CPU_VOCAB_SIZE
+        torch.testing.assert_close(drafts, expected)
+        assert tuple(case.transport.transcript) == before_draft
+        assert case.cache.find(key, 0) is entry
+        assert case.manager.hidden_states is retained
+        assert retained.data_ptr() == retained_storage
+        torch.testing.assert_close(retained, retained_value)
+        context = proposal.model.contexts[-1]
+        assert HCCL_V41_PARENT_FORWARD_KEY not in (context.additional_kwargs or {})
+        assert context_module.get_afd_metadata_from_forward_context(context) is None
+        assert case.transport.plan is None and case.transport.graph_reservation is None
+        if availability == "missing":
+            expected_output, expected_auxiliary = reference_runtime_eager_output(batch)
+            torch.testing.assert_close(output, expected_output)
+            for actual, expected_aux in zip(auxiliary, expected_auxiliary, strict=True):
+                torch.testing.assert_close(actual, expected_aux)
+            assert not torch.equal(output, retained_value)
+
+    messages = [
+        message
+        for direction, _, _, message in case.transport.transcript[before_parents:]
+        if direction == "send"
+    ]
+    plans = [message.plan for message in messages if message.kind == "FORWARD"]
+    assert [plan.graph_execution.phase for plan in plans] == [
+        "replay",
+        "eager",
+        "replay",
+    ]
+    assert [
+        message.transaction_id for message in messages if message.kind == "COMPLETE"
+    ] == [plan.transaction_id for plan in plans]
+    payloads = case.transport.tensor_peer.messages
+    for layer in (0, 1):
+        layer_payloads = [payload for payload in payloads if payload[0] == layer]
+        torch.testing.assert_close(
+            torch.cat([payload[4] for payload in layer_payloads]),
+            torch.arange(9, dtype=torch.int32) + 11,
+        )
+        assert all(payload[3].dtype == torch.float32 for payload in layer_payloads)
+        assert any(
+            not torch.equal(payload[3], payload[2].float())
+            for payload in layer_payloads
+        )
+    assert not case.transport.terminal and not case.cache.terminal
+    with set_forward_context(None, case.owner.vllm_config):
+        assert HCCL_V41_PARENT_FORWARD_KEY not in (
+            get_forward_context().additional_kwargs or {}
+        )
+        assert context_module.get_afd_metadata_from_forward_context() is None
 
 
 @pytest.mark.parametrize("purpose", ["profile", "dummy", "unsupported-engram"])

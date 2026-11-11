@@ -46,7 +46,7 @@ from afd_plugin.v1.worker.npu.hccl_v41_graph import capture_hccl_v41_geometry
 from afd_plugin.v1.worker.npu.hccl_v41_graph_session import HcclV41GraphSession
 from afd_plugin.v1.worker.npu.hccl_v41_ubatch_runner import HcclV41UBatchRunner
 from tests.unit.fakes.batch_req_state import make_batch_req_state
-from tests.unit.fakes.deepseek_v41 import ParentEngramState
+from tests.unit.fakes.deepseek_v41 import ParentEngramState, make_staged_model
 from tests.unit.fakes.deepseek_v41_graph import GraphFFNEndpoint, make_graph_model_case
 from tests.unit.fakes.graph_cache import DeviceCompletion, ReplayGraph
 from tests.unit.fakes.graph_capture import cpu_capture_boundary
@@ -536,6 +536,85 @@ def install_runtime_replay_boundary(case, *, fail=False):
         return manager.hidden_states, manager.aux_hidden_states
 
     case.manager.run_fullgraph = MethodType(replay, case.manager)
+
+
+def install_runtime_eager_tensor_boundary(case):
+    """Reuse the shared public CPU tensor peer, keeping real control/cursors.
+
+    The import is local because the pre-KV concept reuses this module's case
+    builder. Only NPU tensor posting/receiving is replaced; control, native
+    preparation, continuation and model wrapper dispatch remain real.
+    """
+    from tests.unit.fakes.hccl_v41_graph_eager import PreKVAttentionPeer
+
+    template = PreKVAttentionPeer(case.transport.negotiated_capabilities)
+    case.transport.tensor_peer = template.tensor_peer
+    case.transport.send_layer_inputs = MethodType(
+        PreKVAttentionPeer.send_layer_inputs, case.transport
+    )
+    case.transport.receive_layer_output = MethodType(
+        PreKVAttentionPeer.receive_layer_output, case.transport
+    )
+    case.owner.model.register_forward_pre_hook(
+        case.owner.model_state._prepare_engram_before_forward, with_kwargs=True
+    )
+
+
+def run_runtime_eager_parent(case, descriptor, *, token_offset, position_offset):
+    """Actual U1/U2 preparation and eager wrapper with fresh CPU parent inputs.
+
+    This is a component call, not GPUModelRunner.execute_model or sampling.
+    Native metadata/device operators use the capture fixture's CPU leaves.
+    """
+    batch = make_ascend_decode_batch(
+        descriptor.num_tokens, target_query_len=case.owner.decode_query_len
+    )
+    batch.is_dummy = False
+    batch.is_padding.fill_(False)
+    batch.is_prefilling_np.fill(False)
+    batch.input_ids.add_(token_offset)
+    batch.positions.add_(position_offset)
+    slots = torch.zeros(1, descriptor.num_tokens, dtype=torch.int32)
+    prepared = None
+    metadata = None
+    if descriptor.num_ubatches == 2:
+        prepared = case.runner.prepare(batch, (), slots)
+    else:
+        metadata = case.owner.model_state.prepare_attn(
+            batch,
+            CUDAGraphMode.NONE,
+            (),
+            slots,
+            case.owner.attn_groups,
+            case.owner.kv_cache_config,
+        )
+    context = set_forward_context(
+        metadata,
+        case.owner.vllm_config,
+        batch_descriptor=descriptor,
+        cudagraph_runtime_mode=CUDAGraphMode.NONE,
+    )
+    inputs = dict(input_ids=batch.input_ids, positions=batch.positions)
+    with context:
+        case.owner.model_state.parent_context = get_forward_context()
+        result = (
+            case.owner.model(**inputs)
+            if prepared is None
+            else case.runner.run(case.owner.model, inputs, prepared)
+        )
+    return batch, result
+
+
+def reference_runtime_eager_output(batch):
+    """Native unsplit CPU model schedule, independent of HCCL continuations."""
+    model = make_staged_model(capacity=batch.num_tokens_after_padding, engram=False)
+    return model(
+        input_ids=batch.input_ids,
+        positions=batch.positions,
+        intermediate_tensors=None,
+        engram_lookups={},
+        engram_mask=torch.empty(0, dtype=torch.bool),
+    )
 
 
 def set_runtime_rows(case, rows):
