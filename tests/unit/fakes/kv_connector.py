@@ -30,8 +30,13 @@ from vllm.v1.worker.gpu.eplb_utils import EPLBController
 from vllm.v1.worker.gpu.kv_connector import ActiveKVConnector
 from vllm.v1.worker.gpu.sample.output import SamplerOutput
 from vllm.v1.worker.gpu.sample.prompt_logprob import PromptLogprobsWorker
+from vllm.v1.worker.gpu.spec_decode import rejection_sampler as rejection_module
+from vllm.v1.worker.gpu.spec_decode.rejection_sampler import RejectionSampler
+from vllm.v1.worker.gpu.spec_decode.utils import DraftTokensHandler
 from vllm_ascend.attention.sfa_v1 import AscendSFABackend, AscendSFAImpl
 from vllm_ascend.models.deepseek_v41.engram.model_state import EngramModelState
+from vllm_ascend.models.deepseek_v41.model import AscendDeepseekV41LLMForCausalLM
+from vllm_ascend.ops.triton import engram_lookback
 from vllm_ascend.worker.v2 import model_runner as native_runner
 
 from afd_plugin.connectors.npu.hccl_graph_stage import HcclGraphStageBank
@@ -51,6 +56,13 @@ from tests.unit.fakes.attention_model_runner_v2 import (
 from tests.unit.fakes.graph_cache import DeviceCompletion, ReplayGraph
 from tests.unit.fakes.input_batch import make_ascend_decode_batch
 from tests.unit.fakes.platform import stub_platform_forward_context
+from tests.unit.fakes.rejection_sampler import (
+    CPULookbackGather,
+    GreedySamplingState,
+    greedy_rejection_cpu,
+    sampled_and_rejected_cpu,
+    update_speculative_history_cpu,
+)
 
 FULL_REPLAY_ROWS = 4
 FULL_REPLAY_HISTORY_TOKENS = 12
@@ -157,14 +169,16 @@ class AuxiliaryDeviceBoundary:
         pass
 
 
-def make_native_kv_runner_case(monkeypatch, *, post_kv, sync_load, fail_load=False):
+def make_native_kv_runner_case(
+    monkeypatch, *, post_kv, sync_load, fail_load=False, target_query_len=1
+):
     """Keep the complete zero-token native execute/no_forward control flow.
 
     Config admission remains unchanged: an explicit CPU component owns the KV
     singleton below. It is not a serving Graph/PD configuration or handshake.
     All singleton/DP/backend substitutions are restored by pytest monkeypatch.
     """
-    case = make_graph_runner_case()
+    case = make_graph_runner_case(target_query_len=target_query_len)
     owner = case.owner
     events = []
     device = AuxiliaryDeviceBoundary(events)
@@ -353,9 +367,13 @@ def _publish_cpu_replay_fixture(case, coordinator):
     graph = ReplayGraph()
     manager.graphs[descriptor] = graph
     manager.hidden_states = torch.arange(
-        FULL_REPLAY_ROWS * bank.capabilities.hidden_size, dtype=torch.float32
-    ).reshape(FULL_REPLAY_ROWS, bank.capabilities.hidden_size)
-    manager.aux_hidden_states = []
+        descriptor.num_tokens * bank.capabilities.hidden_size, dtype=torch.float32
+    ).reshape(descriptor.num_tokens, bank.capabilities.hidden_size)
+    manager.aux_hidden_states = (
+        [manager.hidden_states + 2, manager.hidden_states + 6]
+        if owner.use_aux_hidden_state_outputs
+        else []
+    )
     resources = HcclV41GraphResources(
         bank=bank,
         execution=execution,
@@ -368,7 +386,7 @@ def _publish_cpu_replay_fixture(case, coordinator):
         kv_caches=tuple(owner.kv_caches),
         manager=manager,
         hidden_states=manager.hidden_states,
-        auxiliary=(),
+        auxiliary=tuple(manager.aux_hidden_states),
         intermediate_tensors=manager.intermediate_tensors,
     )
     case.cache.reserve_capture(key, reservation.generation, graph, resources)
@@ -383,14 +401,21 @@ def _publish_cpu_replay_fixture(case, coordinator):
     case.replay_baseline = tuple(case.transport.transcript)
 
 
-def make_native_full_kv_replay_case(monkeypatch, *, fail_replay=False):
+def make_native_full_kv_replay_case(
+    monkeypatch, *, fail_replay=False, target_query_len=1, auxiliary=False
+):
     """Real AFD -> Ascend -> GPU FULL execution over explicit CPU inputs.
 
     prepare_inputs and _graph_relay are the two instance method boundaries.
     Native execute, gather, prepare_attn, run_fullgraph and Engram retirement
     are unchanged. The static cache is a supplied fixture, not a capture result.
     """
-    case = make_native_kv_runner_case(monkeypatch, post_kv=False, sync_load=True)
+    case = make_native_kv_runner_case(
+        monkeypatch,
+        post_kv=False,
+        sync_load=True,
+        target_query_len=target_query_len,
+    )
     owner = case.owner
     monkeypatch.setattr(
         "vllm_ascend.worker.v2.input_batch.update_cos_sin", lambda _: None
@@ -400,37 +425,38 @@ def make_native_full_kv_replay_case(monkeypatch, *, fail_replay=False):
     monkeypatch.setattr(
         AscendSFABackend, "get_impl_cls", staticmethod(lambda: AscendSFAImpl)
     )
-    batch = make_ascend_decode_batch(FULL_REPLAY_ROWS)
-    batch.req_ids = [f"decode-{index}" for index in range(FULL_REPLAY_ROWS)]
+    rows = case.native_state.num_tokens
+    batch = make_ascend_decode_batch(rows, target_query_len=target_query_len)
+    batch.req_ids = [f"decode-{index}" for index in range(batch.num_reqs)]
     batch.is_dummy = False
     batch.is_padding.fill_(False)
     batch.num_computed_tokens_np.fill(FULL_REPLAY_HISTORY_TOKENS)
     batch.prefill_len_np.fill(FULL_REPLAY_HISTORY_TOKENS)
     batch.num_computed_prefill_tokens_np.fill(FULL_REPLAY_HISTORY_TOKENS)
-    batch.seq_lens.fill_(FULL_REPLAY_HISTORY_TOKENS + 1)
-    batch.seq_lens_np.fill(FULL_REPLAY_HISTORY_TOKENS + 1)
+    batch.seq_lens.fill_(FULL_REPLAY_HISTORY_TOKENS + target_query_len)
+    batch.seq_lens_np.fill(FULL_REPLAY_HISTORY_TOKENS + target_query_len)
     case.batch = batch
     owner.req_states = SimpleNamespace(
-        req_id_to_index=dict(zip(batch.req_ids, range(FULL_REPLAY_ROWS), strict=True)),
+        req_id_to_index=dict(zip(batch.req_ids, range(batch.num_reqs), strict=True)),
         num_computed_tokens_np=batch.num_computed_tokens_np,
         prefill_len=SimpleNamespace(np=batch.prefill_len_np),
         num_computed_prefill_tokens=batch.num_computed_prefill_tokens_np,
         num_computed_tokens=SimpleNamespace(
-            gpu=torch.full((FULL_REPLAY_ROWS,), FULL_REPLAY_HISTORY_TOKENS)
+            gpu=torch.full((batch.num_reqs,), FULL_REPLAY_HISTORY_TOKENS)
         ),
     )
     # Remove the lower-level builder's gather lambda: execute must select and
     # preserve the actual native request ordering before the prepared input seam.
     del owner.gather_batch_req_state
     owner.prepare_inputs = PreparedReplayInputs(batch, case.native_events)
-    owner.block_tables = ReplayBlockTables(FULL_REPLAY_ROWS)
+    owner.block_tables = ReplayBlockTables(rows)
     owner.input_buffers = SimpleNamespace(dcp_local_seq_lens=None)
     owner.model_config = owner.vllm_config.model_config
     owner.observability_config = SimpleNamespace(cudagraph_metrics=False)
     owner.lora_config = owner.adaptive_verification = None
     owner.is_encoder_decoder = owner.uses_inputs_embeds = False
     owner.is_first_pp_rank = owner.is_last_pp_rank = True
-    owner.use_aux_hidden_state_outputs = False
+    owner.use_aux_hidden_state_outputs = auxiliary
     owner.routed_experts_capturer = owner.speculator = None
     owner.prompt_logprobs_worker = None
     owner.use_spec_pp = False
@@ -443,7 +469,7 @@ def make_native_full_kv_replay_case(monkeypatch, *, fail_replay=False):
     metadata = ReplayDeviceMetadata(case.native_events)
     owner.model_state.device_metadata = metadata
     owner.model_state.vllm_config = owner.vllm_config
-    owner.model_state.max_model_len = FULL_REPLAY_HISTORY_TOKENS + FULL_REPLAY_ROWS
+    owner.model_state.max_model_len = FULL_REPLAY_HISTORY_TOKENS + rows
     owner.model_state.rope_state = owner.model_state.lookback_token_ids = None
     owner.model.retire_engram_lookups = metadata.retire_engram_lookups
     case.auxiliary_device = metadata
@@ -451,8 +477,8 @@ def make_native_full_kv_replay_case(monkeypatch, *, fail_replay=False):
     monkeypatch.setattr(kv_transfer_state, "_KV_CONNECTOR_AGENT", transfer)
     owner.kv_connector = ActiveKVConnector(owner.vllm_config, case.kv_views)
     case.kv_transfer = transfer
-    case.scheduler.num_scheduled_tokens = dict.fromkeys(batch.req_ids, 1)
-    case.scheduler.total_num_scheduled_tokens = FULL_REPLAY_ROWS
+    case.scheduler.num_scheduled_tokens = dict.fromkeys(batch.req_ids, target_query_len)
+    case.scheduler.total_num_scheduled_tokens = rows
     case.transport.data_groups = [
         endpoint.group for endpoint in case.model_case.endpoints
     ]
@@ -476,6 +502,8 @@ def make_native_full_kv_replay_case(monkeypatch, *, fail_replay=False):
         if case.replay_error is not None:
             raise case.replay_error
         manager.graphs[descriptor].replay()
+        if owner.use_aux_hidden_state_outputs:
+            return manager.hidden_states, manager.aux_hidden_states
         return manager.hidden_states
 
     case.manager._graph_relay = MethodType(replay_device, case.manager)
@@ -632,4 +660,113 @@ def make_native_full_kv_sampling_case(monkeypatch, *, fail_sample=False):
     state.all_token_ids = SimpleNamespace(gpu=history)
     case.initial_history = history.clone()
     case.sampling_error = owner.sampler.error
+    return case
+
+
+class SpeculativeLogitsBoundary:
+    """CPU head whose actual logits independently drive three rejection cases."""
+
+    def __init__(self, hidden_size, vocab_size):
+        self.hidden_size, self.vocab_size = hidden_size, vocab_size
+        # Request 0: both drafts match; request 1: first draft mismatches;
+        # request 2: first matches and second mismatches. Final rows are bonus.
+        self.predictions = torch.tensor([11, 12, 13, 29, 22, 23, 31, 39, 33])
+
+    def __call__(self, hidden_states):
+        rows = (hidden_states[:, 0] / self.hidden_size).to(torch.int64)
+        logits = hidden_states.new_full((rows.numel(), self.vocab_size), -20)
+        return logits.scatter_(1, self.predictions[rows, None], 20)
+
+
+class CPUDraftTokensHandler(DraftTokensHandler):
+    """Native no-grammar token-handler methods without device copy allocation."""
+
+    def __init__(self):
+        self.req_ids, self.draft_tokens_np, self.num_draft_tokens = [], None, 0
+
+
+def make_native_dspark_sampling_case(
+    monkeypatch, proposal_factory, *, fail_backbone=False
+):
+    """Actual target FULL -> sample/reject -> local DSpark -> KV post-forward.
+
+    The target has three requests, q3 (anchor plus two draft tokens). Its
+    persistent CPU graph output is supplied, not captured. Rejection/counts,
+    post_update and lookback gather are explicit CPU operator boundaries;
+    native runner, RejectionSampler and DSpark proposal bodies remain real.
+    """
+    case = make_native_full_kv_replay_case(
+        monkeypatch, target_query_len=3, auxiliary=True
+    )
+    owner, batch = case.owner, case.batch
+    if (batch.num_reqs, batch.num_tokens, owner.decode_query_len) != (3, 9, 3):
+        raise AssertionError("verification fixture requires three actual q3 requests")
+    monkeypatch.setattr(native_runner, "lmhead_tp_enable", lambda: False)
+    monkeypatch.setattr(gpu_runner, "post_update", update_speculative_history_cpu)
+    monkeypatch.setattr(gpu_runner, "AsyncOutput", CPUCopyAsyncOutput)
+    monkeypatch.setattr(rejection_module, "rejection_sample", greedy_rejection_cpu)
+    monkeypatch.setattr(
+        rejection_module, "get_num_sampled_and_rejected", sampled_and_rejected_cpu
+    )
+    monkeypatch.setattr(engram_lookback, "_gather_lookback_kernel", CPULookbackGather())
+    batch.input_ids.copy_(torch.tensor([10, 11, 12, 20, 21, 22, 30, 31, 32]))
+    batch.positions.copy_(torch.arange(12, 15).repeat(3))
+    batch.logits_indices = torch.arange(batch.num_tokens)
+    batch.cu_num_logits = batch.query_start_loc[: batch.num_reqs + 1].clone()
+    batch.cu_num_logits_np = batch.query_start_loc_np[: batch.num_reqs + 1].copy()
+    batch.num_draft_tokens_per_req = np.full(batch.num_reqs, 2, dtype=np.int32)
+    batch.num_draft_tokens = int(batch.num_draft_tokens_per_req.sum())
+    batch.expanded_idx_mapping = torch.repeat_interleave(batch.idx_mapping, 3)
+    batch.expanded_local_pos = torch.arange(3, dtype=torch.int32).repeat(3)
+    state = owner.req_states
+    state.prefill_len.gpu = torch.full((batch.num_reqs,), FULL_REPLAY_HISTORY_TOKENS)
+    state.prompt_len = SimpleNamespace(np=batch.prefill_len_np.copy())
+    state.last_sampled_tokens = torch.tensor([10, 20, 30])
+    state.next_prefill_tokens = torch.full((batch.num_reqs,), -1, dtype=torch.int64)
+    state.total_len = SimpleNamespace(
+        gpu=torch.full((batch.num_reqs,), FULL_REPLAY_HISTORY_TOKENS + 1)
+    )
+    history = torch.full((batch.num_reqs, owner.model_state.max_model_len), -1)
+    history[:, :FULL_REPLAY_HISTORY_TOKENS] = torch.arange(FULL_REPLAY_HISTORY_TOKENS)
+    history[:, FULL_REPLAY_HISTORY_TOKENS] = state.last_sampled_tokens
+    state.all_token_ids = SimpleNamespace(gpu=history)
+    state.draft_tokens = torch.full((batch.num_reqs, 2), -1, dtype=torch.int64)
+    owner.sampler = GreedySamplingState(state, batch.num_reqs)
+    owner.rejection_sampler = RejectionSampler(
+        owner.sampler, owner.vllm_config.speculative_config, torch.device("cpu")
+    )
+    owner.model.language_model.compute_logits = SpeculativeLogitsBoundary(4, 128)
+    # Preserve the actual native public getter and its persistent target buffer.
+    # DSpark still consumes auxiliary layers; no ordinary-MTP proposal is added.
+    owner.model.language_model.get_mtp_target_hidden_states = MethodType(
+        AscendDeepseekV41LLMForCausalLM.get_mtp_target_hidden_states,
+        owner.model.language_model,
+    )
+    owner.prompt_logprobs_worker = PromptLogprobsWorker(batch.num_reqs)
+    owner.batch_sharder = owner.pcp_manager = None
+    owner.main_stream = owner.output_copy_stream = None
+    owner.check_ep_fault = owner.use_pp = owner.sync_spec_pp_cpu_counts = False
+    owner.num_speculative_steps, owner._draft_workspace_lane = 2, 1
+    owner.draft_tokens_handler = CPUDraftTokensHandler()
+    owner.model_state.supports_mm_inputs = False
+    proposal = proposal_factory(
+        monkeypatch,
+        vllm_config=owner.vllm_config,
+        num_speculative_tokens=2,
+        num_reqs=batch.num_reqs,
+        fail_backbone=fail_backbone,
+    )
+    owner.speculator = proposal.speculator
+    # These are actual persistent ModelState inputs. Next preparation invokes
+    # its unchanged native history selection over the post-rejection state.
+    owner.model_state.lookback_token_ids = torch.full(
+        (batch.num_reqs + 1, 4), -1, dtype=torch.int32
+    )
+    owner.model_state._engram_graph_inputs = {
+        "engram_query_start_loc": torch.zeros(batch.num_reqs + 1, dtype=torch.int32),
+        "engram_valid_token_count": torch.zeros(1, dtype=torch.int32),
+    }
+    owner.model_state.kvpp_is_dummy_run = False
+    owner.model_state.pcp_context = None
+    case.initial_history, case.proposal = history.clone(), proposal
     return case

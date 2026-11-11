@@ -361,6 +361,22 @@ def cpu_target_manager_capture(case, manager, *args, **kwargs):
     cpu_runner_capture(case, case.owner)
 
 
+def retain_native_target_capture(case):
+    """Snapshot the public ready target before invoking a local draft boundary."""
+    entry = case.cache.find(native_keys(case)[0], 0)
+    if entry is None:
+        raise AssertionError("draft started before target capture was published")
+    case.target_entry = entry
+    case.target_output = entry.resources.hidden_states
+    case.target_value = case.target_output.clone()
+    case.target_auxiliary = tuple(entry.resources.auxiliary)
+    case.target_auxiliary_values = tuple(t.clone() for t in case.target_auxiliary)
+    case.target_storage = case.target_output.data_ptr()
+    case.target_transcript = tuple(case.transport.transcript)
+    case.target_produced = tuple(case.model_case.producer_parents)
+    case.capture_order.append("target-published")
+
+
 def prepare_native_draft_capture(case, *, fail_draft=False):
     """Exercise native outer capture and a local NONE-manager draft boundary.
 
@@ -430,18 +446,7 @@ def prepare_native_draft_capture(case, *, fail_draft=False):
     def capture():
         # Public ready-cache lookup must already succeed before native calls
         # speculator.capture. Preserve its resources for post-failure checks.
-        entry = case.cache.find(native_keys(case)[0], 0)
-        if entry is None:
-            raise AssertionError("draft started before target capture was published")
-        case.target_entry = entry
-        case.target_output = entry.resources.hidden_states
-        case.target_value = case.target_output.clone()
-        case.target_auxiliary = tuple(entry.resources.auxiliary)
-        case.target_auxiliary_values = tuple(t.clone() for t in case.target_auxiliary)
-        case.target_storage = case.target_output.data_ptr()
-        case.target_transcript = tuple(case.transport.transcript)
-        case.target_produced = tuple(case.model_case.producer_parents)
-        case.capture_order.append("target-published")
+        retain_native_target_capture(case)
         DFlashSpeculator.capture(draft)
         case.capture_order.append("native-draft-capture-returned")
         case.draft_output = DFlashSpeculator._run_model(

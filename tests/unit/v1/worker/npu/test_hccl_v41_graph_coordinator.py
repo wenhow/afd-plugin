@@ -44,6 +44,10 @@ from afd_plugin.model_executor.models.npu.deepseek_v41 import (
     HCCL_V41_PARENT_FORWARD_KEY,
 )
 from afd_plugin.v1.worker.npu.hccl_v41_graph_coordinator import HcclV41GraphCoordinator
+from tests.unit.fakes.dspark_speculator import (
+    bind_dspark_proposal_after_target_capture,
+    make_dspark_proposal_case,
+)
 from tests.unit.fakes.hccl_graph_pipeline import attach_pipeline
 from tests.unit.fakes.hccl_v41_graph_coordinator import (
     cpu_allocate_bank,
@@ -159,8 +163,10 @@ def native_draft_capture_case(capture_case, monkeypatch):
     monkeypatch.setattr(torch.accelerator, "empty_cache", lambda: None)
     monkeypatch.setattr(torch.accelerator, "get_memory_info", lambda: (1024, 2048))
 
-    def build(*, stages, fail_draft):
-        case = capture_case(stages=stages, target_query_len=3, engram=True)
+    def build(*, stages, fail_draft, target_query_len=3):
+        case = capture_case(
+            stages=stages, target_query_len=target_query_len, engram=True
+        )
         monkeypatch.setattr(
             NPUModelRunnerV2,
             "capture_model",
@@ -174,6 +180,132 @@ def native_draft_capture_case(capture_case, monkeypatch):
         return prepare_native_draft_capture(case, fail_draft=fail_draft)
 
     return build
+
+
+@pytest.fixture
+def native_dspark_proposal_case(native_draft_capture_case, monkeypatch):
+    def build(*, steps=2, anchor=True, stages=2, mode="target", fail_backbone=False):
+        case = native_draft_capture_case(
+            stages=stages, fail_draft=False, target_query_len=steps + 1
+        )
+        proposal = make_dspark_proposal_case(
+            monkeypatch,
+            vllm_config=case.owner.vllm_config,
+            num_speculative_tokens=steps,
+            sample_from_anchor=anchor,
+            reverse_requests=True,
+            fail_backbone=fail_backbone,
+        )
+        bind_dspark_proposal_after_target_capture(case, proposal, mode=mode)
+        return case, proposal
+
+    return build
+
+
+def assert_local_dspark_preserves_target(case, proposal):
+    """Public protocol, retained outputs and fresh-context ownership oracles."""
+    assert tuple(case.transport.transcript) == case.target_transcript
+    assert case.transport.plan is None and case.transport.graph_reservation is None
+    entry = case.target_entry
+    assert case.manager.hidden_states is entry.resources.hidden_states
+    assert case.manager.hidden_states is case.target_output
+    assert case.target_output.data_ptr() == case.target_storage
+    torch.testing.assert_close(case.target_output, case.target_value)
+    for actual, retained, expected in zip(
+        case.manager.aux_hidden_states,
+        case.target_auxiliary,
+        case.target_auxiliary_values,
+        strict=True,
+    ):
+        assert actual is retained
+        torch.testing.assert_close(actual, expected)
+    entry.graph.replay()
+    with set_forward_context(case.target_metadata[-1], case.owner.vllm_config):
+        fresh = get_forward_context()
+        assert HCCL_V41_PARENT_FORWARD_KEY not in (fresh.additional_kwargs or {})
+        assert context_module.get_afd_metadata_from_forward_context() is None
+    if proposal.model.contexts:
+        context = proposal.model.contexts[-1]
+        assert context.cudagraph_runtime_mode == CUDAGraphMode.NONE
+        # Metadata-free native profile uses None on both paths; that sentinel
+        # carries no target identity. Nonempty metadata must remain disjoint.
+        assert context.attn_metadata is None or all(
+            context.attn_metadata is not item for item in case.target_metadata
+        )
+        assert HCCL_V41_PARENT_FORWARD_KEY not in (context.additional_kwargs or {})
+        assert context_module.get_afd_metadata_from_forward_context(context) is None
+
+
+@pytest.mark.parametrize("steps", [1, 2, 3])
+@pytest.mark.parametrize("anchor", [False, True])
+@pytest.mark.parametrize("stages", [1, 2])
+def test_native_dspark_markov_proposal_stays_local_to_attention(
+    native_dspark_proposal_case, steps, anchor, stages
+):
+    case, proposal = native_dspark_proposal_case(
+        steps=steps, anchor=anchor, stages=stages
+    )
+    assert case.coordinator.preflight_capture()
+    previous = SimpleNamespace(additional_kwargs={"caller": "retained"})
+    with override_forward_context(previous):
+        assert case.coordinator.capture_native() == 0
+        assert get_forward_context() is previous
+    torch.testing.assert_close(proposal.output, proposal.expected_tokens)
+    context = proposal.model.contexts[-1]
+    width = steps if anchor else steps + 1
+    assert context.attn_metadata["dspark-only"].num_tokens == (
+        proposal.input_batch.num_reqs * width
+    )
+    assert_local_dspark_preserves_target(case, proposal)
+    assert case.cache.find(case.target_entry.key, 0) is case.target_entry
+
+
+@pytest.mark.parametrize("mode", ["dummy", "profile"])
+def test_native_dspark_memory_profile_uses_local_metadata_free_query(
+    native_dspark_proposal_case, mode
+):
+    case, proposal = native_dspark_proposal_case(mode=mode)
+    assert case.coordinator.preflight_capture()
+    assert case.coordinator.capture_native() == 0
+    torch.testing.assert_close(proposal.output, proposal.expected_tokens)
+    context = proposal.model.contexts[-1]
+    assert context.batch_descriptor.num_tokens == (
+        proposal.input_batch.num_reqs * proposal.query_width
+    )
+    assert context.attn_metadata is None
+    assert_local_dspark_preserves_target(case, proposal)
+
+
+@pytest.mark.parametrize("stages", [1, 2])
+def test_native_dspark_backbone_failure_retains_target_and_restores_context(
+    native_dspark_proposal_case, stages
+):
+    case, proposal = native_dspark_proposal_case(stages=stages, fail_backbone=True)
+    assert case.coordinator.preflight_capture()
+    previous = SimpleNamespace(additional_kwargs={"caller": "retained"})
+    with override_forward_context(previous):
+        with pytest.raises(
+            RuntimeError, match="controlled DSpark backbone failure"
+        ) as error:
+            case.coordinator.capture_native()
+        assert error.value is proposal.model.error
+        assert get_forward_context() is previous
+    assert_local_dspark_preserves_target(case, proposal)
+    assert case.cache.terminal and case.transport.terminal
+
+
+def test_native_dspark_empty_request_batch_preserves_native_rejection(
+    native_dspark_proposal_case,
+):
+    case, proposal = native_dspark_proposal_case()
+    proposal.input_batch.num_reqs = 0
+    assert case.coordinator.preflight_capture()
+    # The genuine DFlash proposal computes max(seq_lens[:R]); it has no empty
+    # generation shortcut. Do not turn this source boundary into fake success.
+    with pytest.raises((ValueError, RuntimeError), match="zero-size|empty|reduction"):
+        case.coordinator.capture_native()
+    assert_local_dspark_preserves_target(case, proposal)
+    assert case.cache.terminal and case.transport.terminal
 
 
 @pytest.mark.parametrize("stages", [1, 2])

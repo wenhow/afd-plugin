@@ -8,6 +8,9 @@
 [原生 eager 操作说明](../../openspec/changes/afd-v41-hccl-text-eager/evidence/A5_NATIVE_EAGER_ZH.md)
 执行。下面这组组件检查可独立于完整模型启动进行。
 
+DSpark 优先开发的执行边界、CPU 回归与后续整模型验收见
+[DSpark 验证说明](DSV41_DSPARK_VALIDATION_ZH.md)。
+
 ## 更新分支
 
 在已有 afd-plugin 仓库执行。先查看本地改动；如有需要保留的改动，先提交或备份，
