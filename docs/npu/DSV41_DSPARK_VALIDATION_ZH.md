@@ -50,13 +50,14 @@ printf 'exit=%s; results=%s\n' "$afd_test_status" "$afd_result_dir"
 缺少 torch、vLLM 或 Ascend 依赖时，CPU 主机可以正常收集并 skip；skip 不能记为
 通过。测试中的 CPU 模型边界、输入准备和设备 kernel 替代不提供 NPU 算子精度、
 模型接受率或设备 Graph 证据。
-target Graph 输出由 CPU 夹具提供；draft KV 预计算和模型计算使用 CPU 边界，
-不验收设备 cache 写入或 Graph 捕获。
+target Graph 使用预供 CPU 输出或原生 capture 工厂产生的 CPU 输出；底层捕获和
+回放仍由 CPU 边界替代。draft KV 预计算和模型计算使用 CPU 边界，不验收设备
+cache 写入或 Graph 捕获。
 接受/拒绝用例采用 greedy CPU 叶子，不覆盖随机采样、设备 rejection kernel
 或真实 Engram gather kernel。
 
-2026-11-11 最新 A3 实际依赖单轮回归为 **160 项通过、0 失败、0 跳过**
-（完整 runner 41、coordinator 119），64 项安装源码一致。运行快照使用已交付
+2026-11-11 最新 A3 实际依赖单轮回归为 **162 项通过、0 失败、0 跳过**
+（完整 runner 43、coordinator 119），66 项安装源码一致。运行快照使用已交付
 源码加四个测试文件，排除了暂停的普通 MTP 工作区改动。
 
 U1/U2 组合用例沿用同一 runner、ModelState、请求状态和 Graph 缓存，连续执行
@@ -76,6 +77,17 @@ F 的 ready/missing/ready 是脚本化可用性回复。第一、三轮 FULL 使
 输出；中间 eager 的 child metadata 和无 Engram 模型边界使用 CPU 夹具。
 结果不证明真实 F 重新捕获、设备 Graph 随新输入重算、Engram producer/kernel、
 实际 KV 写入或运行失败后的恢复。这些仍需 A5 完整模型验收。
+
+新增 capture 组合保留原生 GPU runner、Ascend ACL manager 和 model manager 的
+capture 调用链，执行原生 dummy 输入准备、U2 准备、模型上下文及持久输出存储。
+q3 target 按 4/5 两段运行，使用 `stage_serial`、compute stream 开、hybrid 关的
+组合。捕获阶段的全 padding 行由 CPU F 边界返回零；hidden 和有序 auxiliary
+输出与独立未分段 CPU 参考比较，再由同一 runner 执行、采样和生成 DSpark draft。
+成功和 draft 异常路径均检查 history、KV 绑定及捕获输出的保留。
+
+该组合保留真实工厂和控制流程，但基础捕获、stream/event、远端 F、metadata
+设备任务及模型算子使用 CPU 边界。回放句柄不重新执行 Python 模型，不能据此
+认定设备 Graph 已捕获、随新输入重算或产生真实模型接受率。
 
 需要检查的接口行为包括：原生 proposal 的 token 和 Markov 依赖、target/draft
 上下文隔离、异常后的上下文恢复，以及全接受、首步拒绝和中途拒绝后的输出、

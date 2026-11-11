@@ -15,6 +15,7 @@ pytest.importorskip("torch_npu")
 pytest.importorskip("vllm_ascend")
 
 import torch
+from vllm.utils import torch_utils
 from vllm_ascend.attention.sfa_v1 import AscendSFABackend
 from vllm_ascend.worker.v2.model_runner import NPUModelRunner
 
@@ -38,6 +39,7 @@ from tests.unit.fakes.hccl_v41_graph_eager import run_graph_eager_parent
 from tests.unit.fakes.kv_connector import (
     FULL_REPLAY_HISTORY_TOKENS,
     advance_native_dspark_sampling_case,
+    make_native_dspark_factory_case,
     make_native_dspark_sampling_case,
     make_native_full_kv_replay_case,
     make_native_full_kv_sampling_case,
@@ -822,6 +824,128 @@ def test_real_native_full_replay_fixture_failure_retains_kv_and_graph_owners(
     assert messages[0].plan.graph_execution.phase == "replay"
     assert case.transport.tensor_peer.messages == []
     assert all(endpoint.messages == [] for endpoint in case.model_case.endpoints)
+
+
+@pytest.mark.parametrize("fail_backbone", [False, True])
+def test_native_factory_outputs_survive_dspark_proposal(  # long-test: native factory
+    monkeypatch, fail_backbone
+):
+    case = make_native_dspark_factory_case(
+        monkeypatch, make_dspark_proposal_case, fail_backbone=fail_backbone
+    )
+    owner, runtime = case.owner, case.capture_runtime
+    assert owner.capture_model() == 0
+    coordinator = owner.hccl_v41_graph_coordinator
+    key = coordinator.control.key_for(coordinator.coverage.geometries[0])
+    entry = case.cache.find(key, case.generation())
+    resources = entry.resources
+    retained, auxiliary = resources.hidden_states, resources.auxiliary
+    expected_hidden, expected_auxiliary = case.capture_reference
+    torch.testing.assert_close(retained, expected_hidden)
+    for actual, expected in zip(auxiliary, expected_auxiliary, strict=True):
+        torch.testing.assert_close(actual, expected)
+    retained_values = (retained.clone(),) + tuple(t.clone() for t in auxiliary)
+    assert resources.input_buffers is owner.input_buffers
+    assert resources.manager is owner.cudagraph_manager
+    assert resources.pipeline.selection.phase == "graph_capture"
+    assert not resources.pipeline.policy.hybrid
+    capture_plans = [
+        message.plan
+        for direction, _, _, message in case.transport.transcript
+        if direction == "send" and message.kind == "FORWARD"
+    ]
+    assert [plan.graph_execution.phase for plan in capture_plans] == [
+        "eager",
+        "warmup",
+        "capture",
+    ]
+    assert all(
+        stage.attention_valid_tokens == (0,)
+        for plan in capture_plans
+        for stage in plan.stages
+    )
+    assert key.padded_tokens == (4, 5)
+    for exchange in resources.bank.exchanges:
+        packets = exchange.endpoint.messages
+        for hidden, router, ids in zip(
+            packets[::3], packets[1::3], packets[2::3], strict=True
+        ):
+            assert hidden.dtype == torch.bfloat16 and router.dtype == torch.float32
+            torch.testing.assert_close(router, hidden.float() + 0.00031)
+            assert ids.dtype == torch.int32 and torch.equal(ids, torch.zeros_like(ids))
+    assert all(
+        record[-2:] == (True, True)
+        for record in runtime.trace
+        if record[0] == "attention"
+    )
+    assert ("parent_stream", "output", True, True) in runtime.trace
+    assert all(
+        record[-1] == "parent" for record in runtime.trace if record[0] == "wire"
+    )
+    assert torch.npu.current_stream() is runtime.parent
+    assert torch_utils.current_stream() is runtime.parent
+    before_replay = tuple(runtime.trace)
+    protocol_start = len(case.transport.transcript)
+
+    # Native execute(None) publishes the persistent factory outputs to its
+    # sample consumer. The inert device replay does not rerun Python compute.
+    assert owner.execute_model(case.scheduler) is None
+    published = owner.execute_model_state
+    torch.testing.assert_close(published.hidden_states, expected_hidden)
+    for actual, expected in zip(
+        published.aux_hidden_states, expected_auxiliary, strict=True
+    ):
+        torch.testing.assert_close(actual, expected)
+    assert tuple(runtime.trace) == before_replay
+    assert not case.auxiliary_device.lookup_live
+    assert not case.auxiliary_device.metadata_live
+    assert not case.auxiliary_device.replay_live
+    assert torch.equal(owner.req_states.all_token_ids.gpu, case.initial_history)
+    assert case.kv_transfer.bound_metadata is case.scheduler.kv_connector_metadata
+    completed_protocol = tuple(case.transport.transcript)
+    assert [
+        message.kind
+        for direction, _, _, message in completed_protocol[protocol_start:]
+        if direction == "send" and message.kind in ("FORWARD", "COMPLETE")
+    ] == ["FORWARD", "COMPLETE"]
+    if fail_backbone:
+        with pytest.raises(RuntimeError, match="controlled DSpark backbone failure"):
+            owner.sample_tokens(None)
+        assert case.kv_transfer.bound_metadata is case.scheduler.kv_connector_metadata
+        assert owner.req_states.draft_tokens.tolist() == [[-1, -1]] * 3
+    else:
+        sampled = owner.sample_tokens(None)
+        output = sampled.get_output()
+        assert output.sampled_token_ids == [[11, 12, 13], [29], [31, 39]]
+        assert sampled.sampler_output.num_sampled.tolist() == [3, 1, 2]
+        assert sampled.sampler_output.num_rejected.tolist() == [0, 2, 1]
+        assert owner.req_states.draft_tokens.tolist() == [[14, 15], [13, 14], [6, 7]]
+        assert output.kv_connector_output.finished_sending == {"sent"}
+        assert case.kv_transfer.bound_metadata is None
+    state = owner.req_states
+    expected_history = case.initial_history.clone()
+    expected_history[0, 13:16] = torch.tensor([11, 12, 13])
+    expected_history[1, 13] = 29
+    expected_history[2, 13:15] = torch.tensor([31, 39])
+    assert torch.equal(state.all_token_ids.gpu, expected_history)
+    assert state.num_computed_tokens.gpu.tolist() == [15, 13, 14]
+    assert state.total_len.gpu.tolist() == [16, 14, 15]
+    assert state.last_sampled_tokens.tolist() == [13, 29, 39]
+    assert ("draft_parent", True, True) in runtime.trace
+    draft_context = case.proposal.model.contexts[-1]
+    assert HCCL_V41_PARENT_FORWARD_KEY not in (draft_context.additional_kwargs or {})
+    assert context_module.get_afd_metadata_from_forward_context(draft_context) is None
+    assert tuple(case.transport.transcript) == completed_protocol
+    assert case.cache.find(key, case.generation()) is entry
+    for actual, expected in zip((retained,) + auxiliary, retained_values, strict=True):
+        torch.testing.assert_close(actual, expected)
+    assert (
+        not entry.graph.closed
+        and not case.cache.terminal
+        and not case.transport.terminal
+    )
+    assert torch.npu.current_stream() is runtime.parent
+    assert torch_utils.current_stream() is runtime.parent
 
 
 def test_real_native_full_replay_fixture_sampling_returns_tokens_and_kv_results(

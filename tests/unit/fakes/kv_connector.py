@@ -8,7 +8,8 @@ host boundaries. FULL replay additionally supplies prepared inputs, metadata
 and an inert graph device boundary. This does not run PD or Graph device work.
 """
 
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
+from functools import partial
 from types import MethodType, SimpleNamespace
 
 import numpy as np
@@ -19,19 +20,23 @@ from vllm.distributed.kv_transfer.kv_connector.v1.base import (
     KVConnectorMetadata,
     KVConnectorTransferResults,
 )
+from vllm.utils import torch_utils
 from vllm.v1.core.sched.output import CachedRequestData, SchedulerOutput
+from vllm.v1.worker.gpu import cudagraph_utils as native_cudagraph
 from vllm.v1.worker.gpu import model_runner as gpu_runner
 from vllm.v1.worker.gpu.async_utils import (
     AsyncOutput,
     StepTimingCollector,
     async_copy_to_np,
 )
+from vllm.v1.worker.gpu.cudagraph_utils import CudaGraphManager
 from vllm.v1.worker.gpu.ec_connector import ECConnector
 from vllm.v1.worker.gpu.eplb_utils import EPLBController
 from vllm.v1.worker.gpu.kv_connector import ActiveKVConnector
 from vllm.v1.worker.gpu.sample.output import SamplerOutput
 from vllm.v1.worker.gpu.sample.prompt_logprob import PromptLogprobsWorker
 from vllm.v1.worker.gpu.spec_decode import rejection_sampler as rejection_module
+from vllm.v1.worker.gpu.spec_decode.dflash.cudagraph import DFlashCudaGraphManager
 from vllm.v1.worker.gpu.spec_decode.rejection_sampler import RejectionSampler
 from vllm.v1.worker.gpu.spec_decode.utils import DraftTokensHandler
 from vllm_ascend.attention.sfa_v1 import AscendSFABackend, AscendSFAImpl
@@ -39,8 +44,11 @@ from vllm_ascend.models.deepseek_v41.engram.model_state import EngramModelState
 from vllm_ascend.models.deepseek_v41.model import AscendDeepseekV41LLMForCausalLM
 from vllm_ascend.ops.triton import engram_lookback
 from vllm_ascend.worker.v2 import model_runner as native_runner
+from vllm_ascend.worker.v2.input_batch import AscendInputBatch, AscendInputBuffers
 
+from afd_plugin.connectors.npu import hccl_graph_pipeline as pipeline_module
 from afd_plugin.connectors.npu.hccl_graph_stage import HcclGraphStageBank
+from afd_plugin.connectors.npu.hccl_overlap import HcclOverlapSettings
 from afd_plugin.distributed.hccl_plan import HcclLocalForward
 from afd_plugin.model_executor.models.npu.deepseek_v41_graph import (
     DeepseekV41GraphParent,
@@ -54,9 +62,13 @@ from tests.unit.fakes.attention_model_runner_v2 import (
     install_graph_runner_coordinator,
     make_graph_runner_case,
 )
+from tests.unit.fakes.deepseek_v41_graph import GraphParentNorm, GraphStreamAttention
 from tests.unit.fakes.device_metadata import make_cpu_target_metadata
 from tests.unit.fakes.graph_cache import DeviceCompletion, ReplayGraph
+from tests.unit.fakes.hccl_graph_pipeline import attach_pipeline
 from tests.unit.fakes.hccl_v41_graph_coordinator import (
+    cpu_allocate_bank,
+    cpu_retained_capture,
     install_runtime_eager_tensor_boundary,
     reference_runtime_eager_output,
 )
@@ -64,6 +76,7 @@ from tests.unit.fakes.input_batch import (
     make_ascend_decode_batch,
     snapshot_ascend_child,
 )
+from tests.unit.fakes.npu_stream import HostStreamRecorder
 from tests.unit.fakes.platform import stub_platform_forward_context
 from tests.unit.fakes.rejection_sampler import (
     CPULookbackGather,
@@ -146,6 +159,9 @@ class KVTransferBoundary:
     def clear_connector_metadata(self):
         self.bound_metadata = None
         self.events.append("kv-clear")
+
+    def reset_capture_state(self):
+        self.events.append("kv-capture-reset")
 
 
 class AuxiliaryDeviceBoundary:
@@ -331,6 +347,34 @@ class ReplayDeviceMetadata(AuxiliaryDeviceBoundary):
         super().finish()
 
 
+class FactoryDeviceMetadata(ReplayDeviceMetadata):
+    """Keep native capture/forward retirement over the existing CPU task leaf.
+
+    Capture has no live Engram lookup in this no-Engram model. Its metadata
+    submission retires in ModelWithContext, followed by the manager's idempotent
+    finish. Runtime replay instead retires lookup and replay leases in the
+    unchanged native execute finally. No test manually reopens either lease.
+    """
+
+    def __init__(self, events, *, native_metadata):
+        super().__init__(events, native_metadata=native_metadata)
+        self.lookup_live = self.metadata_live = False
+
+    def begin_preparation(self, *, full_graph=True):
+        super().begin_preparation(full_graph=full_graph)
+        reservation = self.transport.graph_reservation
+        if reservation is not None and reservation.phase in ("warmup", "capture"):
+            self.lookup_live = self.replay_live = False
+
+    def begin_forward(self):
+        self.native_metadata.begin_forward()
+
+    def finish(self):
+        self.native_metadata.finish()
+        if self.metadata_live:
+            AuxiliaryDeviceBoundary.finish(self)
+
+
 class ReplayKVTransferBoundary(KVTransferBoundary):
     """Validate the real positive native pre_forward metadata and coordinates."""
 
@@ -410,6 +454,12 @@ class ReplayBlockTables:
         self, idx_mapping, query_start_loc, positions, num_tokens_padded
     ):
         return self.slot_mappings[:, :num_tokens_padded]
+
+    def get_dummy_block_tables(self, num_reqs):
+        return tuple(table[:num_reqs] for table in self.input_block_tables)
+
+    def get_dummy_slot_mappings(self, num_tokens):
+        return self.slot_mappings[:, :num_tokens]
 
 
 def _publish_cpu_replay_fixture(case, coordinator):
@@ -497,6 +547,7 @@ def make_native_full_kv_replay_case(
     auxiliary=False,
     stages=1,
     eager_fallback=False,
+    capture_settings=None,
 ):
     """Real AFD -> Ascend -> GPU FULL execution over explicit CPU inputs.
 
@@ -548,7 +599,11 @@ def make_native_full_kv_replay_case(
         batch, case.native_events, stages=stages, allow_eager=eager_fallback
     )
     owner.block_tables = ReplayBlockTables(rows)
-    owner.input_buffers = SimpleNamespace(dcp_local_seq_lens=None)
+    owner.input_buffers = (
+        SimpleNamespace(dcp_local_seq_lens=None)
+        if capture_settings is None
+        else AscendInputBuffers(batch.num_reqs, rows, torch.device("cpu"))
+    )
     owner.model_config = owner.vllm_config.model_config
     owner.observability_config = SimpleNamespace(cudagraph_metrics=False)
     owner.lora_config = owner.adaptive_verification = None
@@ -572,7 +627,12 @@ def make_native_full_kv_replay_case(
         case.runner.model_state = owner.model_state
         case.runner.attn_groups = owner.attn_groups
         owner.ubatch_runner = case.runner
-    metadata = ReplayDeviceMetadata(case.native_events, native_metadata=native_metadata)
+    metadata_type = (
+        ReplayDeviceMetadata if capture_settings is None else FactoryDeviceMetadata
+    )
+    metadata = metadata_type(case.native_events, native_metadata=native_metadata)
+    if capture_settings is not None:
+        metadata.transport = case.transport
     if eager_fallback and stages == 2:
         case.runner._prepare_attn = metadata.prepare_child
     owner.model_state.device_metadata = metadata
@@ -587,7 +647,7 @@ def make_native_full_kv_replay_case(
     monkeypatch.setattr(kv_transfer_state, "_KV_CONNECTOR_AGENT", transfer)
     owner.kv_connector = ActiveKVConnector(owner.vllm_config, case.kv_views)
     case.kv_transfer = transfer
-    if eager_fallback:
+    if eager_fallback or capture_settings is not None:
         # Freeze the deterministic CPU weights before the recorded bundle.
         # Actual next anchors can exceed the old toy model's 32-row vocabulary.
         native = owner.model.language_model.model
@@ -617,12 +677,15 @@ def make_native_full_kv_replay_case(
     case.transport.data_groups = [
         endpoint.group for endpoint in case.model_case.endpoints
     ]
-    coordinator = install_graph_runner_coordinator(case)
+    coordinator = install_graph_runner_coordinator(
+        case, overlap_settings=capture_settings
+    )
     case.manager = coordinator.manager
     case.manager.vllm_config = owner.vllm_config
     case.manager.update_stream = SimpleNamespace(label="device-replay-boundary")
     owner.bind_hccl_v41_graph_coordinator(coordinator)
-    _publish_cpu_replay_fixture(case, coordinator)
+    if capture_settings is None:
+        _publish_cpu_replay_fixture(case, coordinator)
     case.replay_error = (
         RuntimeError("controlled FULL replay failure") if fail_replay else None
     )
@@ -834,6 +897,7 @@ def make_native_dspark_sampling_case(
     fail_backbone=False,
     stages=1,
     eager_fallback=False,
+    capture_settings=None,
 ):
     """Actual target FULL -> sample/reject -> local DSpark -> KV post-forward.
 
@@ -848,6 +912,7 @@ def make_native_dspark_sampling_case(
         auxiliary=True,
         stages=stages,
         eager_fallback=eager_fallback,
+        capture_settings=capture_settings,
     )
     owner, batch = case.owner, case.batch
     if (batch.num_reqs, batch.num_tokens, owner.decode_query_len) != (3, 9, 3):
@@ -887,7 +952,7 @@ def make_native_dspark_sampling_case(
         owner.sampler, owner.vllm_config.speculative_config, torch.device("cpu")
     )
     owner.model.language_model.compute_logits = SpeculativeLogitsBoundary(
-        4, 128, ordinal_rows=eager_fallback
+        4, 128, ordinal_rows=eager_fallback or capture_settings is not None
     )
     # Preserve the actual native public getter and its persistent target buffer.
     # DSpark still consumes auxiliary layers; no ordinary-MTP proposal is added.
@@ -922,6 +987,117 @@ def make_native_dspark_sampling_case(
     owner.model_state.kvpp_is_dummy_run = False
     owner.model_state.pcp_context = None
     case.initial_history, case.proposal = history.clone(), proposal
+    return case
+
+
+def make_native_dspark_factory_case(
+    monkeypatch, proposal_factory, *, fail_backbone=False
+):
+    """Actual GPU -> ACL -> model factory and persistent output, on CPU only.
+
+    Only base CudaGraphManager.capture is a host notification boundary: it
+    executes each fresh warmup/capture callable once and retains inert graph
+    handles. Replay never reruns that Python callable. Memory accounting,
+    workspace locking, stream/events and the remote FFN are explicit CPU leaves;
+    native preparation, ModelWithContext and store_capture_output remain real.
+    """
+    settings = HcclOverlapSettings(graph_u2_hybrid_dag=False)
+    case = make_native_dspark_sampling_case(
+        monkeypatch,
+        proposal_factory,
+        fail_backbone=fail_backbone,
+        stages=2,
+        capture_settings=settings,
+    )
+    owner, manager = case.owner, case.manager
+    owner.model_state.prompt_embeds_state = None
+    owner.maybe_setup_dummy_loras = lambda _: nullcontext()
+    manager.cudagraph_mode = CUDAGraphMode.FULL_DECODE_ONLY
+    manager.use_breakable_cg = False
+    manager.is_first_pp_rank = manager.is_last_pp_rank = True
+    manager.max_num_reqs, manager.dp_size = case.batch.num_reqs, 1
+    # DSpark's native NONE capture has no forward factory invocation. Keep its
+    # real capture method and manager, rather than inventing a draft graph.
+    draft = owner.speculator
+    draft_manager = DFlashCudaGraphManager.__new__(DFlashCudaGraphManager)
+    vars(draft_manager).update(vars(draft.query_cudagraph_manager))
+    draft_manager.cudagraph_mode = CUDAGraphMode.NONE
+    draft_manager._capture_descs = {}
+    draft_manager.host_descriptors, draft_manager.graphs = (), {}
+    draft_manager.capture_failure = None
+    draft.query_cudagraph_manager = draft_manager
+
+    runtime = HostStreamRecorder(torch.device("cpu"))
+    case.capture_runtime = runtime
+    monkeypatch.setattr(
+        torch_utils, "_current_stream_tls", SimpleNamespace(value=runtime.parent)
+    )
+    monkeypatch.setattr(torch.npu, "current_stream", runtime.current_stream)
+    monkeypatch.setattr(torch.npu, "stream", runtime.stream)
+    monkeypatch.setattr(torch.npu, "is_current_stream_capturing", lambda: False)
+    native_model = owner.model.language_model.model
+    for layer in native_model.layers:
+        layer.self_attn = GraphStreamAttention(layer.self_attn, runtime)
+    native_model.norm = GraphParentNorm(runtime)
+
+    def observe_draft(model, args):
+        runtime.trace.append(
+            (
+                "draft_parent",
+                torch.npu.current_stream() is runtime.parent,
+                torch_utils.current_stream() is runtime.parent,
+            )
+        )
+
+    case.proposal.model.register_forward_pre_hook(observe_draft)
+
+    def allocate_pipeline(bank, *, policy=None, selection=None):
+        return attach_pipeline(
+            monkeypatch,
+            pipeline_module,
+            bank,
+            policy=policy,
+            selection=selection,
+            runtime=runtime,
+        ).pipeline
+
+    monkeypatch.setattr(
+        HcclGraphStageBank,
+        "allocate",
+        partial(cpu_allocate_bank, case, mask_padding=True, runtime=runtime),
+    )
+    monkeypatch.setattr(
+        pipeline_module.HcclGraphComputePipeline,
+        "allocate",
+        staticmethod(allocate_pipeline),
+    )
+
+    def capture_boundary(
+        manager, create_forward_fn, progress_bar_desc="Capturing CUDA graphs"
+    ):
+        cpu_retained_capture(manager, create_forward_fn, progress_bar_desc)
+        if manager is case.manager:
+            # The scripted FFN peer now has the matching captured component.
+            # This does not replace the real reservation or replay decision.
+            case.transport.states[0] = "ready"
+
+    monkeypatch.setattr(CudaGraphManager, "capture", capture_boundary)
+    # Match Ascend's pinned patch_v2/patch_input_batch alias. Construct the real
+    # Ascend subtype with CPU buffers; do not fabricate the native dummy batch.
+    monkeypatch.setattr(native_cudagraph, "InputBatch", AscendInputBatch)
+    monkeypatch.setattr(gpu_runner, "freeze_gc_for_cudagraph_capture", nullcontext)
+    monkeypatch.setattr(gpu_runner, "lock_workspace", lambda: None)
+    monkeypatch.setattr(torch.accelerator, "empty_cache", lambda: None)
+    monkeypatch.setattr(torch.accelerator, "get_memory_info", lambda: (1024, 2048))
+    # The reference is an independent unsplit native CPU model. Capture's
+    # actual dummy query is all zero and both accepted stage valid counts are
+    # zero; its remote FFN therefore returns zero after the real bank mask.
+    dummy = make_ascend_decode_batch(case.batch.num_tokens, target_query_len=3)
+    dummy.input_ids.zero_()
+    dummy.positions.zero_()
+    case.capture_reference = reference_runtime_eager_output(
+        dummy, embed_tokens=native_model.embed_tokens, padding_only=True
+    )
     return case
 
 

@@ -257,23 +257,38 @@ def queue_preflight(case, keys, *, prefix=None, empty=False):
     return candidate
 
 
-def cpu_allocate_bank(case, transport, key, *, device):
+def cpu_allocate_bank(
+    case, transport, key, *, device, mask_padding=False, runtime=None
+):
     """CPU storage/operator boundary; no NPU allocation or device claim."""
     endpoints = tuple(GraphFFNEndpoint() for _ in key.stage_layouts)
     for index, endpoint in enumerate(endpoints):
         endpoint.group = transport.data_groups[index]
+        endpoint.stage_idx, endpoint.runtime = index, runtime
     original = make_graph_stage_bank(
         rows=key.padded_tokens,
         endpoint_factory=lambda index: endpoints[index],
         target_query_len=key.uniform_token_count,
     )
-    return HcclGraphStageBank(
+    bank = HcclGraphStageBank(
         role="attention",
         role_rank=transport.role_rank,
         capabilities=transport.negotiated_capabilities,
         key=key,
         exchanges=original.exchanges,
     )
+    if mask_padding:
+        for index, endpoint in enumerate(endpoints):
+            receive = endpoint.receive
+
+            def receive_valid(tensor, shape, *, receive=receive, index=index):
+                receive(tensor, shape)
+                # The explicit CPU peer obeys the same accepted valid-count
+                # mask as FFN Graph. Capture dummy rows must return zero.
+                tensor[bank.valid_counts[index] :].zero_()
+
+            endpoint.receive = receive_valid
+    return bank
 
 
 def cpu_runner_capture(case, owner, *, profile_only=False):
@@ -605,11 +620,21 @@ def run_runtime_eager_parent(case, descriptor, *, token_offset, position_offset)
     return batch, result
 
 
-def reference_runtime_eager_output(batch, *, embed_tokens=None):
+class PaddingOnlyFFN(nn.Module):
+    """Independent all-padding FFN oracle, without a model/device claim."""
+
+    def forward(self, hidden_states, **kwargs):
+        return torch.zeros_like(hidden_states)
+
+
+def reference_runtime_eager_output(batch, *, embed_tokens=None, padding_only=False):
     """Unsplit CPU schedule; optional frozen CPU weights are borrowed read-only."""
     model = make_staged_model(capacity=batch.num_tokens_after_padding, engram=False)
     if embed_tokens is not None:
         model.embed_tokens = embed_tokens
+    if padding_only:
+        for layer in model.layers:
+            layer.mlp = PaddingOnlyFFN()
     return model(
         input_ids=batch.input_ids,
         positions=batch.positions,

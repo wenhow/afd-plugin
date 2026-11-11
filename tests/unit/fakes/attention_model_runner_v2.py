@@ -54,7 +54,7 @@ def make_graph_runner_case(*, fail_close=False, stages=1, target_query_len=1):
     return case
 
 
-def install_graph_runner_coordinator(case):
+def install_graph_runner_coordinator(case, *, overlap_settings=None):
     """Install host manager/storage identities; no real KV or NPU capture."""
     native = make_coordinator_case(
         stages=case.owner.parallel_config.num_ubatches,
@@ -75,6 +75,7 @@ def install_graph_runner_coordinator(case):
         control,
         case.session,
         next_transaction_id=case.next_transaction_id,
+        overlap_settings=overlap_settings,
     )
     return coordinator
 
