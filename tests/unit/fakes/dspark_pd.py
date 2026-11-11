@@ -7,6 +7,7 @@ remain intact. These allocated CPU weights are an independent arithmetic
 contract, not checkpoint weights, packed SWA writes or a device transfer.
 """
 
+from copy import deepcopy
 from dataclasses import replace
 from types import SimpleNamespace
 
@@ -16,12 +17,16 @@ from vllm.config.attention import AttentionConfig
 from vllm.v1.core.sched.output import CachedRequestData, SchedulerOutput
 from vllm.v1.kv_cache_interface import KVCacheGroupSpec, KVCacheTensor
 from vllm.v1.worker.gpu.model_runner import ExecuteModelState
-from vllm_ascend.core.kv_cache_interface import AscendSlidingWindowMLASpec
+from vllm_ascend.core.kv_cache_interface import (
+    AscendSlidingWindowMLASpec,
+    is_circular_kv_cache_spec,
+)
 from vllm_ascend.models.deepseek_v41 import dspark as dspark_model_module
 from vllm_ascend.models.deepseek_v41.dspark import (
     DeepseekV41DSparkModel,
     DSparkDeepseekV41ForCausalLM,
 )
+from vllm_ascend.models.deepseek_v41.model import AscendDeepseekV41LLMForCausalLM
 from vllm_ascend.worker.v2.input_batch import AscendInputBatch, AscendInputBuffers
 from vllm_ascend.worker.v2.spec_decode.dspark.speculator import AscendDSparkSpeculator
 
@@ -127,6 +132,105 @@ def _projection_model(kv_case, names, *, fail_projection=False):
     return outer, rope
 
 
+def make_dspark_pd_loaded_case(
+    monkeypatch,
+    *,
+    config,
+    kv_cache_config,
+    caches,
+    draft_names,
+    source_engine_id,
+    tp_rank=0,
+    tp_size=1,
+    peer_error=False,
+    projection_error=False,
+):
+    """Bind native CPU model identities to caller-owned materialized cache views.
+
+    No constructor loads a checkpoint and no target forward runs. The draft
+    projection model retains native combine/project/store bodies with the same
+    explicit CPU RoPE/scatter/fence leaves as the producer prefix fixture.
+    Registration remains the actual connector's responsibility.
+    """
+    kv_case = SimpleNamespace(config=kv_cache_config, caches=caches)
+    group_ids = tuple(
+        index
+        for index, group in enumerate(kv_cache_config.kv_cache_groups)
+        if set(group.layer_names) & set(draft_names)
+    )
+    layer_groups = {
+        name: index
+        for index in group_ids
+        for name in kv_cache_config.kv_cache_groups[index].layer_names
+    }
+    names = tuple(
+        (
+            name,
+            kv_cache_config.kv_cache_groups[
+                layer_groups[name]
+            ].kv_cache_spec.block_size,
+        )
+        for name in draft_names
+    )
+    model, rope = _projection_model(kv_case, names, fail_projection=projection_error)
+    config.compilation_config.static_forward_context = {}
+    for block in model.model.layers.values():
+        cache = block.self_attn.dsa_attn.swa_cache_layer
+        config.compilation_config.static_forward_context[cache.prefix] = cache
+    speculator = AscendDSparkSpeculator.__new__(AscendDSparkSpeculator)
+    speculator.model = model
+    speculator.vllm_config = config
+    # Native DFlash's read-only attention config derives causality from these
+    # actual constructor fields; keep that property intact in this CPU seam.
+    speculator.requires_non_causal = True
+    speculator.device = torch.device("cpu")
+    speculator.draft_attn_layer_names = set(model.get_draft_kv_cache_layer_names())
+    speculator.draft_kv_cache_group_ids = group_ids
+    speculator._layer_group_idx = [
+        group_ids.index(layer_groups[block.self_attn.dsa_attn.swa_cache_layer.prefix])
+        for block in model.model.layers.values()
+    ]
+    speculator.kv_cache_config = kv_cache_config
+    stream = PrefixProjectionStream()
+
+    def scatter_cpu(cache, slots, values):
+        stream.drained = False
+        for row, (block, offset) in enumerate(slots.tolist()):
+            if block >= 0:
+                cache[block, offset].copy_(values[row].reshape_as(cache[block, offset]))
+
+    monkeypatch.setattr(dspark_model_module, "_apply_dsv4_rope", rope)
+    monkeypatch.setattr(dspark_model_module, "scatter_cache_sk", scatter_cpu)
+    monkeypatch.setattr(torch.npu, "current_stream", lambda device=None: stream)
+    agreement = PrefixAgreement(tp_size, stream, peer_error=peer_error)
+    target_model = AscendDeepseekV41LLMForCausalLM.__new__(
+        AscendDeepseekV41LLMForCausalLM
+    )
+    nn.Module.__init__(target_model)
+    consumer = DsparkPdPrefixConsumer(
+        config,
+        speculator,
+        target_model=target_model,
+        device=speculator.device,
+        source_engine_id=source_engine_id,
+        tp_rank=tp_rank,
+        tp_size=tp_size,
+        agree_batch=agreement,
+    )
+    return SimpleNamespace(
+        config=config,
+        speculator=speculator,
+        model=model,
+        target_model=target_model,
+        consumer=consumer,
+        agreement=agreement,
+        kv_config=kv_cache_config,
+        caches=caches,
+        draft_names=tuple(draft_names),
+        draft_group_ids=group_ids,
+    )
+
+
 def make_dspark_pd_prefix_case(
     monkeypatch,
     *,
@@ -146,7 +250,6 @@ def make_dspark_pd_prefix_case(
     config.attention_config = AttentionConfig()
     kv_case = make_native_kv_cache_case(num_blocks=num_blocks)
     names = (("draft.layers.0.swa_cache", 4), ("draft.layers.1.swa_cache", 2))
-    first_draft_group = len(kv_case.config.kv_cache_groups)
     for name, block_size in names:
         spec = AscendSlidingWindowMLASpec(
             block_size=block_size,
@@ -169,44 +272,19 @@ def make_dspark_pd_prefix_case(
                 block_stride=spec.page_size_bytes,
             )
         )
-    model, rope = _projection_model(kv_case, names, fail_projection=projection_error)
-    for block in model.model.layers.values():
-        cache = block.self_attn.dsa_attn.swa_cache_layer
-        config.compilation_config.static_forward_context[cache.prefix] = cache
-    speculator = AscendDSparkSpeculator.__new__(AscendDSparkSpeculator)
-    speculator.model = model
-    speculator.vllm_config = config
-    # Native DFlash's read-only attention config derives causality from these
-    # actual constructor fields; keep that property intact in this CPU seam.
-    speculator.requires_non_causal = True
-    speculator.device = torch.device("cpu")
-    speculator.draft_attn_layer_names = set(model.get_draft_kv_cache_layer_names())
-    speculator.draft_kv_cache_group_ids = (first_draft_group, first_draft_group + 1)
-    speculator._layer_group_idx = [1, 0]
-    speculator.kv_cache_config = kv_case.config
-    stream = PrefixProjectionStream()
-
-    def scatter_cpu(cache, slots, values):
-        stream.drained = False
-        for row, (block, offset) in enumerate(slots.tolist()):
-            if block >= 0:
-                cache[block, offset].copy_(values[row].reshape_as(cache[block, offset]))
-
-    monkeypatch.setattr(dspark_model_module, "_apply_dsv4_rope", rope)
-    monkeypatch.setattr(dspark_model_module, "scatter_cache_sk", scatter_cpu)
-    monkeypatch.setattr(torch.npu, "current_stream", lambda device=None: stream)
-    agreement = PrefixAgreement(tp_size, stream, peer_error=peer_error)
-    target_model = nn.Module()
-    consumer = DsparkPdPrefixConsumer(
-        config,
-        speculator,
-        target_model=target_model,
-        device=speculator.device,
+    loaded = make_dspark_pd_loaded_case(
+        monkeypatch,
+        config=config,
+        kv_cache_config=kv_case.config,
+        caches=kv_case.caches,
+        draft_names=tuple(name for name, _ in names),
         source_engine_id="source-engine",
         tp_rank=tp_rank,
         tp_size=tp_size,
-        agree_batch=agreement,
+        peer_error=peer_error,
+        projection_error=projection_error,
     )
+    consumer = loaded.consumer
     layout = collect_deepseek_v41_kv_layout(kv_case.config, kv_case.caches)
     if bind:
         consumer.bind_registered_layout(layout, kv_case.config, kv_case.caches)
@@ -215,7 +293,12 @@ def make_dspark_pd_prefix_case(
         group.kv_cache_spec.block_size for group in kv_case.config.kv_cache_groups
     )
     blocks = tuple(
-        tuple(range(1, 1 + (prefix_tokens + size - 1) // size)) for size in sizes
+        # The actual CircularBufferManager claims one physical ring block,
+        # independently of prompt length. Do not invent one block per chunk.
+        (1,)
+        if is_circular_kv_cache_spec(group.kv_cache_spec)
+        else tuple(range(1, 1 + (prefix_tokens + size - 1) // size))
+        for group, size in zip(kv_case.config.kv_cache_groups, sizes, strict=True)
     )
     source = DsparkPdSourceRequest(
         "request-1",
@@ -228,6 +311,21 @@ def make_dspark_pd_prefix_case(
         "source-engine",
         draft_schema_digest(config, kv_case.config),
     )
+    # Circular: the connector fixture reuses this module's loaded-model helper.
+    # Its actual native constructor/export methods own SWA tail clipping; keep
+    # the projection allocation complete and do not mutate the caller's config.
+    from tests.unit.fakes.kv_layout_connector import make_dspark_scheduler_case
+
+    export_case = make_dspark_scheduler_case(
+        monkeypatch,
+        SimpleNamespace(
+            config=deepcopy(config), source=source, kv_config=kv_case.config
+        ),
+    )
+    exported = export_case.scheduler.get_sw_clipped_blocks(
+        export_case.scheduler._compute_transfer_block_ids(blocks, prefix_tokens)
+    )
+    source = replace(source, transfer_block_ids=tuple(tuple(ids) for ids in exported))
 
     def make_step(offset, count):
         buffers = AscendInputBuffers(1, count, torch.device("cpu"))
@@ -284,17 +382,17 @@ def make_dspark_pd_prefix_case(
     )
     return SimpleNamespace(
         config=config,
-        speculator=speculator,
-        model=model,
-        target_model=target_model,
+        speculator=loaded.speculator,
+        model=loaded.model,
+        target_model=loaded.target_model,
         kv_config=kv_case.config,
         caches=kv_case.caches,
         layout=layout,
         consumer=consumer,
         source=source,
         make_step=make_step,
-        agreement=agreement,
+        agreement=loaded.agreement,
         expected_ready=expected_ready,
         draft_names=tuple(name for name, _ in names),
-        draft_group_ids=speculator.draft_kv_cache_group_ids,
+        draft_group_ids=loaded.draft_group_ids,
     )

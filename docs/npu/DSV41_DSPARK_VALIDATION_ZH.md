@@ -147,6 +147,24 @@ target/draft 整页、不同 D 容量和逆序块映射、未写区域及 P 页�
 `1 + num_speculative_tokens` 行。占位行不表示已经产生真实 draft proposal，不能据此
 推断接受率或放宽 Graph/PD 准入。
 
+新增组合保留同一原生 Scheduler、ActiveKV 和实际接收器：第一次零 token execute
+接纳读取，完整 target/draft 页经 CPU 复制边界进入独立 D 存储；匹配的 typed DONE/ACK
+完成后，下一次零 token execute 自然返回 `finished_recving`，再由同一 Scheduler
+恢复真实 `NewRequestData`。单 token 与普通 prompt 分别覆盖，空 KV 结果沿原生行为
+折叠为 `None`。整页 oracle 从源的绝对分配、计算前缀长度、块大小和滑窗规格独立推导
+D 必需的范围；P 的保守滑窗导出可以多于 D 实际保留的块，不要求两端发布列表等长。
+读取查询已修正原先逐组等长的限制，要求组数一致且 D 每组不超过 P 的发布范围。
+完整 Ready 和 destination generation 保持在租约中，实际读取仍先检查尾部映射、
+页布局及全部已加载 draft 组；不能用该结构校验代替真实传输校验。
+
+D 的原生 target/draft 身份、consumer 与缓存视图在注册前固定；target 在这组用例中
+只有模型身份，未执行计算。接收线程启动、socket 和 transfer engine 是明确的 CPU
+边界，没有初始化 F 传输，也没有执行恢复后的 target、采样或 proposal。
+
+该组合最终单轮 **189 项通过、0 失败、0 跳过**（完整 prefix 44、connector 94、runner 51），
+103 项安装源码与锁定 Git 一致；138 个生产 Python 文件仅包含上述查询约束修正。
+前三轮失败及诊断分别保留，未合并计数。没有运行设备、服务或依赖安装。
+
 ## 后续 A5 统一验收
 
 完整模型使用实际部署的依赖版本，并记录与锁定版本的差异。先完成

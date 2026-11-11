@@ -13,12 +13,17 @@ pytest.importorskip("torch")
 pytest.importorskip("vllm")
 pytest.importorskip("torch_npu")
 pytest.importorskip("vllm_ascend")
+msgspec = pytest.importorskip("msgspec")
 
 import torch
 from vllm.utils import torch_utils
+from vllm.v1.kv_cache_interface import SlidingWindowSpec, UniformTypeKVCacheSpecs
+from vllm.v1.request import RequestStatus
 from vllm_ascend.attention.sfa_v1 import AscendSFABackend
+from vllm_ascend.core.kv_cache_interface import is_circular_kv_cache_spec
 from vllm_ascend.worker.v2.model_runner import NPUModelRunner
 
+from afd_plugin.compat.npu import kv_layout_connector as pd_adapter
 from afd_plugin.compat.npu.dspark_pd import (
     DsparkPdReadQuery,
     read_lease_from_payload,
@@ -35,6 +40,7 @@ from tests.unit.fakes.attention_model_runner_v2 import (
     make_graph_runner_case,
     queue_graph_runner_stop,
 )
+from tests.unit.fakes.dspark_pd import make_dspark_pd_prefix_case
 from tests.unit.fakes.dspark_speculator import make_dspark_proposal_case
 from tests.unit.fakes.hccl_v41_graph_bootstrap import (
     make_graph_bootstrap_case,
@@ -51,6 +57,133 @@ from tests.unit.fakes.kv_connector import (
     make_native_kv_runner_case,
     native_dspark_eager_reference,
 )
+from tests.unit.fakes.kv_layout_connector import (
+    DESTINATION_SENTINEL,
+    make_scheduled_dspark_read_case,
+)
+
+CPU_BYTE_VALUES = 256
+
+
+@pytest.fixture
+def scheduled_pd_zero_case(monkeypatch, request):
+    def initialize_pages(pages, layout):
+        for index, page in enumerate(pages):
+            positions = torch.arange(page.numel())
+            blocks = positions // layout.pages[index].block_stride_bytes
+            page.copy_(((positions + blocks + index) % CPU_BYTE_VALUES).to(torch.uint8))
+
+    prefix = make_dspark_pd_prefix_case(
+        monkeypatch, original_tokens=request.param, bind=False
+    )
+    transfer = make_scheduled_dspark_read_case(
+        monkeypatch, prefix, initialize_source_pages=initialize_pages
+    )
+    request.addfinalizer(transfer.close)
+    runner = make_native_kv_runner_case(
+        monkeypatch, post_kv=False, sync_load=False, pd_read_case=transfer
+    )
+    return transfer, runner
+
+
+@pytest.mark.parametrize("scheduled_pd_zero_case", [1, 6], indirect=True)
+def test_native_zero_work_consumes_typed_pd_completion(  # long-test: P/D handoff
+    scheduled_pd_zero_case,
+):
+    transfer, runner = scheduled_pd_zero_case
+    prefix, destination = transfer.prefix_case, transfer.destination_cache
+    source_before = tuple(page.clone() for page in destination.source_pages)
+    first = transfer.scheduler.schedule()
+    assert first.total_num_scheduled_tokens == 0
+    assert transfer.request.status == RequestStatus.WAITING_FOR_REMOTE_KVS
+    allocated = first.kv_connector_metadata.dspark_destinations[
+        transfer.request.request_id
+    ]
+    # Derive the required absolute prefix coordinates from the cache contract,
+    # independently of receiver addresses or the destination's block count.
+    # P may publish a conservative SWA superset; D needs only the retained
+    # context preceding its next token. A circular group retains one ring.
+    retained_source_blocks = []
+    computed = prefix.source.computed_prefix_tokens
+    for group_index, group in enumerate(prefix.kv_config.kv_cache_groups):
+        spec = group.kv_cache_spec
+        if isinstance(spec, UniformTypeKVCacheSpecs):
+            spec = spec.kv_cache_specs[group.layer_names[0]]
+        start = 0
+        end = (computed + spec.block_size - 1) // spec.block_size
+        if is_circular_kv_cache_spec(spec):
+            end = 1
+        elif isinstance(spec, SlidingWindowSpec):
+            skipped = max(
+                0, computed - spec.sliding_window + 1 - spec.extra_retained_tokens
+            )
+            start = skipped // spec.block_size
+        required = prefix.source.allocation_block_ids[group_index][start:end]
+        assert len(required) == len(allocated.block_ids[group_index]) == end - start
+        published = prefix.source.transfer_block_ids[group_index]
+        assert tuple(block for block in published if block in required) == required
+        retained_source_blocks.append(required)
+    expected = [
+        torch.full_like(page, DESTINATION_SENTINEL) for page in destination.pages
+    ]
+    for page_index, page in enumerate(prefix.layout.pages):
+        stride = page.block_stride_bytes
+        for group_index, group in enumerate(prefix.layout.groups):
+            if not set(page.layers) & set(group.layer_names):
+                continue
+            for source_id, destination_id in zip(
+                retained_source_blocks[group_index],
+                allocated.block_ids[group_index],
+                strict=True,
+            ):
+                expected[page_index][
+                    destination_id * stride : (destination_id + 1) * stride
+                ] = source_before[page_index][
+                    source_id * stride : (source_id + 1) * stride
+                ]
+    first_output = runner.owner.execute_model(first)
+    assert first_output.req_ids == []
+    assert first_output.kv_connector_output is None
+    transfer.scheduler.update_from_output(first, first_output)
+    for page in destination.pages:
+        assert bool(torch.all(page == DESTINATION_SENTINEL))
+
+    transfer.process_next_queued_request()
+    for actual, target in zip(destination.pages, expected, strict=True):
+        torch.testing.assert_close(actual, target, rtol=0, atol=0)
+    for actual, unchanged in zip(destination.source_pages, source_before, strict=True):
+        torch.testing.assert_close(actual, unchanged, rtol=0, atol=0)
+    pending = transfer.scheduler.schedule()
+    assert pending.total_num_scheduled_tokens == 0
+    assert transfer.request.status == RequestStatus.WAITING_FOR_REMOTE_KVS
+    completed = runner.owner.execute_model(pending)
+    assert completed.req_ids == []
+    assert completed.kv_connector_output.finished_recving == {
+        transfer.request.request_id
+    }
+    assert not completed.kv_connector_output.failed_recving
+    transfer.scheduler.update_from_output(pending, completed)
+    resumed = transfer.scheduler.schedule()
+    new_request = resumed.scheduled_new_reqs[0]
+    assert new_request.prompt_token_ids == list(
+        range(prefix.source.original_prompt_tokens)
+    )
+    assert new_request.num_computed_tokens == prefix.source.original_prompt_tokens - 1
+    query_width = (
+        1
+        if prefix.source.original_prompt_tokens == 1
+        else 1 + transfer.config.speculative_config.num_speculative_tokens
+    )
+    assert resumed.num_scheduled_tokens == {transfer.request.request_id: query_width}
+    assert [msgspec.msgpack.decode(frame)[0] for frame in transfer.sent] == [
+        pd_adapter.GET_META_MSG,
+        pd_adapter.GET_DSPARK_READY_MSG,
+        pd_adapter.DONE_DSPARK_RECV_MSG,
+    ]
+    assert (
+        transfer.producer.worker.kv_send_thread.get_and_clear_finished_requests()
+        == {prefix.source.request_id}
+    )
 
 
 def test_dspark_pd_runner_publishes_only_the_complete_registered_prefix(monkeypatch):

@@ -19,8 +19,10 @@ import zmq
 from transformers import PretrainedConfig
 from vllm import SamplingParams
 from vllm.config import KVTransferConfig
+from vllm.distributed.kv_transfer import kv_transfer_state
 from vllm.v1.core.kv_cache_manager import KVCacheManager
 from vllm.v1.request import Request
+from vllm.v1.worker.gpu.kv_connector import ActiveKVConnector
 from vllm_ascend.distributed.kv_transfer.kv_p2p import (
     mooncake_hybrid_connector as native_mooncake,
 )
@@ -31,9 +33,11 @@ from afd_plugin.compat.npu.dspark_pd import (
     read_lease_from_payload,
     read_lease_payload,
     read_query_payload,
+    source_request_payload,
 )
 from afd_plugin.compat.npu.kv_layout_connector import AFDMooncakeRecvingThread
 from afd_plugin.compat.npu.kv_layout_native import collect_deepseek_v41_kv_layout
+from tests.unit.fakes.dspark_pd import make_dspark_pd_loaded_case
 from tests.unit.fakes.kv_cache import make_native_kv_cache_case
 from tests.unit.fakes.vllm_config import npu_vllm_config, pd_kv_transfer_config
 
@@ -44,6 +48,8 @@ TRANSFER_PORT = 9876
 THREAD_TEST_TIMEOUT = 5.0
 DSPARK_CPU_COMPRESS_RATIO = 2
 DESTINATION_SENTINEL = 165
+SCHEDULED_DESTINATION_BLOCKS = 64
+SCHEDULED_DESTINATION_REQUEST = "destination-request"
 
 
 def connector_config(*, role="kv_consumer"):
@@ -388,6 +394,16 @@ class _ReceiverSocketBoundary(adapter.AFDMooncakeRecvingThread):
 
     def _return_remote_socket(self, socket, host, port):
         pass
+
+
+class _QueuedReceiverBoundary(_ReceiverSocketBoundary):
+    """Real receiver queue/handler, with no NPU executor or resident thread."""
+
+    def start(self):
+        # Construction and registration validation remain real. CPU callers
+        # explicitly dispatch an already queued task; no device worker starts.
+        self.executor.shutdown(wait=True)
+        self.ready_event.set()
 
 
 def make_retiring_receiver_case(monkeypatch, *, ack=b"ACK", start=True):
@@ -890,6 +906,147 @@ def make_retiring_dspark_read_case(monkeypatch, prefix, *, done_ack=b"ACK"):
     if not receiver.ready_event.wait(THREAD_TEST_TIMEOUT):
         raise AssertionError("CPU test receiver did not become ready")
     return case
+
+
+def make_scheduled_dspark_read_case(
+    monkeypatch,
+    prefix,
+    *,
+    destination_blocks=SCHEDULED_DESTINATION_BLOCKS,
+    request_id=SCHEDULED_DESTINATION_REQUEST,
+    done_ack=b"ACK",
+    initialize_source_pages=None,
+):
+    """Real scheduler allocation -> ActiveKV registration -> typed queued read.
+
+    The producer computes and publishes its actual CPU draft prefix first.
+    Destination storage, native target/draft identities, consumer and config
+    are independent and fixed before binding. The returned connector is bound
+    but unregistered: create_active_connector performs the real single-use
+    registration and the controlled receiver socket exactly once.
+
+    Native model/worker constructors do not load checkpoints or initialize a
+    device here. TE registration, socket exchange, CPU byte copy and receiver
+    startup are explicit leaves. This does not execute the destination model.
+    """
+    # Circular: scheduler reuses this module's checkpoint-metadata constant.
+    from tests.unit.fakes.scheduler import make_native_pd_scheduler_case
+
+    producer = make_dspark_registration_case(monkeypatch, prefix)
+    destination_cache = _independent_destination_cache(prefix, destination_blocks)
+    if initialize_source_pages is not None:
+        # The optional caller's page/block byte pattern precedes projection
+        # and Ready publication. Published source storage is never rewritten.
+        initialize_source_pages(destination_cache.source_pages, prefix.layout)
+    publish_dspark_prefix(producer, acquire=False)
+    scheduler_case = make_native_pd_scheduler_case(
+        monkeypatch,
+        config=prefix.config,
+        kv_cache_config=destination_cache.config,
+        request_id=request_id,
+        prompt_token_ids=list(range(prefix.source.original_prompt_tokens)),
+        kv_transfer_params={
+            "do_remote_prefill": True,
+            "remote_request_id": prefix.source.request_id,
+            "remote_engine_id": prefix.source.source_engine_id,
+            "remote_host": "127.0.0.1",
+            "remote_port": producer.worker.handshake_port,
+            "remote_block_ids": prefix.source.transfer_block_ids,
+            adapter.DSPARK_SOURCE_PARAM: source_request_payload(prefix.source),
+        },
+    )
+    config = scheduler_case.config
+    loaded = make_dspark_pd_loaded_case(
+        monkeypatch,
+        config=config,
+        kv_cache_config=destination_cache.config,
+        caches=destination_cache.caches,
+        draft_names=prefix.draft_names,
+        source_engine_id=config.kv_transfer_config.engine_id,
+        tp_rank=prefix.expected_ready.source_tp_rank,
+        tp_size=prefix.expected_ready.tp_size,
+    )
+    registration = make_registration_case(monkeypatch, role="kv_consumer")
+    worker, connector = registration.worker, registration.connector
+    vars(worker).update(
+        vllm_config=config,
+        kv_cache_config=destination_cache.config,
+        engine_id=config.kv_transfer_config.engine_id,
+        engine=CopyReadBoundary(
+            destination_cache.source_pages, destination_cache.pages
+        ),
+        tp_rank=prefix.expected_ready.source_tp_rank,
+        tp_size=prefix.expected_ready.tp_size,
+        _decode_tp_size=prefix.expected_ready.tp_size,
+        _prefill_tp_size=prefix.expected_ready.tp_size,
+        tp_num_need_pulls=1,
+        hma_group_size=len(destination_cache.layout.groups),
+        _dspark_enabled=True,
+    )
+    connector.engine_id = worker.engine_id
+    connector._kv_transfer_config = config.kv_transfer_config
+    connector.bind_dspark_model(loaded.consumer)
+    # Keep the actual CPU materialization proof. The inherited validator was
+    # already narrowed to NPU-admission-only by producer registration above.
+    monkeypatch.setattr(
+        adapter, "collect_deepseek_v41_kv_layout", collect_deepseek_v41_kv_layout
+    )
+    monkeypatch.setattr(adapter, "AFDMooncakeRecvingThread", _QueuedReceiverBoundary)
+    monkeypatch.setattr(kv_transfer_state, "_KV_CONNECTOR_AGENT", connector)
+    context = zmq.Context()
+    sent = []
+
+    def receive(sock, path):
+        kind, payload = msgspec.msgpack.decode(sent[-1])
+        if kind == adapter.DONE_DSPARK_RECV_MSG and done_ack != b"ACK":
+            return done_ack
+        return (
+            msgspec.msgpack.encode(producer.worker.xfer_handshake_metadata)
+            if kind == adapter.GET_META_MSG
+            else _encoded_sender_reply(producer.worker.kv_send_thread, kind, payload)
+        )
+
+    monkeypatch.setattr(
+        adapter, "ensure_zmq_send", lambda sock, data, path: sent.append(data)
+    )
+    monkeypatch.setattr(adapter, "ensure_zmq_recv", receive)
+
+    def create_active_connector():
+        active = ActiveKVConnector(config, destination_cache.caches)
+        worker.kv_recv_thread.socket = context.socket(zmq.REQ)
+        return active
+
+    def process_next_queued_request():
+        receiver = worker.kv_recv_thread
+        # Only process a task admitted by the real native worker. Do not build
+        # a second envelope or call add_request again at this boundary.
+        queued = receiver.request_queue.get_nowait()
+        receiver._mark_request_task_submitted(queued)
+        return receiver._handle_request(queued)
+
+    def close():
+        if worker.kv_recv_thread is not None:
+            worker.kv_recv_thread.executor.shutdown(wait=True)
+        context.destroy(linger=0)
+        scheduler_case.close()
+
+    return SimpleNamespace(
+        producer=producer,
+        prefix_case=prefix,
+        scheduler_case=scheduler_case,
+        scheduler=scheduler_case.scheduler,
+        config=config,
+        request=scheduler_case.request,
+        connector=connector,
+        worker=worker,
+        loaded_destination=loaded,
+        destination_cache=destination_cache,
+        engine=worker.engine,
+        sent=sent,
+        create_active_connector=create_active_connector,
+        process_next_queued_request=process_next_queued_request,
+        close=close,
+    )
 
 
 def _encoded_sender_reply(sender, kind, payload):

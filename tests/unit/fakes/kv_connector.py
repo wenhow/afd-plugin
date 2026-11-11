@@ -55,6 +55,9 @@ from afd_plugin.model_executor.models.npu.deepseek_v41_graph import (
     DeepseekV41GraphStages,
 )
 from afd_plugin.v1.worker.npu import hccl_v41_graph_coordinator as coordinator_module
+from afd_plugin.v1.worker.npu.attention_model_runner_v2 import (
+    AFDNPUAttentionModelRunnerV2,
+)
 from afd_plugin.v1.worker.npu.hccl_v41_graph_coordinator import HcclV41GraphResources
 from afd_plugin.v1.worker.npu.hccl_v41_graph_eager import HcclV41GraphEager
 from afd_plugin.v1.worker.npu.hccl_v41_graph_execution import HcclV41GraphExecution
@@ -194,8 +197,34 @@ class AuxiliaryDeviceBoundary:
         pass
 
 
+class IdleAuxiliaryDeviceBoundary(AuxiliaryDeviceBoundary):
+    """No prepare, lookup or device task exists during a zero-token PD poll.
+
+    Native ModelState still retires idle resources on each execute. Those
+    operations are idempotent; this leaf never opens a pretend device lease.
+    """
+
+    def __init__(self, events):
+        self.events = events
+        self.lookup_live = self.metadata_live = False
+        self.reset_events = None
+
+    def retire_engram_lookups(self, *, reset_events):
+        self.reset_events = reset_events
+
+    def finish(self):
+        pass
+
+
 def make_native_kv_runner_case(
-    monkeypatch, *, post_kv, sync_load, fail_load=False, target_query_len=1, stages=1
+    monkeypatch,
+    *,
+    post_kv,
+    sync_load,
+    fail_load=False,
+    target_query_len=1,
+    stages=1,
+    pd_read_case=None,
 ):
     """Keep the complete zero-token native execute/no_forward control flow.
 
@@ -203,11 +232,46 @@ def make_native_kv_runner_case(
     singleton below. It is not a serving Graph/PD configuration or handshake.
     All singleton/DP/backend substitutions are restored by pytest monkeypatch.
     """
-    case = make_graph_runner_case(target_query_len=target_query_len, stages=stages)
+    if pd_read_case is None:
+        case = make_graph_runner_case(target_query_len=target_query_len, stages=stages)
+    else:
+        if post_kv or fail_load or stages != 1:
+            raise ValueError("external PD zero-work case requires eager/U1 polling")
+        # Construct this native owner from the complete D bundle before any
+        # model/state/KV binding. No Graph-capable transport or model execution
+        # is constructed and no old Graph configuration is replaced in place.
+        owner = AFDNPUAttentionModelRunnerV2.__new__(AFDNPUAttentionModelRunnerV2)
+        owner.vllm_config = pd_read_case.config
+        owner.parallel_config = owner.vllm_config.parallel_config
+        owner.afd_config = owner.parse_config(owner.vllm_config)
+        owner.model = pd_read_case.loaded_destination.target_model
+        owner.speculator = pd_read_case.loaded_destination.speculator
+        owner.dspark_pd_consumer = pd_read_case.loaded_destination.consumer
+        owner.model_state = SimpleNamespace(model=owner.model)
+        owner.block_tables = SimpleNamespace()
+        owner.device = torch.device("cpu")
+        owner.prof = owner.connector = owner.cudagraph_manager = None
+        owner.ubatch_runner = owner.hccl_v41_transport = None
+        owner.hccl_v41_graph_eager = owner.hccl_v41_graph_session = None
+        owner.hccl_v41_graph_coordinator = owner.hccl_v41_graph_bootstrap = None
+        owner.hccl_v41_diagnostics = None
+        owner._afd_pending_metadata = None
+        owner._afd_suppress_metadata_send = False
+        owner._is_warmup = owner._afd_is_graph_capturing = False
+        owner._afd_is_profile = owner._afd_is_graph_replaying = False
+        case = SimpleNamespace(owner=owner, pd_read_case=pd_read_case)
     owner = case.owner
     events = []
-    device = AuxiliaryDeviceBoundary(events)
-    transfer = KVTransferBoundary(events, fail_load=fail_load)
+    device = (
+        AuxiliaryDeviceBoundary(events)
+        if pd_read_case is None
+        else IdleAuxiliaryDeviceBoundary(events)
+    )
+    transfer = (
+        KVTransferBoundary(events, fail_load=fail_load)
+        if pd_read_case is None
+        else pd_read_case.connector
+    )
     monkeypatch.setattr(kv_transfer_state, "_KV_CONNECTOR_AGENT", transfer)
     monkeypatch.setattr(
         native_runner, "should_skip_allreduce_across_dp_group", lambda _: False
@@ -225,10 +289,14 @@ def make_native_kv_runner_case(
     state.device_metadata = device
     owner.model_state = state
     owner.model.retire_engram_lookups = device.retire_engram_lookups
-    owner.ascend_config = SimpleNamespace(
-        scheduler_config=SimpleNamespace(
-            profiling_chunk_config=SimpleNamespace(need_timing=False)
+    owner.ascend_config = (
+        SimpleNamespace(
+            scheduler_config=SimpleNamespace(
+                profiling_chunk_config=SimpleNamespace(need_timing=False)
+            )
         )
+        if pd_read_case is None
+        else pd_read_case.scheduler_case.ascend_config
     )
     owner.pooling_runner = owner.encoder_cache = owner.pp_handler = owner.sampler = None
     owner.req_states = SimpleNamespace(
@@ -239,9 +307,22 @@ def make_native_kv_runner_case(
     owner.block_tables.apply_staged_writes = device.apply_staged_writes
     owner.ec_connector, owner.kvpp = ECConnector(), device
     owner.execute_model_state = None
-    views = {"layer": torch.arange(16, dtype=torch.int32).reshape(2, 2, 4)}
-    owner.kv_connector = ActiveKVConnector(owner.vllm_config, views)
+    views = (
+        {"layer": torch.arange(16, dtype=torch.int32).reshape(2, 2, 4)}
+        if pd_read_case is None
+        else pd_read_case.destination_cache.caches
+    )
+    owner.kv_connector = (
+        ActiveKVConnector(owner.vllm_config, views)
+        if pd_read_case is None
+        else pd_read_case.create_active_connector()
+    )
     owner.kv_caches = list(views.values())
+    if pd_read_case is not None:
+        owner.kv_cache_config = pd_read_case.destination_cache.config
+        case.kv_transfer = transfer
+        case.kv_views, case.auxiliary_device, case.native_events = views, device, events
+        return case
     case.eager = HcclV41GraphEager(
         owner, case.control, next_transaction_id=case.next_transaction_id
     )

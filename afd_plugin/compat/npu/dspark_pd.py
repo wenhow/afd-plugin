@@ -267,11 +267,19 @@ class DsparkPdReadQuery:
         ):
             _text(value, name)
         _blocks(self.destination_block_ids, "destination blocks")
-        if tuple(map(len, self.destination_block_ids)) != tuple(
-            map(len, self.expected_ready.transfer_block_ids)
+        source_groups = self.expected_ready.transfer_block_ids
+        # Native D allocation omits retired SWA prefix blocks, while P may
+        # publish a conservative tail superset. Keep the full Ready identity;
+        # the receiver validates the exact effective tail against its layout
+        # and loaded draft groups before acquiring this request's lease.
+        if len(self.destination_block_ids) != len(source_groups) or any(
+            len(destination) > len(source)
+            for destination, source in zip(
+                self.destination_block_ids, source_groups, strict=True
+            )
         ):
             raise ValueError(
-                "destination blocks must match every source transfer group"
+                "destination blocks must fit every published source transfer group"
             )
 
 

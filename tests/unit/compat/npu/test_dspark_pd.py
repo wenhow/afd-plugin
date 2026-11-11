@@ -68,6 +68,57 @@ def test_request_ready_records_round_trip_with_all_groups(prefix_case, record):
     assert decode(encode(typed)) == typed
 
 
+@pytest.mark.parametrize("destination_mode", ["tail", "empty-group"])
+def test_read_lease_round_trip_preserves_source_superset(prefix_case, destination_mode):
+    destination = list(prefix_case.source.transfer_block_ids)
+    if destination_mode == "tail":
+        destination[-1] = destination[-1][-1:]
+    else:
+        destination[0] = ()
+    query = DsparkPdReadQuery(
+        prefix_case.expected_ready,
+        "destination",
+        "destination-generation",
+        tuple(destination),
+        "query-tail",
+    )
+    assert read_query_from_payload(read_query_payload(query)) == query
+    lease = DsparkPdReadLease(
+        query.expected_ready,
+        query.query_id,
+        query.destination_engine_id,
+        query.destination_generation,
+        query.destination_block_ids,
+        "lease-tail",
+    )
+    decoded = read_lease_from_payload(read_lease_payload(lease))
+    assert decoded == lease
+    assert decoded.ready == prefix_case.expected_ready
+    assert decoded.destination_block_ids == tuple(destination)
+
+
+@pytest.mark.parametrize("invalid", ["missing-group", "extra-group", "overrun"])
+def test_read_query_rejects_destinations_outside_source_groups(prefix_case, invalid):
+    destination = prefix_case.source.transfer_block_ids
+    if invalid == "missing-group":
+        destination = destination[:-1]
+    elif invalid == "extra-group":
+        destination += ((),)
+    else:
+        destination = destination[:-1] + (
+            destination[-1] + (max(destination[-1]) + 1,),
+        )
+    payload = {
+        "expected_ready": ready_payload(prefix_case.expected_ready),
+        "destination_engine_id": "destination",
+        "destination_generation": "destination-generation",
+        "destination_block_ids": [list(group) for group in destination],
+        "query_id": "query-invalid",
+    }
+    with pytest.raises(ValueError, match="every published source transfer group"):
+        read_query_from_payload(payload)
+
+
 @pytest.mark.parametrize("invalid", ["extra", "missing", "bool", "tuple-wire"])
 def test_source_codec_rejects_incomplete_or_untyped_payload(prefix_case, invalid):
     payload = source_request_payload(prefix_case.source)
@@ -177,7 +228,9 @@ def test_chunked_allocation_may_append_blocks_without_rewriting(prefix_case):
         allocation_block_ids=tuple(
             group[:1] for group in case.source.allocation_block_ids
         ),
-        transfer_block_ids=tuple(group[:1] for group in case.source.transfer_block_ids),
+        transfer_block_ids=tuple(
+            group[:1] for group in case.source.allocation_block_ids
+        ),
     )
     scheduler, state = case.make_step(0, 2)
     assert case.consumer.consume_prefill(scheduler, state, (initial,)) == ()
