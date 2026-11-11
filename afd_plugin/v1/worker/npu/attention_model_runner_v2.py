@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import os
 from collections.abc import Iterator
-from contextlib import AbstractContextManager, contextmanager, nullcontext
+from contextlib import AbstractContextManager, contextmanager, nullcontext, suppress
 from dataclasses import replace
 from functools import partial
 from types import MethodType
@@ -14,6 +14,8 @@ from typing import TYPE_CHECKING
 
 import torch
 from vllm.config import CUDAGraphMode, ParallelConfig, VllmConfig
+from vllm.distributed import get_tp_group
+from vllm.distributed.kv_transfer import get_kv_transfer_group
 from vllm.forward_context import ForwardContext
 from vllm.sequence import IntermediateTensors
 from vllm.v1.core.sched.output import SchedulerOutput
@@ -25,6 +27,11 @@ from vllm.v1.worker.gpu.dp_utils import DPSyncState
 from vllm_ascend.worker.v2.model_runner import NPUModelRunner as NPUModelRunnerV2
 
 from afd_plugin.compat.npu import fail_if_unsupported_npu_afd_features
+from afd_plugin.compat.npu.dspark_pd import (
+    DsparkPdPrefixConsumer,
+    DsparkPdSourceRequest,
+    DsparkPdWriteReport,
+)
 from afd_plugin.compat.npu.profiler import (
     AFDNPUProfilerSession,
     afd_npu_profiler_execute,
@@ -33,6 +40,7 @@ from afd_plugin.compat.npu.profiler import (
 )
 from afd_plugin.compat.npu.runtime_config import (
     configure_async_cam_dbo,
+    uses_deepseek_v41_dspark_pd,
 )
 from afd_plugin.compat.patches.npu.mrv2_ubatching import (
     use_async_cam_dbo_dispatch,
@@ -74,6 +82,7 @@ from afd_plugin.v1.worker.npu.hccl_v41_ubatch_runner import HcclV41UBatchRunner
 from afd_plugin.validation import validate_npu_model_runner_v2_config
 
 if TYPE_CHECKING:
+    from afd_plugin.compat.npu.kv_layout_connector import MooncakeHybridConnector
     from afd_plugin.v1.worker.npu.hccl_v41_graph_coordinator import (
         HcclV41GraphCoordinator,
     )
@@ -246,9 +255,11 @@ class AFDNPUAttentionModelRunnerV2(AFDMetadataProviderMixin, NPUModelRunnerV2):
     hccl_v41_graph_coordinator: HcclV41GraphCoordinator | None = None
     hccl_v41_graph_bootstrap: HcclV41AttentionGraphBootstrap | None = None
     hccl_v41_diagnostics: HcclV41DiagnosticBinding | None = None
+    dspark_pd_consumer: DsparkPdPrefixConsumer | None = None
     _afd_shutdown_prepared = False
     _afd_staged_stop_completed = False
     _hccl_graph_load_started = False
+    _dspark_pd_load_started = False
 
     def __init__(
         self,
@@ -314,6 +325,8 @@ class AFDNPUAttentionModelRunnerV2(AFDMetadataProviderMixin, NPUModelRunnerV2):
             self.hccl_v41_graph_coordinator = None
             self.hccl_v41_graph_bootstrap = None
             self._hccl_graph_load_started = False
+            self.dspark_pd_consumer = None
+            self._dspark_pd_load_started = False
             if isinstance(connector, HcclStagedAFDConnector):
                 self.bind_hccl_v41_transport(connector.transport)
         except BaseException:
@@ -322,6 +335,92 @@ class AFDNPUAttentionModelRunnerV2(AFDMetadataProviderMixin, NPUModelRunnerV2):
                     connector.close()
             finally:
                 super().shutdown()
+            raise
+
+    def _agree_dspark_pd_batch(
+        self, report: DsparkPdWriteReport
+    ) -> tuple[DsparkPdWriteReport, ...]:
+        """All TP ranks decide publication after their actual local writes."""
+        group = get_tp_group()
+        if group.world_size == 1:
+            return (report,)
+        reports = [report for _ in range(group.world_size)]
+        torch.distributed.all_gather_object(reports, report, group=group.cpu_group)
+        return tuple(reports)
+
+    def _get_dspark_pd_connector(self) -> MooncakeHybridConnector:
+        # Lazy worker-local PD dependency: ordinary AFD workers need not import
+        # the optional Mooncake connector and its transfer-engine module.
+        from afd_plugin.compat.npu.kv_layout_connector import MooncakeHybridConnector
+
+        connector = get_kv_transfer_group()
+        if type(connector) is not MooncakeHybridConnector:
+            raise RuntimeError(
+                "DSpark prefix ownership requires its exact PD connector"
+            )
+        return connector
+
+    @contextmanager
+    def _dspark_pd_execution(
+        self,
+        scheduler_output: SchedulerOutput,
+        *,
+        dummy_run: bool,
+        is_profile: bool,
+    ) -> Iterator[None]:
+        """Project real P auxiliary rows after native execute, before sampling."""
+        consumer = self.dspark_pd_consumer
+        if consumer is None:
+            yield
+            return
+        consumer.reap_finished(scheduler_output.finished_req_ids)
+        if consumer.terminal:
+            raise RuntimeError("DSpark prefix consumer is terminal")
+        transfer = self.vllm_config.kv_transfer_config
+        assert transfer is not None
+        publish_step = (
+            not dummy_run
+            and not is_profile
+            and bool(scheduler_output.total_num_scheduled_tokens)
+            and transfer.kv_role == "kv_producer"
+        )
+        report_started = False
+        try:
+            yield
+            if not publish_step:
+                return
+            connector = None
+            sources: tuple[DsparkPdSourceRequest, ...] = ()
+            source_error: Exception | None = None
+            try:
+                connector = self._get_dspark_pd_connector()
+                sources = connector.get_dspark_prefill_sources(
+                    scheduler_output.kv_connector_metadata
+                )
+            except Exception as exc:
+                source_error = exc
+            # Every P rank enters the same report frontier, even with empty or
+            # invalid local metadata. A rank must not leave its peers waiting.
+            report_started = True
+            ready = consumer.consume_prefill(
+                scheduler_output,
+                self.execute_model_state,
+                sources,
+                source_error=source_error,
+            )
+            assert connector is not None
+            connector.publish_dspark_ready(ready)
+        except BaseException as exc:
+            if isinstance(exc, Exception) and publish_step and not report_started:
+                with suppress(Exception):
+                    # A recoverable Python target error also informs ranks
+                    # that reached the common frontier. Keep the original error.
+                    consumer.consume_prefill(
+                        scheduler_output, None, (), source_error=exc
+                    )
+            # A target/projection/publication failure keeps the loaded storage;
+            # recreating the worker is required before a later publication.
+            consumer.fail()
             raise
 
     def _afd_num_tokens_for_context(self, forward_context: ForwardContext) -> int:
@@ -510,6 +609,8 @@ class AFDNPUAttentionModelRunnerV2(AFDMetadataProviderMixin, NPUModelRunnerV2):
     # Upstream: vllm_ascend/worker/v2/model_runner.py, 7e37e29a, load_model.
     # Signature matches upstream; no added parameters. Delegate the large
     # load/ModelState lifecycle so Engram remains owned by the native runner.
+    # The exact DSpark PD path also binds the actual loaded target/draft models;
+    # KV storage is attached later by its existing native registration owner.
     # Remove when upstream exposes a connector callback after model loading.
     def load_model(
         self,
@@ -523,6 +624,11 @@ class AFDNPUAttentionModelRunnerV2(AFDMetadataProviderMixin, NPUModelRunnerV2):
             transport is not None
             and transport.negotiated_capabilities.graph_execution_version == 1
         )
+        dspark_pd = uses_deepseek_v41_dspark_pd(self.vllm_config)
+        if dspark_pd:
+            if self._dspark_pd_load_started:
+                raise RuntimeError("DSpark PD model loading is single-use")
+            self._dspark_pd_load_started = True
         if graph:
             if self._hccl_graph_load_started or self.hccl_v41_graph_eager is not None:
                 raise RuntimeError("native Graph model loading is single-use")
@@ -532,6 +638,21 @@ class AFDNPUAttentionModelRunnerV2(AFDMetadataProviderMixin, NPUModelRunnerV2):
         try:
             super().load_model(load_dummy_weights, *args, **kwargs)
             # ### PATCH START: AFD connector rendezvous
+            if dspark_pd:
+                group = get_tp_group()
+                assert self.speculator is not None
+                transfer = self.vllm_config.kv_transfer_config
+                assert transfer is not None
+                self.dspark_pd_consumer = DsparkPdPrefixConsumer(
+                    self.vllm_config,
+                    self.speculator,
+                    target_model=self.model,
+                    device=self.device,
+                    source_engine_id=str(transfer.engine_id),
+                    tp_rank=group.rank_in_group,
+                    tp_size=group.world_size,
+                    agree_batch=self._agree_dspark_pd_batch,
+                )
             if transport is not None:
                 if not transport.initialized:
                     transport.initialize()
@@ -551,6 +672,10 @@ class AFDNPUAttentionModelRunnerV2(AFDMetadataProviderMixin, NPUModelRunnerV2):
             # ### PATCH END: AFD connector rendezvous
         except BaseException:
             # ### PATCH START: retain failed Graph initialization owners
+            if self.dspark_pd_consumer is not None:
+                self.dspark_pd_consumer.fail()
+            if dspark_pd and transport is not None:
+                transport.terminal = True
             if graph:
                 transport.terminal = True
                 if self.hccl_v41_graph_bootstrap is not None:
@@ -564,6 +689,8 @@ class AFDNPUAttentionModelRunnerV2(AFDMetadataProviderMixin, NPUModelRunnerV2):
     # Signature matches Ascend 7e37e29a; restore the alias even on failure.
     # Delegate native Engram/shared-KV/cache-plan ownership unchanged. Remove
     # the scoped factory override when upstream accepts an ubatch factory.
+    # Exact DSpark PD additionally binds its loaded names before native scratch
+    # planning; the connector materialization callback seals the actual storage.
     def initialize_kv_cache(
         self,
         kv_cache_config: KVCacheConfig,
@@ -578,6 +705,17 @@ class AFDNPUAttentionModelRunnerV2(AFDMetadataProviderMixin, NPUModelRunnerV2):
         binding = self.hccl_v41_transport
         graph_session = self.hccl_v41_graph_session
         bootstrap = self.hccl_v41_graph_bootstrap
+        if self.dspark_pd_consumer is not None:
+            pd_connector = self._get_dspark_pd_connector()
+            worker = pd_connector.connector_worker
+            if worker is None or worker.kv_cache_config is not kv_cache_config:
+                raise RuntimeError("DSpark PD must bind the native KV config owner")
+            pd_connector.bind_dspark_model(self.dspark_pd_consumer)
+            # This is the native optional field consumed before Ascend's
+            # deepcopy/apply_layerwise_kv_cache_plan; preserve every KV group.
+            kv_cache_config.dspark_draft_layer_names = frozenset(
+                self.dspark_pd_consumer.binding.draft_layer_names
+            )
         if (
             binding is not None
             and binding.negotiated_capabilities.graph_execution_version == 1
@@ -598,6 +736,8 @@ class AFDNPUAttentionModelRunnerV2(AFDMetadataProviderMixin, NPUModelRunnerV2):
             if bootstrap is not None:
                 bootstrap.complete_kv_init()
         except BaseException:
+            if self.dspark_pd_consumer is not None:
+                self.dspark_pd_consumer.fail()
             if bootstrap is not None:
                 bootstrap.fail()
             raise
@@ -713,7 +853,12 @@ class AFDNPUAttentionModelRunnerV2(AFDMetadataProviderMixin, NPUModelRunnerV2):
         valid_dummy_state_slots: bool = False,
     ):
         # ### PATCH START: scope AFD metadata provider/replay and profiler step.
-        with afd_npu_profiler_execute(self.prof):
+        with (
+            afd_npu_profiler_execute(self.prof),
+            self._dspark_pd_execution(
+                scheduler_output, dummy_run=dummy_run, is_profile=is_profile
+            ),
+        ):
             transport = self.hccl_v41_transport
             if transport is not None:
                 mode = "profile" if is_profile else "dummy" if dummy_run else "target"

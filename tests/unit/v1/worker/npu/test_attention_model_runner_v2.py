@@ -19,6 +19,10 @@ from vllm.utils import torch_utils
 from vllm_ascend.attention.sfa_v1 import AscendSFABackend
 from vllm_ascend.worker.v2.model_runner import NPUModelRunner
 
+from afd_plugin.compat.npu.dspark_pd import (
+    DsparkPdReadQuery,
+    read_lease_from_payload,
+)
 from afd_plugin.model_executor.models import forward_context as context_module
 from afd_plugin.model_executor.models.npu.deepseek_v41 import (
     HCCL_V41_PARENT_FORWARD_KEY,
@@ -27,6 +31,7 @@ from afd_plugin.v1.worker.npu import attention_model_runner_v2 as runner_module
 from afd_plugin.v1.worker.npu import hccl_v41_graph_coordinator as coordinator_module
 from tests.unit.fakes.attention_model_runner_v2 import (
     install_graph_runner_coordinator,
+    make_dspark_pd_runner_case,
     make_graph_runner_case,
     queue_graph_runner_stop,
 )
@@ -46,6 +51,82 @@ from tests.unit.fakes.kv_connector import (
     make_native_kv_runner_case,
     native_dspark_eager_reference,
 )
+
+
+def test_dspark_pd_runner_publishes_only_the_complete_registered_prefix(monkeypatch):
+    case = make_dspark_pd_runner_case(monkeypatch)
+    prefix, registration = case.prefix, case.registration
+    query = DsparkPdReadQuery(
+        prefix.expected_ready,
+        "destination-engine",
+        "destination-generation",
+        prefix.source.transfer_block_ids,
+        "runner-query",
+    )
+    assert case.owner.dspark_pd_consumer.binding.target_model is prefix.target_model
+    assert prefix.kv_config.dspark_draft_layer_names == frozenset(prefix.draft_names)
+    assert case.step(0, 2) is None
+    assert registration.request_ready(query)["ok"] is False
+    assert case.step(2, 3) is None
+    reply = registration.request_ready(query)
+    assert reply["ok"] is True
+    lease = read_lease_from_payload(reply["lease"])
+    assert lease.ready == prefix.expected_ready
+    for group_id, name in zip(prefix.draft_group_ids, prefix.draft_names, strict=True):
+        size = prefix.kv_config.kv_cache_groups[group_id].kv_cache_spec.block_size
+        actual = torch.stack(
+            [
+                prefix.caches[name][
+                    prefix.source.allocation_block_ids[group_id][position // size],
+                    position % size,
+                    0,
+                ]
+                for position in range(prefix.source.computed_prefix_tokens)
+            ]
+        )
+        expected = torch.tensor(
+            [[240 + 60 * pos, 246 + 60 * pos] for pos in range(5)],
+            dtype=torch.bfloat16,
+        )
+        torch.testing.assert_close(actual, expected, rtol=0, atol=0)
+    assert registration.complete_read(lease) == b"ACK"
+    assert case.transport.transcript == []
+
+
+@pytest.mark.parametrize("failure", ["target", "projection", "metadata"])
+def test_dspark_pd_runner_failure_retains_storage_without_ready(monkeypatch, failure):
+    case = make_dspark_pd_runner_case(monkeypatch, failure=failure)
+    prefix = case.prefix
+    query = DsparkPdReadQuery(
+        prefix.expected_ready,
+        "destination-engine",
+        "destination-generation",
+        prefix.source.transfer_block_ids,
+        "failed-runner-query",
+    )
+    with pytest.raises(RuntimeError):
+        case.step(0, 5)
+    assert case.owner.dspark_pd_consumer.terminal
+    assert case.owner.dspark_pd_consumer.binding.draft_model is prefix.model
+    assert case.registration.request_ready(query)["ok"] is False
+    with pytest.raises(RuntimeError, match="terminal"):
+        case.step(0, 5)
+    assert case.transport.transcript == []
+
+
+@pytest.mark.parametrize(
+    "reinitialization,message", [("model", "single-use"), ("kv", "pre-registration")]
+)
+def test_dspark_pd_runner_cannot_replace_bound_models_or_kv(
+    monkeypatch, reinitialization, message
+):
+    case = make_dspark_pd_runner_case(monkeypatch)
+    with pytest.raises(RuntimeError, match=message):
+        if reinitialization == "model":
+            case.owner.load_model()
+        else:
+            case.owner.initialize_kv_cache(case.prefix.kv_config)
+    assert case.owner.dspark_pd_consumer.binding.draft_model is case.prefix.model
 
 
 @pytest.fixture

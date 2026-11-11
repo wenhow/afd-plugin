@@ -27,6 +27,7 @@ import pytest
         "attention-shutdown",
         "npu-model-loader",
         "pd-outer-constructor",
+        "pd-outer-shutdown",
         "pd-worker-constructor",
         "pd-register",
         "pd-remote-metadata",
@@ -36,6 +37,15 @@ import pytest
         "pd-receiver-handle-request",
         "pd-receiver-done",
         "pd-worker-start-load",
+        "pd-scheduler-constructor",
+        "pd-scheduler-new-request",
+        "pd-scheduler-after-alloc",
+        "pd-scheduler-metadata",
+        "pd-scheduler-finished",
+        "pd-sender-finished",
+        "pd-sender-no-transfer",
+        "pd-sender-delayed",
+        "pd-sender-dispatch",
         "ds-mxfp8",
         "ds-mxfp4",
         "ds-mxfp4-expert-scale",
@@ -49,6 +59,8 @@ def test_scoped_patch_preserves_upstream_signature(hook):  # long-test: shared t
     if hook.startswith("pd-"):
         pytest.importorskip("torch_npu")
         pytest.importorskip("vllm_ascend")
+        from vllm.v1.core.kv_cache_manager import KVCacheBlocks  # noqa: F401
+        from vllm.v1.request import Request  # noqa: F401
         from vllm_ascend.distributed.kv_transfer.kv_p2p import (
             mooncake_hybrid_connector as native,
         )
@@ -87,6 +99,56 @@ def test_scoped_patch_preserves_upstream_signature(hook):  # long-test: shared t
             )
         else:
             target, replacement, symbol = {
+                "pd-scheduler-constructor": (
+                    native.MooncakeConnectorScheduler,
+                    adapter.AFDMooncakeConnectorScheduler.__init__,
+                    "__init__",
+                ),
+                "pd-scheduler-new-request": (
+                    native.MooncakeConnectorScheduler,
+                    adapter.AFDMooncakeConnectorScheduler.on_new_request,
+                    "on_new_request",
+                ),
+                "pd-scheduler-after-alloc": (
+                    native.MooncakeConnectorScheduler,
+                    adapter.AFDMooncakeConnectorScheduler.update_state_after_alloc,
+                    "update_state_after_alloc",
+                ),
+                "pd-scheduler-metadata": (
+                    native.MooncakeConnectorScheduler,
+                    adapter.AFDMooncakeConnectorScheduler.build_connector_meta,
+                    "build_connector_meta",
+                ),
+                "pd-scheduler-finished": (
+                    native.MooncakeConnectorScheduler,
+                    adapter.AFDMooncakeConnectorScheduler.request_finished_all_groups,
+                    "request_finished_all_groups",
+                ),
+                "pd-sender-finished": (
+                    native.KVCacheSendingThread,
+                    adapter.AFDMooncakeSendingThread.get_and_clear_finished_requests,
+                    "get_and_clear_finished_requests",
+                ),
+                "pd-sender-no-transfer": (
+                    native.KVCacheSendingThread,
+                    adapter.AFDMooncakeSendingThread.add_not_transfer_request,
+                    "add_not_transfer_request",
+                ),
+                "pd-sender-delayed": (
+                    native.KVCacheSendingThread,
+                    adapter.AFDMooncakeSendingThread.add_delayed_request,
+                    "add_delayed_request",
+                ),
+                "pd-sender-dispatch": (
+                    native.KVCacheSendingThread,
+                    adapter.AFDMooncakeSendingThread.run_busy_loop,
+                    "run_busy_loop",
+                ),
+                "pd-outer-shutdown": (
+                    native.MooncakeConnector,
+                    adapter.MooncakeHybridConnector.shutdown,
+                    "shutdown",
+                ),
                 "pd-receiver-run": (
                     native.KVCacheRecvingThread,
                     adapter.AFDMooncakeRecvingThread.run,

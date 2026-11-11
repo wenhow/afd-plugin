@@ -9,14 +9,29 @@ storage, transfer-engine registration or execution.
 
 import threading
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import suppress
 from dataclasses import replace
 from types import SimpleNamespace
 
 import msgspec
 import zmq
 from transformers import PretrainedConfig
+from vllm import SamplingParams
+from vllm.config import KVTransferConfig
+from vllm.v1.core.kv_cache_manager import KVCacheManager
+from vllm.v1.request import Request
+from vllm_ascend.distributed.kv_transfer.kv_p2p import (
+    mooncake_hybrid_connector as native_mooncake,
+)
 
 from afd_plugin.compat.npu import kv_layout_connector as adapter
+from afd_plugin.compat.npu.dspark_pd import (
+    DsparkPdReadQuery,
+    read_lease_from_payload,
+    read_lease_payload,
+    read_query_payload,
+)
+from afd_plugin.compat.npu.kv_layout_connector import AFDMooncakeRecvingThread
 from afd_plugin.compat.npu.kv_layout_native import collect_deepseek_v41_kv_layout
 from tests.unit.fakes.kv_cache import make_native_kv_cache_case
 from tests.unit.fakes.vllm_config import npu_vllm_config, pd_kv_transfer_config
@@ -26,6 +41,7 @@ REMOTE_HANDSHAKE_PORT = 9001
 LOCAL_HANDSHAKE_PORT = 9000
 TRANSFER_PORT = 9876
 THREAD_TEST_TIMEOUT = 5.0
+DSPARK_CPU_COMPRESS_RATIO = 2
 
 
 def connector_config(*, role="kv_consumer"):
@@ -83,7 +99,7 @@ class RegistrationBoundary:
     def sender(self, *args):
         return _StartBoundary(self, args[7], args[6])
 
-    def receiver(self, *args, local_layout):
+    def receiver(self, *args, local_layout, draft_layer_names=()):
         return _StartBoundary(self, args[15], local_layout)
 
 
@@ -134,6 +150,9 @@ def make_registration_case(monkeypatch, *, role="kv_producer"):
         "_mamba_ssm_size": (0, 0),
         "_registration_started": False,
         "_registered_layout": None,
+        "_dspark_enabled": False,
+        "_dspark_consumer": None,
+        "_dspark_registry": adapter.DsparkPdReadyRegistry(),
     }
     vars(worker).update(values)
     boundary = RegistrationBoundary()
@@ -145,7 +164,11 @@ def make_registration_case(monkeypatch, *, role="kv_producer"):
         "collect_deepseek_v41_kv_layout",
         lambda cfg, tensors: wire_layout(cache),
     )
-    return SimpleNamespace(worker=worker, cache=cache, boundary=boundary)
+    connector = adapter.MooncakeHybridConnector.__new__(adapter.MooncakeHybridConnector)
+    connector.connector_worker, connector.connector_scheduler = worker, None
+    return SimpleNamespace(
+        worker=worker, cache=cache, boundary=boundary, connector=connector
+    )
 
 
 class _ReceiverNetworkBoundary(adapter.AFDMooncakeRecvingThread):
@@ -316,7 +339,7 @@ def submit_receiver_request(case):
         raise AssertionError("native DONE did not reach the CPU ACK gate")
 
 
-def attach_consumer_worker(case):
+def attach_consumer_worker(case, *, dspark=False):
     """Native TP1 batch construction using the actual started CPU receiver."""
     worker = adapter.AFDMooncakeConnectorWorker.__new__(
         adapter.AFDMooncakeConnectorWorker
@@ -333,6 +356,8 @@ def attach_consumer_worker(case):
         _prefill_tp_size=1,
         _prefill_pp_size=1,
         tp_num_need_pulls=1,
+        _dspark_enabled=dspark,
+        _dspark_consumer=None,
     )
     metadata = adapter.MooncakeConnectorMetadata()
     for request_id in ("first", "second"):
@@ -353,6 +378,10 @@ def attach_consumer_worker(case):
         metadata.reqs_in_batch.add(request_id)
     case.worker = worker
     case.batch = metadata
+    case.connector = adapter.MooncakeHybridConnector.__new__(
+        adapter.MooncakeHybridConnector
+    )
+    case.connector.connector_worker, case.connector.connector_scheduler = worker, None
     return case
 
 
@@ -403,3 +432,324 @@ def peer_is_published(case):
         "remote" in receiver.kv_caches_base_addr
         and REMOTE_HANDSHAKE_PORT in receiver.kv_caches_base_addr["remote"]
     )
+
+
+class _SenderRequestComplete(BaseException):
+    """The CPU socket leaf ends one iteration without stopping a native loop."""
+
+
+class SenderSocketBoundary:
+    def __init__(self, payload):
+        self.payload = payload
+        self.response = None
+
+    def recv_multipart(self):
+        if self.payload is None:
+            raise _SenderRequestComplete()
+        payload, self.payload = self.payload, None
+        return [b"controlled-cpu-client", b"", payload]
+
+    def send_multipart(self, frames, **kwargs):
+        self.response = frames[-1]
+
+
+def sender_request(sender, kind, payload):
+    """Execute the actual sender dispatch at an explicit socket boundary."""
+    socket = SenderSocketBoundary(msgspec.msgpack.encode((kind, payload)))
+    with suppress(_SenderRequestComplete):
+        sender.run_busy_loop(socket)
+    return (
+        socket.response
+        if socket.response == b"ACK"
+        else msgspec.msgpack.decode(socket.response)
+    )
+
+
+class _ControlledSendingThread(adapter.AFDMooncakeSendingThread):
+    def start(self):
+        # Socket/thread startup is excluded. Constructor and actual native
+        # dispatch are retained, and all protocol calls are synchronous CPU.
+        self.ready_event.set()
+
+
+def make_dspark_registration_case(monkeypatch, prefix_case, *, bind=True):
+    """Real CPU layout/model binding; only NPU admission and TE/socket are leaves.
+
+    ``prefix_case`` is the existing dspark_pd loaded-model builder with bind=False.
+    ``bind=False`` leaves connector binding/registration to an outer runner test.
+    No second model graph or forged NPU layout is constructed here.
+    """
+    case = make_registration_case(monkeypatch)
+    # The producer-only registration leaf replaces an unused receiver factory.
+    # Restore its actual class before this component can compose a real receiver
+    # and execute production instance/type guards during shutdown.
+    monkeypatch.setattr(adapter, "AFDMooncakeRecvingThread", AFDMooncakeRecvingThread)
+    worker, prefix = case.worker, prefix_case
+    prefix.config.model_config.is_deepseek_mla = True
+    prefix.config.cache_config.block_size = 4
+    text = PretrainedConfig(**vars(prefix.config.model_config.hf_text_config))
+    text.compress_ratios = [DSPARK_CPU_COMPRESS_RATIO]
+    prefix.config.model_config.hf_config = prefix.config.model_config.hf_text_config = (
+        text
+    )
+    worker.vllm_config = prefix.config
+    worker.kv_cache_config = prefix.kv_config
+    worker.engine_id = prefix.source.source_engine_id
+    worker.tp_rank = prefix.expected_ready.source_tp_rank
+    worker.tp_size = prefix.expected_ready.tp_size
+    worker._prefill_tp_size = worker.tp_size
+    worker._dspark_enabled = True
+    worker.hma_group_size = len(prefix.kv_config.kv_cache_groups)
+    monkeypatch.setattr(
+        adapter, "collect_deepseek_v41_kv_layout", collect_deepseek_v41_kv_layout
+    )
+    native_role_validation = adapter._validate_layout_role
+
+    def validate_cpu_layout(layout, *, draft_layer_names=()):
+        # Preserve the real CPU snapshot in model binding and on the wire;
+        # only the hardware-admission condition is excluded from this seam.
+        native_role_validation(
+            replace(layout, device_type="npu"), draft_layer_names=draft_layer_names
+        )
+
+    monkeypatch.setattr(adapter, "_validate_layout_role", validate_cpu_layout)
+    monkeypatch.setattr(adapter, "AFDMooncakeSendingThread", _ControlledSendingThread)
+    monkeypatch.setattr(
+        native_mooncake, "get_pp_group", lambda: SimpleNamespace(rank_in_group=0)
+    )
+    monkeypatch.setattr(
+        native_mooncake, "get_pcp_group", lambda: SimpleNamespace(world_size=1)
+    )
+    monkeypatch.setattr(
+        native_mooncake, "get_tensor_model_parallel_world_size", lambda: worker.tp_size
+    )
+    connector = case.connector
+    metadata = adapter.DsparkMooncakeConnectorMetadata()
+    metadata.dspark_sources = (prefix.source,)
+    metadata.reqs_in_batch = {prefix.source.request_id}
+    case.prefix_case, case.connector, case.metadata = prefix, connector, metadata
+    case.layout, case.cache = prefix.layout, prefix
+
+    def register():
+        worker.register_kv_caches(prefix.caches)
+
+    def bind_and_register():
+        connector.bind_dspark_model(prefix.consumer)
+        register()
+
+    case.register = register
+    case.bind_and_register = bind_and_register
+    case.admit = lambda: worker.start_load_kv(metadata)
+    case.request_ready = lambda query: sender_request(
+        worker.kv_send_thread, adapter.GET_DSPARK_READY_MSG, read_query_payload(query)
+    )
+    case.complete_read = lambda lease: sender_request(
+        worker.kv_send_thread, adapter.DONE_DSPARK_RECV_MSG, read_lease_payload(lease)
+    )
+    if bind:
+        bind_and_register()
+    return case
+
+
+def dspark_query(prefix, *, generation="destination-generation"):
+    return DsparkPdReadQuery(
+        prefix.expected_ready,
+        "destination-engine",
+        generation,
+        prefix.source.transfer_block_ids,
+        "query-" + generation,
+    )
+
+
+def publish_dspark_prefix(case, *, acquire=True):
+    case.admit()
+    scheduler, state = case.prefix_case.make_step(
+        0, case.prefix_case.source.computed_prefix_tokens
+    )
+    ready = case.prefix_case.consumer.consume_prefill(
+        scheduler, state, (case.prefix_case.source,)
+    )
+    case.connector.publish_dspark_ready(ready)
+    if not acquire:
+        return None
+    return read_lease_from_payload(
+        case.request_ready(dspark_query(case.prefix_case))["lease"]
+    )
+
+
+def make_dspark_scheduler_case(monkeypatch, prefix, *, role="kv_producer"):
+    """Native scheduler metadata and KV manager allocation; no model/device work."""
+    config = prefix.config
+    original = config.kv_transfer_config
+    config.kv_transfer_config = KVTransferConfig(
+        kv_connector=original.kv_connector,
+        kv_connector_module_path=original.kv_connector_module_path,
+        kv_role=role,
+        engine_id=prefix.source.source_engine_id,
+        kv_buffer_device="cpu",
+        kv_port=LOCAL_HANDSHAKE_PORT,
+        kv_connector_extra_config=original.kv_connector_extra_config,
+    )
+    config.cache_config.block_size = 4
+    config.model_config.hf_config.compress_ratios = [DSPARK_CPU_COMPRESS_RATIO]
+    config.scheduler_config.disable_hybrid_kv_cache_manager = False
+    monkeypatch.setattr(native_mooncake, "init_ascend_config", lambda config: None)
+    monkeypatch.setattr(native_mooncake, "get_ascend_config", lambda: None)
+    scheduler = adapter.AFDMooncakeConnectorScheduler(
+        config, prefix.source.source_engine_id, prefix.kv_config
+    )
+
+    def new_request(tokens, *, params=None):
+        request = Request(
+            prefix.source.request_id, tokens, SamplingParams(max_tokens=1), None
+        )
+        request.kv_transfer_params = (
+            {"do_remote_decode": True} if params is None else params
+        )
+        scheduler.on_new_request(request)
+        return request
+
+    request = new_request(list(range(prefix.source.original_prompt_tokens)))
+    manager = KVCacheManager(
+        prefix.kv_config,
+        max_model_len=64,
+        scheduler_block_size=4,
+        hash_block_size=2,
+        enable_caching=False,
+    )
+    return SimpleNamespace(
+        scheduler=scheduler, request=request, manager=manager, new_request=new_request
+    )
+
+
+def make_dspark_read_case(monkeypatch, prefix, *, done_ack=b"ACK"):
+    """Actual ready/GETMETA/DONE dispatch; TE read is an explicit CPU leaf.
+
+    Queue dispatch is driven synchronously, without the native NPU thread
+    initializer. The public admission/queue envelope and actual handler remain.
+    """
+    producer = make_dspark_registration_case(monkeypatch, prefix)
+    layout = prefix.layout
+    worker = producer.worker
+    receiver = _ReceiverSocketBoundary(
+        worker.tp_rank,
+        worker.tp_size,
+        1,
+        worker.engine,
+        "destination-engine",
+        LOCAL_HANDSHAKE_PORT,
+        LOCAL_HANDSHAKE_PORT,
+        worker.kv_caches_base_addr,
+        worker.block_len_per_addr,
+        worker.block_stride_per_addr,
+        worker.addr_group_idx,
+        (0, 0),
+        True,
+        False,
+        len(layout.groups),
+        threading.Event(),
+        prefix.config,
+        prefix.kv_config,
+        prefix.caches,
+        mooncake_runtime_id="same-runtime",
+        local_layout=layout,
+        draft_layer_names=prefix.draft_names,
+    )
+    receiver.executor.shutdown(wait=True)
+    context = zmq.Context()
+    receiver.socket = context.socket(zmq.REQ)
+    sent = []
+    done_entered = threading.Event()
+
+    def receive(sock, path):
+        kind, payload = msgspec.msgpack.decode(sent[-1])
+        if kind == adapter.DONE_DSPARK_RECV_MSG:
+            done_entered.set()
+            if done_ack != b"ACK":
+                return done_ack
+        return (
+            msgspec.msgpack.encode(worker.xfer_handshake_metadata)
+            if kind == adapter.GET_META_MSG
+            else _encoded_sender_reply(worker.kv_send_thread, kind, payload)
+        )
+
+    monkeypatch.setattr(
+        adapter, "ensure_zmq_send", lambda sock, data, path: sent.append(data)
+    )
+    monkeypatch.setattr(adapter, "ensure_zmq_recv", receive)
+    destination = adapter.DsparkPdDestination(
+        prefix.source, "destination-generation", prefix.source.transfer_block_ids
+    )
+    request = request_map(
+        producer,
+        source=[list(ids) for ids in prefix.source.transfer_block_ids],
+        destination=[list(ids) for ids in destination.block_ids],
+    )
+    request.update(
+        remote_request_id=prefix.source.request_id,
+        remote_engine_id=worker.engine_id,
+        remote_handshake_port=worker.handshake_port,
+    )
+
+    def admit_request():
+        with receiver.admission_scope(
+            destinations={request["request_id"]: destination}
+        ):
+            receiver.task_tracker.add_req_to_process(request["request_id"])
+            receiver.add_request(**request)
+
+    def process():
+        admit_request()
+        queued = receiver.request_queue.get_nowait()
+        receiver._mark_request_task_submitted(queued)
+        return receiver._handle_request(queued)
+
+    return SimpleNamespace(
+        producer=producer,
+        receiver=receiver,
+        engine=worker.engine,
+        layout=layout,
+        sent=sent,
+        done_entered=done_entered,
+        admit_request=admit_request,
+        process=process,
+        request=request,
+        close=lambda: context.destroy(linger=0),
+    )
+
+
+def make_retiring_dspark_read_case(monkeypatch, prefix, *, done_ack=b"ACK"):
+    """Real CPU receiver thread with typed lease-DONE at the socket leaf."""
+    case = attach_consumer_worker(
+        make_dspark_read_case(monkeypatch, prefix, done_ack=done_ack), dspark=True
+    )
+    receiver = case.receiver
+    receiver.executor = ThreadPoolExecutor(max_workers=1)
+    original_close = case.close
+
+    def submit():
+        case.admit_request()
+        if not case.done_entered.wait(THREAD_TEST_TIMEOUT):
+            raise AssertionError("typed DONE did not reach the CPU socket boundary")
+
+    def close():
+        if receiver.is_alive():
+            # Test-only cleanup of failed ownership. Production retains the
+            # receiver and registration for the outer process supervisor.
+            receiver.request_queue.put(adapter._ReceiverControl.RETIRE)
+            receiver.join(THREAD_TEST_TIMEOUT)
+            if receiver.is_alive():
+                raise AssertionError("CPU test receiver did not exit")
+        receiver.executor.shutdown(wait=True)
+        original_close()
+
+    case.submit, case.close = submit, close
+    receiver.start()
+    if not receiver.ready_event.wait(THREAD_TEST_TIMEOUT):
+        raise AssertionError("CPU test receiver did not become ready")
+    return case
+
+
+def _encoded_sender_reply(sender, kind, payload):
+    reply = sender_request(sender, kind, payload)
+    return reply if isinstance(reply, bytes) else msgspec.msgpack.encode(reply)

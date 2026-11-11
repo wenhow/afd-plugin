@@ -239,6 +239,17 @@ def v41_dspark_config(*, role="attention", tensor_parallel_size=1):
     return config
 
 
+def v41_dspark_pd_config(*, role="attention", tensor_parallel_size=1):
+    """Exact external prefix protocol, with native eager/U1 prerequisites."""
+    config = v41_dspark_config(role=role, tensor_parallel_size=tensor_parallel_size)
+    config.compilation_config.cudagraph_mode.name = "NONE"
+    config.kv_transfer_config = pd_kv_transfer_config(tp_size=tensor_parallel_size)
+    config.kv_transfer_config.kv_connector_module_path = (
+        "afd_plugin.compat.npu.kv_layout_connector"
+    )
+    return config
+
+
 def async_moe_config(
     *,
     role="attention",

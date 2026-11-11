@@ -12,6 +12,7 @@ from afd_plugin.compat.npu.runtime_config import (
     DeepseekV41TargetShape,
     get_npu_ffn_config,
     resolve_deepseek_v41_target_shape,
+    uses_deepseek_v41_dspark_pd,
     validate_deepseek_v41_graph_speculation,
     validate_deepseek_v41_pd,
     validate_deepseek_v41_speculation,
@@ -20,6 +21,7 @@ from tests.unit.fakes.vllm_config import (
     npu_vllm_config,
     pd_kv_transfer_config,
     v41_dspark_config,
+    v41_dspark_pd_config,
 )
 
 
@@ -480,6 +482,51 @@ def test_validated_dspark_pd_remains_rejected_before_ffn_draft_is_removed(num_st
     before = deepcopy(source)
 
     with pytest.raises(ValueError, match="PD requires speculation off"):
+        get_npu_ffn_config(source)
+
+    assert source == before
+
+
+@pytest.mark.parametrize("tp_size", [1, 4])
+def test_exact_dspark_pd_keeps_prefix_ownership_on_attention(tp_size):
+    source = v41_dspark_pd_config(role="ffn", tensor_parallel_size=tp_size)
+    before = deepcopy(source)
+
+    assert uses_deepseek_v41_dspark_pd(source)
+    validate_deepseek_v41_pd(source)
+    isolated = get_npu_ffn_config(source)
+
+    assert source == before
+    assert isolated.kv_transfer_config is None
+    assert isolated.speculative_config is isolated.engram_config is None
+    assert isolated.parallel_config is source.parallel_config
+
+
+@pytest.mark.parametrize(
+    "boundary, reason",
+    [
+        ("native_module", "speculation off"),
+        ("draft_graph", "eager draft"),
+        ("adaptive", "fixed verification"),
+        ("ubatching", "U1"),
+        ("dbo", "U1"),
+    ],
+)
+def test_dspark_pd_rejects_modes_without_prefix_protocol_support(boundary, reason):
+    source = v41_dspark_pd_config(role="ffn")
+    if boundary == "native_module":
+        source.kv_transfer_config.kv_connector_module_path = None
+    elif boundary == "draft_graph":
+        source.speculative_config.enforce_eager = False
+    elif boundary == "adaptive":
+        source.speculative_config.enable_adaptive_verification = True
+    elif boundary == "ubatching":
+        source.parallel_config.use_ubatching = True
+    else:
+        source.parallel_config.enable_dbo = True
+    before = deepcopy(source)
+
+    with pytest.raises(ValueError, match=reason):
         get_npu_ffn_config(source)
 
     assert source == before

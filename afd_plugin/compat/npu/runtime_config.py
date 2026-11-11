@@ -96,6 +96,20 @@ def is_deepseek_v41_model(vllm_config: VllmConfig) -> bool:
     )
 
 
+def uses_deepseek_v41_dspark_pd(vllm_config: VllmConfig) -> bool:
+    """Select the plugin's request-bound DSpark prefix protocol only."""
+    transfer = vllm_config.kv_transfer_config
+    speculative = vllm_config.speculative_config
+    return (
+        is_deepseek_v41_model(vllm_config)
+        and transfer is not None
+        and transfer.kv_connector == HCCL_NATIVE_PD_CONNECTOR
+        and transfer.kv_connector_module_path == HCCL_ATTESTED_PD_MODULE
+        and speculative is not None
+        and speculative.use_dspark()
+    )
+
+
 def validate_deepseek_v41_speculation(vllm_config: VllmConfig) -> None:
     """Admit native same-checkpoint DSpark components, without enabling serving."""
     speculative = vllm_config.speculative_config
@@ -177,10 +191,26 @@ def validate_deepseek_v41_pd(vllm_config: VllmConfig) -> None:
     ):
         raise ValueError("V4.1 HCCL PD requires eager execution without Graph")
     if vllm_config.speculative_config is not None:
-        # The pinned SFA draft-ingress path requires offload, which rejects
-        # V4.1 compression. Generic Mooncake has no named prompt-draft readiness
-        # proof; same-checkpoint DSpark validation alone cannot supply it.
-        raise ValueError("V4.1 HCCL PD requires speculation off")
+        if not uses_deepseek_v41_dspark_pd(vllm_config):
+            # Native Mooncake has no request-bound draft readiness/lease.
+            raise ValueError(
+                "V4.1 HCCL PD requires speculation off outside the exact "
+                "plugin DSpark prefix protocol"
+            )
+        validate_deepseek_v41_speculation(vllm_config)
+        speculative = vllm_config.speculative_config
+        if (
+            speculative.enforce_eager is not True
+            or speculative.enable_adaptive_verification
+        ):
+            raise ValueError(
+                "V4.1 DSpark PD requires eager draft and fixed verification"
+            )
+        if (
+            vllm_config.parallel_config.use_ubatching
+            or vllm_config.parallel_config.enable_dbo
+        ):
+            raise ValueError("V4.1 DSpark PD requires U1 without DBO")
     if vllm_config.cache_config.enable_prefix_caching:
         raise ValueError("V4.1 HCCL PD requires local prefix caching disabled")
     if vllm_config.model_config.enable_sleep_mode:
@@ -349,6 +379,7 @@ __all__ = [
     "npu_model_uses_sharded_pp_tensors",
     "resolve_deepseek_v41_target_shape",
     "uses_async_cam_dbo",
+    "uses_deepseek_v41_dspark_pd",
     "validate_deepseek_v41_pd",
     "validate_deepseek_v41_graph_speculation",
     "validate_deepseek_v41_speculation",

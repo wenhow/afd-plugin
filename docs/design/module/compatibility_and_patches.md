@@ -13,6 +13,7 @@ primary_code_paths:
   - "afd_plugin/compat/npu/forward_context.py"
   - "afd_plugin/compat/npu/runtime.py"
   - "afd_plugin/compat/npu/runtime_config.py"
+  - "afd_plugin/compat/npu/dspark_pd.py"
   - "afd_plugin/compat/npu/stream.py"
   - "afd_plugin/compat/npu/profiler_api.py"
   - "afd_plugin/compat/npu/profiler_control.py"
@@ -52,6 +53,21 @@ last_reviewed: 2026-10-13
 ---
 
 # Compatibility and patches
+
+The loaded DSpark PD prefix consumer in
+[`dspark_pd.py`](../../../afd_plugin/compat/npu/dspark_pd.py) binds actual draft
+models and registered cache views. It projects native auxiliary feature rows
+through Ascend's lower context writer and synchronizes writes before a TP CPU
+report agreement. Request-ready records bind original prompt identity, source
+generation, all-group block maps and schema; the Mooncake connector owns read
+leases and allocator completion. Target execution, Engram and sampling remain
+native. Projection adds feature concatenation, draft prompt compute, a stream
+fence and one host report exchange per P execution. Read failures without a
+proven drain retain both cache owners for worker supervision. Connector shutdown
+checks the same leases before native Worker can release KV storage. Eager/U1 component
+tests do not qualify PD, device transfer or full-model DSpark. The first slice
+rejects P preemption and does not add recovery. Replace these seams when native
+V4.1 Mooncake exposes equivalent loaded-writer and request-lease callbacks.
 
 The NPU current-stream scope keeps actual NPU stream selection and vLLM's
 existing thread-local current-stream cache aligned for side compute. It restores

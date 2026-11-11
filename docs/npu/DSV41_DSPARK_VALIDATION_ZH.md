@@ -25,7 +25,7 @@ target 的 Engram 执行资源在 execute 的收尾中退役；下一轮 lookbac
 
 ## 开发时的 CPU 回归
 
-在具有匹配依赖的环境中，于仓库根目录运行以下两个完整模块。A5 容器的 Python
+在具有匹配依赖的环境中，于仓库根目录运行以下六个完整模块。A5 容器的 Python
 路径沿用 `/usr/local/python3.11.10/bin/python`；不要求 venv 或 `atb-env`。
 这些测试不启动推理服务，不加载 checkpoint 权重，也不使用 NPU。
 
@@ -37,6 +37,10 @@ export PYTHONDONTWRITEBYTECODE=1
 
 git rev-parse HEAD > "$afd_result_dir/git-head.txt"
 "$afd_python" -B -m pytest -q \
+  tests/unit/compat/npu/test_dspark_pd.py \
+  tests/unit/compat/npu/test_kv_layout_connector.py \
+  tests/unit/compat/npu/test_runtime_config.py \
+  tests/unit/compat/patches/test_signatures.py \
   tests/unit/v1/worker/npu/test_hccl_v41_graph_coordinator.py \
   tests/unit/v1/worker/npu/test_attention_model_runner_v2.py \
   --junitxml="$afd_result_dir/pytest.xml" \
@@ -56,7 +60,7 @@ cache 写入或 Graph 捕获。
 接受/拒绝用例采用 greedy CPU 叶子，不覆盖随机采样、设备 rejection kernel
 或真实 Engram gather kernel。
 
-2026-11-11 最新 A3 实际依赖单轮回归为 **162 项通过、0 失败、0 跳过**
+此前 A3 原生 capture 工厂组合的独立单轮回归为 **162 项通过、0 失败、0 跳过**
 （完整 runner 43、coordinator 119），66 项安装源码一致。运行快照使用已交付
 源码加四个测试文件，排除了暂停的普通 MTP 工作区改动。
 
@@ -92,6 +96,38 @@ q3 target 按 4/5 两段运行，使用 `stage_serial`、compute stream 开、hy
 需要检查的接口行为包括：原生 proposal 的 token 和 Markov 依赖、target/draft
 上下文隔离、异常后的上下文恢复，以及全接受、首步拒绝和中途拒绝后的输出、
 history、computed frontier、下一轮 Engram lookback 和 KV 生命周期。
+
+## DSpark 与 Mooncake PD 的首个开发切片
+
+外部连接器模块为 `afd_plugin.compat.npu.kv_layout_connector`，连接器名保持
+`MooncakeHybridConnector`。配置检查仅接纳 target/draft eager、U1、固定验证长度、
+CP/PP/DP 均为 1、关闭 prefix cache 和 sparse offload、P/D TP 相同的组合。
+完整模型门禁仍保留；配置检查通过不表示可以启动完整模型服务。
+
+A 端在原生加载后绑定真实 target/draft，KV 初始化时保留全部 draft 组并绑定实际
+缓存视图。P 的每个分块在原生 execute 收尾后，使用原生下层 context writer 投影
+auxiliary 特征并等待写入完成；所有 TP rank 交换结果成功后才发布请求 Ready。
+原始 prompt 摘要与 P 实际计算的前缀长度分别记录；长度大于 1 的 prompt 沿用
+原生 P 端少算最后一个 token 的行为。
+
+D 在读取前校验请求代次、prompt 摘要、所有缓存组的块映射、schema 和 TP rank，
+取得 P 发放的读取租约。读取完成且匹配的 DONE 得到 ACK 后才进入释放流程。
+若读取已开始而无法确认结束，两端保留缓存并报错，需要由外层监督器重建进程；
+本切片不提供超时强制释放或失败后自动恢复。P 的中途抢占明确拒绝。
+正常退出也经过同一连接器检查：P 关闭新的 Ready 读取并确认没有活跃请求，
+D 等待已接纳的读取及其 DONE/ACK 结束。未完成或退出失败会阻断后续原生 KV
+释放；不能以 A/F STOP 已完成代替 P/D 读取结束。
+
+CPU 用例保留原生 draft combine/project/store、组映射、连接器调度及请求就绪协议，
+以 CPU 边界替代 RoPE、设备缓存写入、target 计算、socket 和 transfer engine。
+TP 1/2/4/8 的报告检查不代表对应卡数的实际 collective 验收。A5 后续仍需检查
+真实分块/滑窗传输、接受率、取消、故障退出和缓存生命周期，再扩展到 U2/Graph。
+
+2026-11-11 最新联合回归在 A3 实际依赖下单轮 **451 项通过、0 失败、0 跳过**：
+prefix 39、connector 89、配置 117、签名 38、runner 49、coordinator 119。
+85 项安装源码与锁定版本一致；快照使用已交付基线加本轮 13 个文件，排除了普通
+MTP 工作区改动。此前失败轮次分别保留，没有合并为通过结果。此轮没有运行设备
+探针、服务或完整模型，也没有调整容器依赖版本。
 
 ## 后续 A5 统一验收
 

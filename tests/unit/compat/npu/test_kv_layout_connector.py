@@ -8,17 +8,23 @@ from dataclasses import replace
 
 import pytest
 
-pytest.importorskip("torch")
+torch = pytest.importorskip("torch")
 pytest.importorskip("vllm")
 pytest.importorskip("torch_npu")
 pytest.importorskip("vllm_ascend")
 msgspec = pytest.importorskip("msgspec")
 
 from vllm.distributed.kv_transfer.kv_connector.factory import KVConnectorFactory
+from vllm.v1.request import RequestStatus
 
 from afd_plugin.compat.npu import kv_layout_connector as adapter
+from afd_plugin.compat.npu.dspark_pd import (
+    read_lease_from_payload,
+    source_request_payload,
+)
 from afd_plugin.compat.npu.kv_layout import layout_from_json
 from afd_plugin.compat.npu.kv_layout_native import collect_deepseek_v41_kv_layout
+from tests.unit.fakes.dspark_pd import make_dspark_pd_prefix_case
 from tests.unit.fakes.kv_layout_connector import (
     REMOTE_BASE_ADDRESS,
     REMOTE_HANDSHAKE_PORT,
@@ -27,15 +33,28 @@ from tests.unit.fakes.kv_layout_connector import (
     RegistrationBoundary,
     attach_consumer_worker,
     connector_config,
+    dspark_query,
     hold_receiver_admission,
+    make_dspark_read_case,
+    make_dspark_registration_case,
+    make_dspark_scheduler_case,
     make_receiver_case,
     make_registration_case,
+    make_retiring_dspark_read_case,
     make_retiring_receiver_case,
     peer_is_published,
+    publish_dspark_prefix,
     request_map,
+    sender_request,
 )
 
 RETIREMENT_TEST_DEADLINE = 0.01
+
+
+@pytest.fixture
+def dspark_case(monkeypatch):
+    prefix = make_dspark_pd_prefix_case(monkeypatch, bind=False)
+    return make_dspark_registration_case(monkeypatch, prefix)
 
 
 @pytest.fixture
@@ -476,3 +495,425 @@ def test_worker_cannot_retire_the_producer_receiver(retiring_receiver_case):
     with pytest.raises(RuntimeError, match="registered attested consumer"):
         case.worker.retire_receiver(timeout=THREAD_TEST_TIMEOUT)
     assert not case.receiver.retired
+
+
+@pytest.mark.parametrize("tp_size,tp_rank", [(1, 0), (2, 0), (2, 1)])
+def test_request_ready_wire_requires_complete_native_draft_projection(
+    monkeypatch, tp_size, tp_rank
+):
+    prefix = make_dspark_pd_prefix_case(
+        monkeypatch, tp_size=tp_size, tp_rank=tp_rank, bind=False
+    )
+    case = make_dspark_registration_case(monkeypatch, prefix)
+    query = dspark_query(prefix)
+    assert case.request_ready(query)["ok"] is False
+    case.admit()
+    first, state = prefix.make_step(0, 2)
+    case.connector.publish_dspark_ready(
+        prefix.consumer.consume_prefill(first, state, (prefix.source,))
+    )
+    assert case.request_ready(query)["ok"] is False
+    second, state = prefix.make_step(2, 3)
+    case.connector.publish_dspark_ready(
+        prefix.consumer.consume_prefill(second, state, (prefix.source,))
+    )
+    lease = read_lease_from_payload(case.request_ready(query)["lease"])
+    assert lease.ready == prefix.expected_ready
+    assert lease.destination_block_ids == query.destination_block_ids
+    for group_id, name in zip(prefix.draft_group_ids, prefix.draft_names, strict=True):
+        size = prefix.kv_config.kv_cache_groups[group_id].kv_cache_spec.block_size
+        actual = torch.stack(
+            [
+                prefix.caches[name][
+                    prefix.source.allocation_block_ids[group_id][pos // size],
+                    pos % size,
+                    0,
+                ]
+                for pos in range(prefix.source.computed_prefix_tokens)
+            ]
+        )
+        expected = torch.tensor(
+            [[240 + 60 * pos, 246 + 60 * pos] for pos in range(5)], dtype=torch.bfloat16
+        )
+        torch.testing.assert_close(actual, expected, rtol=0, atol=0)
+
+
+@pytest.mark.parametrize("invalid", ["prompt", "generation", "layout", "rank"])
+def test_changed_ready_contract_is_rejected_without_poisoning_valid_query(
+    dspark_case, invalid
+):
+    case, prefix = dspark_case, dspark_case.prefix_case
+    publish_dspark_prefix(case)
+    query = dspark_query(prefix)
+    changes = {
+        "prompt": {"prompt_digest": "0" * 64},
+        "generation": {"source_generation": "other-generation"},
+        "layout": {"layout_digest": "0" * 64},
+        "rank": {"source_tp_rank": 1, "tp_size": 2},
+    }
+    wrong = replace(
+        query, expected_ready=replace(query.expected_ready, **changes[invalid])
+    )
+    assert case.request_ready(wrong)["ok"] is False
+    assert (
+        read_lease_from_payload(case.request_ready(query)["lease"]).ready
+        == prefix.expected_ready
+    )
+
+
+def test_finished_generation_cannot_release_a_reused_request_id(dspark_case):
+    prefix = dspark_case.prefix_case
+    next_source = replace(prefix.source, source_generation="source-generation-2")
+    registry = adapter.DsparkPdReadyRegistry()
+    registry.admit((prefix.source,))
+    registry.publish((prefix.expected_ready,))
+    lease = registry.acquire(dspark_query(prefix))
+    registry.complete(lease)
+    with pytest.raises(RuntimeError, match="not yet delivered"):
+        registry.admit((next_source,))
+    assert registry.take_finished() == {prefix.source.request_id}
+    registry.admit((next_source,))
+    registry.complete(lease)
+    assert registry.take_finished() == set()
+    next_ready = replace(prefix.expected_ready, source_generation="source-generation-2")
+    registry.publish((next_ready,))
+    query = replace(dspark_query(prefix), expected_ready=next_ready)
+    assert registry.acquire(query).ready == next_ready
+
+
+@pytest.mark.parametrize("with_lease", [False, True])
+def test_cancelled_source_is_released_only_after_its_existing_lease(
+    dspark_case, with_lease
+):
+    case, prefix = dspark_case, dspark_case.prefix_case
+    lease = publish_dspark_prefix(case) if with_lease else None
+    if not with_lease:
+        case.admit()
+    metadata = adapter.DsparkMooncakeConnectorMetadata()
+    metadata.dspark_cancelled = (
+        (prefix.source.request_id, prefix.source.source_generation),
+    )
+    case.worker.start_load_kv(metadata)
+    assert case.request_ready(dspark_query(prefix))["ok"] is False
+    sender = case.worker.kv_send_thread
+    assert sender.get_and_clear_finished_requests() == (
+        set() if with_lease else {prefix.source.request_id}
+    )
+    if with_lease:
+        assert case.complete_read(lease) == b"ACK"
+        assert sender.get_and_clear_finished_requests() == {prefix.source.request_id}
+        assert case.complete_read(lease) == b"ACK"
+        assert sender.get_and_clear_finished_requests() == set()
+
+
+@pytest.mark.parametrize("known_source", [False, True])
+def test_legacy_done_cannot_retire_a_dspark_source(dspark_case, known_source):
+    case, prefix = dspark_case, dspark_case.prefix_case
+    lease = publish_dspark_prefix(case)
+    reply = sender_request(
+        case.worker.kv_send_thread,
+        adapter.DONE_RECVING_MSG,
+        prefix.source.request_id if known_source else "unknown-or-evicted-source",
+    )
+    assert reply["ok"] is False
+    assert case.worker.kv_send_thread.get_and_clear_finished_requests() == set()
+    assert case.complete_read(lease) == b"ACK"
+    assert case.worker.kv_send_thread.get_and_clear_finished_requests() == {
+        prefix.source.request_id
+    }
+
+
+def test_source_batch_rejection_does_not_admit_an_earlier_source(dspark_case):
+    prefix = dspark_case.prefix_case
+    registry = adapter.DsparkPdReadyRegistry()
+    registry.admit((prefix.source,))
+    other = replace(prefix.source, request_id="other-request")
+    changed = replace(prefix.source, original_prompt_tokens=7)
+    with pytest.raises(ValueError, match="changed its contract"):
+        registry.admit((other, changed))
+    other_ready = replace(prefix.expected_ready, source_request_id="other-request")
+    with pytest.raises(KeyError):
+        registry.publish((other_ready,))
+    registry.publish((prefix.expected_ready,))
+    assert registry.acquire(dspark_query(prefix)).ready == prefix.expected_ready
+
+
+@pytest.mark.parametrize("read_result", [0, -1])
+def test_destination_completion_requires_a_drained_read_and_typed_done(
+    monkeypatch, read_result
+):
+    prefix = make_dspark_pd_prefix_case(monkeypatch, bind=False)
+    case = make_dspark_read_case(monkeypatch, prefix)
+    publish_dspark_prefix(case.producer, acquire=False)
+    case.engine.result = read_result
+    try:
+        if read_result < 0:
+            with pytest.raises(RuntimeError):
+                case.process()
+            assert case.receiver.get_and_clear_finished_requests() == set()
+            with (
+                pytest.raises(RuntimeError, match="closed"),
+                case.receiver.admission_scope(),
+            ):
+                pass
+            assert adapter.DONE_DSPARK_RECV_MSG not in [
+                msgspec.msgpack.decode(frame)[0] for frame in case.sent
+            ]
+            assert (
+                case.producer.worker.kv_send_thread.get_and_clear_finished_requests()
+                == set()
+            )
+        else:
+            case.process()
+            assert case.receiver.get_and_clear_finished_requests() == {"request"}
+            assert [msgspec.msgpack.decode(frame)[0] for frame in case.sent] == [
+                adapter.GET_META_MSG,
+                adapter.GET_DSPARK_READY_MSG,
+                adapter.DONE_DSPARK_RECV_MSG,
+            ]
+            assert (
+                case.producer.worker.kv_send_thread.get_and_clear_finished_requests()
+                == {prefix.source.request_id}
+            )
+    finally:
+        case.close()
+
+
+@pytest.mark.parametrize("invalid", ["rank", "source", "empty"])
+def test_invalid_destination_contract_is_rejected_before_read_lease(
+    monkeypatch, invalid
+):
+    prefix = make_dspark_pd_prefix_case(monkeypatch, bind=False)
+    case = make_dspark_read_case(monkeypatch, prefix)
+    publish_dspark_prefix(case.producer, acquire=False)
+    if invalid == "rank":
+        metadata = case.producer.worker.xfer_handshake_metadata
+        metadata.afd_tp_rank, metadata.afd_tp_size = 1, 2
+        case.receiver.tp_size = 2
+    elif invalid == "source":
+        case.request["remote_engine_id"] = "other-engine"
+    else:
+        case.request["remote_block_ids"] = [[] for _ in prefix.layout.groups]
+        case.request["local_block_ids"] = [[] for _ in prefix.layout.groups]
+    try:
+        if invalid == "empty":
+            with pytest.raises(ValueError, match="mapping changed"):
+                case.process()
+        else:
+            case.process()
+        assert case.engine.reads == []
+        assert adapter.GET_DSPARK_READY_MSG not in [
+            msgspec.msgpack.decode(frame)[0] for frame in case.sent
+        ]
+        assert (
+            case.producer.worker.kv_send_thread.get_and_clear_finished_requests()
+            == set()
+        )
+    finally:
+        case.close()
+
+
+def test_running_chunks_snapshot_swa_nulls(monkeypatch):  # long-test: native KV
+    prefix = make_dspark_pd_prefix_case(
+        monkeypatch, original_tokens=18, num_blocks=64, bind=False
+    )
+    case = make_dspark_scheduler_case(monkeypatch, prefix)
+    request, manager, connector = case.request, case.manager, case.scheduler
+    snapshots = []
+    for offset, count in ((0, 5), (5, 4), (9, 8)):
+        request.num_computed_tokens = offset
+        assert manager.allocate_slots(request, count) is not None
+        if offset == 0:
+            connector.update_state_after_alloc(
+                request, manager.get_blocks(request.request_id), 0
+            )
+        scheduled, _ = prefix.make_step(offset, count)
+        source = connector.build_connector_meta(scheduled).dspark_sources[0]
+        snapshots.append(source)
+        assert source.allocation_block_ids == tuple(
+            tuple(ids) for ids in manager.get_block_ids(request.request_id)
+        )
+        assert source.prompt_digest == prefix.source.prompt_digest
+    assert snapshots[0].allocation_block_ids != snapshots[-1].allocation_block_ids
+    assert any(
+        0 in snapshots[-1].allocation_block_ids[group]
+        for group in prefix.draft_group_ids
+    )
+    assert all(0 not in group for group in snapshots[-1].transfer_block_ids)
+    assert (
+        snapshots[0].computed_prefix_tokens
+        == snapshots[-1].computed_prefix_tokens
+        == 17
+    )
+
+
+def test_preempted_source_cannot_publish_metadata_or_resume_old_allocation(monkeypatch):
+    prefix = make_dspark_pd_prefix_case(monkeypatch, bind=False, num_blocks=32)
+    case = make_dspark_scheduler_case(monkeypatch, prefix)
+    assert case.manager.allocate_slots(case.request, 2) is not None
+    case.scheduler.update_state_after_alloc(
+        case.request, case.manager.get_blocks(case.request.request_id), 0
+    )
+    scheduled, _ = prefix.make_step(0, 2)
+    case.scheduler.build_connector_meta(scheduled)
+    case.manager.free(case.request)
+    scheduled.preempted_req_ids = {case.request.request_id}
+    with pytest.raises(RuntimeError, match="preempted"):
+        case.scheduler.build_connector_meta(scheduled)
+    scheduled.preempted_req_ids = set()
+    with pytest.raises(RuntimeError, match="terminal"):
+        case.scheduler.build_connector_meta(scheduled)
+
+
+@pytest.mark.parametrize("cancelled", [False, True])
+def test_finished_request_id_reuse_has_a_fresh_prompt_and_allocation(
+    monkeypatch, cancelled
+):
+    prefix = make_dspark_pd_prefix_case(monkeypatch, bind=False, num_blocks=32)
+    case = make_dspark_scheduler_case(monkeypatch, prefix)
+    request, manager, connector = case.request, case.manager, case.scheduler
+    assert manager.allocate_slots(request, request.num_prompt_tokens) is not None
+    connector.update_state_after_alloc(
+        request, manager.get_blocks(request.request_id), 0
+    )
+    scheduled, _ = prefix.make_step(0, request.num_prompt_tokens)
+    old_source = connector.build_connector_meta(scheduled).dspark_sources[0]
+    request.append_output_token_ids(19)
+    request.status = (
+        RequestStatus.FINISHED_ABORTED
+        if cancelled
+        else RequestStatus.FINISHED_LENGTH_CAPPED
+    )
+    delayed, params = connector.request_finished_all_groups(
+        request, manager.get_block_ids(request.request_id)
+    )
+    assert delayed
+    if cancelled:
+        metadata = connector.build_connector_meta(scheduled)
+        assert metadata.dspark_cancelled == (
+            (request.request_id, old_source.source_generation),
+        )
+    else:
+        assert params[adapter.DSPARK_SOURCE_PARAM] == source_request_payload(old_source)
+    manager.free(request)
+    replacement = case.new_request(list(range(100, 108)))
+    assert (
+        manager.allocate_slots(replacement, replacement.num_prompt_tokens) is not None
+    )
+    connector.update_state_after_alloc(
+        replacement, manager.get_blocks(replacement.request_id), 0
+    )
+    source = connector.build_connector_meta(scheduled).dspark_sources[0]
+    assert source.source_generation != old_source.source_generation
+    assert source.prompt_digest != old_source.prompt_digest
+    assert source.original_prompt_tokens == 8
+    assert source.computed_prefix_tokens == 7
+    assert source.allocation_block_ids == tuple(
+        tuple(ids) for ids in manager.get_block_ids(replacement.request_id)
+    )
+
+
+@pytest.mark.parametrize("invalid", ["prompt", "prefix", "blocks"])
+def test_destination_scheduler_rejects_a_wrong_source_before_queue_admission(
+    monkeypatch, invalid
+):
+    prefix = make_dspark_pd_prefix_case(monkeypatch, bind=False)
+    case = make_dspark_scheduler_case(monkeypatch, prefix, role="kv_consumer")
+    source = prefix.source
+    source = replace(
+        source,
+        **{
+            "prompt": {"prompt_digest": "0" * 64},
+            "prefix": {"computed_prefix_tokens": 4},
+            "blocks": {"source_engine_id": "other-engine"},
+        }[invalid],
+    )
+    params = {
+        "do_remote_prefill": True,
+        "remote_request_id": source.request_id,
+        "remote_engine_id": prefix.source.source_engine_id,
+        "remote_block_ids": prefix.source.transfer_block_ids,
+        adapter.DSPARK_SOURCE_PARAM: source_request_payload(source),
+    }
+    with pytest.raises(ValueError, match="does not match this prompt"):
+        case.new_request(
+            list(range(prefix.source.original_prompt_tokens)), params=params
+        )
+
+
+@pytest.mark.parametrize("role", ["kv_producer", "kv_consumer"])
+def test_target_only_connector_keeps_native_noop_shutdown(monkeypatch, role):
+    case = make_registration_case(monkeypatch, role=role)
+    case.worker.register_kv_caches(case.cache.caches)
+    assert case.connector.shutdown() is None
+
+
+def test_producer_shutdown_closes_ready_admission_after_real_lease_done(dspark_case):
+    case = dspark_case
+    lease = publish_dspark_prefix(case)
+    assert case.complete_read(lease) == b"ACK"
+    assert case.connector.shutdown() is None
+    assert case.connector.shutdown() is None
+    assert case.request_ready(dspark_query(case.prefix_case))["ok"] is False
+    with pytest.raises(RuntimeError, match="closed"):
+        case.admit()
+
+
+@pytest.mark.parametrize("with_lease", [False, True])
+def test_producer_shutdown_cannot_release_an_active_source(dspark_case, with_lease):
+    case = dspark_case
+    lease = publish_dspark_prefix(case, acquire=with_lease)
+    tensor = case.prefix_case.caches[case.prefix_case.draft_names[0]]
+    before = tensor.clone()
+    with pytest.raises(RuntimeError, match="not drained"):
+        case.connector.shutdown()
+    assert case.request_ready(dspark_query(case.prefix_case))["ok"] is False
+    with pytest.raises(RuntimeError, match="closed"):
+        case.admit()
+    if with_lease:
+        assert case.complete_read(lease) == b"ACK"
+        assert case.worker.kv_send_thread.get_and_clear_finished_requests() == {
+            case.prefix_case.source.request_id
+        }
+    with pytest.raises(RuntimeError, match="not drained"):
+        case.connector.shutdown()
+    torch.testing.assert_close(tensor, before, rtol=0, atol=0)
+
+
+@pytest.mark.parametrize("acknowledged", [True, False])
+def test_consumer_shutdown_requires_the_actual_typed_done_ack(
+    monkeypatch, acknowledged
+):
+    prefix = make_dspark_pd_prefix_case(monkeypatch, bind=False)
+    case = make_retiring_dspark_read_case(
+        monkeypatch, prefix, done_ack=b"ACK" if acknowledged else b"NACK"
+    )
+    publish_dspark_prefix(case.producer, acquire=False)
+    try:
+        case.submit()
+        if acknowledged:
+            assert case.connector.shutdown() is None
+            assert case.receiver.retired
+            assert not case.receiver.is_alive()
+            assert case.receiver.get_and_clear_finished_requests() == {"request"}
+            assert (
+                case.producer.worker.kv_send_thread.get_and_clear_finished_requests()
+                == {prefix.source.request_id}
+            )
+        else:
+            with pytest.raises(RuntimeError, match="DONE/ACK|retained failure"):
+                case.connector.shutdown()
+            assert not case.receiver.retired
+            assert case.receiver.is_alive()
+            assert case.receiver.get_and_clear_finished_requests() == set()
+            assert (
+                case.producer.worker.kv_send_thread.get_and_clear_finished_requests()
+                == set()
+            )
+        with (
+            pytest.raises(RuntimeError, match="closed"),
+            case.receiver.admission_scope(),
+        ):
+            pass
+    finally:
+        case.close()
