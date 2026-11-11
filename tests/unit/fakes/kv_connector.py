@@ -33,18 +33,22 @@ from vllm.v1.worker.gpu.cudagraph_utils import CudaGraphManager
 from vllm.v1.worker.gpu.ec_connector import ECConnector
 from vllm.v1.worker.gpu.eplb_utils import EPLBController
 from vllm.v1.worker.gpu.kv_connector import ActiveKVConnector
+from vllm.v1.worker.gpu.sample import sampler as sampler_module
 from vllm.v1.worker.gpu.sample.output import SamplerOutput
 from vllm.v1.worker.gpu.sample.prompt_logprob import PromptLogprobsWorker
 from vllm.v1.worker.gpu.spec_decode import rejection_sampler as rejection_module
 from vllm.v1.worker.gpu.spec_decode.dflash.cudagraph import DFlashCudaGraphManager
 from vllm.v1.worker.gpu.spec_decode.rejection_sampler import RejectionSampler
 from vllm.v1.worker.gpu.spec_decode.utils import DraftTokensHandler
+from vllm_ascend.ascend_config import SparseKVOffloadConfig
 from vllm_ascend.attention.sfa_v1 import AscendSFABackend, AscendSFAImpl
 from vllm_ascend.models.deepseek_v41.engram.model_state import EngramModelState
 from vllm_ascend.models.deepseek_v41.model import AscendDeepseekV41LLMForCausalLM
 from vllm_ascend.ops.triton import engram_lookback
 from vllm_ascend.worker.v2 import model_runner as native_runner
+from vllm_ascend.worker.v2.aclgraph_utils import ModelAclGraphManager
 from vllm_ascend.worker.v2.input_batch import AscendInputBatch, AscendInputBuffers
+from vllm_ascend.worker.v2.model_states import default as ascend_model_state
 
 from afd_plugin.connectors.npu import hccl_graph_pipeline as pipeline_module
 from afd_plugin.connectors.npu.hccl_graph_stage import HcclGraphStageBank
@@ -65,8 +69,14 @@ from tests.unit.fakes.attention_model_runner_v2 import (
     install_graph_runner_coordinator,
     make_graph_runner_case,
 )
+from tests.unit.fakes.block_table import install_native_block_table_kernels_cpu
+from tests.unit.fakes.deepseek_v41 import native_pd_target_reference
 from tests.unit.fakes.deepseek_v41_graph import GraphParentNorm, GraphStreamAttention
-from tests.unit.fakes.device_metadata import make_cpu_target_metadata
+from tests.unit.fakes.device_metadata import (
+    install_native_target_metadata_cpu,
+    make_cpu_target_metadata,
+)
+from tests.unit.fakes.dspark_speculator import initialize_existing_dspark_proposal
 from tests.unit.fakes.graph_cache import DeviceCompletion, ReplayGraph
 from tests.unit.fakes.hccl_graph_pipeline import attach_pipeline
 from tests.unit.fakes.hccl_v41_graph_coordinator import (
@@ -76,6 +86,7 @@ from tests.unit.fakes.hccl_v41_graph_coordinator import (
     reference_runtime_eager_output,
 )
 from tests.unit.fakes.input_batch import (
+    install_native_input_preparation_cpu,
     make_ascend_decode_batch,
     snapshot_ascend_child,
 )
@@ -85,8 +96,13 @@ from tests.unit.fakes.rejection_sampler import (
     CPULookbackGather,
     GreedySamplingState,
     greedy_rejection_cpu,
+    greedy_sample_cpu,
     sampled_and_rejected_cpu,
     update_speculative_history_cpu,
+)
+from tests.unit.fakes.request_state import (
+    make_native_request_admission_case,
+    native_zeroed_cache_reference,
 )
 
 FULL_REPLAY_ROWS = 4
@@ -288,7 +304,8 @@ def make_native_kv_runner_case(
     vars(state).update(vars(owner.model_state))
     state.device_metadata = device
     owner.model_state = state
-    owner.model.retire_engram_lookups = device.retire_engram_lookups
+    if pd_read_case is None or not pd_read_case.prefix_case.complete_cpu_models:
+        owner.model.retire_engram_lookups = device.retire_engram_lookups
     owner.ascend_config = (
         SimpleNamespace(
             scheduler_config=SimpleNamespace(
@@ -336,6 +353,126 @@ def make_native_kv_runner_case(
     case.scheduler, case.kv_transfer = scheduler, transfer
     case.kv_views, case.auxiliary_device, case.native_events = views, device, events
     return case
+
+
+def complete_native_pd_handoff(case):
+    """Run actual zero-work polling until the same scheduler admits D work."""
+    transfer, owner = case.pd_read_case, case.owner
+    first = transfer.scheduler.schedule()
+    transfer.scheduler.update_from_output(first, owner.execute_model(first))
+    transfer.process_next_queued_request()
+    pending = transfer.scheduler.schedule()
+    transfer.scheduler.update_from_output(pending, owner.execute_model(pending))
+    return transfer.scheduler.schedule()
+
+
+def initialize_native_pd_target_execution(monkeypatch, case, *, scheduler_output):
+    """Complete the existing registered D owner for native eager CPU execute.
+
+    The bound target/draft/config/cache and ActiveKVConnector stay identical.
+    Real EngramModelState construction, native NONE manager dispatch, request
+    admission, input preparation, metadata lifecycle and target forward run.
+    Only CPU configuration/allocation and declared device operator leaves are
+    supplied. This has no remote FFN, checkpoint, device or Graph execution.
+    """
+    owner, transfer = case.owner, case.pd_read_case
+    if not transfer.prefix_case.complete_cpu_models:
+        raise ValueError("native target requires models completed before PD binding")
+    ascend_config = SimpleNamespace(sparse_kv_offload_config=SparseKVOffloadConfig())
+    monkeypatch.setattr(ascend_model_state, "get_ascend_config", lambda: ascend_config)
+    owner.model_state = EngramModelState(
+        owner.vllm_config, owner.model, None, owner.device
+    )
+    owner.model_state.kv_cache_config = owner.kv_cache_config
+    case.target_metadata = install_native_target_metadata_cpu(
+        monkeypatch, owner.model_state, transfer.loaded_destination.model_bundle
+    )
+    make_native_request_admission_case(monkeypatch, owner, kv_cache_views=case.kv_views)
+    install_native_input_preparation_cpu(monkeypatch, owner)
+    install_native_block_table_kernels_cpu(monkeypatch, owner.block_tables)
+    owner.observability_config = owner.vllm_config.observability_config
+    owner.lora_config = None
+    owner.is_encoder_decoder = owner.uses_inputs_embeds = False
+    owner.use_aux_hidden_state_outputs = True
+    owner.routed_experts_capturer = None
+    owner.use_spec_pp = owner.use_pp = False
+    owner.dp_size, owner.dp_rank = 1, 0
+    owner.dcp_size, owner.dcp_rank, owner.cp_interleave = 1, 0, 1
+    owner.step_timing = StepTimingCollector()
+    owner.attn_groups = []
+    owner.update_stream = None
+    pp = SimpleNamespace(is_first_rank=True, is_last_rank=True)
+    monkeypatch.setattr(native_cudagraph, "get_pp_group", lambda: pp)
+    owner.cudagraph_manager = ModelAclGraphManager(
+        owner.vllm_config,
+        owner.device,
+        CUDAGraphMode.NONE,
+        owner.decode_query_len,
+        owner,
+    )
+    destination = transfer.destination_cache
+    request = scheduler_output.scheduled_new_reqs[0]
+    width = scheduler_output.num_scheduled_tokens[request.req_id]
+    computed = request.num_computed_tokens
+    case.expected_input_ids = torch.tensor(
+        [request.prompt_token_ids[-1]] + [0] * (width - 1)
+    )
+    case.expected_positions = torch.arange(computed, computed + width)
+    case.source_pages_before = tuple(page.clone() for page in destination.source_pages)
+    zeroed = native_zeroed_cache_reference(
+        layout=destination.layout,
+        config=destination.config,
+        caches=destination.caches,
+        pages=destination.pages,
+        block_ids=scheduler_output.new_block_ids_to_zero,
+    )
+    case.expected_target = native_pd_target_reference(
+        case.expected_input_ids,
+        case.expected_positions,
+        computed=computed,
+        block_ids=tuple(tuple(group) for group in request.block_ids),
+        layout=destination.layout,
+        pages=zeroed,
+        caches=destination.caches,
+    )
+
+
+def initialize_native_pd_sampling(monkeypatch, case):
+    """Continue the same native target owner through greedy sample/proposal.
+
+    Keep the registered Sampler and request state. Actual sampler selection,
+    RejectionSampler, history bookkeeping and DSpark projection/backbone/Markov
+    execute; counters, history stores, target greedy kernel and output copy
+    have CPU leaves. No accepted counts or replacement target logits are fed.
+    """
+    owner = case.owner
+    monkeypatch.setattr(native_runner, "lmhead_tp_enable", lambda: False)
+    monkeypatch.setattr(gpu_runner, "post_update", update_speculative_history_cpu)
+    monkeypatch.setattr(gpu_runner, "AsyncOutput", CPUCopyAsyncOutput)
+    monkeypatch.setattr(sampler_module, "gumbel_sample", greedy_sample_cpu)
+    monkeypatch.setattr(
+        sampler_module, "get_num_sampled_and_rejected", sampled_and_rejected_cpu
+    )
+    monkeypatch.setattr(rejection_module, "rejection_sample", greedy_rejection_cpu)
+    monkeypatch.setattr(
+        rejection_module, "get_num_sampled_and_rejected", sampled_and_rejected_cpu
+    )
+    owner.rejection_sampler = RejectionSampler(
+        owner.sampler, owner.vllm_config.speculative_config, owner.device
+    )
+    owner.batch_sharder = None
+    owner.main_stream = owner.output_copy_stream = None
+    owner.check_ep_fault = False
+    owner._draft_workspace_lane = 1
+    owner.draft_tokens_handler = CPUDraftTokensHandler()
+    initialize_existing_dspark_proposal(
+        monkeypatch,
+        owner.speculator,
+        block_tables=owner.block_tables,
+        max_num_reqs=owner.max_num_reqs,
+        max_num_tokens=owner.max_num_tokens,
+        max_model_len=owner.max_model_len,
+    )
 
 
 class ReplayDeviceMetadata(AuxiliaryDeviceBoundary):

@@ -2,13 +2,217 @@
 # SPDX-FileCopyrightText: Copyright contributors to the AFD plugin project
 """Native Ascend batches and CPU metadata snapshots for slicing contracts."""
 
+from collections.abc import Callable
+from dataclasses import dataclass
 from types import SimpleNamespace
+from typing import TYPE_CHECKING
 
+import pytest
 import torch
 from vllm.config import CUDAGraphMode
+from vllm.v1.worker.gpu import input_batch as gpu_input_batch
+from vllm.v1.worker.gpu.eplb_utils import EPLBController
+from vllm_ascend.worker.v2 import model_runner as ascend_runner
+from vllm_ascend.worker.v2.eplb import AscendEPLBController
 from vllm_ascend.worker.v2.input_batch import AscendInputBatch, AscendInputBuffers
 
+from tests.unit.fakes.request_state import cpu_tensor_copy
 from tests.unit.fakes.vllm_config import npu_vllm_config
+
+if TYPE_CHECKING:
+    from afd_plugin.v1.worker.npu.attention_model_runner_v2 import (
+        AFDNPUAttentionModelRunnerV2,
+    )
+
+
+@dataclass(frozen=True)
+class CPUInputKernel:
+    """Only the Triton launch boundary; native preparation wrappers stay real."""
+
+    launch: Callable[..., None]
+
+    def __getitem__(self, grid):
+        return self.launch
+
+
+def prepare_prefill_inputs_cpu(
+    input_ids: torch.Tensor,
+    next_prefill_tokens: torch.Tensor,
+    next_prefill_stride: int,
+    num_lookahead: int,
+    idx_mapping: torch.Tensor,
+    query_start_loc: torch.Tensor,
+    all_token_ids: torch.Tensor,
+    history_stride: int,
+    prefill_lens: torch.Tensor,
+    num_computed_tokens: torch.Tensor,
+    *,
+    BLOCK_SIZE: int,  # noqa: N803 - native launch keyword
+    LOOKAHEAD_BLOCK: int,  # noqa: N803 - native launch keyword
+) -> None:
+    """Copy native prompt-tail queries and their bounded prefill lookahead."""
+    if history_stride != all_token_ids.stride(0):
+        raise ValueError("CPU prefill fixture requires the native history stride")
+    if next_prefill_stride != next_prefill_tokens.stride(0):
+        raise ValueError("CPU prefill fixture requires the native lookahead stride")
+    for row, request_index in enumerate(idx_mapping.tolist()):
+        computed = int(num_computed_tokens[request_index])
+        prefill_len = int(prefill_lens[request_index])
+        if computed >= prefill_len:
+            continue
+        start, stop = query_start_loc[row : row + 2].tolist()
+        query_len = stop - start
+        input_ids[start:stop].copy_(
+            all_token_ids[request_index, computed : computed + query_len]
+        )
+        for lookahead in range(num_lookahead):
+            position = computed + query_len + lookahead
+            next_prefill_tokens[lookahead, request_index] = (
+                all_token_ids[request_index, position] if position < prefill_len else 0
+            )
+
+
+def prepare_pos_seq_lens_cpu(
+    positions: torch.Tensor,
+    seq_lens: torch.Tensor,
+    idx_mapping: torch.Tensor,
+    query_start_loc: torch.Tensor,
+    num_computed_tokens: torch.Tensor,
+    max_num_reqs: int,
+    *,
+    BLOCK_SIZE: int,  # noqa: N803 - native launch keyword
+) -> None:
+    """Materialize positions from the actual rejection-corrected frontier."""
+    num_reqs = len(idx_mapping)
+    seq_lens[num_reqs:max_num_reqs].zero_()
+    for row, request_index in enumerate(idx_mapping.tolist()):
+        start, stop = query_start_loc[row : row + 2].tolist()
+        computed = int(num_computed_tokens[request_index])
+        positions[start:stop].copy_(
+            torch.arange(computed, computed + stop - start, dtype=positions.dtype)
+        )
+        seq_lens[row] = computed + stop - start
+
+
+def combine_sampled_and_draft_tokens_cpu(
+    input_ids: torch.Tensor,
+    idx_mapping: torch.Tensor,
+    last_sampled_tokens: torch.Tensor,
+    query_start_loc: torch.Tensor,
+    seq_lens: torch.Tensor,
+    prefill_lens: torch.Tensor,
+    draft_tokens: torch.Tensor,
+    draft_stride: int,
+    cu_num_logits: torch.Tensor,
+    logits_indices: torch.Tensor,
+    *,
+    BLOCK_SIZE: int,  # noqa: N803 - native launch keyword
+    NUM_NEW_SAMPLED_TOKENS: int = 1,  # noqa: N803 - native launch keyword
+) -> None:
+    """Preserve prompt slots and consume native GPU draft values, not -1 IDs."""
+    if draft_stride != draft_tokens.stride(0):
+        raise ValueError("CPU combine fixture requires the native draft stride")
+    for row, request_index in enumerate(idx_mapping.tolist()):
+        logits_start, logits_stop = cu_num_logits[row : row + 2].tolist()
+        num_logits = logits_stop - logits_start
+        num_drafts = num_logits - NUM_NEW_SAMPLED_TOKENS
+        query_end = int(query_start_loc[row + 1])
+        query_logits_start = query_end - num_logits
+        logits_indices[logits_start:logits_stop].copy_(
+            torch.arange(query_logits_start, query_end, dtype=logits_indices.dtype)
+        )
+        seq_len = int(seq_lens[row])
+        prefill_len = int(prefill_lens[request_index])
+        if seq_len <= prefill_len:
+            continue
+        if NUM_NEW_SAMPLED_TOKENS and seq_len - num_logits >= prefill_len:
+            input_ids[query_logits_start] = last_sampled_tokens.reshape(-1)[
+                request_index
+            ]
+        if num_drafts:
+            input_ids[query_end - num_drafts : query_end].copy_(
+                draft_tokens[request_index, :num_drafts]
+            )
+
+
+def expand_idx_mapping_cpu(
+    idx_mapping: torch.Tensor,
+    expanded_idx_mapping: torch.Tensor,
+    expanded_local_pos: torch.Tensor,
+    cu_num_logits: torch.Tensor,
+    *,
+    BLOCK_SIZE: int,  # noqa: N803 - native launch keyword
+) -> None:
+    for row, request_index in enumerate(idx_mapping.tolist()):
+        start, stop = cu_num_logits[row : row + 2].tolist()
+        expanded_idx_mapping[start:stop].fill_(request_index)
+        expanded_local_pos[start:stop].copy_(
+            torch.arange(stop - start, dtype=expanded_local_pos.dtype)
+        )
+
+
+def skip_rotary_cache_update_cpu(positions: torch.Tensor) -> None:
+    """Explicit no-RoPE leaf; this seam does not validate rotary operators."""
+    if positions.device.type != "cpu":
+        raise ValueError("CPU input fixture requires CPU positions")
+
+
+def install_native_input_preparation_cpu(
+    monkeypatch: pytest.MonkeyPatch,
+    owner: "AFDNPUAttentionModelRunnerV2",
+) -> None:
+    """Enable actual Ascend prepare_inputs on the admitted CPU D owner.
+
+    Four GPU-input kernels and two Ascend copy/RoPE leaves are replaced. Native
+    wrappers, attention-state selection, request/frontier ownership and the
+    entire prepare_inputs method remain intact. The existing loaded models,
+    config, registered cache views and block tables are never replaced.
+    """
+    if owner.device.type != "cpu":
+        raise ValueError("native input fixture requires a CPU owner")
+    parallel = owner.vllm_config.parallel_config
+    if (
+        parallel.pipeline_parallel_size != 1
+        or parallel.prefill_context_parallel_size != 1
+        or parallel.decode_context_parallel_size != 1
+        or parallel.enable_eplb
+    ):
+        raise ValueError("native input fixture requires PP1/CP1 without EPLB")
+    monkeypatch.setattr(
+        gpu_input_batch,
+        "_prepare_prefill_inputs_kernel",
+        CPUInputKernel(prepare_prefill_inputs_cpu),
+    )
+    monkeypatch.setattr(
+        gpu_input_batch,
+        "_prepare_pos_seq_lens_kernel",
+        CPUInputKernel(prepare_pos_seq_lens_cpu),
+    )
+    monkeypatch.setattr(
+        gpu_input_batch,
+        "_combine_sampled_and_draft_tokens_kernel",
+        CPUInputKernel(combine_sampled_and_draft_tokens_cpu),
+    )
+    monkeypatch.setattr(
+        gpu_input_batch,
+        "_expand_idx_mapping_kernel",
+        CPUInputKernel(expand_idx_mapping_cpu),
+    )
+    monkeypatch.setattr(ascend_runner, "async_copy_to_gpu", cpu_tensor_copy)
+    monkeypatch.setattr(ascend_runner, "update_cos_sin", skip_rotary_cache_update_cpu)
+    owner.model_config = owner.vllm_config.model_config
+    owner.input_buffers = AscendInputBuffers(
+        owner.max_num_reqs, owner.max_num_tokens, owner.device
+    )
+    owner._finegrained_tp_requires_graph = False
+    owner.sync_spec_pp_cpu_counts = False
+    owner.pcp_manager = None
+    owner.use_fia = False
+    # Only native phase bookkeeping is consumed here. Do not initialize an
+    # EPLB policy, process group, model registration or device state on CPU.
+    owner.eplb = AscendEPLBController.__new__(AscendEPLBController)
+    EPLBController.__init__(owner.eplb, parallel, owner.device)
+    owner.eplb.load_collection_phase = "all"
 
 
 def make_ascend_batch(real=5, padded=8, *, num_reqs=1):

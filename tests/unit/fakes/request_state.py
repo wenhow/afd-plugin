@@ -17,7 +17,11 @@ import numpy as np
 import pytest
 import torch
 from vllm.v1.core.sched.output import SchedulerOutput
-from vllm.v1.kv_cache_interface import UniformTypeKVCacheSpecs
+from vllm.v1.kv_cache_interface import (
+    AttentionSpec,
+    KVCacheConfig,
+    UniformTypeKVCacheSpecs,
+)
 from vllm.v1.worker import utils as worker_utils
 from vllm.v1.worker.block_table import get_block_table_width
 from vllm.v1.worker.gpu import buffer_utils
@@ -30,12 +34,51 @@ from vllm_ascend.attention.dsa_v41 import DeepseekV41CacheBackend
 from vllm_ascend.worker.v2.block_table import AscendBlockTables
 from vllm_ascend.worker.v2.states import AscendRequestState
 
+from afd_plugin.compat.npu.kv_layout import KVLayoutSnapshot
 from afd_plugin.compat.npu.kv_layout_native import KVCacheValue
 from afd_plugin.v1.worker.npu.attention_model_runner_v2 import (
     AFDNPUAttentionModelRunnerV2,
 )
 
 ZERO_KERNEL_WORD_BYTES = 4
+
+
+def native_zeroed_cache_reference(
+    *,
+    layout: KVLayoutSnapshot,
+    config: KVCacheConfig,
+    caches: Mapping[str, KVCacheValue],
+    pages: Sequence[torch.Tensor],
+    block_ids: list[int],
+) -> tuple[torch.Tensor, ...]:
+    """Independent public-spec oracle for zeroed spans and preserved page gaps."""
+    expected = tuple(page.clone() for page in pages)
+    zeroable = set()
+    for group in config.kv_cache_groups:
+        for name in group.layer_names:
+            spec = group.kv_cache_spec
+            if isinstance(spec, UniformTypeKVCacheSpecs):
+                spec = spec.kv_cache_specs[name]
+            if isinstance(spec, AttentionSpec):
+                zeroable.add(name)
+    for view in layout.views:
+        cache = caches[view.layer_name]
+        if view.layer_name not in zeroable or not isinstance(cache, torch.Tensor):
+            continue
+        inner_span = view.element_bytes + sum(
+            (size - 1) * stride
+            for size, stride in zip(view.shape[1:], view.strides_bytes[1:], strict=True)
+        )
+        if inner_span != cache[0].numel() * view.element_bytes:
+            raise ValueError("CPU zeroing reference requires a contiguous block span")
+        expected_cache = cache.new_empty(0).set_(
+            expected[view.page_index].untyped_storage(),
+            view.page_offset_bytes // view.element_bytes,
+            view.shape,
+            tuple(stride // view.element_bytes for stride in view.strides_bytes),
+        )
+        expected_cache[block_ids] = 0
+    return expected
 
 
 class CPUUvaBuffer:

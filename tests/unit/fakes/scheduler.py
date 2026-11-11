@@ -78,6 +78,7 @@ def make_native_pd_scheduler_case(
     request_id: str,
     prompt_token_ids: list[int],
     kv_transfer_params: dict,
+    sampling_params: SamplingParams | None = None,
 ):
     """Build and admit one actual D request, without inventing worker completion.
 
@@ -96,7 +97,8 @@ def make_native_pd_scheduler_case(
     # Native Mooncake derives its N-1 compressed prefill boundary from this
     # field; typed cache specs and the source schema are left unchanged.
     text = PretrainedConfig(**vars(model.hf_text_config))
-    text.compress_ratios = [DSPARK_CPU_COMPRESS_RATIO]
+    if "compress_ratios" not in vars(text):
+        text.compress_ratios = [DSPARK_CPU_COMPRESS_RATIO]
     model.hf_config = model.hf_text_config = text
     model.uses_mrope = False
     model.is_encoder_decoder = False
@@ -174,7 +176,9 @@ def make_native_pd_scheduler_case(
     request = Request(
         request_id,
         list(prompt_token_ids),
-        SamplingParams(max_tokens=SCHEDULER_MAX_OUTPUT_TOKENS),
+        sampling_params
+        if sampling_params is not None
+        else SamplingParams(max_tokens=SCHEDULER_MAX_OUTPUT_TOKENS),
         None,
     )
     request.kv_transfer_params = deepcopy(kv_transfer_params)

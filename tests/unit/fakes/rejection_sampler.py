@@ -100,6 +100,31 @@ def greedy_rejection_cpu(
     return sampled, counts
 
 
+def greedy_sample_cpu(
+    logits,
+    expanded_idx_mapping,
+    temperature,
+    seed,
+    pos,
+    apply_temperature,
+    is_drafting,
+    logits_cache=None,
+    logits_cache_col=None,
+    use_fp64=False,
+):
+    """Only the target Gumbel operator leaf for actual greedy Sampler calls."""
+    if (
+        logits.device.type != "cpu"
+        or torch.any(temperature[expanded_idx_mapping] != 0)
+        or is_drafting
+        or logits_cache is not None
+        or logits_cache_col is not None
+        or use_fp64
+    ):
+        raise AssertionError("CPU target sampling is greedy and has no logits cache")
+    return logits.argmax(dim=-1)
+
+
 def sampled_and_rejected_cpu(
     num_sampled, seq_lens, cu_num_logits, idx_mapping, prefill_len
 ):
@@ -124,8 +149,8 @@ def update_speculative_history_cpu(
     total_len,
 ):
     """Native post_update's token/history formulas over explicit CPU storage."""
-    if output_bin_counts is not None or sampled_tokens.device.type != "cpu":
-        raise AssertionError("history boundary excludes penalties and device tensors")
+    if sampled_tokens.device.type != "cpu":
+        raise AssertionError("history boundary requires CPU token storage")
     for row, request_index in enumerate(idx_mapping.tolist()):
         if request_index < 0:
             continue
@@ -136,6 +161,9 @@ def update_speculative_history_cpu(
             all_token_ids[request_index, position : position + count].copy_(tokens)
             last_sampled_tokens[request_index] = tokens[-1]
             total_len[request_index] += count
+            if output_bin_counts is not None:
+                for token in tokens.tolist():
+                    output_bin_counts[request_index, token] += 1
         query_len = (
             0
             if query_start_loc is None

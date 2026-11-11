@@ -25,7 +25,7 @@ target 的 Engram 执行资源在 execute 的收尾中退役；下一轮 lookbac
 
 ## 开发时的 CPU 回归
 
-在具有匹配依赖的环境中，于仓库根目录运行以下六个完整模块。A5 容器的 Python
+在具有匹配依赖的环境中，于仓库根目录运行以下八个完整模块。A5 容器的 Python
 路径沿用 `/usr/local/python3.11.10/bin/python`；不要求 venv 或 `atb-env`。
 这些测试不启动推理服务，不加载 checkpoint 权重，也不使用 NPU。
 
@@ -41,6 +41,8 @@ git rev-parse HEAD > "$afd_result_dir/git-head.txt"
   tests/unit/compat/npu/test_kv_layout_connector.py \
   tests/unit/compat/npu/test_runtime_config.py \
   tests/unit/compat/patches/test_signatures.py \
+  tests/unit/model_executor/models/npu/test_deepseek_v41.py \
+  tests/unit/model_executor/models/npu/test_deepseek_v41_staged.py \
   tests/unit/v1/worker/npu/test_hccl_v41_graph_coordinator.py \
   tests/unit/v1/worker/npu/test_attention_model_runner_v2.py \
   --junitxml="$afd_result_dir/pytest.xml" \
@@ -172,6 +174,33 @@ frontier、零值 draft 初态，以及含 SWA null 坐标的完整块表。原�
 该组合独立单轮 **189 项通过、0 失败、0 跳过**，116 项安装源码一致，138 个生产文件
 保持前轮已交付版本；首次 fixture 缺少 zeroer 的失败单独保留。此轮到请求接入与
 BatchReqState 为止，首步输入准备、target 计算、采样及 proposal 仍需后续组合。
+
+新增首步组合继续沿用同一 P/D 注册、consumer、target/draft 模型和缓存。微型 CPU
+模型在 schema 和绑定之前配置一致：target 三层、三路 auxiliary、两个 draft 层、
+N=5；target 各层 SWA 独立，压缩 KV/index 保留原生共享关系。输入准备沿用实际
+Ascend `prepare_inputs`、attention 状态选择、绝对块表 gather 和 slot wrapper；
+仅复制、RoPE 缓存更新及 Triton kernel 使用明确的 CPU 叶子。完整块表保留 SWA null
+位置，单 token prompt 与普通 prompt 分别检查原始尾 token 和初始 draft=0 的查询。
+
+新的 target 用例从真实 Scheduler 完成接收后返回的 `NewRequestData` 开始，调用实际
+`execute_model`。保留真实 EngramModelState 构造、`prepare_attn`、TargetDeviceMetadata
+的 `run_build/finish` 和 NONE manager 的 eager dispatch。该微型模型关闭 Engram；
+metadata builder、HC、Attention、MoE、norm、权重和词表 head 是 CPU 算术边界，
+不构造远端 F。独立参考从 D 页快照和绝对块号推导三层 HC/pre_mix、hidden、三路 auxiliary、
+pre-head residual 及整页写入；所有物理候选行先写 KV，再由采样决定接受前沿。
+
+新的采样用例保留已注册的原生 Sampler、RejectionSampler、history 更新、原生 DSpark
+context projection、draft forward 和顺序 Markov head。greedy kernel、计数、history
+store、draft 输入准备和输出复制使用 CPU 叶子；不预置接受数量或替换 target logits。
+用例检查 prompt/history、computed frontier、下一批 draft、接受后的新 draft context、
+target 页和 P 源页。固定词表 head 的输出本身不能替代前述 hidden/整页数值检查。
+
+**这一新增组合尚待具有实际依赖的环境运行。** 2026-11-11 的 A3 尝试在 SSH 建连阶段
+被关闭，尚未上传或启动 pytest；没有新的测试通过数或远端源码一致性结果。本地完成
+Python 3.11 AST、Ruff/格式、规划与上游只读检查；缺少依赖的本地主机仅收集为 skip。
+上文两轮 189 项结果分别属于此前的接收和 worker 接入组合，不能计作本次首步执行通过。
+环境恢复后运行本节八模块命令，保留失败现场后再继续修正。完整模型与 PD Graph/U2
+门禁保持关闭，后续仍需多轮调度、请求状态、设备及性能验收。
 
 ## 后续 A5 统一验收
 

@@ -13,6 +13,8 @@ from types import SimpleNamespace
 
 import torch
 from torch import nn
+from transformers import PretrainedConfig
+from vllm.config import ModelConfig
 from vllm.config.attention import AttentionConfig
 from vllm.v1.core.sched.output import CachedRequestData, SchedulerOutput
 from vllm.v1.kv_cache_interface import KVCacheGroupSpec, KVCacheTensor
@@ -39,6 +41,7 @@ from afd_plugin.compat.npu.dspark_pd import (
     prompt_digest,
 )
 from afd_plugin.compat.npu.kv_layout_native import collect_deepseek_v41_kv_layout
+from tests.unit.fakes.deepseek_v41 import complete_pd_cpu_models
 from tests.unit.fakes.kv_cache import make_native_kv_cache_case
 from tests.unit.fakes.vllm_config import v41_dspark_pd_config
 
@@ -46,6 +49,23 @@ PD_CPU_HIDDEN = 4
 PD_CPU_WIDTH = 2
 PD_CPU_BLOCKS = 4
 PD_CPU_ORIGINAL_TOKENS = 6
+PD_CPU_TARGET_LAYERS = 3
+PD_CPU_DRAFT_LAYERS = 2
+PD_CPU_VOCAB = 128
+PD_CPU_PAGE_PATTERN_DIVISOR = 4
+PD_CPU_BLOCK_PATTERN_DIVISOR = 16
+PD_CPU_WORD_PATTERN_DIVISOR = 256
+
+
+class PDCPUModelConfig(SimpleNamespace):
+    """Metadata-only microconfig with the actual native embedding-size API.
+
+    Checkpoint/model config construction is outside this CPU seam. The native
+    ModelState constructor still consumes its usual methods and fields.
+    """
+
+    get_hidden_size = ModelConfig.get_hidden_size
+    get_inputs_embeds_size = ModelConfig.get_inputs_embeds_size
 
 
 class PrefixProjectionStream:
@@ -144,10 +164,11 @@ def make_dspark_pd_loaded_case(
     tp_size=1,
     peer_error=False,
     projection_error=False,
+    complete_cpu_models=False,
 ):
     """Bind native CPU model identities to caller-owned materialized cache views.
 
-    No constructor loads a checkpoint and no target forward runs. The draft
+    No constructor loads a checkpoint and no target forward runs here. The draft
     projection model retains native combine/project/store bodies with the same
     explicit CPU RoPE/scatter/fence leaves as the producer prefix fixture.
     Registration remains the actual connector's responsibility.
@@ -173,10 +194,29 @@ def make_dspark_pd_loaded_case(
         for name in draft_names
     )
     model, rope = _projection_model(kv_case, names, fail_projection=projection_error)
+    model_bundle = None
+    if complete_cpu_models:
+        target_cache_layers = {
+            name: PrefixCacheLayer(
+                name,
+                kv_cache_config.kv_cache_groups[group_index].kv_cache_spec.block_size,
+                caches[name],
+            )
+            for group_index, group in enumerate(kv_cache_config.kv_cache_groups)
+            if group_index not in group_ids
+            for name in group.layer_names
+            if name.endswith(".swa_cache")
+        }
+        model_bundle = complete_pd_cpu_models(
+            config, kv_cache_config, model, target_cache_layers
+        )
     config.compilation_config.static_forward_context = {}
     for block in model.model.layers.values():
         cache = block.self_attn.dsa_attn.swa_cache_layer
         config.compilation_config.static_forward_context[cache.prefix] = cache
+    if model_bundle is not None:
+        for name, cache in target_cache_layers.items():
+            config.compilation_config.static_forward_context[name] = cache
     speculator = AscendDSparkSpeculator.__new__(AscendDSparkSpeculator)
     speculator.model = model
     speculator.vllm_config = config
@@ -191,6 +231,7 @@ def make_dspark_pd_loaded_case(
         for block in model.model.layers.values()
     ]
     speculator.kv_cache_config = kv_cache_config
+    speculator.cpu_model_bundle = model_bundle
     stream = PrefixProjectionStream()
 
     def scatter_cpu(cache, slots, values):
@@ -203,10 +244,13 @@ def make_dspark_pd_loaded_case(
     monkeypatch.setattr(dspark_model_module, "scatter_cache_sk", scatter_cpu)
     monkeypatch.setattr(torch.npu, "current_stream", lambda device=None: stream)
     agreement = PrefixAgreement(tp_size, stream, peer_error=peer_error)
-    target_model = AscendDeepseekV41LLMForCausalLM.__new__(
-        AscendDeepseekV41LLMForCausalLM
-    )
-    nn.Module.__init__(target_model)
+    if model_bundle is None:
+        target_model = AscendDeepseekV41LLMForCausalLM.__new__(
+            AscendDeepseekV41LLMForCausalLM
+        )
+        nn.Module.__init__(target_model)
+    else:
+        target_model = model_bundle.target_model
     consumer = DsparkPdPrefixConsumer(
         config,
         speculator,
@@ -228,7 +272,84 @@ def make_dspark_pd_loaded_case(
         caches=caches,
         draft_names=tuple(draft_names),
         draft_group_ids=group_ids,
+        model_bundle=model_bundle,
+        complete_cpu_models=complete_cpu_models,
     )
+
+
+def _configure_complete_cpu_models(config):
+    """Choose coherent micro metadata before either schema or consumer exists."""
+    target = PretrainedConfig(**vars(config.model_config.hf_text_config))
+    values = dict(
+        hidden_size=PD_CPU_HIDDEN,
+        vocab_size=PD_CPU_VOCAB,
+        num_hidden_layers=PD_CPU_TARGET_LAYERS,
+        num_nextn_predict_layers=PD_CPU_DRAFT_LAYERS,
+        dspark_target_layer_ids=[1, 2, 3],
+        dspark_noise_token_id=0,
+        compress_ratios=[2, 2, 2],
+        kv_source_layer_ids=[0],
+        index_source_layer_ids=[0],
+        candidate_source_layer_id=0,
+        candidate_topk_blocks=1,
+        candidate_block_size=4,
+        index_topk=2,
+        sliding_window=4,
+        hc_mult=2,
+        hc_sinkhorn_iters=3,
+        hc_eps=1e-6,
+        rms_norm_eps=1e-6,
+        engram_layer_ids=[],
+        rswa_window=None,
+    )
+    vars(target).update(values)
+    model_config = PDCPUModelConfig(**vars(config.model_config))
+    model_config.hf_config = model_config.hf_text_config = target
+    model_config.dtype = torch.bfloat16
+    model_config.runner_type = "generate"
+    model_config.rswa_window = None
+    model_config.model_arch_config = SimpleNamespace(hidden_size=PD_CPU_HIDDEN)
+    model_config.enable_prompt_embeds = False
+    model_config.uses_mrope = False
+    config.model_config = model_config
+    draft_config = PDCPUModelConfig(
+        **vars(config.speculative_config.draft_model_config)
+    )
+    draft = PretrainedConfig(**vars(draft_config.hf_text_config))
+    vars(draft).update(values)
+    draft.n_mtp_layers = PD_CPU_DRAFT_LAYERS
+    draft.n_routed_experts = target.dspark_n_routed_experts
+    draft.num_experts_per_tok = target.dspark_num_experts_per_tok
+    draft_config.hf_config = draft_config.hf_text_config = draft
+    draft_config.model_arch_config = SimpleNamespace(hidden_size=PD_CPU_HIDDEN)
+    draft_config.dtype = model_config.dtype
+    draft_config.enable_prompt_embeds = False
+    draft_config.uses_mrope = False
+    config.speculative_config.draft_model_config = draft_config
+
+
+def initialize_pd_cpu_source_pages(pages, layout):
+    """Finite typed values, before native projection and Ready publication.
+
+    BF16 primary values and their overlaid integer/FP16 index views all remain
+    finite. Page, physical block and within-block coordinates are distinct;
+    this is not a checkpoint prefill or native compressed-cache arithmetic.
+    """
+    for page_index, (page, descriptor) in enumerate(
+        zip(pages, layout.pages, strict=True)
+    ):
+        words = descriptor.block_stride_bytes // torch.bfloat16.itemsize
+        values = page.view(torch.bfloat16).reshape(-1, words)
+        blocks = torch.arange(values.shape[0])[:, None]
+        offsets = torch.arange(words)[None, :]
+        values.copy_(
+            (
+                1
+                + page_index / PD_CPU_PAGE_PATTERN_DIVISOR
+                + blocks / PD_CPU_BLOCK_PATTERN_DIVISOR
+                + offsets / PD_CPU_WORD_PATTERN_DIVISOR
+            ).to(values.dtype)
+        )
 
 
 def make_dspark_pd_prefix_case(
@@ -241,14 +362,42 @@ def make_dspark_pd_prefix_case(
     original_tokens=PD_CPU_ORIGINAL_TOKENS,
     bind=True,
     num_blocks=PD_CPU_BLOCKS,
+    complete_cpu_models=False,
 ):
     """Return actual native model/speculator/KV records, without device setup."""
     config = v41_dspark_pd_config(tensor_parallel_size=tp_size)
+    if complete_cpu_models:
+        _configure_complete_cpu_models(config)
     text = config.model_config.hf_text_config
     text.hidden_size, text.vocab_size = PD_CPU_HIDDEN, 128
     config.compilation_config.static_forward_context = {}
     config.attention_config = AttentionConfig()
     kv_case = make_native_kv_cache_case(num_blocks=num_blocks)
+    if complete_cpu_models:
+        source_swa = "model.layers.0.self_attn.swa_cache"
+        group = next(
+            item
+            for item in kv_case.config.kv_cache_groups
+            if source_swa in item.layer_names
+        )
+        # Native source0 shares long/index/compressor only. Every target layer
+        # owns its SWA storage; homogeneous SWA specs still share one group.
+        for layer in range(1, PD_CPU_TARGET_LAYERS):
+            name = f"model.layers.{layer}.self_attn.swa_cache"
+            tensor = torch.zeros(
+                kv_case.caches[source_swa].shape,
+                dtype=kv_case.caches[source_swa].dtype,
+            )
+            kv_case.caches[name] = tensor
+            group.layer_names.append(name)
+            kv_case.config.kv_cache_tensors.append(
+                KVCacheTensor(
+                    size=tensor.numel() * tensor.element_size(),
+                    layers=[name],
+                    layer_stride=0,
+                    block_stride=group.kv_cache_spec.page_size_bytes,
+                )
+            )
     names = (("draft.layers.0.swa_cache", 4), ("draft.layers.1.swa_cache", 2))
     for name, block_size in names:
         spec = AscendSlidingWindowMLASpec(
@@ -283,6 +432,7 @@ def make_dspark_pd_prefix_case(
         tp_size=tp_size,
         peer_error=peer_error,
         projection_error=projection_error,
+        complete_cpu_models=complete_cpu_models,
     )
     consumer = loaded.consumer
     layout = collect_deepseek_v41_kv_layout(kv_case.config, kv_case.caches)
@@ -395,4 +545,6 @@ def make_dspark_pd_prefix_case(
         expected_ready=expected_ready,
         draft_names=tuple(name for name, _ in names),
         draft_group_ids=loaded.draft_group_ids,
+        model_bundle=loaded.model_bundle,
+        complete_cpu_models=complete_cpu_models,
     )

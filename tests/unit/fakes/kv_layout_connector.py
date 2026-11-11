@@ -916,6 +916,7 @@ def make_scheduled_dspark_read_case(
     request_id=SCHEDULED_DESTINATION_REQUEST,
     done_ack=b"ACK",
     initialize_source_pages=None,
+    sampling_params: SamplingParams | None = None,
 ):
     """Real scheduler allocation -> ActiveKV registration -> typed queued read.
 
@@ -945,6 +946,7 @@ def make_scheduled_dspark_read_case(
         kv_cache_config=destination_cache.config,
         request_id=request_id,
         prompt_token_ids=list(range(prefix.source.original_prompt_tokens)),
+        sampling_params=sampling_params,
         kv_transfer_params={
             "do_remote_prefill": True,
             "remote_request_id": prefix.source.request_id,
@@ -965,6 +967,7 @@ def make_scheduled_dspark_read_case(
         source_engine_id=config.kv_transfer_config.engine_id,
         tp_rank=prefix.expected_ready.source_tp_rank,
         tp_size=prefix.expected_ready.tp_size,
+        complete_cpu_models=prefix.complete_cpu_models,
     )
     registration = make_registration_case(monkeypatch, role="kv_consumer")
     worker, connector = registration.worker, registration.connector

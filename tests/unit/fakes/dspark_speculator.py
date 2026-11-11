@@ -18,6 +18,7 @@ from vllm.forward_context import get_forward_context
 from vllm.v1.worker.gpu.spec_decode.dflash import speculator as dflash_module
 from vllm.v1.worker.gpu.spec_decode.dflash.cudagraph import DFlashCudaGraphManager
 from vllm.v1.worker.gpu.spec_decode.dflash.speculator import DFlashSpeculator
+from vllm.v1.worker.gpu.spec_decode.utils import get_parallel_drafting_token_id
 from vllm_ascend.worker.v2.input_batch import AscendInputBuffers
 from vllm_ascend.worker.v2.spec_decode.dspark.speculator import AscendDSparkSpeculator
 
@@ -182,6 +183,112 @@ def _draft_metadata_cpu(speculator, *, num_reqs, batch_desc, **kwargs):
     }
 
 
+def _initialize_proposal_buffers(
+    draft,
+    *,
+    num_steps,
+    query_width,
+    max_num_reqs,
+    max_num_tokens,
+    max_model_len,
+    hidden_size,
+    dtype,
+    context_groups,
+):
+    """Persistent CPU allocation leaf shared by both native-proposal fixtures."""
+    draft.replicated_pcp = draft.use_dcp = False
+    draft.pcp_manager = None
+    draft.attn_architecture = None
+    draft.max_num_tokens, draft.max_num_reqs = max_num_tokens, max_num_reqs
+    draft.max_model_len = max_model_len
+    draft.num_speculative_steps, draft.num_query_per_req = num_steps, query_width
+    draft.supports_mm_inputs = False
+    draft.eplb_state = draft.acceptance_estimator = None
+    draft._draft_topk = None
+    draft.use_confidence_head = False
+    draft.draft_logits = None
+    draft._step_cols = torch.arange(num_steps, dtype=torch.int32)
+    draft._anchor_idx = torch.arange(max_num_reqs) * query_width
+    draft.input_buffers = AscendInputBuffers(max_num_reqs, max_num_tokens, draft.device)
+    draft.hidden_states = torch.zeros(max_num_tokens, hidden_size, dtype=dtype)
+    draft.context_positions = torch.zeros(max_num_tokens, dtype=torch.int64)
+    draft.sample_indices = torch.zeros(max_num_reqs * num_steps, dtype=torch.int64)
+    draft.sample_pos = torch.zeros_like(draft.sample_indices)
+    draft.sample_idx_mapping = torch.full_like(draft.sample_indices, -1)
+    draft.draft_tokens = torch.full((max_num_reqs, num_steps), -1, dtype=torch.int64)
+    draft.temperature = torch.zeros(max_num_reqs)
+    draft.seeds = torch.zeros(max_num_reqs, dtype=torch.int64)
+    draft._context_slot_mappings = torch.full(
+        (context_groups, max_num_tokens), -1, dtype=torch.int64
+    )
+    draft.dp_size, draft.dp_rank = 1, 0
+    draft.attn_groups = []
+    draft.query_cudagraph_manager = make_native_graph_manager(())
+
+
+def _materialized_draft_metadata_cpu(speculator, *, num_reqs, batch_desc, **kwargs):
+    """CPU Attention metadata leaf over the same registered native draft model."""
+    speculator.cpu_model_bundle.prepare_draft_attention(
+        speculator.input_buffers,
+        num_reqs,
+        speculator.num_query_per_req,
+        speculator.block_tables.input_block_tables,
+    )
+    metadata = SimpleNamespace(
+        num_reqs=num_reqs,
+        num_tokens=batch_desc.num_tokens,
+        query_start_loc=speculator.input_buffers.query_start_loc.clone(),
+    )
+    return {name: metadata for name in speculator.draft_attn_layer_names}
+
+
+def initialize_existing_dspark_proposal(
+    monkeypatch,
+    speculator,
+    *,
+    block_tables,
+    max_num_reqs,
+    max_num_tokens,
+    max_model_len,
+):
+    """Allocate proposal buffers without replacing bound model/config/KV owners.
+
+    The caller has constructed the target and draft before consumer binding.
+    Native Ascend/DFlash propose, context combine/project/store, draft forward
+    and sequential Markov sampling remain real. Only input preparation and
+    Attention metadata/device operators have explicit CPU leaves. The draft
+    manager is NONE: this does not capture or replay a device graph.
+    """
+    config = speculator.vllm_config
+    n = config.speculative_config.num_speculative_tokens
+    width = n  # This materialized model uses native DSpark's anchor layout.
+    _initialize_proposal_buffers(
+        speculator,
+        num_steps=n,
+        query_width=width,
+        max_num_reqs=max_num_reqs,
+        max_num_tokens=max_num_tokens,
+        max_model_len=max_model_len,
+        hidden_size=config.model_config.hf_text_config.hidden_size,
+        dtype=config.model_config.dtype,
+        context_groups=len(speculator.draft_kv_cache_group_ids),
+    )
+    speculator.sample_from_anchor = True
+    speculator.requires_non_causal = True
+    speculator.draft_kv_cache_group_id = speculator.draft_kv_cache_group_ids[0]
+    speculator._group_causal = False
+    speculator.parallel_drafting_token_id = get_parallel_drafting_token_id(
+        config.speculative_config.draft_model_config.hf_text_config
+    )
+    speculator.block_tables = block_tables
+    speculator._build_uniform_attn_metadata = MethodType(
+        _materialized_draft_metadata_cpu, speculator
+    )
+    monkeypatch.setattr(
+        dflash_module, "prepare_dflash_inputs", prepare_dspark_inputs_cpu
+    )
+
+
 def make_dspark_proposal_case(
     monkeypatch,
     *,
@@ -218,38 +325,24 @@ def make_dspark_proposal_case(
     draft.vllm_config = config
     draft.device = torch.device("cpu")
     draft.model = model
-    draft.replicated_pcp = draft.use_dcp = False
-    draft.pcp_manager = None
-    draft.attn_architecture = None
-    draft.max_num_tokens, draft.max_num_reqs = max_tokens, num_reqs
-    draft.max_model_len = DSPARK_CPU_MAX_MODEL_LEN
-    draft.num_speculative_steps, draft.num_query_per_req = n, width
+    _initialize_proposal_buffers(
+        draft,
+        num_steps=n,
+        query_width=width,
+        max_num_reqs=num_reqs,
+        max_num_tokens=max_tokens,
+        max_model_len=DSPARK_CPU_MAX_MODEL_LEN,
+        hidden_size=DSPARK_CPU_HIDDEN_SIZE,
+        dtype=torch.float32,
+        context_groups=1,
+    )
     draft.sample_from_anchor = sample_from_anchor
     draft.requires_non_causal = True
-    draft.supports_mm_inputs = False
-    draft.eplb_state = draft.acceptance_estimator = None
-    draft._draft_topk = None
-    draft.use_confidence_head = False
-    draft.draft_logits = None
-    draft._step_cols = torch.arange(n, dtype=torch.int32)
-    draft._anchor_idx = torch.arange(num_reqs) * width
-    draft.input_buffers = AscendInputBuffers(num_reqs, max_tokens, draft.device)
-    draft.hidden_states = torch.zeros(max_tokens, DSPARK_CPU_HIDDEN_SIZE)
-    draft.context_positions = torch.zeros(max_tokens, dtype=torch.int64)
-    draft.sample_indices = torch.zeros(num_reqs * n, dtype=torch.int64)
-    draft.sample_pos = torch.zeros_like(draft.sample_indices)
-    draft.sample_idx_mapping = torch.full_like(draft.sample_indices, -1)
-    draft.draft_tokens = torch.full((num_reqs, n), -1, dtype=torch.int64)
-    draft.temperature = torch.zeros(num_reqs)
-    draft.seeds = torch.zeros(num_reqs, dtype=torch.int64)
-    draft._context_slot_mappings = torch.full((1, max_tokens), -1, dtype=torch.int64)
     draft._layer_group_idx = None
     draft._group_causal = True
     draft.draft_kv_cache_group_id = 0
     draft.draft_kv_cache_group_ids = [0]
     draft.parallel_drafting_token_id = DSPARK_CPU_MASK_TOKEN
-    draft.dp_size, draft.dp_rank = 1, 0
-    draft.attn_groups = []
     draft.block_tables = SimpleNamespace(
         slot_mappings=torch.full((1, max_tokens), -1, dtype=torch.int64),
         # Native prepare indexes already-gathered block tables by batch row,
@@ -264,7 +357,6 @@ def make_dspark_proposal_case(
         kv_cache_groups=[SimpleNamespace(layer_names=["dspark-only"])]
     )
     draft._build_uniform_attn_metadata = MethodType(_draft_metadata_cpu, draft)
-    draft.query_cudagraph_manager = make_native_graph_manager(())
     aux = [
         torch.full((max_tokens, DSPARK_CPU_HIDDEN_SIZE), float(value))
         for value in (2, 6)

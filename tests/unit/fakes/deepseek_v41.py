@@ -1,19 +1,24 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: Copyright contributors to the AFD plugin project
 
-from types import SimpleNamespace
+from collections.abc import Mapping
+from types import MethodType, SimpleNamespace
 
 import torch
 from torch import nn
 from transformers import PretrainedConfig
 from vllm.config import CUDAGraphMode
 from vllm.forward_context import get_forward_context
+from vllm.model_executor.models.qwen3_dspark import DSparkMarkovHead
+from vllm_ascend.models.deepseek_v41.dspark import DeepseekV41DSparkDecoderLayer
 from vllm_ascend.models.deepseek_v41.engram.model_state import EngramModelState
 from vllm_ascend.models.deepseek_v41.model import (
     DeepseekV41Model,
     DeepseekV41SharedAttentionState,
+    build_layer_plan,
 )
 
+from afd_plugin.compat.npu.kv_layout import KVLayoutSnapshot
 from afd_plugin.connectors import AFDA2FTransferPayload
 from afd_plugin.connectors.npu.hccl_diagnostics import (
     HcclDiagnosticExecution,
@@ -27,6 +32,8 @@ from afd_plugin.distributed.hccl import HcclStageLayout
 from afd_plugin.distributed.hccl_plan import HcclParentPlan
 from afd_plugin.model_executor.models.npu.deepseek_v41 import (
     AFDDeepseekV41AttentionDecoderLayer,
+    AFDDeepseekV41AttentionForCausalLM,
+    AFDDeepseekV41AttentionLLMForCausalLM,
     AFDDeepseekV41AttentionModel,
 )
 from afd_plugin.model_executor.models.npu.deepseek_v41_staged import (
@@ -36,6 +43,18 @@ from afd_plugin.model_executor.models.npu.deepseek_v41_staged import (
 from tests.unit.fakes.hccl_diagnostics import StageDiagnosticRecorder
 
 ROUTER_DELTA_SCALE = 4_096
+PD_CPU_VOCAB_SIZE = 128
+PD_CPU_TARGET_LAYERS = 3
+PD_CPU_ATTENTION_SCALE = 16
+PD_CPU_TARGET_TOKEN = 7
+PD_CPU_HIDDEN_SIZE = 4
+PD_CPU_HC_STREAMS = 2
+PD_CPU_CACHE_WIDTH = 2
+PD_CPU_TARGET_WINDOW = 4
+PD_CPU_MIX_INCREMENT = 1 / 8
+PD_CPU_POST_OFFSET = 1 / 4
+PD_CPU_RESIDUAL_SCALE = 1 / 2
+PD_CPU_ROUTER_OFFSET = 0.00031
 
 
 def ffn_config():
@@ -296,6 +315,417 @@ def make_staged_model(*, capacity=6, engram=True, layer_count=2):
     model.engram_rotated = False
     model._mtp_hidden_buffer = torch.empty(capacity, 8, dtype=torch.bfloat16)
     return model
+
+
+class PDCacheAttention(nn.Module):
+    """CPU Attention operator over the real registered SWA view and block IDs.
+
+    This is finite prefix-read/write arithmetic, not DSA/softmax/compression.
+    Its metadata is supplied at the native preparation boundary. It never
+    substitutes a receiver map for the runner's absolute block coordinates.
+    """
+
+    def __init__(self, cache_layer, group_id, window, *, contexts=None):
+        super().__init__()
+        self.dsa_attn = nn.Module()
+        self.dsa_attn.swa_cache_layer = cache_layer
+        self.group_id, self.window = group_id, window
+        self.contexts = contexts
+        self.batch = None
+
+    def prepare(
+        self,
+        *,
+        num_reqs,
+        query_start_loc_gpu,
+        positions,
+        seq_lens,
+        is_prefilling,
+        block_tables,
+    ):
+        query = query_start_loc_gpu[: num_reqs + 1]
+        counts = (query[1:] - query[:-1]).tolist()
+        prefix = [int(seq_lens[row]) - count for row, count in enumerate(counts)]
+        if is_prefilling.numel() < num_reqs:
+            raise ValueError("CPU metadata needs the native prefill classifications")
+        for row, start in enumerate(query[:-1].tolist()):
+            if int(positions[start]) != prefix[row]:
+                raise ValueError("CPU metadata needs native contiguous query positions")
+        self.batch = SimpleNamespace(
+            query_start_loc=query,
+            prefix=prefix,
+            # Native Attention writes every physical query. Rejection later
+            # changes the accepted frontier; metadata cannot infer its result.
+            valid=counts,
+            block_table=block_tables[self.group_id],
+        )
+
+    def prepare_query(self, buffers, num_reqs, width, gathered_tables):
+        self.batch = SimpleNamespace(
+            query_start_loc=buffers.query_start_loc[: num_reqs + 1],
+            prefix=[int(buffers.positions[row * width]) for row in range(num_reqs)],
+            valid=[width] * num_reqs,
+            block_table=gathered_tables[self.group_id],
+        )
+
+    def forward(self, positions, hidden_states, scaling=None):
+        if self.batch is None:
+            raise RuntimeError("CPU PD Attention needs actual prepared coordinates")
+        if self.contexts is not None:
+            self.contexts.append(get_forward_context())
+        cache_layer = self.dsa_attn.swa_cache_layer
+        cache, block_size = cache_layer.kv_cache[0], cache_layer.block_size
+        output = hidden_states.clone()
+        for request, (start, stop) in enumerate(
+            zip(
+                self.batch.query_start_loc[:-1].tolist(),
+                self.batch.query_start_loc[1:].tolist(),
+                strict=True,
+            )
+        ):
+            prefix = self.batch.prefix[request]
+            table = self.batch.block_table[request]
+            for row in range(start, stop):
+                position = int(positions[row])
+                context_sum = hidden_states.new_zeros((), dtype=torch.float32)
+                for prior in range(
+                    max(0, position - self.window + 1), min(position, prefix)
+                ):
+                    block = int(table[prior // block_size])
+                    if block == 0:
+                        raise ValueError("live PD prefix maps to the null block")
+                    context_sum += cache[block, prior % block_size].float().sum()
+                output[row] += (context_sum / PD_CPU_ATTENTION_SCALE).to(output.dtype)
+                if row - start < self.batch.valid[request]:
+                    block = int(table[position // block_size])
+                    if block == 0:
+                        raise ValueError("live PD query maps to the null block")
+                    values = hidden_states[row, : cache.shape[-1]]
+                    cache[block, position % block_size].copy_(
+                        values.reshape_as(cache[block, position % block_size])
+                    )
+        return output
+
+
+class CPUVocabProjection(nn.Module):
+    """Unquantized CPU head leaf; native model compute_logits stays intact."""
+
+    def forward(self, head, hidden_states):
+        return nn.functional.linear(hidden_states.float(), head.weight.float())
+
+
+def complete_pd_cpu_models(config, kv_config, draft_model, target_cache_layers):
+    """Complete both native models before prefix-consumer construction/binding.
+
+    Native V4.1 target/draft forward and decoder delayed-HC control remain real.
+    Attention, HC operators, MoE, normalization and unquantized head arithmetic
+    are declared CPU leaves, not checkpoint/device implementations.
+    """
+    text = config.model_config.hf_text_config
+    draft_text = config.speculative_config.draft_model_config.hf_text_config
+    if (
+        text.num_hidden_layers != PD_CPU_TARGET_LAYERS
+        or text.dspark_target_layer_ids != [1, 2, 3]
+    ):
+        raise ValueError("complete CPU PD model requires coherent three-layer metadata")
+    topology = build_layer_plan(text)
+    layer_groups = {
+        name: index
+        for index, group in enumerate(kv_config.kv_cache_groups)
+        for name in group.layer_names
+    }
+    target = make_staged_model(
+        capacity=config.scheduler_config.max_num_batched_tokens,
+        engram=False,
+        layer_count=text.num_hidden_layers,
+    )
+    target.config = text
+    target.topology = topology
+    target.engram_hash = None
+    target.engram_rotation = torch.empty(0)
+    target.embed_tokens = nn.Embedding.from_pretrained(
+        torch.arange(PD_CPU_VOCAB_SIZE * text.hidden_size)
+        .reshape(PD_CPU_VOCAB_SIZE, text.hidden_size)
+        .to(torch.bfloat16),
+        freeze=True,
+    )
+    for index, layer in enumerate(target.layers):
+        name = f"model.layers.{index}.self_attn.swa_cache"
+        cache_layer = target_cache_layers[name]
+        layer.self_attn = PDCacheAttention(
+            cache_layer, layer_groups[name], text.sliding_window
+        )
+        layer.self_attn.role = topology.layer(index)
+        layer.self_attn.shared_state = target.shared_attention_state
+    language = AFDDeepseekV41AttentionLLMForCausalLM.__new__(
+        AFDDeepseekV41AttentionLLMForCausalLM
+    )
+    nn.Module.__init__(language)
+    language.config, language.model = text, target
+    language.lm_head = nn.Linear(text.hidden_size, PD_CPU_VOCAB_SIZE, bias=False)
+    language.lm_head.weight.data.zero_()
+    language.lm_head.weight.data[PD_CPU_TARGET_TOKEN, 0] = 1
+    language.logits_processor = CPUVocabProjection()
+    outer = AFDDeepseekV41AttentionForCausalLM.__new__(
+        AFDDeepseekV41AttentionForCausalLM
+    )
+    nn.Module.__init__(outer)
+    outer.language_model = language
+
+    draft = draft_model.model
+    draft.config, draft.hc_mult = draft_text, text.hc_mult
+    draft.hidden_size, draft.block_size = text.hidden_size, text.dspark_block_size
+    draft.target_layer_ids = list(text.dspark_target_layer_ids)
+    draft.num_dspark_layers = draft_text.n_mtp_layers
+    draft.mtp_start_layer_idx = text.num_hidden_layers
+    draft.use_sequence_parallel_moe = False
+    draft.embed_tokens = nn.Embedding.from_pretrained(
+        target.embed_tokens.weight.clone(), freeze=True
+    )
+    draft.norm = nn.Identity()
+    contexts, blocks = [], {}
+    for ordinal, old_layer in enumerate(draft.layers.values()):
+        attn = old_layer.self_attn
+        cache_layer = attn.dsa_attn.swa_cache_layer
+        group_id = layer_groups[cache_layer.prefix]
+        window = kv_config.kv_cache_groups[group_id].kv_cache_spec.sliding_window
+        replacement = PDCacheAttention(cache_layer, group_id, window, contexts=contexts)
+        replacement.wkv = attn.wkv
+        replacement.kv_norm = attn.kv_norm
+        replacement.rotary_emb = attn.rotary_emb
+        replacement.nope_head_dim = attn.nope_head_dim
+        replacement.rope_head_dim = attn.rope_head_dim
+        replacement.head_dim = attn.head_dim
+        replacement.packed_cache_ops = attn.packed_cache_ops
+        layer = DeepseekV41DSparkDecoderLayer.__new__(DeepseekV41DSparkDecoderLayer)
+        nn.Module.__init__(layer)
+        arithmetic = HCContractLayer(
+            text.num_hidden_layers + ordinal,
+            target.shared_attention_state,
+            engram=False,
+        )
+        vars(layer).update(vars(arithmetic))
+        layer.self_attn = replacement
+        layer.hc_pre = MethodType(HCContractLayer.hc_pre, layer)
+        layer.hc_post = MethodType(HCContractLayer.hc_post, layer)
+        layer.rms_norm_cast = MethodType(HCContractLayer.rms_norm_cast, layer)
+        blocks[str(text.num_hidden_layers + ordinal)] = layer
+    draft.layers = nn.ModuleDict(blocks)
+    draft_model.config = draft_text
+    draft_model.lm_head = nn.Linear(text.hidden_size, PD_CPU_VOCAB_SIZE, bias=False)
+    draft_model.lm_head.weight.data.zero_()
+    draft_model.logits_processor = CPUVocabProjection()
+    markov = DSparkMarkovHead.__new__(DSparkMarkovHead)
+    nn.Module.__init__(markov)
+    vocabulary = torch.arange(PD_CPU_VOCAB_SIZE).float()
+    markov.markov_w1 = nn.Embedding.from_pretrained(
+        torch.stack(
+            ((vocabulary + 1) % PD_CPU_VOCAB_SIZE, torch.ones_like(vocabulary)), dim=1
+        ),
+        freeze=True,
+    )
+    markov.markov_w2 = nn.Linear(2, PD_CPU_VOCAB_SIZE, bias=False)
+    markov.markov_w2.weight.data.copy_(
+        torch.stack((2 * vocabulary, -vocabulary.square()), dim=1)
+    )
+    draft.markov_head = markov
+
+    def prepare_target_attention(
+        *,
+        num_reqs,
+        query_start_loc_gpu,
+        positions,
+        seq_lens,
+        is_prefilling,
+        block_tables,
+    ):
+        """Consume native run_build operands without wrapping prepare_attn."""
+        for layer in target.layers:
+            layer.self_attn.prepare(
+                num_reqs=num_reqs,
+                query_start_loc_gpu=query_start_loc_gpu,
+                positions=positions,
+                seq_lens=seq_lens,
+                is_prefilling=is_prefilling,
+                block_tables=block_tables,
+            )
+        metadata = SimpleNamespace(
+            num_reqs=num_reqs,
+            num_tokens=int(query_start_loc_gpu[num_reqs]),
+            query_start_loc=query_start_loc_gpu[: num_reqs + 1],
+            positions=positions,
+            seq_lens=seq_lens,
+            is_prefilling=is_prefilling,
+            block_tables=block_tables,
+        )
+        return {
+            f"model.layers.{index}.self_attn.v41_attn": metadata
+            for index in range(len(target.layers))
+        }
+
+    def prepare_draft_attention(buffers, num_reqs, width, gathered_tables):
+        for layer in draft.layers.values():
+            layer.self_attn.prepare_query(buffers, num_reqs, width, gathered_tables)
+
+    return SimpleNamespace(
+        target_model=outer,
+        draft_model=draft_model,
+        draft_contexts=contexts,
+        topology=topology,
+        prepare_target_attention=prepare_target_attention,
+        prepare_draft_attention=prepare_draft_attention,
+    )
+
+
+def native_pd_target_reference(
+    input_ids: torch.Tensor,
+    positions: torch.Tensor,
+    *,
+    computed: int,
+    block_ids: tuple[tuple[int, ...], ...],
+    layout: KVLayoutSnapshot,
+    pages: tuple[torch.Tensor, ...],
+    caches: Mapping[str, torch.Tensor | tuple[torch.Tensor, ...]],
+) -> SimpleNamespace:
+    """Independent single-request oracle for the three-layer CPU PD target.
+
+    Inputs are the active native prepared rows, absolute per-group block IDs
+    (including retired null entries), and D's pre-execute byte-page snapshot.
+    H4/HC2/window4 and the allocated embedding/HC/Attention/FFN arithmetic are
+    explicit CPU contracts. This never calls a model, forward or operator fake.
+    Rebuilt SWA views alias cloned pages, retaining every unrelated byte/gap.
+    """
+    if (
+        input_ids.device.type != "cpu"
+        or positions.device.type != "cpu"
+        or input_ids.ndim != 1
+        or input_ids.shape != positions.shape
+        or not input_ids.numel()
+        or type(computed) is not int
+        or computed < 0
+        or not torch.equal(
+            positions, torch.arange(computed, computed + input_ids.numel())
+        )
+        or torch.any((input_ids < 0) | (input_ids >= PD_CPU_VOCAB_SIZE))
+    ):
+        raise ValueError("target reference requires one contiguous CPU query")
+    if len(block_ids) != len(layout.groups) or len(pages) != len(layout.pages):
+        raise ValueError("target reference requires D's complete grouped layout")
+    if len({page.storage_alias for page in layout.pages}) != len(layout.pages):
+        raise ValueError("CPU PD fixture requires independently allocated pages")
+    if any(
+        page.device.type != "cpu"
+        or page.dtype != torch.uint8
+        or page.ndim != 1
+        or not page.is_contiguous()
+        for page in pages
+    ):
+        raise ValueError("target reference snapshots must be contiguous CPU bytes")
+    expected_pages = tuple(page.clone() for page in pages)
+    layer_groups = {
+        name: index
+        for index, group in enumerate(layout.groups)
+        for name in group.layer_names
+    }
+    descriptors = {(view.layer_name, view.tensor_index): view for view in layout.views}
+    embedding = (
+        input_ids[:, None] * PD_CPU_HIDDEN_SIZE + torch.arange(PD_CPU_HIDDEN_SIZE)
+    ).to(torch.bfloat16)
+    states = embedding[:, None, :].repeat(1, PD_CPU_HC_STREAMS, 1)
+    mix = torch.zeros(input_ids.numel(), PD_CPU_HC_STREAMS, dtype=torch.float32)
+    mix[:, 0] = 1
+    auxiliary = []
+    for layer in range(PD_CPU_TARGET_LAYERS):
+        name = f"model.layers.{layer}.self_attn.swa_cache"
+        original = caches[name]
+        descriptor = descriptors[(name, 0)]
+        if (
+            not isinstance(original, torch.Tensor)
+            or original.dtype != torch.bfloat16
+            or original.device.type != "cpu"
+            or original.ndim != 4
+            or original.shape[-2:] != (1, PD_CPU_CACHE_WIDTH)
+            or tuple(original.shape) != descriptor.shape
+            or tuple(s * original.element_size() for s in original.stride())
+            != descriptor.strides_bytes
+        ):
+            raise ValueError("target reference needs its registered BF16 SWA view")
+        span = (
+            descriptor.page_offset_bytes
+            + original.element_size()
+            + sum(
+                (size - 1) * stride
+                for size, stride in zip(
+                    original.shape, descriptor.strides_bytes, strict=True
+                )
+            )
+        )
+        page = expected_pages[descriptor.page_index]
+        if span > page.numel():
+            raise ValueError("target reference SWA view exceeds the byte snapshot")
+        cache = original.new_empty(0).set_(
+            page.untyped_storage(),
+            descriptor.page_offset_bytes // original.element_size(),
+            original.shape,
+            original.stride(),
+        )
+        table = block_ids[layer_groups[name]]
+        block_size = cache.shape[1]
+        auxiliary.append(states.float().mean(dim=1).to(torch.bfloat16))
+        attention_input = (
+            states.float().mean(dim=1) + mix.sum(dim=1, keepdim=True)
+        ).to(torch.bfloat16)
+        attention_mix = mix + (layer + 1) * PD_CPU_MIX_INCREMENT
+        attention_output = attention_input.clone()
+        for row, position in enumerate(positions.tolist()):
+            context = torch.zeros((), dtype=torch.float32)
+            for prior in range(
+                max(0, position - PD_CPU_TARGET_WINDOW + 1), min(position, computed)
+            ):
+                block = table[prior // block_size]
+                if not 0 < block < cache.shape[0]:
+                    raise ValueError("target reference prefix has no live block")
+                context += cache[block, prior % block_size].float().sum()
+            attention_output[row] = (
+                attention_input[row].float()
+                + (context / PD_CPU_ATTENTION_SCALE).to(torch.bfloat16).float()
+            ).to(torch.bfloat16)
+            block = table[position // block_size]
+            if not 0 < block < cache.shape[0]:
+                raise ValueError("target reference query has no live block")
+            cache[block, position % block_size, 0].copy_(
+                attention_input[row, :PD_CPU_CACHE_WIDTH]
+            )
+        after_attention = (
+            states.float() * PD_CPU_RESIDUAL_SCALE
+            + attention_output.float()[:, None, :]
+            * (attention_mix + PD_CPU_POST_OFFSET)[:, :, None]
+            + (attention_mix * PD_CPU_RESIDUAL_SCALE)[:, :, None]
+        ).to(torch.bfloat16)
+        ffn_input = (
+            after_attention.float().mean(dim=1) + attention_mix.sum(dim=1, keepdim=True)
+        ).to(torch.bfloat16)
+        ffn_mix = attention_mix + (layer + 2) * PD_CPU_MIX_INCREMENT
+        # Keep the actual FP32 add/subtract rounding; this is not a constant
+        # ROUTER_OFFSET*DELTA_SCALE once the HC state grows in magnitude.
+        router = ffn_input.float()
+        delta = (router + PD_CPU_ROUTER_OFFSET) - router
+        ffn_output = (delta * ROUTER_DELTA_SCALE + input_ids[:, None]).to(
+            torch.bfloat16
+        )
+        states = (
+            after_attention.float() * PD_CPU_RESIDUAL_SCALE
+            + ffn_output.float()[:, None, :]
+            * (ffn_mix + PD_CPU_POST_OFFSET)[:, :, None]
+            + (ffn_mix * PD_CPU_RESIDUAL_SCALE)[:, :, None]
+        ).to(torch.bfloat16)
+        mix = ffn_mix
+    return SimpleNamespace(
+        hidden_states=(mix[:, :, None] * states.float()).sum(dim=1).to(torch.bfloat16),
+        aux_hidden_states=tuple(auxiliary),
+        mtp_hidden_states=states.flatten(1).clone(),
+        pages=expected_pages,
+    )
 
 
 def make_staged_case(

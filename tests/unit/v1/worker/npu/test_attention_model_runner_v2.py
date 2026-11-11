@@ -16,13 +16,17 @@ pytest.importorskip("vllm_ascend")
 msgspec = pytest.importorskip("msgspec")
 
 import torch
+from vllm import SamplingParams
+from vllm.config import CUDAGraphMode
 from vllm.utils import torch_utils
+from vllm.v1.attention.backends.utils import PAD_SLOT_ID
 from vllm.v1.kv_cache_interface import (
-    AttentionSpec,
     SlidingWindowSpec,
     UniformTypeKVCacheSpecs,
 )
 from vllm.v1.request import RequestStatus
+from vllm.v1.worker.gpu.cudagraph_utils import BatchExecutionDescriptor
+from vllm_ascend.attention.attention_v1 import AscendAttentionState
 from vllm_ascend.attention.sfa_v1 import AscendSFABackend
 from vllm_ascend.core.kv_cache_interface import is_circular_kv_cache_spec
 from vllm_ascend.worker.v2.model_runner import NPUModelRunner
@@ -45,16 +49,25 @@ from tests.unit.fakes.attention_model_runner_v2 import (
     make_graph_runner_case,
     queue_graph_runner_stop,
 )
-from tests.unit.fakes.dspark_pd import make_dspark_pd_prefix_case
+from tests.unit.fakes.block_table import install_native_block_table_kernels_cpu
+from tests.unit.fakes.deepseek_v41 import PD_CPU_TARGET_TOKEN
+from tests.unit.fakes.dspark_pd import (
+    initialize_pd_cpu_source_pages,
+    make_dspark_pd_prefix_case,
+)
 from tests.unit.fakes.dspark_speculator import make_dspark_proposal_case
 from tests.unit.fakes.hccl_v41_graph_bootstrap import (
     make_graph_bootstrap_case,
     set_graph_bootstrap_environment,
 )
 from tests.unit.fakes.hccl_v41_graph_eager import run_graph_eager_parent
+from tests.unit.fakes.input_batch import install_native_input_preparation_cpu
 from tests.unit.fakes.kv_connector import (
     FULL_REPLAY_HISTORY_TOKENS,
     advance_native_dspark_sampling_case,
+    complete_native_pd_handoff,
+    initialize_native_pd_sampling,
+    initialize_native_pd_target_execution,
     make_native_dspark_factory_case,
     make_native_dspark_sampling_case,
     make_native_full_kv_replay_case,
@@ -66,24 +79,25 @@ from tests.unit.fakes.kv_layout_connector import (
     DESTINATION_SENTINEL,
     make_scheduled_dspark_read_case,
 )
-from tests.unit.fakes.request_state import make_native_request_admission_case
-
-CPU_BYTE_VALUES = 256
+from tests.unit.fakes.request_state import (
+    make_native_request_admission_case,
+    native_zeroed_cache_reference,
+)
 
 
 @pytest.fixture
 def scheduled_pd_zero_case(monkeypatch, request):
-    def initialize_pages(pages, layout):
-        for index, page in enumerate(pages):
-            positions = torch.arange(page.numel())
-            blocks = positions // layout.pages[index].block_stride_bytes
-            page.copy_(((positions + blocks + index) % CPU_BYTE_VALUES).to(torch.uint8))
-
     prefix = make_dspark_pd_prefix_case(
-        monkeypatch, original_tokens=request.param, bind=False
+        monkeypatch,
+        original_tokens=request.param,
+        bind=False,
+        complete_cpu_models=True,
     )
     transfer = make_scheduled_dspark_read_case(
-        monkeypatch, prefix, initialize_source_pages=initialize_pages
+        monkeypatch,
+        prefix,
+        initialize_source_pages=initialize_pd_cpu_source_pages,
+        sampling_params=SamplingParams(temperature=0),
     )
     request.addfinalizer(transfer.close)
     runner = make_native_kv_runner_case(
@@ -92,8 +106,120 @@ def scheduled_pd_zero_case(monkeypatch, request):
     return transfer, runner
 
 
+@pytest.fixture
+def native_pd_target_case(scheduled_pd_zero_case, monkeypatch):
+    transfer, runner = scheduled_pd_zero_case
+    resumed = complete_native_pd_handoff(runner)
+    initialize_native_pd_target_execution(monkeypatch, runner, scheduler_output=resumed)
+    return transfer, runner, resumed
+
+
 @pytest.mark.parametrize("scheduled_pd_zero_case", [1, 6], indirect=True)
-def test_native_zero_work_consumes_typed_pd_completion(  # long-test: P/D handoff
+def test_native_pd_target_consumes_received_cache(  # long-test: full first D execute
+    native_pd_target_case,
+):
+    transfer, runner, resumed = native_pd_target_case
+    destination, owner = transfer.destination_cache, runner.owner
+    new_request = resumed.scheduled_new_reqs[0]
+    computed = new_request.num_computed_tokens
+    width = resumed.num_scheduled_tokens[transfer.request.request_id]
+    expected = runner.expected_target
+    assert owner.execute_model(resumed) is None
+    step = owner.execute_model_state
+    assert step.input_batch.input_ids.tolist() == runner.expected_input_ids.tolist()
+    assert step.input_batch.positions.tolist() == runner.expected_positions.tolist()
+    torch.testing.assert_close(
+        step.hidden_states, expected.hidden_states, rtol=0, atol=0
+    )
+    for actual, target in zip(
+        step.aux_hidden_states, expected.aux_hidden_states, strict=True
+    ):
+        torch.testing.assert_close(actual, target, rtol=0, atol=0)
+    torch.testing.assert_close(
+        owner.model.get_mtp_target_hidden_states()[:width],
+        expected.mtp_hidden_states,
+        rtol=0,
+        atol=0,
+    )
+    for actual, target in zip(destination.pages, expected.pages, strict=True):
+        torch.testing.assert_close(actual, target, rtol=0, atol=0)
+    for actual, target in zip(
+        destination.source_pages, runner.source_pages_before, strict=True
+    ):
+        torch.testing.assert_close(actual, target, rtol=0, atol=0)
+    index = owner.req_states.req_id_to_index[transfer.request.request_id]
+    assert owner.req_states.total_len.gpu[index].item() == len(
+        new_request.prompt_token_ids
+    )
+    assert owner.req_states.num_computed_tokens.gpu[index].item() == computed
+    assert owner.model is transfer.loaded_destination.target_model
+    assert owner.speculator is transfer.loaded_destination.speculator
+
+
+@pytest.mark.parametrize("scheduled_pd_zero_case", [1, 6], indirect=True)
+def test_native_pd_first_sample_keeps_prompt_and_drafts(  # long-test: first D sample
+    native_pd_target_case, monkeypatch
+):
+    transfer, runner, resumed = native_pd_target_case
+    initialize_native_pd_sampling(monkeypatch, runner)
+    owner, destination = runner.owner, transfer.destination_cache
+    prompt = resumed.scheduled_new_reqs[0].prompt_token_ids
+    assert owner.execute_model(resumed) is None
+    batch = owner.execute_model_state.input_batch
+    output = owner.sample_tokens(None).get_output()
+    index = owner.req_states.req_id_to_index[transfer.request.request_id]
+    assert output.req_ids == [transfer.request.request_id]
+    assert output.sampled_token_ids == [[PD_CPU_TARGET_TOKEN]]
+    assert owner.req_states.total_len.gpu[index].item() == len(prompt) + 1
+    assert owner.req_states.num_computed_tokens.gpu[index].item() == len(prompt)
+    assert owner.req_states.all_token_ids.gpu[index, : len(prompt) + 1].tolist() == (
+        prompt + [PD_CPU_TARGET_TOKEN]
+    )
+    assert owner.req_states.draft_tokens[index].tolist() == list(
+        range(
+            PD_CPU_TARGET_TOKEN + 1,
+            PD_CPU_TARGET_TOKEN + 1 + owner.num_speculative_steps,
+        )
+    )
+    counts = owner.sampler.penalties_state.output_bin_counts[index]
+    assert counts[PD_CPU_TARGET_TOKEN].item() == counts.sum().item() == 1
+    combined = sum(
+        (index + 1) * states.float()
+        for index, states in enumerate(runner.expected_target.aux_hidden_states)
+    ).to(torch.bfloat16)
+    # Only one physical target row survives the actual greedy rejection.
+    # The new draft context keeps that accepted prompt-tail projection.
+    position = len(prompt) - 1
+    for group_id in owner.speculator.draft_kv_cache_group_ids:
+        group = destination.config.kv_cache_groups[group_id]
+        block_ids = resumed.scheduled_new_reqs[0].block_ids[group_id]
+        block, offset = divmod(position, group.kv_cache_spec.block_size)
+        for name in group.layer_names:
+            torch.testing.assert_close(
+                destination.caches[name][block_ids[block], offset, 0],
+                combined[0, :2],
+                rtol=0,
+                atol=0,
+            )
+    draft_names = owner.speculator.draft_attn_layer_names
+    for page, actual, expected in zip(
+        destination.layout.pages,
+        destination.pages,
+        runner.expected_target.pages,
+        strict=True,
+    ):
+        if not set(page.layers) & draft_names:
+            torch.testing.assert_close(actual, expected, rtol=0, atol=0)
+    for actual, expected in zip(
+        destination.source_pages, runner.source_pages_before, strict=True
+    ):
+        torch.testing.assert_close(actual, expected, rtol=0, atol=0)
+    assert owner.execute_model_state is None
+    assert batch.num_draft_tokens == resumed.total_num_scheduled_tokens - 1
+
+
+@pytest.mark.parametrize("scheduled_pd_zero_case", [1, 6], indirect=True)
+def test_native_pd_completion_prepares_prompt_tail(  # long-test: P/D handoff
     scheduled_pd_zero_case, monkeypatch
 ):
     transfer, runner = scheduled_pd_zero_case
@@ -185,35 +311,13 @@ def test_native_zero_work_consumes_typed_pd_completion(  # long-test: P/D handof
     transferred_ids = {block for group in allocated.block_ids for block in group}
     assert zero_ids and NULL_BLOCK_ID not in zero_ids
     assert not set(zero_ids) & transferred_ids
-    expected_after_admission = [page.clone() for page in expected]
-    zeroable_layers = set()
-    for group in prefix.kv_config.kv_cache_groups:
-        for name in group.layer_names:
-            spec = group.kv_cache_spec
-            if isinstance(spec, UniformTypeKVCacheSpecs):
-                spec = spec.kv_cache_specs[name]
-            if isinstance(spec, AttentionSpec):
-                zeroable_layers.add(name)
-    # Native zeroing owns AttentionSpec tensor spans, including overlays.
-    # Tuple index/scale caches and gaps in a shared physical page stay intact.
-    for view in destination.layout.views:
-        cache = transfer.destination_cache.caches[view.layer_name]
-        if view.layer_name not in zeroable_layers or not isinstance(
-            cache, torch.Tensor
-        ):
-            continue
-        inner_span = view.element_bytes + sum(
-            (size - 1) * stride
-            for size, stride in zip(view.shape[1:], view.strides_bytes[1:], strict=True)
-        )
-        assert inner_span == cache[0].numel() * view.element_bytes
-        expected_cache = cache.new_empty(0).set_(
-            expected_after_admission[view.page_index].untyped_storage(),
-            view.page_offset_bytes // view.element_bytes,
-            view.shape,
-            tuple(stride // view.element_bytes for stride in view.strides_bytes),
-        )
-        expected_cache[zero_ids] = 0
+    expected_after_admission = native_zeroed_cache_reference(
+        layout=destination.layout,
+        config=destination.config,
+        caches=destination.caches,
+        pages=expected,
+        block_ids=zero_ids,
+    )
     admission = make_native_request_admission_case(
         monkeypatch, runner.owner, kv_cache_views=runner.kv_views
     )
@@ -246,6 +350,53 @@ def test_native_zero_work_consumes_typed_pd_completion(  # long-test: P/D handof
     assert batch.has_prefill and uniform is None
     for actual, target in zip(destination.pages, expected_after_admission, strict=True):
         torch.testing.assert_close(actual, target, rtol=0, atol=0)
+    install_native_input_preparation_cpu(monkeypatch, runner.owner)
+    install_native_block_table_kernels_cpu(monkeypatch, runner.owner.block_tables)
+    prepared = runner.owner.prepare_inputs(
+        resumed,
+        batch,
+        BatchExecutionDescriptor(CUDAGraphMode.NONE, query_width, 1),
+    )
+    computed = new_request.num_computed_tokens
+    assert prepared.input_ids.tolist() == [prompt[-1]] + [0] * (query_width - 1)
+    assert prepared.positions.tolist() == list(range(computed, computed + query_width))
+    assert prepared.query_start_loc.tolist() == [0, query_width]
+    assert prepared.seq_lens.tolist() == [computed + query_width]
+    assert prepared.seq_lens_cpu_upper_bound.tolist() == [computed + query_width]
+    assert prepared.cu_num_logits.tolist() == [0, query_width]
+    assert prepared.logits_indices.tolist() == list(range(query_width))
+    assert prepared.num_draft_tokens == query_width - 1
+    assert prepared.expanded_idx_mapping.tolist() == [index] * query_width
+    assert prepared.expanded_local_pos.tolist() == list(range(query_width))
+    assert prepared.attn_state == (
+        AscendAttentionState.PrefillNoCache
+        if len(prompt) == 1
+        else AscendAttentionState.ChunkedPrefill
+    )
+    gathered = runner.owner.block_tables.gather_block_tables(prepared.idx_mapping, 1)
+    slots = runner.owner.block_tables.compute_slot_mappings(
+        prepared.idx_mapping,
+        prepared.query_start_loc,
+        prepared.positions,
+        prepared.num_tokens,
+    )
+    for group_index, (group, block_ids) in enumerate(
+        zip(prefix.kv_config.kv_cache_groups, new_request.block_ids, strict=True)
+    ):
+        assert gathered[group_index][0, : len(block_ids)].tolist() == block_ids
+        spec = group.kv_cache_spec
+        if isinstance(spec, UniformTypeKVCacheSpecs):
+            spec = spec.kv_cache_specs[group.layer_names[0]]
+        expected_slots = (
+            [PAD_SLOT_ID] * query_width
+            if is_circular_kv_cache_spec(spec)
+            else [
+                block_ids[position // spec.block_size] * spec.block_size
+                + position % spec.block_size
+                for position in range(computed, computed + query_width)
+            ]
+        )
+        assert slots[group_index].tolist() == expected_slots
     assert [msgspec.msgpack.decode(frame)[0] for frame in transfer.sent] == [
         pd_adapter.GET_META_MSG,
         pd_adapter.GET_DSPARK_READY_MSG,
