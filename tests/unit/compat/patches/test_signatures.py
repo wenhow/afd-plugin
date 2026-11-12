@@ -22,6 +22,7 @@ import pytest
         "hccl-graph-capture",
         "hccl-graph-replay",
         "hccl-u1-prepare",
+        "ffn-service-monitor",
         "ffn-profile",
         "attention-profile",
         "attention-shutdown",
@@ -176,6 +177,13 @@ def test_scoped_patch_preserves_upstream_signature(hook):  # long-test: shared t
                 ),
             }[hook]
         scope = patch.object(target, symbol, replacement)
+    elif hook == "ffn-service-monitor":
+        from vllm.v1.engine.core_client import MPClient as target  # noqa: N813
+
+        from afd_plugin.entrypoints.npu_ffn import AFDFFNClient
+
+        symbol = "start_engine_core_monitor"
+        scope = patch.object(target, symbol, AFDFFNClient.start_engine_core_monitor)
     elif hook == "capture-inputs":
         from vllm.v1.worker.gpu import cudagraph_utils as target
         from vllm.v1.worker.gpu.pcp_manager import PCPManager  # noqa: F401

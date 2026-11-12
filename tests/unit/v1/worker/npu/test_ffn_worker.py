@@ -4,6 +4,7 @@
 
 from __future__ import annotations
 
+import logging
 from dataclasses import replace
 from types import SimpleNamespace
 
@@ -347,6 +348,48 @@ def test_worker_acknowledges_peer_stop_before_releasing_connector(lifecycle):
     assert worker.raise_ffn_loop_error_if_any() is None
     assert worker.poll_hccl_ffn_service() is False
     assert worker.stop_ffn_server_loop() is None
+
+
+@pytest.mark.parametrize("rank", [0, 3])
+@pytest.mark.parametrize("native_failure", [False, True])
+def test_hccl_worker_cleanup_log_requires_successful_native_shutdown(
+    lifecycle, monkeypatch, caplog, rank, native_failure
+):
+    attention, ffn, _, worker = lifecycle
+    worker.rank = rank
+
+    def native_shutdown(_worker):
+        if native_failure:
+            raise RuntimeError("native cleanup failed")
+
+    monkeypatch.setattr(worker_module.NPUWorker, "shutdown", native_shutdown)
+    attention.request_stop()
+    worker.start_ffn_server_loop()
+    join_hccl_worker(worker)
+
+    with caplog.at_level(logging.INFO, logger=worker_module.__name__):
+        if native_failure:
+            with pytest.raises(RuntimeError, match="native cleanup failed"):
+                worker.shutdown()
+        else:
+            worker.shutdown()
+
+    assert not ffn.is_initialized
+    messages = [record.getMessage() for record in caplog.records]
+    marker = f"AFD HCCL FFN worker cleanup complete; rank={rank}."
+    assert (marker in messages) is (not native_failure)
+
+
+def test_hccl_worker_cleanup_log_requires_peer_stop(lifecycle, monkeypatch, caplog):
+    _, ffn, _, worker = lifecycle
+    worker.rank = 0
+    monkeypatch.setattr(worker_module.NPUWorker, "shutdown", lambda _worker: None)
+
+    with caplog.at_level(logging.INFO, logger=worker_module.__name__):
+        worker.shutdown()
+
+    assert not ffn.is_initialized
+    assert "AFD HCCL FFN worker cleanup complete;" not in caplog.text
 
 
 def test_worker_keeps_compute_failure_terminal_across_raise_start_and_stop(lifecycle):

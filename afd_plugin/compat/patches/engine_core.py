@@ -216,6 +216,9 @@ def __init__(
 # engines.
 # HCCL cleanup failures preserve an active ordinary engine failure. Failed
 # executor shutdown skips subsequent global group destruction until process exit.
+# HCCL completion logs distinguish acknowledged peer STOP and successful native
+# resource teardown; errors and interrupts do not advertise a clean exit. Remove
+# these diagnostics when native headless lifecycle exposes equivalent results.
 # Signature: matches upstream; no added parameters.
 def shutdown(self):
     # ### PATCH START: AFD FFN EngineCore shutdown
@@ -232,6 +235,12 @@ def shutdown(self):
             with suppress(Exception):
                 gc.unfreeze()
             core_module.cleanup_dist_env_and_memory()
+            if self._afd_hccl_peer_stop_complete and (
+                active_error is None
+                or isinstance(active_error, SystemExit)
+                and active_error.code in (None, 0)
+            ):
+                core_module.logger.info("AFD HCCL FFN engine cleanup complete.")
         except Exception:
             if (
                 afd_config is None
@@ -602,6 +611,7 @@ def _initialize_ffn_engine_core(
     self.vllm_config = vllm_config
     self.afd_config = afd_config
     self.log_stats = log_stats
+    self._afd_hccl_peer_stop_complete = False
 
     with suppress(Exception):
         vllm_config.afd_config = afd_config
@@ -650,6 +660,7 @@ def _prepare_late_loaded_ffn_engine_core(
 ) -> None:
     afd_config = _get_afd_config(vllm_config)
     self.afd_config = afd_config
+    self._afd_hccl_peer_stop_complete = False
     with suppress(Exception):
         vllm_config.afd_config = afd_config
 
@@ -746,6 +757,11 @@ def _run_ffn_busy_loop(self, core_module: Any) -> None:
         # ### PATCH END: release only the owned local management endpoint
         if started:
             _stop_ffn_worker_loop(self, raise_errors=uses_hccl and peer_stopped)
+            # ### PATCH START: acknowledged HCCL shutdown diagnostics
+            if uses_hccl and peer_stopped:
+                self._afd_hccl_peer_stop_complete = True
+                core_module.logger.info("AFD HCCL FFN peer STOP complete.")
+            # ### PATCH END: acknowledged HCCL shutdown diagnostics
 
     raise SystemExit
 

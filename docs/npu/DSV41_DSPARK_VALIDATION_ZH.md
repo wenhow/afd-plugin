@@ -228,12 +228,18 @@ sampling CPU 初始化。生产模型执行、协议和上游源码未改；本�
 完整 AFD 仅新增[受控 eager/U1 资格配置](DSV41_AFD_EAGER_QUALIFICATION_ZH.md)，
 默认仍拒绝，显式候选也只允许 DSpark 关闭。DSpark/PD Graph/U2 继续不准入。
 
+后续补齐了受控 AFD 启动器和独立 F 本地握手入口，以及 STOP/engine/各 rank 的
+清理诊断。A3 现有真实依赖下十四个完整模块单轮 **1015 项通过、0 失败、0 跳过**，
+138 项安装源码与开发锁一致；覆盖原有 DSpark/PD、A/F worker、engine 生命周期和
+F 入口。另有 13 项纯文件预检及 8 项 Linux 真实进程/HTTP 监督行为检查通过。
+这些结果不包含完整模型、真实 HCCL 或 A5 冷启动验收；下一步只新增一个 AFD 短请求。
+
 ## 后续 A5 统一验收
 
 2026-11-12 原生 eager 一个短请求、DSpark N=1 两个顺序短请求已通过；输出 token IDs
 相同，两个 DSpark 请求各接受 13/19 个 draft，且由不同 DP worker 执行。
-无需重跑三条请求，按[当前补充说明](DSV41_A5_PARALLEL_MINIMAL_ZH.md)核对新增源码
-依赖及退出记录。该结果限定于实际 A5 原生环境，完整 AFD 仍待验证。
+无需重跑三条请求，按[当前补充说明](DSV41_A5_PARALLEL_MINIMAL_ZH.md)核对退出记录；
+补充包四份安装源码已全部确认。该结果限定于实际 A5 原生环境，完整 AFD 仍待验证。
 
 完整模型使用实际部署的依赖版本，并记录与锁定版本的差异。先完成
 [原生 eager 控制组](../../openspec/changes/afd-v41-hccl-text-eager/evidence/A5_NATIVE_EAGER_ZH.md)
@@ -255,7 +261,8 @@ sampling CPU 初始化。生产模型执行、协议和上游源码未改；本�
 
 现有 [A5 通信与 Graph 组件批量验证](DSV41_A5_BATCH_VALIDATION_ZH.md) 可以单独执行，
 但其中的 q>1 通信/算术探针不能代替上述原生 DSpark 验收。完整模型默认门禁保留；
-受控资格配置尚无可执行服务 recipe。这份说明不提供绕过校验的命令。
+现已提供[受控 AFD eager/U1 启动器](DSV41_AFD_EAGER_QUALIFICATION_ZH.md)，
+仅显式候选、DSpark 关闭、一个短请求；默认预检，`--run` 才启动。
 PD 与 DSpark/Graph 的组合仍需独立验收。
 
 回传 CPU 问题时优先提供 `git-head.txt`、`exit-code.txt`、`pytest.xml` 和

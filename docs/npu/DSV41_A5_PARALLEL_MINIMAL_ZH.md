@@ -9,28 +9,17 @@ checkpoint 的原生路径。两次 DSpark 请求落在不同 DP worker，退出
 AFD、PD、Graph/U2、同 worker 跨请求状态和性能仍待各自验证。
 
 当前 A5 使用 Ascend `4ec6dc7722ec4f7f8005a86570238ac4377c5d43`，开发锁为
-`7e37e29a7803d6897a7113088e2b771f83205bc0`。已采集的源码 hash 中，量化
-`w4a8_mxfp4.py` 和 DSpark `speculator.py` 两个文件不同。开发端已取得与本次
-A5 安装 hash 一致的这两份源码，差异已定位。其中 DSpark 新增了对
-`ascend_forward_context.py` 中 draft MoE 配置和通信选择的依赖，该文件的实际安装
-字节还需确认；量化文件新增的 `shared_weights` 参数还需核对
-`ops/fused_moe/dataclass/fused_experts.py`。保留当前成功环境，只做下面一次源码采集和退出收尾。
+`7e37e29a7803d6897a7113088e2b771f83205bc0`。2026-11-12 回传的补充采集包已核验：量化
+`w4a8_mxfp4.py`、DSpark `speculator.py` 及新增依赖 `ascend_forward_context.py`、
+`ops/fused_moe/dataclass/fused_experts.py` 四份安装源码均与该实际版本一致。
+源码采集已完成，无需重复。开发锁保持不变，退出收尾仍单独待确认。
 
-## 当前补充一：一个命令采集源码
+## 下一场景：一个完整 AFD eager/U1 请求
 
-在更新后的 afd-plugin 源码根目录执行下面命令；更新方式见第 1 节。工具一次复制
-上述四份源码，并记录实际路径、SHA256、包版本及所在 Git 仓库的身份。前两份一并
-留存用于确认同一安装，后两份补齐新增依赖的审查。无需启动服务或配置 CANN 环境。
-工具仅使用 Python 标准库，不 import torch/vLLM，不加载算子库，不访问 NPU、不安装依赖。
-
-```bash
-/usr/local/python3.11.10/bin/python -B tools/diagnostics/collect_dsv41_a5_sources.py \
-  --output-root /mnt/workspace/tmp
-```
-
-工具打印一个全新的 `dsv41-a5-sources-*` 目录、同名 `.tar.gz` 和归档 SHA256。
-回传这个小归档即可；其中 `manifest.json` 的 `passed=true` 仅表示四份源码已完整采集，
-不表示它们与开发锁相同或运行验收通过。源码快照属于本地验证证据，不提交或推送远端。
+已提供[受控 AFD 验证入口](DSV41_AFD_EAGER_QUALIFICATION_ZH.md#最小-a5-操作只新增一个-afd-请求)：
+先只预检，再显式 `--run` 自动启动 A4/F4、发送一个固定 32-token 请求、先停 A、
+等待 F 的 STOP 和清理，最后生成一个诊断归档。DSpark 暂时关闭；这是完整 AFD
+候选的第一道硬件门，不是正式支持声明。保留当前成功环境，不安装依赖或改上游。
 
 ## 当前补充二：退出记录
 
@@ -60,8 +49,9 @@ Python 固定为 `/usr/local/python3.11.10/bin/python`。
 
 ## 1. 更新分支
 
-在 afd-plugin 源码根目录执行。若工作区有修改、远端不符或 Git 拒绝更新，保留现场；
-不要执行 reset/clean。以下更新块遇错即停，不会自动继续切换或启动服务。
+在 afd-plugin 源码根目录执行。若已跟踪文件有修改、远端不符或 Git 拒绝更新，保留现场；
+不要执行 reset/clean。未跟踪的结果目录可以保留，Git 遇到路径覆盖冲突会停止。
+以下更新块遇错即停，不会自动继续切换或启动服务。
 
 ```bash
 (
@@ -72,7 +62,7 @@ Python 固定为 `/usr/local/python3.11.10/bin/python`。
     git@github.com:wenhow/afd-plugin.git|https://github.com/wenhow/afd-plugin.git) ;;
     *) printf '%s\n' 'origin 与预期仓库不符；保留现场并停止。' >&2; exit 1 ;;
   esac
-  test -z "$(git status --porcelain)"
+  test -z "$(git status --porcelain --untracked-files=no)"
   git fetch origin feat/dsv41-flash-hccl-v030
   if git show-ref --verify --quiet refs/heads/feat/dsv41-flash-hccl-v030; then
     git switch feat/dsv41-flash-hccl-v030

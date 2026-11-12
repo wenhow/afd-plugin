@@ -555,11 +555,24 @@ class AFDNPUFFNWorker(NPUWorker):
         self._ffn_shutdown_event = None
         self.raise_ffn_loop_error_if_any()
 
+    # Upstream: NPUWorker.shutdown, vllm_ascend/worker/worker.py:365,
+    # 7e37e29a7803d6897a7113088e2b771f83205bc0. Exact native signature.
+    # Inheritance override: finish the AFD receive owner before native teardown,
+    # then emit a rank result only after peer STOP and native cleanup succeeded.
+    # Delegate native resource ownership rather than copying it; remove the
+    # adapter when native Worker offers connector lifecycle/result callbacks.
     def shutdown(self) -> None:
+        # ### PATCH START: finish the AFD receive owner before native cleanup
         # Stop the connector-driven daemon before NPUWorker releases the model
         # runner and its tensors.
+        peer_stopped = self._uses_hccl_service() and self._hccl_stop_received
         self.stop_ffn_server_loop()
+        # ### PATCH END: finish the AFD receive owner before native cleanup
         super().shutdown()
+        # ### PATCH START: report completed HCCL worker cleanup
+        if peer_stopped:
+            logger.info("AFD HCCL FFN worker cleanup complete; rank=%d.", self.rank)
+        # ### PATCH END: report completed HCCL worker cleanup
 
 
 __all__ = ["AFDNPUFFNWorker"]

@@ -18,7 +18,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from afd_plugin.config import HCCL_P2P_CONNECTOR
+from afd_plugin.config import CAMP2P_CONNECTOR, HCCL_P2P_CONNECTOR
 from tests.unit.fakes.profiler_control import (
     ProfilerControlExecutor,
     make_control_socket_path,
@@ -643,7 +643,7 @@ def hccl_engine(monkeypatch):
             if not self.service_replies:
                 raise AssertionError("FFN engine polled after the service stopped")
             reply = self.service_replies.popleft()
-            if isinstance(reply, Exception):
+            if isinstance(reply, BaseException):
                 raise reply
             return reply
 
@@ -728,11 +728,19 @@ def test_headless_ffn_control_uses_own_executor_and_closes_on_exit(
 
 
 @pytest.mark.parametrize("replies", [([False],), ([True], [False])])
-def test_hccl_engine_exits_cleanly_when_the_peer_stops(hccl_engine, replies):
+def test_hccl_engine_exits_cleanly_when_the_peer_stops(
+    hccl_engine, hccl_distributed_resources, caplog, replies
+):
     hccl_engine.model_executor.service_replies.extend(replies)
 
-    with pytest.raises(SystemExit) as exited:
-        hccl_engine.run_busy_loop()
+    with (
+        caplog.at_level(logging.INFO, logger="fake-vllm-core"),
+        pytest.raises(SystemExit) as exited,
+    ):
+        try:
+            hccl_engine.run_busy_loop()
+        finally:
+            hccl_engine.shutdown()
 
     assert exited.value.code in (None, 0)
     assert hccl_engine.shutdown_state == _EngineShutdownState.SHUTTING_DOWN
@@ -740,7 +748,65 @@ def test_hccl_engine_exits_cleanly_when_the_peer_stops(hccl_engine, replies):
         "start_ffn_server_loop",
         *["poll_hccl_ffn_service" for _ in replies],
         "stop_ffn_server_loop",
+        "stop_ffn_server_loop",
     ]
+    assert not hccl_distributed_resources.is_initialized
+    assert [
+        record.getMessage()
+        for record in caplog.records
+        if record.getMessage().startswith("AFD HCCL FFN ")
+    ] == [
+        "AFD HCCL FFN peer STOP complete.",
+        "AFD HCCL FFN engine cleanup complete.",
+    ]
+
+
+@pytest.mark.parametrize("boundary", ["requested", "interrupt", "worker-failure"])
+def test_hccl_shutdown_completion_logs_require_successful_peer_stop(
+    hccl_engine, hccl_distributed_resources, caplog, boundary
+):
+    if boundary == "requested":
+        hccl_engine.shutdown_state = _EngineShutdownState.REQUESTED
+    else:
+        hccl_engine.model_executor.service_replies.append(
+            KeyboardInterrupt() if boundary == "interrupt" else RuntimeError("failed")
+        )
+    error_type = RuntimeError if boundary == "worker-failure" else SystemExit
+
+    with (
+        caplog.at_level(logging.INFO, logger="fake-vllm-core"),
+        pytest.raises(error_type),
+    ):
+        try:
+            hccl_engine.run_busy_loop()
+        finally:
+            hccl_engine.shutdown()
+
+    assert not hccl_distributed_resources.is_initialized
+    assert "AFD HCCL FFN peer STOP complete." not in caplog.text
+    assert "AFD HCCL FFN engine cleanup complete." not in caplog.text
+
+
+@pytest.mark.parametrize(
+    "shutdown_error", [KeyboardInterrupt(), RuntimeError("failed"), SystemExit(7)]
+)
+def test_hccl_engine_cleanup_does_not_advertise_success_during_an_active_error(
+    hccl_engine, hccl_distributed_resources, caplog, shutdown_error
+):
+    hccl_engine.model_executor.service_replies.append([False])
+
+    with caplog.at_level(logging.INFO, logger="fake-vllm-core"):
+        with pytest.raises(SystemExit):
+            hccl_engine.run_busy_loop()
+        with pytest.raises(type(shutdown_error)):
+            try:
+                raise shutdown_error
+            finally:
+                hccl_engine.shutdown()
+
+    assert not hccl_distributed_resources.is_initialized
+    assert "AFD HCCL FFN peer STOP complete." in caplog.text
+    assert "AFD HCCL FFN engine cleanup complete." not in caplog.text
 
 
 @pytest.mark.parametrize("rank_count", [2, 8])
@@ -824,13 +890,16 @@ def test_hccl_engine_shutdown_preserves_primary_failure_and_resources(
 
 @pytest.mark.parametrize("clean_exit", [False, True])
 def test_hccl_engine_shutdown_reports_cleanup_failure(
-    hccl_engine, hccl_distributed_resources, clean_exit
+    hccl_engine, hccl_distributed_resources, caplog, clean_exit
 ):
     cleanup_error = RuntimeError("FFN receive still pending")
     hccl_engine.model_executor.shutdown_error = cleanup_error
     hccl_engine.model_executor.service_replies.append([False])
 
-    with pytest.raises(RuntimeError, match="receive still pending") as failure:
+    with (
+        caplog.at_level(logging.INFO, logger="fake-vllm-core"),
+        pytest.raises(RuntimeError, match="receive still pending") as failure,
+    ):
         try:
             if clean_exit:
                 hccl_engine.run_busy_loop()
@@ -839,6 +908,7 @@ def test_hccl_engine_shutdown_reports_cleanup_failure(
 
     assert failure.value is cleanup_error
     assert hccl_distributed_resources.is_initialized
+    assert "AFD HCCL FFN engine cleanup complete." not in caplog.text
 
 
 def test_hccl_engine_shutdown_releases_resources_after_executor_stops(
@@ -847,6 +917,30 @@ def test_hccl_engine_shutdown_releases_resources_after_executor_stops(
     hccl_engine.shutdown()
 
     assert not hccl_distributed_resources.is_initialized
+
+
+@pytest.mark.parametrize(
+    "connector", ["P2pNcclAFDConnector", CAMP2P_CONNECTOR, HCCL_P2P_CONNECTOR]
+)
+def test_late_loaded_ffn_shutdown_releases_resources_without_advertising_peer_stop(
+    hccl_engine, hccl_distributed_resources, caplog, connector
+):
+    config = _config("ffn")
+    config.additional_config["afd"]["connector"] = connector
+    # A native constructor already on the stack reaches the newly patched KV
+    # method without re-entering the AFD constructor installed during startup.
+    engine = object.__new__(type(hccl_engine))
+    engine.vllm_config = config
+    engine.model_executor = hccl_engine.model_executor
+    cache_config = engine._initialize_kv_caches(config)
+
+    with caplog.at_level(logging.INFO, logger="fake-vllm-core"):
+        engine.shutdown()
+
+    assert cache_config.kv_cache_groups == []
+    assert not hccl_distributed_resources.is_initialized
+    assert "AFD HCCL FFN peer STOP complete." not in caplog.text
+    assert "AFD HCCL FFN engine cleanup complete." not in caplog.text
 
 
 @pytest.mark.parametrize(
@@ -892,15 +986,20 @@ def test_hccl_engine_preserves_worker_error_when_stop_rpc_also_fails(hccl_engine
     ]
 
 
-def test_hccl_engine_reports_cleanup_failure_after_peer_stop(hccl_engine):
+def test_hccl_engine_reports_cleanup_failure_after_peer_stop(hccl_engine, caplog):
     cleanup_error = RuntimeError("HCCL worker cleanup failed after peer STOP")
     hccl_engine.model_executor.service_replies.append([False])
     hccl_engine.model_executor.stop_error = cleanup_error
 
-    with pytest.raises(RuntimeError, match="cleanup failed after peer STOP") as failure:
+    with (
+        caplog.at_level(logging.INFO, logger="fake-vllm-core"),
+        pytest.raises(RuntimeError, match="cleanup failed after peer STOP") as failure,
+    ):
         hccl_engine.run_busy_loop()
 
     assert failure.value is cleanup_error
+    assert "AFD HCCL FFN peer STOP complete." not in caplog.text
+    assert "AFD HCCL FFN engine cleanup complete." not in caplog.text
     assert hccl_engine.model_executor.messages == [
         "start_ffn_server_loop",
         "poll_hccl_ffn_service",
