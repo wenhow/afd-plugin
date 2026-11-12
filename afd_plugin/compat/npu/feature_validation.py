@@ -24,6 +24,91 @@ if TYPE_CHECKING:
     from afd_plugin.connectors.base import ConnectorExtraInfo
 
 
+V41_EAGER_QUALIFICATION_ENV = "AFD_DSV41_EAGER_QUALIFICATION"
+V41_EAGER_QUALIFICATION_TP_SIZE = 4
+V41_EAGER_QUALIFICATION_MAX_TOKENS = 1024
+
+
+def _validate_v41_eager_qualification(
+    vllm_config: VllmConfig, afd_config: AFDConfig
+) -> None:
+    """Admit one explicit hardware qualification candidate, not model support.
+
+    Keep the ordinary connector validator in charge of text/BF16/V2, native
+    rank pairing, eager U1, F gate and EP/SP/Graph restrictions. This narrower
+    candidate adds a fixed topology, real weight loading and A-owned host
+    Engram. The worker still runs its normal runtime validation afterwards.
+    """
+    # Worker/backend isolation: the HCCL validator imports torch and native
+    # compilation enums. Unsupported/default V4.1 stays CPU-importable.
+    from afd_plugin.connectors.npu.hccl_config import validate_hccl_runtime
+
+    if async_cam_layered_gmm_enabled():
+        raise ValueError("V4.1 eager qualification requires Async CAM layered GMM off")
+    if vllm_config.speculative_config is not None:
+        raise ValueError("V4.1 eager qualification requires speculation off")
+    if vllm_config.kv_transfer_config is not None:
+        raise ValueError("V4.1 eager qualification requires KV transfer/PD off")
+    parallel = vllm_config.parallel_config
+    validate_hccl_runtime(vllm_config, afd_config, role_rank=parallel.rank)
+    if parallel.tensor_parallel_size != V41_EAGER_QUALIFICATION_TP_SIZE:
+        raise ValueError("V4.1 eager qualification requires A4/F4 with native TP4")
+    model = vllm_config.model_config
+    if model.is_multimodal_model:
+        raise ValueError("V4.1 eager qualification requires a text-only model")
+    if model.enable_sleep_mode or vllm_config.weight_transfer_config is not None:
+        raise ValueError("V4.1 eager qualification requires sleep/weight updates off")
+    if (
+        model.quantization != "deepseek_v4_fp8"
+        or vllm_config.quant_config is None
+        or vllm_config.quant_config.get_name() != "deepseek_v4_fp8"
+    ):
+        raise ValueError(
+            "V4.1 eager qualification requires deepseek_v4_fp8 quantization"
+        )
+    if vllm_config.load_config.load_format not in ("auto", "safetensors"):
+        raise ValueError(
+            "V4.1 eager qualification requires real auto/safetensors loading"
+        )
+    scheduler = vllm_config.scheduler_config
+    if scheduler.max_num_seqs != 1 or scheduler.async_scheduling is not False:
+        raise ValueError(
+            "V4.1 eager qualification requires one sequence and sync scheduling"
+        )
+    if (
+        not 0 < model.max_model_len <= V41_EAGER_QUALIFICATION_MAX_TOKENS
+        or scheduler.max_num_batched_tokens > V41_EAGER_QUALIFICATION_MAX_TOKENS
+    ):
+        raise ValueError("V4.1 eager qualification requires token/model limits <= 1024")
+    if vllm_config.cache_config.enable_prefix_caching:
+        raise ValueError("V4.1 eager qualification requires prefix caching off")
+    if vllm_config.additional_config.get("sparse_kv_offload_config", {}).get(
+        "enabled", False
+    ):
+        raise ValueError("V4.1 eager qualification requires sparse KV offload off")
+    if vllm_config.additional_config.get("enable_shared_expert_dp", False) or any(
+        int(size) > 0
+        for size in vllm_config.additional_config.get(
+            "finegrained_tp_config", {}
+        ).values()
+    ):
+        raise ValueError("V4.1 eager qualification requires uniform native TP")
+    engram = vllm_config.engram_config
+    if afd_config.is_attention_server:
+        if (
+            engram is None
+            or engram.cpu_offload is not True
+            or engram.dp_shared_memory is not False
+            or engram.embedding_across_dp is not False
+        ):
+            raise ValueError(
+                "V4.1 eager qualification requires Attention CPU Engram "
+                "without DP sharing"
+            )
+    elif engram is not None:
+        raise ValueError("V4.1 eager qualification requires FFN Engram isolation")
+
+
 def fail_if_unsupported_npu_afd_features(
     vllm_config: VllmConfig,
     *,
@@ -33,6 +118,12 @@ def fail_if_unsupported_npu_afd_features(
 
     afd_config = afd_config or parse_afd_config(vllm_config)
     if is_deepseek_v41_model(vllm_config):
+        qualification = os.environ.get(V41_EAGER_QUALIFICATION_ENV, "0")
+        if qualification not in ("0", "1"):
+            raise ValueError(f"{V41_EAGER_QUALIFICATION_ENV} must be 0 or 1")
+        if qualification == "1":
+            _validate_v41_eager_qualification(vllm_config, afd_config)
+            return
         raise RuntimeError(
             "DeepSeek V4.1 NPU AFD is not available yet; "
             "full-checkpoint quantization, text eager and state lifecycle "

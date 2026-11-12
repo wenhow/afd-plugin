@@ -24,7 +24,7 @@ from vllm.v1.kv_cache_interface import (
     SlidingWindowSpec,
     UniformTypeKVCacheSpecs,
 )
-from vllm.v1.request import RequestStatus
+from vllm.v1.request import Request, RequestStatus
 from vllm.v1.worker.gpu.cudagraph_utils import BatchExecutionDescriptor
 from vllm_ascend.attention.attention_v1 import AscendAttentionState
 from vllm_ascend.attention.sfa_v1 import AscendSFABackend
@@ -85,6 +85,10 @@ from tests.unit.fakes.request_state import (
     native_zeroed_cache_reference,
 )
 
+PD_RETIRED_OUTPUT_TOKENS = 2
+PD_REPLACEMENT_PROMPT = (40, 41, 42)
+PD_REPLACEMENT_MAX_TOKENS = 3
+
 
 @pytest.fixture
 def scheduled_pd_zero_case(monkeypatch, request):
@@ -113,6 +117,157 @@ def native_pd_target_case(scheduled_pd_zero_case, monkeypatch):
     resumed = complete_native_pd_handoff(runner)
     initialize_native_pd_target_execution(monkeypatch, runner, scheduler_output=resumed)
     return transfer, runner, resumed
+
+
+@pytest.fixture
+def retired_native_pd_case(native_pd_target_case, monkeypatch, request):
+    """Retire an actual two-round D request, then reuse its ID and native owner.
+
+    The replacement is a local prefill on the same registered consumer, not a
+    second remote transfer. Native admission, sampling, scheduler retirement
+    and block allocation remain real. Engram is disabled in this CPU model.
+    """
+    transfer, runner, scheduled = native_pd_target_case
+    owner, previous = runner.owner, transfer.request
+    if request.param == RequestStatus.FINISHED_LENGTH_CAPPED:
+        previous.max_tokens = previous.sampling_params.max_tokens = (
+            PD_RETIRED_OUTPUT_TOKENS
+        )
+    initialize_native_pd_sampling(monkeypatch, runner)
+    for round_index in range(PD_RETIRED_OUTPUT_TOKENS):
+        assert owner.execute_model(scheduled) is None
+        output = owner.sample_tokens(None).get_output()
+        transfer.scheduler.update_from_output(scheduled, output)
+        if round_index == 0:
+            transfer.scheduler.update_draft_token_ids(owner.take_draft_token_ids())
+            scheduled = transfer.scheduler.schedule()
+    if request.param == RequestStatus.FINISHED_ABORTED:
+        transfer.scheduler.finish_requests(previous.request_id, request.param)
+    previous_index = owner.req_states.req_id_to_index[previous.request_id]
+    replacement = Request(
+        previous.request_id,
+        list(PD_REPLACEMENT_PROMPT),
+        SamplingParams(temperature=0, max_tokens=PD_REPLACEMENT_MAX_TOKENS),
+        None,
+    )
+    transfer.scheduler.add_request(replacement)
+    scheduled = transfer.scheduler.schedule()
+    expected = native_pd_target_step_reference(
+        runner,
+        scheduled,
+        input_ids=torch.tensor(replacement.prompt_token_ids),
+        computed=0,
+        block_ids=scheduled.scheduled_new_reqs[0].block_ids,
+    )
+    return SimpleNamespace(
+        transfer=transfer,
+        runner=runner,
+        previous=previous,
+        previous_index=previous_index,
+        replacement=replacement,
+        scheduled=scheduled,
+        expected=expected,
+        expected_status=request.param,
+    )
+
+
+@pytest.mark.parametrize("scheduled_pd_zero_case", [1, 6], indirect=True)
+@pytest.mark.parametrize(
+    "retired_native_pd_case",
+    [RequestStatus.FINISHED_LENGTH_CAPPED, RequestStatus.FINISHED_ABORTED],
+    indirect=True,
+)
+def test_native_pd_finished_id_reuse_starts_with_fresh_history(  # long-test: ID reuse
+    retired_native_pd_case,
+):
+    case = retired_native_pd_case
+    transfer, runner = case.transfer, case.runner
+    owner, destination = runner.owner, transfer.destination_cache
+    scheduled, expected = case.scheduled, case.expected
+    request_id, prompt = case.replacement.request_id, case.replacement.prompt_token_ids
+    assert case.previous.status == case.expected_status
+    assert (
+        list(case.previous.output_token_ids)
+        == [PD_CPU_TARGET_TOKEN] * PD_RETIRED_OUTPUT_TOKENS
+    )
+    assert scheduled.finished_req_ids == {request_id}
+    assert scheduled.num_scheduled_tokens == {request_id: len(prompt)}
+    assert scheduled.scheduled_spec_decode_tokens == {}
+    assert scheduled.scheduled_new_reqs[0].num_computed_tokens == 0
+    assert scheduled.kv_connector_metadata.requests == {}
+    assert scheduled.kv_connector_metadata.dspark_destinations == {}
+
+    assert owner.execute_model(scheduled) is None
+    state = owner.req_states
+    index = state.req_id_to_index[request_id]
+    # Reusing the actual native slot makes stale counters/history observable.
+    assert index == case.previous_index
+    assert state.num_reqs == 1
+    assert state.total_len.gpu[index].item() == len(prompt)
+    assert state.num_computed_tokens.gpu[index].item() == 0
+    assert state.all_token_ids.gpu[index, : len(prompt)].tolist() == prompt
+    assert state.draft_tokens[index].tolist() == [0] * owner.num_speculative_steps
+    # Native PenaltiesState initializes histogram rows only when penalties are
+    # enabled. This greedy/no-penalty request must not require unused bins to
+    # be cleared; its live history, target input and draft context are checked.
+    step = owner.execute_model_state
+    assert step.input_batch.input_ids.tolist() == prompt
+    assert step.input_batch.positions.tolist() == list(range(len(prompt)))
+    torch.testing.assert_close(
+        step.hidden_states, expected.hidden_states, rtol=0, atol=0
+    )
+    for actual, target in zip(
+        step.aux_hidden_states, expected.aux_hidden_states, strict=True
+    ):
+        torch.testing.assert_close(actual, target, rtol=0, atol=0)
+    for actual, target in zip(destination.pages, expected.pages, strict=True):
+        torch.testing.assert_close(actual, target, rtol=0, atol=0)
+
+    output = owner.sample_tokens(None).get_output()
+    assert output.req_ids == [request_id]
+    assert output.sampled_token_ids == [[PD_CPU_TARGET_TOKEN]]
+    assert state.total_len.gpu[index].item() == len(prompt) + 1
+    assert state.num_computed_tokens.gpu[index].item() == len(prompt)
+    assert state.all_token_ids.gpu[index, : len(prompt) + 1].tolist() == (
+        prompt + [PD_CPU_TARGET_TOKEN]
+    )
+    assert state.draft_tokens[index].tolist() == list(
+        range(
+            PD_CPU_TARGET_TOKEN + 1,
+            PD_CPU_TARGET_TOKEN + 1 + owner.num_speculative_steps,
+        )
+    )
+    combined = sum(
+        (ordinal + 1) * hidden.float()
+        for ordinal, hidden in enumerate(expected.aux_hidden_states)
+    ).to(torch.bfloat16)
+    block_ids = scheduled.scheduled_new_reqs[0].block_ids
+    for group_id in owner.speculator.draft_kv_cache_group_ids:
+        group = destination.config.kv_cache_groups[group_id]
+        for position in range(len(prompt)):
+            block, offset = divmod(position, group.kv_cache_spec.block_size)
+            for name in group.layer_names:
+                torch.testing.assert_close(
+                    destination.caches[name][block_ids[group_id][block], offset, 0],
+                    combined[position, :2],
+                    rtol=0,
+                    atol=0,
+                )
+    for actual, target in zip(
+        destination.source_pages, runner.source_pages_before, strict=True
+    ):
+        torch.testing.assert_close(actual, target, rtol=0, atol=0)
+    assert [msgspec.msgpack.decode(frame)[0] for frame in transfer.sent] == [
+        pd_adapter.GET_META_MSG,
+        pd_adapter.GET_DSPARK_READY_MSG,
+        pd_adapter.DONE_DSPARK_RECV_MSG,
+    ]
+    transfer.scheduler.update_from_output(scheduled, output)
+    assert list(case.replacement.output_token_ids) == [PD_CPU_TARGET_TOKEN]
+    assert case.replacement.num_computed_tokens == len(prompt)
+    assert owner.execute_model_state is None
+    assert owner.model is transfer.loaded_destination.target_model
+    assert owner.speculator is transfer.loaded_destination.speculator
 
 
 @pytest.mark.parametrize("scheduled_pd_zero_case", [1, 6], indirect=True)
@@ -155,6 +310,56 @@ def test_native_pd_target_consumes_received_cache(  # long-test: full first D ex
     assert owner.req_states.num_computed_tokens.gpu[index].item() == computed
     assert owner.model is transfer.loaded_destination.target_model
     assert owner.speculator is transfer.loaded_destination.speculator
+
+
+@pytest.mark.parametrize("scheduled_pd_zero_case", [1, 6], indirect=True)
+def test_native_pd_target_failure_retains_storage_and_rejects_retry(
+    native_pd_target_case, monkeypatch
+):
+    transfer, runner, resumed = native_pd_target_case
+    initialize_native_pd_sampling(monkeypatch, runner)
+    owner, destination = runner.owner, transfer.destination_cache
+    expected = native_zeroed_cache_reference(
+        layout=destination.layout,
+        config=destination.config,
+        caches=destination.caches,
+        pages=destination.pages,
+        block_ids=resumed.new_block_ids_to_zero,
+    )
+    protocol = tuple(transfer.sent)
+    cache_addresses = [page.data_ptr() for page in destination.pages]
+    target_error = RuntimeError("controlled native PD target entry failure")
+
+    def fail_target_entry(model, args):
+        # The native eager execute has admitted the request, prepared metadata
+        # and bound the connector. Fail at its target call, before KV writes.
+        raise target_error
+
+    hook = owner.model.register_forward_pre_hook(fail_target_entry)
+    try:
+        with pytest.raises(RuntimeError, match="PD target entry failure") as raised:
+            owner.execute_model(resumed)
+        assert raised.value is target_error
+    finally:
+        hook.remove()
+    assert owner.dspark_pd_consumer.terminal
+    assert owner.execute_model_state is None
+    assert owner.sample_tokens(None) is None
+    # Removing the injected fault must not reopen a failed registered owner.
+    with pytest.raises(RuntimeError, match="DSpark prefix consumer is terminal"):
+        owner.execute_model(resumed)
+    assert tuple(transfer.sent) == protocol
+    assert owner.model is transfer.loaded_destination.target_model
+    assert owner.speculator is transfer.loaded_destination.speculator
+    assert owner.dspark_pd_consumer.binding.target_model is owner.model
+    assert owner.dspark_pd_consumer.binding.draft_model is owner.speculator.model
+    assert [page.data_ptr() for page in destination.pages] == cache_addresses
+    for actual, target in zip(destination.pages, expected, strict=True):
+        torch.testing.assert_close(actual, target, rtol=0, atol=0)
+    for actual, target in zip(
+        destination.source_pages, runner.source_pages_before, strict=True
+    ):
+        torch.testing.assert_close(actual, target, rtol=0, atol=0)
 
 
 @pytest.mark.parametrize("scheduled_pd_zero_case", [1, 6], indirect=True)

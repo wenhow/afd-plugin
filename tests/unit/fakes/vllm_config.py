@@ -170,6 +170,38 @@ def hccl_vllm_config(
     return config
 
 
+def v41_eager_qualification_config(
+    *,
+    dtype,
+    compilation_mode,
+    cudagraph_mode,
+    role="attention",
+    rank=0,
+    tensor_parallel_size=4,
+):
+    """Original target config before the FFN worker removes A-owned state."""
+    config = hccl_vllm_config(
+        dtype=dtype,
+        compilation_mode=compilation_mode,
+        cudagraph_mode=cudagraph_mode,
+        role=role,
+        tensor_parallel_size=tensor_parallel_size,
+    )
+    config.parallel_config.rank = rank
+    config.model_config.quantization = "deepseek_v4_fp8"
+    config.model_config.max_model_len = 1024
+    config.model_config.hf_config.num_hidden_layers = 40
+    config.quant_config = SimpleNamespace(get_name=lambda: "deepseek_v4_fp8")
+    config.load_config = SimpleNamespace(load_format="safetensors")
+    config.scheduler_config.max_num_seqs = 1
+    config.scheduler_config.max_num_batched_tokens = 1024
+    config.scheduler_config.async_scheduling = False
+    config.engram_config = SimpleNamespace(
+        cpu_offload=True, dp_shared_memory=False, embedding_across_dp=False
+    )
+    return config
+
+
 def pd_kv_transfer_config(*, tp_size=1, connector="MooncakeHybridConnector"):
     """Native KVTransferConfig fields only; no transfer engine or remote proof."""
     return SimpleNamespace(

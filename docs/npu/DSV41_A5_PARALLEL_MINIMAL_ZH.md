@@ -1,11 +1,59 @@
-# A5 并行验证：最小两场景
+# A5 并行验证：已完成场景与当前补充项
 
-本轮只运行 **原生 eager 基线一次、原生 DSpark N=1 一次**，共三个短请求。
-保持已成功的 950DT 八卡（每卡 98304 MiB）、DP8/TP1/EP8、CPU Engram 和完整
-checkpoint。开发端同步推进 AFD/PD；本轮不执行 AFD、PD、Graph/U2、N=2/3 或旧 TP8 探针。
-原生基线曾有首请求成功记录；本轮补同条件短请求及退出，再检查新增 DSpark 路径。
+2026-11-12 已完成：**原生 eager 基线一个短请求、原生 DSpark N=1 两个连续短请求**。
+三个请求均返回 32 个 token，输出 token IDs 一致；两个 DSpark 请求各有 19 个 draft、
+13 个接受，覆盖实际接受和拒绝。本轮无需重跑这三个请求。
 
-使用已配置 CANN 的容器终端；Python 固定为 `/usr/local/python3.11.10/bin/python`。
+已通过的是 950DT 八卡（每卡 98304 MiB）、DP8/TP1/EP8、CPU Engram 和完整
+checkpoint 的原生路径。两次 DSpark 请求落在不同 DP worker，退出清理记录仍需补齐；
+AFD、PD、Graph/U2、同 worker 跨请求状态和性能仍待各自验证。
+
+当前 A5 使用 Ascend `4ec6dc7722ec4f7f8005a86570238ac4377c5d43`，开发锁为
+`7e37e29a7803d6897a7113088e2b771f83205bc0`。已采集的源码 hash 中，量化
+`w4a8_mxfp4.py` 和 DSpark `speculator.py` 两个文件不同。开发端已取得与本次
+A5 安装 hash 一致的这两份源码，差异已定位。其中 DSpark 新增了对
+`ascend_forward_context.py` 中 draft MoE 配置和通信选择的依赖，该文件的实际安装
+字节还需确认；量化文件新增的 `shared_weights` 参数还需核对
+`ops/fused_moe/dataclass/fused_experts.py`。保留当前成功环境，只做下面一次源码采集和退出收尾。
+
+## 当前补充一：一个命令采集源码
+
+在更新后的 afd-plugin 源码根目录执行下面命令；更新方式见第 1 节。工具一次复制
+上述四份源码，并记录实际路径、SHA256、包版本及所在 Git 仓库的身份。前两份一并
+留存用于确认同一安装，后两份补齐新增依赖的审查。无需启动服务或配置 CANN 环境。
+工具仅使用 Python 标准库，不 import torch/vLLM，不加载算子库，不访问 NPU、不安装依赖。
+
+```bash
+/usr/local/python3.11.10/bin/python -B tools/diagnostics/collect_dsv41_a5_sources.py \
+  --output-root /mnt/workspace/tmp
+```
+
+工具打印一个全新的 `dsv41-a5-sources-*` 目录、同名 `.tar.gz` 和归档 SHA256。
+回传这个小归档即可；其中 `manifest.json` 的 `passed=true` 仅表示四份源码已完整采集，
+不表示它们与开发锁相同或运行验收通过。源码快照属于本地验证证据，不提交或推送远端。
+
+## 当前补充二：退出记录
+
+如果 DSpark 服务仍在运行，先在原启动终端 Ctrl+C，等待启动器返回；若已经停止，
+无需重启服务。将变量改为**既有 DSpark 运行目录**后采集当前状态：
+
+```bash
+afd_native_run=/absolute/path/of/existing/dspark/run
+date -u > "$afd_native_run/post-exit-time.txt"
+npu-smi info > "$afd_native_run/npu-post-exit.log" 2>&1
+ps -eo pid,ppid,lstart,stat,comm > "$afd_native_run/processes-post-exit.log"
+```
+
+回传这些记录及已有的 `launcher-exit-code.txt`、`server-exit-code.txt`（若生成）。
+同时简述基线服务最终释放 worker 的大致时间，以及期间是否人工停止进程或重启容器；
+没有记录的部分标为未知。后补快照代表采集时刻，不能倒推之前退出时已清理完成。
+本轮不新增请求，不自动停止其他进程。
+
+## 以下为已完成的两场景操作记录
+
+保留下面步骤供后续复现；当前无需从第 2 节重新执行。使用已配置 CANN 的容器终端；
+Python 固定为 `/usr/local/python3.11.10/bin/python`。
+
 不需要 venv 或 `atb-env`，不安装依赖，沿用容器现有 FastAPI。先确认八卡空闲、
 主机 RAM 和 `/dev/shm` 足够（既有布局使用 512 GiB shm）。任何阶段失败即保留目录，
 停止后续场景；不改 checkpoint、并行布局或门禁来绕过失败。

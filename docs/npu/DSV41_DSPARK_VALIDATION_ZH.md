@@ -209,13 +209,31 @@ target 页和 P 源页。固定词表 head 的输出本身不能替代前述 hid
 实际依赖下八个完整模块独立单轮 **561 项通过、0 失败、0 跳过**，127 项安装源码
 与锁定 Git 一致；138 个生产 Python 文件保持交付基线。它不覆盖随机采样或第二轮
 全接受、中途拒绝；draft 的固定 head/Markov 输出也不能代替 draft Attention/HC
-数值验收。完整模型与 PD Graph/U2
-门禁保持关闭，后续仍需请求取消/故障生命周期、设备和性能验收。
+数值验收。该轮未开放完整模型与 PD Graph/U2。
+
+后续增加同一 runner 的生命周期组合：原生 D 请求执行两轮后自然达到长度上限或
+由 Scheduler 取消，再以同一请求 ID、原生 slot 和 owner 接收本地新 prefill，
+检查新输入、历史、draft、整页缓存与输出。另在 target 调用入口注入 Python 异常，
+检查原异常、terminal 拒绝重试及注册缓存保留。新请求不进行第二次远端读取；
+Engram 关闭，不代表在途 DMA 取消、真实 Engram 或新进程故障恢复验收。
+默认 penalties 关闭时，原生采样器不重建未使用的 histogram；本组不把该缓冲区
+清零作为请求隔离条件。
+
+上述增量与资格配置在 A3 实际依赖下十个完整模块独立单轮 **892 项通过、0 失败、
+0 跳过**，133 项安装源码与锁定 Git 一致。此前 561 通过/4 失败及 890 通过/2 失败
+轮次分别保留；前者修正未启用 penalties 的统计缓冲区预期，后者补齐故障用例已有的
+sampling CPU 初始化。生产模型执行、协议和上游源码未改；本轮唯一生产变化是下述
+显式资格配置校验。CPU 结果不代表完整 AFD、真实 Engram/HCCL 或设备故障恢复。
+
+完整 AFD 仅新增[受控 eager/U1 资格配置](DSV41_AFD_EAGER_QUALIFICATION_ZH.md)，
+默认仍拒绝，显式候选也只允许 DSpark 关闭。DSpark/PD Graph/U2 继续不准入。
 
 ## 后续 A5 统一验收
 
-与开发并行时先执行[最小两场景说明](DSV41_A5_PARALLEL_MINIMAL_ZH.md)：原生 eager
-基线一个短请求，再以原生 DSpark N=1 连续执行两个短请求，并检查退出和资源回收。
+2026-11-12 原生 eager 一个短请求、DSpark N=1 两个顺序短请求已通过；输出 token IDs
+相同，两个 DSpark 请求各接受 13/19 个 draft，且由不同 DP worker 执行。
+无需重跑三条请求，按[当前补充说明](DSV41_A5_PARALLEL_MINIMAL_ZH.md)核对新增源码
+依赖及退出记录。该结果限定于实际 A5 原生环境，完整 AFD 仍待验证。
 
 完整模型使用实际部署的依赖版本，并记录与锁定版本的差异。先完成
 [原生 eager 控制组](../../openspec/changes/afd-v41-hccl-text-eager/evidence/A5_NATIVE_EAGER_ZH.md)
@@ -236,8 +254,9 @@ target 页和 P 源页。固定词表 head 的输出本身不能替代前述 hid
 | 性能 | 同负载的吞吐、TTFT、TPOT、HBM 和实际使用卡数 |
 
 现有 [A5 通信与 Graph 组件批量验证](DSV41_A5_BATCH_VALIDATION_ZH.md) 可以单独执行，
-但其中的 q>1 通信/算术探针不能代替上述原生 DSpark 验收。当前完整模型门禁保留；
-这份说明不提供绕过门禁的服务命令。PD 与 DSpark/Graph 的组合仍需独立验收。
+但其中的 q>1 通信/算术探针不能代替上述原生 DSpark 验收。完整模型默认门禁保留；
+受控资格配置尚无可执行服务 recipe。这份说明不提供绕过校验的命令。
+PD 与 DSpark/Graph 的组合仍需独立验收。
 
 回传 CPU 问题时优先提供 `git-head.txt`、`exit-code.txt`、`pytest.xml` 和
 `pytest.log`。完整模型问题另附启动命令、实际依赖、请求参数及匹配的服务日志。
