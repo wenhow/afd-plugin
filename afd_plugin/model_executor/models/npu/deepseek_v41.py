@@ -15,6 +15,9 @@ from vllm.model_executor.models.utils import make_layers, maybe_prefix
 from vllm_ascend.ascend_forward_context import MoECommType
 from vllm_ascend.models.deepseek_v41 import model as native
 from vllm_ascend.models.deepseek_v41 import vl_model as native_wrapper
+from vllm_ascend.models.deepseek_v41.mixed_quant_attention import (
+    MixedQuantPackedCacheOps,
+)
 from vllm_ascend.ops.fused_moe.moe_comm_method import get_moe_comm_method
 
 from afd_plugin.compat.npu.runtime_config import validate_deepseek_v41_speculation
@@ -22,6 +25,9 @@ from afd_plugin.config import parse_afd_config
 from afd_plugin.connectors import AFDTransferContext, AFDTransferMetadata
 from afd_plugin.model_executor.models.forward_context import (
     get_afd_metadata_from_forward_context,
+)
+from afd_plugin.model_executor.models.npu.dsv41_packed_cache import (
+    AFDMixedQuantPackedCacheOps,
 )
 
 HCCL_V41_PARENT_FORWARD_KEY = "afd_hccl_v41_parent_forward"
@@ -112,8 +118,54 @@ class AFDDeepseekV41RemoteMoE(nn.Module):
         # ### PATCH END: remote complete MoE
 
 
+class AFDDeepseekV41Attention(native.DeepseekV41Attention):
+    """Keep native construction and select a local packed-cache head adapter."""
+
+    # Upstream: model.py::DeepseekV41Attention.__init__ @ Ascend 7e37e29a.
+    # Patch reason: A5's deployed packed attention wheel requires 64 heads even
+    # when Attention TP4 has 16 local heads.
+    # Patch functionality: replace only this Attention's exact native backend
+    # class; preserve A3 None and any other backend selected by the native code.
+    # Signature: matches upstream exactly; no added parameters or annotations.
+    # Delegation exception: the large constructor owns topology, cache specs,
+    # indexer/compressor and shared-KV construction. Only backend selection is
+    # adapted here, so copying that construction would duplicate native state.
+    # Removal: remove with AFDMixedQuantPackedCacheOps once 16 heads are native.
+    def __init__(
+        self,
+        vllm_config,
+        config,
+        max_position_embeddings=0,
+        cache_config=None,
+        quant_config=None,
+        prefix="",
+        topk_indices_buffer=None,
+        reduce_results=True,
+        need_gather_q_kv=False,
+    ):
+        super().__init__(
+            vllm_config=vllm_config,
+            config=config,
+            max_position_embeddings=max_position_embeddings,
+            cache_config=cache_config,
+            quant_config=quant_config,
+            prefix=prefix,
+            topk_indices_buffer=topk_indices_buffer,
+            reduce_results=reduce_results,
+            need_gather_q_kv=need_gather_q_kv,
+        )
+        # ### PATCH START: per-Attention packed-cache backend
+        if self.packed_cache_ops is MixedQuantPackedCacheOps:
+            self.packed_cache_ops = AFDMixedQuantPackedCacheOps
+        # ### PATCH END: per-Attention packed-cache backend
+
+
 class AFDDeepseekV41AttentionDecoderLayer(native.DeepseekV41DecoderLayer):
     """Retain native Attention, HC and Engram without constructing local MoE."""
+
+    # ### PATCH START: local packed-cache compatibility
+    attention_cls = AFDDeepseekV41Attention
+    # ### PATCH END: local packed-cache compatibility
 
     # Upstream: DeepseekV41DecoderLayer.__init__, model.py:783-858 @ 7e37e29a.
     # Patch reason: native construction allocates Attention and complete MoE.

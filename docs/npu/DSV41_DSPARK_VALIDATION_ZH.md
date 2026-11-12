@@ -274,3 +274,11 @@ PD 与 DSpark/Graph 的组合仍需独立验收。
 回传 CPU 问题时优先提供 `git-head.txt`、`exit-code.txt`、`pytest.xml` 和
 `pytest.log`。完整模型问题另附启动命令、实际依赖、请求参数及匹配的服务日志。
 验证结果保留在运行环境；交付分支只提交代码、测试和操作说明。
+
+
+2026-11-12 补充：AFD A/F 已完成加载并健康就绪，首请求因 A5 packed Sparse MLA
+仅接受 64 个 Q 头而拒绝 TP4 的 16 个本地头。插件增加每实例的 16→64 补齐与输出裁剪，
+A3 的 15 个完整模块共 1035 项 CPU 回归通过（0 failed/error/skipped）；该结果不证明
+A5 算子、AFD 推理或正常退出通过。先按
+[同一个 AFD 命令](DSV41_AFD_EAGER_QUALIFICATION_ZH.md)自动完成轻量算子检查和一个短请求，
+本门通过后再开放 AFD DSpark N=1；此前原生三条请求无需重复。

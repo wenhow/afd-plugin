@@ -150,6 +150,33 @@ DEFAULT_PROFILE = PreflightProfile(
             "worker/v2/model_runner.py",
             "a3471a9f181b45742b8f985c86137cdaafc2871d2ef6f96aa6a45236a242969b",
         ),
+        # The TP4 packed-head adapter and its device probe depend on these
+        # native seams. All five also match the locked 7e37e29a byte-for-byte.
+        SourceIdentity(
+            "vllm_ascend",
+            "models/deepseek_v41/mixed_quant_attention.py",
+            "dd16dbe509f5fab609979f0cc37ab37cdeeb5befa7c5586b14b3c268a124c5c1",
+        ),
+        SourceIdentity(
+            "vllm_ascend",
+            "device/device_op.py",
+            "a603e21fff2dabc06877fe6a1e52fe3637dec316b1a4cae7228a54037ec9766a",
+        ),
+        SourceIdentity(
+            "vllm_ascend",
+            "attention/dsa_v41.py",
+            "d9a9f3c02eda7ba50fbfe3de1e42022921539cb2c7c16947f63ef60fbfb8adb4",
+        ),
+        SourceIdentity(
+            "vllm_ascend",
+            "models/deepseek_v41/cache_config.py",
+            "467dddca82e2528ebbec14c78682486a39bffb4f096675d8b1d2d140f1a7014b",
+        ),
+        SourceIdentity(
+            "vllm_ascend",
+            "ops/packaged_attention.py",
+            "57b84d4c65884a353afe56aa6821bf22fd1a451c7d3ee15e5db4a0208a3873e9",
+        ),
     ),
 )
 
@@ -170,6 +197,7 @@ def git_identity(directory: Path) -> dict[str, JSONValue]:
                 "afd_plugin",
                 "pyproject.toml",
                 "tools/diagnostics",
+                "tests/npu/dsv41_packed_attention_probe.py",
             ),
         ),
     ):

@@ -1,7 +1,7 @@
 # V4.1 AFD eager/U1：受控资格配置
 
-本页提供首次完整 A/F 硬件资格验证的受控启动器。**尚未通过 A5 完整 AFD 冷启动、
-文本推理或退出验收。** 默认只做源码与 checkpoint 预检；只有显式 `--run` 才启动服务。
+本页提供首次完整 A/F 硬件资格验证的受控启动器。**A/F 已完成加载并健康就绪，首个请求仍失败；
+尚未通过完整文本推理与正常退出验收。** 默认只做源码与 checkpoint 预检；只有显式 `--run` 才启动服务。
 本批仍为 DSpark 关闭的第一道门，完整模型默认拒绝策略保留。
 
 ## 显式候选范围
@@ -61,7 +61,7 @@ speculator、`ascend_forward_context.py` 和 `fused_experts.py` 四份实际安�
 
 首批 EP 关闭，MegaMoE 不参与该 AFD 候选。量化新增的 `shared_weights` 入参和对应
 dataclass 已一并审查。DSpark 的 draft MoE 私有配置/current-config 差异保留给后续
-N=1 准入，本次不执行 DSpark。预检固定核对 vLLM 八份与 Ascend 八份关键源码，
+N=1 准入，本次不执行 DSpark。预检固定核对 vLLM 八份与 Ascend 十三份关键源码，
 并非整仓等价证明；版本号不能代替源码字节。
 
 ## 最小 A5 操作：只新增一个 AFD 请求
@@ -79,6 +79,23 @@ N=1 准入，本次不执行 DSpark。预检固定核对 vLLM 八份与 Ascend �
 无需修改模型 config、移除多模态字段或调整 CANN/FastAPI。遇到该报错时先按上述
 说明更新分支，再原样执行下面命令。旧结果目录保留，新一轮自动创建不同目录。
 
+后续运行已通过 A/F 加载、F 接收循环和 A `/health`，但首个请求返回 HTTP 500：
+`N1 must be 64 (the only supported query-head count), got 16`。根因是 native A5
+mixed-quant Sparse MLA 轮子仅接受 64 个 Q 头，而 TP4 的每个 A rank 只有 16 个。
+这是 Attention 计算约束；加载和健康就绪不能证明 A/F 推理或正常退出通过。
+
+本次插件兼容仅在 A Attention 实例选中原生 `MixedQuantPackedCacheOps` 时启用：
+将 16 个 Q/sink 头补齐为 64，调用原生 `qsmla`，再截取原 16 头的连续输出。
+KV、索引、metadata 等待和 sink FP32 转换沿用原生；不修改上游或轮子。
+五份新增原生依赖在部署版本 `4ec6dc77` 与开发锁 `7e37e29a` 中字节相同，
+已加入只读预检；仍须核对环境实际安装文件。CPU 1035 项合同回归通过（含新增 14 项），
+**A5 packed 算子数值、完整请求及正常退出尚待本轮验证**。
+
+此兼容会令 TP4 Attention 头计算量扩大到原来的 4 倍，并增加临时 Q/output/crop。
+它是功能资格候选；不得据此宣称性能合格。详见
+[适配设计](../design/module/dsv41_packed_cache.md)。请求中途失败时，已发布的 FORWARD
+事务可能仍令 F 阻塞接收；保留 STOP 的 idle-boundary 保护和强制回收标记，不将其当作正常退出。
+
 第一步仅预检，不启动服务、不加载算子库、不访问 NPU：
 
 ```bash
@@ -93,7 +110,7 @@ N=1 准入，本次不执行 DSpark。预检固定核对 vLLM 八份与 Ascend �
 范围、Python、插件入口、源码和 checkout 状态。不读取 tensor payload，不证明权重
 内容或完整模型正确性。不能以替换文件、放宽哈希或修改门禁绕过预检失败。
 
-第二步执行唯一新增场景。启动器会重新预检，然后自动完成启动、请求、退出和归档：
+第二步仍只执行下面一个命令。启动器重新预检后，先在独立进程用单卡小张量检查真实 packed 算子：3 token/1 token × 原始 KV/压缩 KV，比较原生 64 头与适配后 16 头输出；不加载模型、不建立通信组。通过并确认设备空闲后，再自动完成 A/F 启动、一个请求、退出和归档。算子检查失败会保留 JSON/日志并停止，不加载大模型：
 
 ```bash
 /usr/local/python3.11.10/bin/python -B tools/diagnostics/run_dsv41_a5_afd.py \
@@ -136,6 +153,7 @@ F 使用插件独立入口 `afd_plugin.entrypoints.npu_ffn`，继承原生 `Sync
 - `summary.json`、`preflight.json`、`launch-plan.json` 和 `lifecycle.json`。
 - `request.json`、`response.json`，以及使用参考时的 `reference-response.json`。
 - `attention-server.log`、`ffn-server.log`、算子探针、资源与前后 NPU 快照。
+- `packed-attention-probe.json`、`packed-attention-probe-server.log`：轻量算子的四例结果、比较误差、版本和源码哈希；失败时含具体阶段和异常栈。
 
 预检失败时先回传 `preflight.json`；不用启动服务收集后续文件。归档不含模型权重。
 所有原始结果保留在环境，代码分支只交付代码、测试和操作说明。

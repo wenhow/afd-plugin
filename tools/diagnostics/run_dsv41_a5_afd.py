@@ -48,6 +48,7 @@ REQUEST_TOKENS = 32
 SHUTDOWN_SECONDS = 180
 OUTER_SHUTDOWN_SECONDS = 240
 REQUEST_TIMEOUT_SECONDS = 300
+PACKED_ATTENTION_PROBE_SECONDS = 180
 POLL_SECONDS = 1
 TERM_GRACE_SECONDS = 10
 KILL_GRACE_SECONDS = 10
@@ -578,6 +579,36 @@ def run_candidate(
         roles = plan["roles"]
         probe_library(directory, roles["attention"]["environment"], vendor)
         repo = Path(plan["repo_root"])
+        probe = owner.start(
+            "packed-attention-probe",
+            [
+                sys.executable,
+                "-B",
+                str(repo / "tests/npu/dsv41_packed_attention_probe.py"),
+                "--run",
+                "--device",
+                "0",
+                "--output",
+                str(directory / "packed-attention-probe.json"),
+            ],
+            roles["attention"]["environment"],
+            repo,
+        )
+        if not owner.wait_exit(probe, PACKED_ATTENTION_PROBE_SECONDS):
+            raise RuntimeError("packed attention probe timed out; services not started")
+        if probe.process.returncode:
+            raise RuntimeError(
+                "packed attention probe failed; see packed-attention-probe.json "
+                "and packed-attention-probe-server.log"
+            )
+        result["packed_attention_probe"] = json.loads(
+            (directory / "packed-attention-probe.json").read_bytes()
+        )
+        if not result["packed_attention_probe"]["passed"] or owner.survivors():
+            raise RuntimeError("packed attention probe did not finish successfully")
+        if not npu_snapshot(directory, "npu-after-packed-probe.log")["all_eight_idle"]:
+            raise RuntimeError("NPU processes remain after packed attention probe")
+        owner.record("packed_attention_probe_passed")
         # A and F must enter connector construction concurrently. F readiness
         # before starting A would deadlock the paired HCCL rendezvous.
         ffn = owner.start(
