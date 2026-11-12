@@ -136,6 +136,8 @@ def _projection_model(kv_case, names, *, fail_projection=False):
     model.layers = nn.ModuleDict(blocks)
     outer = DSparkDeepseekV41ForCausalLM.__new__(DSparkDeepseekV41ForCausalLM)
     nn.Module.__init__(outer)
+    # Match the native decorator's eager constructor branch on this CPU model.
+    outer.do_not_compile = True
     outer.model = model
     if fail_projection:
 
@@ -382,20 +384,29 @@ def make_dspark_pd_prefix_case(
         )
         # Native source0 shares long/index/compressor only. Every target layer
         # owns its SWA storage; homogeneous SWA specs still share one group.
+        source_spec = group.kv_cache_spec.kv_cache_specs[source_swa]
         for layer in range(1, PD_CPU_TARGET_LAYERS):
             name = f"model.layers.{layer}.self_attn.swa_cache"
-            tensor = torch.zeros(
-                kv_case.caches[source_swa].shape,
-                dtype=kv_case.caches[source_swa].dtype,
+            original = kv_case.caches[source_swa]
+            page = torch.zeros(
+                num_blocks * source_spec.page_size_bytes, dtype=torch.uint8
+            )
+            tensor = original.new_empty(0).set_(
+                page.untyped_storage(),
+                0,
+                original.shape,
+                (source_spec.page_size_bytes // original.element_size(),)
+                + original.stride()[1:],
             )
             kv_case.caches[name] = tensor
             group.layer_names.append(name)
+            group.kv_cache_spec.kv_cache_specs[name] = source_spec
             kv_case.config.kv_cache_tensors.append(
                 KVCacheTensor(
-                    size=tensor.numel() * tensor.element_size(),
+                    size=page.numel(),
                     layers=[name],
                     layer_stride=0,
-                    block_stride=group.kv_cache_spec.page_size_bytes,
+                    block_stride=source_spec.page_size_bytes,
                 )
             )
     names = (("draft.layers.0.swa_cache", 4), ("draft.layers.1.swa_cache", 2))

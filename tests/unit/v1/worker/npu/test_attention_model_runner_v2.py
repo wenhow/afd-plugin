@@ -74,6 +74,7 @@ from tests.unit.fakes.kv_connector import (
     make_native_full_kv_sampling_case,
     make_native_kv_runner_case,
     native_dspark_eager_reference,
+    native_pd_target_step_reference,
 )
 from tests.unit.fakes.kv_layout_connector import (
     DESTINATION_SENTINEL,
@@ -216,6 +217,118 @@ def test_native_pd_first_sample_keeps_prompt_and_drafts(  # long-test: first D s
         torch.testing.assert_close(actual, expected, rtol=0, atol=0)
     assert owner.execute_model_state is None
     assert batch.num_draft_tokens == resumed.total_num_scheduled_tokens - 1
+
+
+@pytest.mark.parametrize("scheduled_pd_zero_case", [1, 6], indirect=True)
+def test_native_pd_second_sample_keeps_rejection_frontier(  # long-test: two PD rounds
+    native_pd_target_case, monkeypatch
+):
+    transfer, runner, resumed = native_pd_target_case
+    initialize_native_pd_sampling(monkeypatch, runner)
+    owner, destination = runner.owner, transfer.destination_cache
+    request_id = transfer.request.request_id
+    prompt = resumed.scheduled_new_reqs[0].prompt_token_ids
+    assert owner.execute_model(resumed) is None
+    first_output = owner.sample_tokens(None).get_output()
+    assert first_output.sampled_token_ids == [[PD_CPU_TARGET_TOKEN]]
+
+    # Match synchronous EngineCore: consume output, take native no-grammar
+    # draft placeholders, then schedule. Real draft values stay on the owner.
+    transfer.scheduler.update_from_output(resumed, first_output)
+    drafts = owner.take_draft_token_ids()
+    assert drafts.req_ids == [request_id]
+    assert drafts.draft_token_ids == [[-1] * owner.num_speculative_steps]
+    transfer.scheduler.update_draft_token_ids(drafts)
+    scheduled = transfer.scheduler.schedule()
+    assert scheduled.scheduled_new_reqs == []
+    cached = scheduled.scheduled_cached_reqs
+    assert cached.req_ids == [request_id]
+    assert cached.resumed_req_ids == set()
+    assert cached.num_computed_tokens == [len(prompt)]
+    assert cached.num_output_tokens == [1]
+    assert scheduled.scheduled_spec_decode_tokens == {
+        request_id: [-1] * owner.num_speculative_steps
+    }
+    width = owner.num_speculative_steps + 1
+    assert scheduled.num_scheduled_tokens == {request_id: width}
+    # CachedRequestData contains only appended blocks. The independent oracle
+    # needs the scheduler's entire absolute map, including retired null slots.
+    block_ids = transfer.scheduler.kv_cache_manager.get_block_ids(request_id)
+    expected_ids = torch.arange(PD_CPU_TARGET_TOKEN, PD_CPU_TARGET_TOKEN + width)
+    expected = native_pd_target_step_reference(
+        runner,
+        scheduled,
+        input_ids=expected_ids,
+        computed=len(prompt),
+        block_ids=block_ids,
+    )
+    assert owner.execute_model(scheduled) is None
+    step = owner.execute_model_state
+    assert step.input_batch.input_ids.tolist() == expected_ids.tolist()
+    assert step.input_batch.positions.tolist() == list(
+        range(len(prompt), len(prompt) + width)
+    )
+    torch.testing.assert_close(
+        step.hidden_states, expected.hidden_states, rtol=0, atol=0
+    )
+    for actual, target in zip(
+        step.aux_hidden_states, expected.aux_hidden_states, strict=True
+    ):
+        torch.testing.assert_close(actual, target, rtol=0, atol=0)
+    torch.testing.assert_close(
+        owner.model.get_mtp_target_hidden_states()[:width],
+        expected.mtp_hidden_states,
+        rtol=0,
+        atol=0,
+    )
+    for actual, target in zip(destination.pages, expected.pages, strict=True):
+        torch.testing.assert_close(actual, target, rtol=0, atol=0)
+    index = owner.req_states.req_id_to_index[request_id]
+    assert owner.req_states.total_len.gpu[index].item() == len(prompt) + 1
+    assert owner.req_states.num_computed_tokens.gpu[index].item() == len(prompt)
+
+    # The target head predicts 7 while the first real draft is 8: actual greedy
+    # rejection retains only the anchor row and advances one accepted frontier.
+    output = owner.sample_tokens(None).get_output()
+    assert output.req_ids == [request_id]
+    assert output.sampled_token_ids == [[PD_CPU_TARGET_TOKEN]]
+    assert owner.req_states.total_len.gpu[index].item() == len(prompt) + 2
+    assert owner.req_states.num_computed_tokens.gpu[index].item() == len(prompt) + 1
+    assert owner.req_states.all_token_ids.gpu[index, : len(prompt) + 2].tolist() == (
+        prompt + [PD_CPU_TARGET_TOKEN, PD_CPU_TARGET_TOKEN]
+    )
+    assert owner.req_states.draft_tokens[index].tolist() == expected_ids[1:].tolist()
+    counts = owner.sampler.penalties_state.output_bin_counts[index]
+    assert counts[PD_CPU_TARGET_TOKEN].item() == counts.sum().item() == 2
+    combined = sum(
+        (ordinal + 1) * states.float()
+        for ordinal, states in enumerate(expected.aux_hidden_states)
+    ).to(torch.bfloat16)
+    for group_id in owner.speculator.draft_kv_cache_group_ids:
+        group = destination.config.kv_cache_groups[group_id]
+        block, offset = divmod(len(prompt), group.kv_cache_spec.block_size)
+        for name in group.layer_names:
+            torch.testing.assert_close(
+                destination.caches[name][block_ids[group_id][block], offset, 0],
+                combined[0, :2],
+                rtol=0,
+                atol=0,
+            )
+    for page, actual, target in zip(
+        destination.layout.pages, destination.pages, expected.pages, strict=True
+    ):
+        if not set(page.layers) & owner.speculator.draft_attn_layer_names:
+            torch.testing.assert_close(actual, target, rtol=0, atol=0)
+    for actual, target in zip(
+        destination.source_pages, runner.source_pages_before, strict=True
+    ):
+        torch.testing.assert_close(actual, target, rtol=0, atol=0)
+    transfer.scheduler.update_from_output(scheduled, output)
+    assert list(transfer.request.output_token_ids) == [PD_CPU_TARGET_TOKEN] * 2
+    assert transfer.request.num_computed_tokens == len(prompt) + 1
+    assert owner.execute_model_state is None
+    assert owner.model is transfer.loaded_destination.target_model
+    assert owner.speculator is transfer.loaded_destination.speculator
 
 
 @pytest.mark.parametrize("scheduled_pd_zero_case", [1, 6], indirect=True)

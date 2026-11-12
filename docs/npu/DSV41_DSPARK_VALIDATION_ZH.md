@@ -195,14 +195,27 @@ store、draft 输入准备和输出复制使用 CPU 叶子；不预置接受数�
 用例检查 prompt/history、computed frontier、下一批 draft、接受后的新 draft context、
 target 页和 P 源页。固定词表 head 的输出本身不能替代前述 hidden/整页数值检查。
 
-**这一新增组合尚待具有实际依赖的环境运行。** 2026-11-11 的 A3 尝试在 SSH 建连阶段
-被关闭，尚未上传或启动 pytest；没有新的测试通过数或远端源码一致性结果。本地完成
-Python 3.11 AST、Ruff/格式、规划与上游只读检查；缺少依赖的本地主机仅收集为 skip。
-上文两轮 189 项结果分别属于此前的接收和 worker 接入组合，不能计作本次首步执行通过。
-环境恢复后运行本节八模块命令，保留失败现场后再继续修正。完整模型与 PD Graph/U2
-门禁保持关闭，后续仍需多轮调度、请求状态、设备及性能验收。
+2026-11-12 A3 恢复连接后，首步组合的三个完整模块独立单轮 **193 项通过、0 失败、
+0 跳过**，125 项实际安装源码与锁定 Git 一致。修正仅涉及测试夹具：新增 SWA 层的
+逐层规格及带页内空隙的存储、三层压缩配置的保留，以及 eager manager、AFD 元数据
+和 draft 装饰器的正常初始化字段。此前失败轮次分别保留，不拼接为通过结果；138 个
+生产 Python 文件保持交付基线，没有执行设备探针、推理服务或依赖安装。
+
+后续两轮组合继续沿用同一请求、模型和缓存，通过原生 Scheduler 消费首轮结果，
+再由 `take_draft_token_ids` 回传无 grammar 的占位列表供下一轮调度。真实 draft
+仍留在 RequestState，实际输入准备读取其 token；占位值不能作为模型输入。
+第二轮独立参考使用完整绝对块表及当轮清零列表，检查 hidden、auxiliary、整个 D 页，
+以及实际首步拒绝后的 computed frontier、历史和新 draft context。该组合在 A3
+实际依赖下八个完整模块独立单轮 **561 项通过、0 失败、0 跳过**，127 项安装源码
+与锁定 Git 一致；138 个生产 Python 文件保持交付基线。它不覆盖随机采样或第二轮
+全接受、中途拒绝；draft 的固定 head/Markov 输出也不能代替 draft Attention/HC
+数值验收。完整模型与 PD Graph/U2
+门禁保持关闭，后续仍需请求取消/故障生命周期、设备和性能验收。
 
 ## 后续 A5 统一验收
+
+与开发并行时先执行[最小两场景说明](DSV41_A5_PARALLEL_MINIMAL_ZH.md)：原生 eager
+基线一个短请求，再以原生 DSpark N=1 连续执行两个短请求，并检查退出和资源回收。
 
 完整模型使用实际部署的依赖版本，并记录与锁定版本的差异。先完成
 [原生 eager 控制组](../../openspec/changes/afd-v41-hccl-text-eager/evidence/A5_NATIVE_EAGER_ZH.md)

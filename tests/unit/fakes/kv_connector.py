@@ -401,6 +401,12 @@ def initialize_native_pd_target_execution(monkeypatch, case, *, scheduler_output
     owner.step_timing = StepTimingCollector()
     owner.attn_groups = []
     owner.update_stream = None
+    # The CPU model executes local FFN arithmetic, without an A/F transport.
+    # Keep the real eager metadata provider and its normal constructor state.
+    owner._afd_transaction_counter = 0
+    owner.connector = SimpleNamespace(control_plane=None)
+    # Eager's actual NONE manager still reads the resolved capture-size list.
+    owner.vllm_config.compilation_config.cudagraph_capture_sizes = []
     pp = SimpleNamespace(is_first_rank=True, is_last_rank=True)
     monkeypatch.setattr(native_cudagraph, "get_pp_group", lambda: pp)
     owner.cudagraph_manager = ModelAclGraphManager(
@@ -419,6 +425,31 @@ def initialize_native_pd_target_execution(monkeypatch, case, *, scheduler_output
     )
     case.expected_positions = torch.arange(computed, computed + width)
     case.source_pages_before = tuple(page.clone() for page in destination.source_pages)
+    case.expected_target = native_pd_target_step_reference(
+        case,
+        scheduler_output,
+        input_ids=case.expected_input_ids,
+        computed=computed,
+        block_ids=request.block_ids,
+    )
+
+
+def native_pd_target_step_reference(
+    case,
+    scheduler_output: SchedulerOutput,
+    *,
+    input_ids: torch.Tensor,
+    computed: int,
+    block_ids: tuple[list[int], ...],
+) -> SimpleNamespace:
+    """Snapshot D's current pages before one actual scheduled target step.
+
+    Callers supply independent token/frontier expectations and the scheduler's
+    complete absolute block IDs, never incremental CachedRequestData blocks.
+    The byte oracle applies only this step's native zeroing and CPU arithmetic;
+    it neither observes prepared runner inputs nor initializes a new owner.
+    """
+    destination = case.pd_read_case.destination_cache
     zeroed = native_zeroed_cache_reference(
         layout=destination.layout,
         config=destination.config,
@@ -426,11 +457,11 @@ def initialize_native_pd_target_execution(monkeypatch, case, *, scheduler_output
         pages=destination.pages,
         block_ids=scheduler_output.new_block_ids_to_zero,
     )
-    case.expected_target = native_pd_target_reference(
-        case.expected_input_ids,
-        case.expected_positions,
+    return native_pd_target_reference(
+        input_ids,
+        torch.arange(computed, computed + input_ids.numel()),
         computed=computed,
-        block_ids=tuple(tuple(group) for group in request.block_ids),
+        block_ids=tuple(tuple(group) for group in block_ids),
         layout=destination.layout,
         pages=zeroed,
         caches=destination.caches,

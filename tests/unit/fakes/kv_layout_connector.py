@@ -610,7 +610,8 @@ def make_dspark_registration_case(monkeypatch, prefix_case, *, bind=True):
     prefix.config.model_config.is_deepseek_mla = True
     prefix.config.cache_config.block_size = 4
     text = PretrainedConfig(**vars(prefix.config.model_config.hf_text_config))
-    text.compress_ratios = [DSPARK_CPU_COMPRESS_RATIO]
+    if "compress_ratios" not in vars(text):
+        text.compress_ratios = [DSPARK_CPU_COMPRESS_RATIO]
     prefix.config.model_config.hf_config = prefix.config.model_config.hf_text_config = (
         text
     )
@@ -713,7 +714,8 @@ def make_dspark_scheduler_case(monkeypatch, prefix, *, role="kv_producer"):
         kv_connector_extra_config=original.kv_connector_extra_config,
     )
     config.cache_config.block_size = 4
-    config.model_config.hf_config.compress_ratios = [DSPARK_CPU_COMPRESS_RATIO]
+    if "compress_ratios" not in vars(config.model_config.hf_config):
+        config.model_config.hf_config.compress_ratios = [DSPARK_CPU_COMPRESS_RATIO]
     config.scheduler_config.disable_hybrid_kv_cache_manager = False
     monkeypatch.setattr(native_mooncake, "init_ascend_config", lambda config: None)
     monkeypatch.setattr(native_mooncake, "get_ascend_config", lambda: None)
