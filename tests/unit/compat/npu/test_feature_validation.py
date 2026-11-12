@@ -106,11 +106,14 @@ def test_dspark_components_do_not_enable_full_v41_model_execution(role):
 def v41_eager_candidate():
     torch = pytest.importorskip("torch")
     pytest.importorskip("vllm")
-    from vllm.config import CompilationMode
+    from vllm.config import CompilationMode, ModelConfig
     from vllm.config.compilation import CUDAGraphMode
+    from vllm.config.multimodal import MultiModalConfig
 
-    def build(*, role="attention", rank=0, tensor_parallel_size=4):
-        return v41_eager_qualification_config(
+    def build(
+        *, role="attention", rank=0, tensor_parallel_size=4, language_model_only=None
+    ):
+        config = v41_eager_qualification_config(
             dtype=torch.bfloat16,
             compilation_mode=CompilationMode.NONE,
             cudagraph_mode=CUDAGraphMode.NONE,
@@ -118,6 +121,16 @@ def v41_eager_candidate():
             rank=rank,
             tensor_parallel_size=tensor_parallel_size,
         )
+        if language_model_only is not None:
+            # Preserve the actual ModelConfig descriptor without running its
+            # checkpoint/model-inspection initialization on a CPU-only host.
+            native_model = object.__new__(ModelConfig)
+            vars(native_model).update(vars(config.model_config))
+            native_model.multimodal_config = MultiModalConfig(
+                language_model_only=language_model_only
+            )
+            config.model_config = native_model
+        return config
 
     return build
 
@@ -142,6 +155,36 @@ def test_v41_eager_qualification_accepts_only_explicit_role_candidate(
     assert source.engram_config.cpu_offload is True
     if role == "ffn":
         assert config.engram_config is None
+
+
+@pytest.mark.parametrize("role", ["attention", "ffn"])
+@pytest.mark.parametrize(
+    "language_model_only,is_encoder_decoder",
+    [(False, False), (True, False), (True, True)],
+)
+def test_v41_eager_qualification_admits_native_wrapper_only_in_language_mode(
+    monkeypatch, v41_eager_candidate, role, language_model_only, is_encoder_decoder
+):
+    source = v41_eager_candidate(role=role, language_model_only=language_model_only)
+    assert source.model_config.is_multimodal_model is True
+    source.model_config.is_encoder_decoder = is_encoder_decoder
+    config = get_npu_ffn_config(source) if role == "ffn" else source
+    original_engram = source.engram_config
+    monkeypatch.setenv("AFD_DSV41_EAGER_QUALIFICATION", "1")
+    expected = (
+        nullcontext()
+        if language_model_only and not is_encoder_decoder
+        else pytest.raises(ValueError, match="decoder-only text")
+    )
+
+    with expected:
+        fail_if_unsupported_npu_afd_features(config)
+
+    assert config.model_config is source.model_config
+    assert source.engram_config is original_engram
+    assert (
+        source.model_config.multimodal_config.language_model_only is language_model_only
+    )
 
 
 @pytest.mark.parametrize("flag", [None, "0"])

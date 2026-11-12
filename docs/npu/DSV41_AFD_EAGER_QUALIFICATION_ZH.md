@@ -72,6 +72,13 @@ N=1 准入，本次不执行 DSpark。预检固定核对 vLLM 八份与 Ascend �
 `feat/dsv41-flash-hccl-v030`。八张卡必须空闲，A 固定可见卡 0–3、F 固定 4–7。
 两侧各自 TP4；此映射须与本机实际卡号及拓扑一致。
 
+2026-11-12 的 `700c048` 首次启动在 A/F 资格检查阶段误报
+`V4.1 eager qualification requires a text-only model`，未发出请求。原因是原生
+`--language-model-only` 保留 `MultiModalConfig`，`is_multimodal_model` 仍为 true。
+修复后由现有 HCCL 校验检查 `language_model_only`，继续拒绝视觉与 encoder-decoder；
+无需修改模型 config、移除多模态字段或调整 CANN/FastAPI。遇到该报错时先按上述
+说明更新分支，再原样执行下面命令。旧结果目录保留，新一轮自动创建不同目录。
+
 第一步仅预检，不启动服务、不加载算子库、不访问 NPU：
 
 ```bash

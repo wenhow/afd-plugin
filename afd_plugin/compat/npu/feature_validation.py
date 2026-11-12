@@ -54,8 +54,9 @@ def _validate_v41_eager_qualification(
     if parallel.tensor_parallel_size != V41_EAGER_QUALIFICATION_TP_SIZE:
         raise ValueError("V4.1 eager qualification requires A4/F4 with native TP4")
     model = vllm_config.model_config
-    if model.is_multimodal_model:
-        raise ValueError("V4.1 eager qualification requires a text-only model")
+    # The connector validator owns text admission. Native language-only V4.1
+    # retains MultiModalConfig, so is_multimodal_model is still True even when
+    # its vision path is disabled by multimodal_config.language_model_only.
     if model.enable_sleep_mode or vllm_config.weight_transfer_config is not None:
         raise ValueError("V4.1 eager qualification requires sleep/weight updates off")
     if (
