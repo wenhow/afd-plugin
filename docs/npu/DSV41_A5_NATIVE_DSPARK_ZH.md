@@ -1,5 +1,7 @@
 # A5 原生 DSpark eager 对照
 
+与开发并行时，先按[最小两场景说明](DSV41_A5_PARALLEL_MINIMAL_ZH.md)执行：原生基线一个短请求，DSpark N=1 两个连续短请求；其余场景按结果再展开。
+
 完整 draft 会增加权重、KV 和 workspace 显存；既有 DSpark-off 的显存数据不能保证开启后仍能装入。先在空闲的 950DT 八卡环境手工执行 **N=1 单轮 eager**，保存失败现场或完整结果，再决定是否进行 N=2/3。本文命令尚未在 A5 执行，不代表 DSpark、AFD 或完整模型验收通过。
 
 这一路使用原生 vLLM/Ascend，保持现有 DP8/TP1/EP8、PP/PCP/DCP=1、Engram CPU offload/DP shared memory、小请求和同一完整 checkpoint。不开启 AFD 插件、Graph、DBO、PD 或 TP8 量化兼容补丁，不修改上游或安装 Python 包。AFD 完整模型门禁保持原状。
