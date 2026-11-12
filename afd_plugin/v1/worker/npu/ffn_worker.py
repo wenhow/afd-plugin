@@ -4,7 +4,6 @@
 
 from __future__ import annotations
 
-import logging
 import os
 import threading
 from functools import partial
@@ -13,6 +12,7 @@ from typing import TYPE_CHECKING, cast
 import torch
 from vllm.config import VllmConfig
 from vllm.distributed.parallel_state import get_world_group
+from vllm.logger import init_logger
 from vllm.platforms import current_platform
 from vllm.v1.worker.worker_base import CompilationTimes
 from vllm.v1.worker.workspace import init_workspace_manager
@@ -64,7 +64,9 @@ if TYPE_CHECKING:
 from afd_plugin.v1.worker.npu.hccl_v41_diagnostics import HcclV41DiagnosticBinding
 from afd_plugin.v1.worker.npu.hccl_v41_eager import HcclV41EagerSession
 
-logger = logging.getLogger(__name__)
+# Worker lifecycle results must use the configured serving handler/INFO level;
+# the standalone afd_plugin namespace otherwise inherits root WARNING.
+logger = init_logger(f"vllm.{__name__}")
 
 FFN_SHUTDOWN_TIMEOUT_SECONDS = 5
 

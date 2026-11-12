@@ -350,10 +350,26 @@ def test_worker_acknowledges_peer_stop_before_releasing_connector(lifecycle):
     assert worker.stop_ffn_server_loop() is None
 
 
+@pytest.fixture
+def serving_logs(caplog):
+    # Native serving config emits INFO under vllm; the unrelated root/plugin
+    # loggers keep WARNING. Do not promote the logger under test to INFO.
+    serving_logger = logging.getLogger("vllm")
+    serving_logger.addHandler(caplog.handler)
+    try:
+        with caplog.at_level(logging.WARNING):
+            # Capture all emitted records; leave the emitting logger's level
+            # untouched. Root WARNING must still discard an unconfigured INFO.
+            caplog.handler.setLevel(logging.NOTSET)
+            yield caplog
+    finally:
+        serving_logger.removeHandler(caplog.handler)
+
+
 @pytest.mark.parametrize("rank", [0, 3])
 @pytest.mark.parametrize("native_failure", [False, True])
 def test_hccl_worker_cleanup_log_requires_successful_native_shutdown(
-    lifecycle, monkeypatch, caplog, rank, native_failure
+    lifecycle, monkeypatch, serving_logs, rank, native_failure
 ):
     attention, ffn, _, worker = lifecycle
     worker.rank = rank
@@ -367,29 +383,29 @@ def test_hccl_worker_cleanup_log_requires_successful_native_shutdown(
     worker.start_ffn_server_loop()
     join_hccl_worker(worker)
 
-    with caplog.at_level(logging.INFO, logger=worker_module.__name__):
-        if native_failure:
-            with pytest.raises(RuntimeError, match="native cleanup failed"):
-                worker.shutdown()
-        else:
+    if native_failure:
+        with pytest.raises(RuntimeError, match="native cleanup failed"):
             worker.shutdown()
+    else:
+        worker.shutdown()
 
     assert not ffn.is_initialized
-    messages = [record.getMessage() for record in caplog.records]
+    messages = [record.getMessage() for record in serving_logs.records]
     marker = f"AFD HCCL FFN worker cleanup complete; rank={rank}."
     assert (marker in messages) is (not native_failure)
 
 
-def test_hccl_worker_cleanup_log_requires_peer_stop(lifecycle, monkeypatch, caplog):
+def test_hccl_worker_cleanup_log_requires_peer_stop(
+    lifecycle, monkeypatch, serving_logs
+):
     _, ffn, _, worker = lifecycle
     worker.rank = 0
     monkeypatch.setattr(worker_module.NPUWorker, "shutdown", lambda _worker: None)
 
-    with caplog.at_level(logging.INFO, logger=worker_module.__name__):
-        worker.shutdown()
+    worker.shutdown()
 
     assert not ffn.is_initialized
-    assert "AFD HCCL FFN worker cleanup complete;" not in caplog.text
+    assert "AFD HCCL FFN worker cleanup complete;" not in serving_logs.text
 
 
 def test_worker_keeps_compute_failure_terminal_across_raise_start_and_stop(lifecycle):

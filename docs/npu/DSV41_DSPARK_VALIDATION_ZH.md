@@ -282,3 +282,11 @@ A3 的 15 个完整模块共 1035 项 CPU 回归通过（0 failed/error/skipped�
 A5 算子、AFD 推理或正常退出通过。先按
 [同一个 AFD 命令](DSV41_AFD_EAGER_QUALIFICATION_ZH.md)自动完成轻量算子检查和一个短请求，
 本门通过后再开放 AFD DSpark N=1；此前原生三条请求无需重复。
+
+同日后续 A5 回传已完成四例真实 packed Attention 检查和一次 AFD HTTP 200 /
+32-token 请求。A/F 均 exit 0、无强制回收、八卡 idle；汇总缺少逐 worker 清理
+INFO 标记，日志通道已修复，原始退出判定保持。离线比较发现输入 token 与此前
+原生基线相同，但输出从第一个 token 起不同。两次 TP/EP 与 CPU Engram 布局不同，
+原因未定，**输出等价仍未通过，AFD DSpark N=1 尚不开放**。下一步优先隔离该差异，
+本包不需仅为补日志重复跑同一场景，详见
+[最新回传与边界](DSV41_AFD_EAGER_QUALIFICATION_ZH.md#最新回传请求已跑通输出等价仍待定位)。

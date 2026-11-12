@@ -1,7 +1,7 @@
 # V4.1 AFD eager/U1：受控资格配置
 
-本页提供首次完整 A/F 硬件资格验证的受控启动器。**A/F 已完成加载并健康就绪，首个请求仍失败；
-尚未通过完整文本推理与正常退出验收。** 默认只做源码与 checkpoint 预检；只有显式 `--run` 才启动服务。
+本页提供完整 A/F 硬件资格验证的受控启动器。**A5 已完成一次 32-token AFD 请求；
+输出等价与逐 worker 清理证据仍未闭合。** 默认只做源码与 checkpoint 预检；只有显式 `--run` 才启动服务。
 本批仍为 DSpark 关闭的第一道门，完整模型默认拒绝策略保留。
 
 ## 显式候选范围
@@ -64,7 +64,37 @@ dataclass 已一并审查。DSpark 的 draft MoE 私有配置/current-config 差
 N=1 准入，本次不执行 DSpark。预检固定核对 vLLM 八份与 Ascend 十三份关键源码，
 并非整仓等价证明；版本号不能代替源码字节。
 
-## 最小 A5 操作：只新增一个 AFD 请求
+## 最新回传：请求已跑通，输出等价仍待定位
+
+2026-11-12 使用 `4012903` 的回传结果如下。原始 `summary.json` 保持不变，
+其中 `clean_shutdown=false` 不因离线审阅而改写为 true。
+
+| 检查 | 结果及边界 |
+| --- | --- |
+| packed Attention | 四个真实算子场景全部通过；适配 16 头与原生 64 头的保留输出最大差为 0 |
+| AFD 请求 | HTTP 200，32 个 token，`finish_reason=length`；一次短请求可执行 |
+| 输出对照 | 与既有原生基线的输入 token 相同，输出自第一个 token 起不同；未通过输出等价 |
+| 进程与资源 | probe/A/F 均 exit 0，无强制回收、无 survivors，后快照八卡 idle |
+| 退出标记 | peer STOP、engine cleanup、launcher exit 均存在，四个 worker cleanup 标记缺失 |
+
+原生基线使用 DP8/TP1/EP8、CPU Engram 共享；本次 AFD 使用 A4/F4、两侧 TP4、
+DP1/EP off、CPU Engram 非共享。并行度和布局不同，当前证据无法判断输出差异来自
+数值路径、布局还是适配缺陷；不能将其解释为可接受的浮点误差。保留输出等价待定位，
+AFD DSpark N=1 尚不开放，性能亦未验收。首请求约 98 秒包含 CompressorV2 首次
+JIT 编译等开销，不据此计算稳定 TPOT 或加速比。
+
+worker INFO 标记缺失的日志配置问题已修复：该模块现在使用 vLLM 已配置的日志
+命名空间；原来继承普通 root 的 WARNING 门槛，INFO 标记会被丢弃。只在 peer STOP
+且原生 worker shutdown 成功后输出标记的条件保留，监督器仍要求四个 rank 全部出现。
+在 A3 的实际依赖下，默认日志层级对照已复现缺失；修复后完整 FFN CPU 生命周期
+模块 54 项通过，无 failed/error/skipped。这仍不替代 A5 四个 rank 的实际标记。
+本包还记录了请求成功、engine teardown 后的 API `EngineDeadError`；不将其归为
+本次请求失败，也不据此宣称退出路径已无异常。
+
+**本包无需为了补日志立即重跑同一个场景。** 下一轮优先隔离输出差异，日志修复随该轮
+一并验证；此前原生三条短请求也无需重复。下面保留现有受控命令作为操作入口。
+
+## 最小 A5 操作：一个 AFD 请求
 
 使用现有 CANN 环境，不需要 venv、`atb-env` 或安装依赖；Python 为
 `/usr/local/python3.11.10/bin/python`，FastAPI 沿用已部署版本。先按
