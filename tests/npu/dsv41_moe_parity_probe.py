@@ -60,6 +60,26 @@ GROUP_TIMEOUT_SECONDS = 120
 POLL_SECONDS = 0.1
 MAX_HEADER_BYTES = 128 * 1024 * 1024
 MAX_LAYER_PAYLOAD_BYTES = 16 * 1024**3
+REQUIRED_ROUTER_ARGUMENTS = frozenset(
+    {
+        "x",
+        "k",
+        "bias",
+        "input_ids",
+        "tid2eid",
+        "k_group",
+        "group_count",
+        "routed_scaling_factor",
+        "eps",
+        "group_select_mode",
+        "renorm",
+        "norm_type",
+        "out_flag",
+        "bias_vl",
+        "image_sentinel_lo",
+        "image_sentinel_count",
+    }
+)
 SOURCE_PATHS = (
     "vllm/model_executor/custom_op.py",
     "vllm/model_executor/model_loader/utils.py",
@@ -468,6 +488,36 @@ def load_layer(torch, args, config, report):
     return carrier
 
 
+def load_native_router_operator(report):
+    # Call only after the child binds its device. Native physical-device lookup
+    # also loads this extension independently of optional custom-op flags.
+    import torch
+    from vllm.platforms import current_platform
+
+    current_platform.import_kernels()
+    from vllm_ascend import vllm_ascend_C
+
+    extension_path = Path(vllm_ascend_C.__file__).resolve()
+    identity = {
+        "path": str(extension_path),
+        "bytes": extension_path.stat().st_size,
+        "sha256": profiler_helpers.file_sha256(extension_path),
+    }
+    report["compiled_router_operator"] = identity
+    schema = torch.ops._C_ascend.moe_gating_top_k_hash.default._schema
+    identity["schema"] = str(schema)
+    missing = sorted(
+        REQUIRED_ROUTER_ARGUMENTS - {argument.name for argument in schema.arguments}
+    )
+    if missing:
+        raise TypeError(f"native MoE router operator lacks arguments: {missing}")
+    identity["privateuse1_kernel"] = torch._C._dispatch_has_kernel_for_dispatch_key(
+        "_C_ascend::moe_gating_top_k_hash", "PrivateUse1"
+    )
+    if not identity["privateuse1_kernel"]:
+        raise RuntimeError("native MoE router operator lacks its PrivateUse1 kernel")
+
+
 def run_worker(args):
     report = {
         "tp_size": args.tp_size,
@@ -570,6 +620,7 @@ def run_worker(args):
             report["setup_success"] = True
             return
         torch.npu.set_device(args.devices[args.rank])
+        load_native_router_operator(report)
         device = torch.device("npu", args.devices[args.rank])
         with set_current_vllm_config(config):
             init_distributed_environment(
