@@ -46,6 +46,9 @@ RECORDED_ENVIRONMENT_KEYS = (
     "VLLM_USE_V2_MODEL_RUNNER",
     "VLLM_WORKER_MULTIPROC_METHOD",
     "ASCEND_RT_VISIBLE_DEVICES",
+    "ASCEND_VISIBLE_DEVICES",
+    "NPU_VISIBLE_DEVICES",
+    "ASCEND_DEVICE_ID",
     "ASCEND_CUSTOM_OPP_PATH",
     "LD_LIBRARY_PATH",
     "HCCL_OP_EXPANSION_MODE",
@@ -115,7 +118,14 @@ def parse_args():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--model", type=Path, required=True)
     parser.add_argument("--output-dir", type=Path, required=True)
-    parser.add_argument("--devices", default="0,1,2,3")
+    parser.add_argument(
+        "--devices",
+        default="0,1,2,3",
+        help=(
+            "process-visible NPU ordinals after ASCEND_RT_VISIBLE_DEVICES "
+            "remapping (default: %(default)s)"
+        ),
+    )
     parser.add_argument("--run", action="store_true")
     parser.add_argument(
         "--setup-only",
@@ -619,6 +629,21 @@ def run_worker(args):
         if args.setup_only:
             report["setup_success"] = True
             return
+        visible_device_count = torch.npu.device_count()
+        visibility = os.environ.get("ASCEND_RT_VISIBLE_DEVICES")
+        report["device_selection"] = {
+            "requested_visible_devices": args.devices,
+            "visible_device_count": visible_device_count,
+            "ascend_rt_visible_devices": visibility,
+        }
+        if max(args.devices) >= visible_device_count:
+            raise ValueError(
+                "TP1/TP4 requires four process-visible NPUs: "
+                f"--devices={','.join(map(str, args.devices))}, "
+                f"torch.npu.device_count()={visible_device_count}, "
+                f"ASCEND_RT_VISIBLE_DEVICES={visibility!r}; "
+                "--devices uses visible ordinals after runtime remapping"
+            )
         torch.npu.set_device(args.devices[args.rank])
         load_native_router_operator(report)
         device = torch.device("npu", args.devices[args.rank])

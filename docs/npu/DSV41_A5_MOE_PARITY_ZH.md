@@ -14,6 +14,7 @@ TP1 与 TP4 的 MoE 输出及 gate，隔离并行切片、量化和归约差异�
 
 ```bash
 git pull --ff-only
+ASCEND_RT_VISIBLE_DEVICES=0,1,2,3 \
 /usr/local/python3.11.10/bin/python -B tools/diagnostics/run_dsv41_a5_moe_parity.py \
   --model /home/models/DeepSeek-V4.1-Flash \
   --transformer-vendor /usr/local/Ascend/ascend-toolkit/latest/opp/vendors/custom_transformer \
@@ -46,6 +47,14 @@ Python 层替换注册与编译扩展加载是两个步骤；当前在子进程�
 这个原生算子也服务普通 `sqrtsoftplus` 路由，模型的 `num_hash_layers` 保持原值。
 A3 当前环境的扩展文件查找结果为缺失，不能验证实际扩展加载或 A5 算子执行；
 源码接口检查与本地静态检查单独记录，A5 数值部分继续待验。
+
+随后一次设备绑定失败为 `Invalid device ID`，运行 shell 确认设置了
+`ASCEND_RT_VISIBLE_DEVICES=0`，只开放一张卡，不能完成 TP4。
+探针继承该限制；`--devices` 指进程内可见编号，不是宿主物理卡号。
+例如可见列表为 `2,3,4,5` 时，仍使用 `--devices 0,1,2,3`。
+上面的命令显式为这次运行开放四卡；入口记录继承的可见列表，实际执行时在 TP1
+绑定设备和载权前检查整个四卡列表与 `torch.npu.device_count()`，并记录选择结果。
+`--setup-only` 保持只检查导入/配置，不执行这个设备数量检查。
 
 入口会设置 vendor 的 OPP/OpAPI 路径和仓库 Python 路径。默认设备为 `0,1,2,3`，
 先单卡 TP1，再四卡 TP4；开始、阶段结束和最终退出都要求八卡空闲。整个组件有

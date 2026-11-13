@@ -49,7 +49,14 @@ def main() -> int:
     parser.add_argument("--model", type=Path, required=True)
     parser.add_argument("--transformer-vendor", type=Path, required=True)
     parser.add_argument("--output-root", type=Path, required=True)
-    parser.add_argument("--devices", default="0,1,2,3")
+    parser.add_argument(
+        "--devices",
+        default="0,1,2,3",
+        help=(
+            "process-visible NPU ordinals after ASCEND_RT_VISIBLE_DEVICES "
+            "remapping (default: %(default)s)"
+        ),
+    )
     parser.add_argument("--run", action="store_true")
     parser.add_argument("--setup-only", action="store_true")
     args = parser.parse_args()
@@ -105,6 +112,9 @@ def main() -> int:
         "setup_only": args.setup_only,
         "command": command,
         "environment": environment,
+        "inherited_ascend_rt_visible_devices": os.environ.get(
+            "ASCEND_RT_VISIBLE_DEVICES"
+        ),
         "wrapper_sha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
         "probe_sha256": hashlib.sha256((repo / PROBE).read_bytes()).hexdigest(),
         "wrapper_dependency_sha256": {
