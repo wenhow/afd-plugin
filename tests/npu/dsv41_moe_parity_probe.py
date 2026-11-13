@@ -61,6 +61,7 @@ POLL_SECONDS = 0.1
 MAX_HEADER_BYTES = 128 * 1024 * 1024
 MAX_LAYER_PAYLOAD_BYTES = 16 * 1024**3
 SOURCE_PATHS = (
+    "vllm/model_executor/custom_op.py",
     "vllm/model_executor/model_loader/utils.py",
     "vllm/model_executor/layers/fused_moe/layer.py",
     "vllm/model_executor/layers/fused_moe/routed_experts.py",
@@ -83,6 +84,7 @@ SOURCE_PATHS = (
     "vllm_ascend/patch/platform/patch_fused_moe.py",
     "vllm_ascend/platform.py",
     "vllm_ascend/utils.py",
+    "vllm_ascend/worker/worker.py",
     "afd_plugin/__init__.py",
     "afd_plugin/compat/patches/npu/mxfp4.py",
     "afd_plugin/compat/patches/npu/mxfp_scales.py",
@@ -493,6 +495,9 @@ def run_worker(args):
             initialize_model_parallel,
         )
         from vllm.forward_context import get_forward_context, set_forward_context
+        from vllm.model_executor.custom_op import maybe_get_oot_by_class
+        from vllm.model_executor.layers.fused_moe import RoutedExperts
+        from vllm.model_executor.layers.fused_moe.runner.moe_runner import MoERunner
         from vllm.platforms import current_platform
         from vllm.plugins import load_general_plugins
         from vllm_ascend.ascend_config import init_ascend_config
@@ -501,7 +506,7 @@ def run_worker(args):
             override_mrv2_in_profile_run,
         )
         from vllm_ascend.device.device_op import DeviceOperator
-        from vllm_ascend.utils import adapt_patch
+        from vllm_ascend.utils import adapt_patch, register_ascend_customop
 
         report["sources_before"] = source_identity(
             args.output_dir / f"tp{args.tp_size}-rank{args.rank}"
@@ -521,7 +526,14 @@ def run_worker(args):
         load_general_plugins()
         adapt_patch()
         config = build_runtime_config(args)
+        # Native NPUWorker registers the OOT layer replacements before loading
+        # a model. Importing ops alone leaves the generic RoutedExperts active.
+        with set_current_vllm_config(config):
+            vllm_ascend.ops.register_dummy_fusion_op()
+            register_ascend_customop(config)
         init_ascend_config(config)
+        routed_experts_cls = maybe_get_oot_by_class(RoutedExperts)
+        moe_runner_cls = maybe_get_oot_by_class(MoERunner)
         report["configuration"] = {
             "checkpoint_hf_config": config.model_config.hf_config.to_dict(),
             "dtype": str(config.model_config.dtype),
@@ -543,7 +555,15 @@ def run_worker(args):
                 inspect.signature(override_mrv2_in_profile_run)
             ),
             "use_v2_model_runner": config.use_v2_model_runner,
+            "routed_experts_class": (
+                f"{routed_experts_cls.__module__}.{routed_experts_cls.__name__}"
+            ),
+            "moe_runner_class": ".".join(
+                (moe_runner_cls.__module__, moe_runner_cls.__name__)
+            ),
         }
+        if routed_experts_cls is RoutedExperts or moe_runner_cls is MoERunner:
+            raise ValueError("native Ascend MoE implementations must be registered")
         if not config.use_v2_model_runner:
             raise ValueError("the diagnostic requires the actual native V2 context")
         if args.setup_only:
@@ -580,6 +600,8 @@ def run_worker(args):
                 "shared_experts": type(moe.shared_experts).__name__,
                 "quant_config": type(config.quant_config).__name__,
                 "gate_dtype": str(moe.gate.weight.dtype),
+                "runner_class": type(moe.experts).__name__,
+                "routed_experts_class": type(moe.experts.routed_experts).__name__,
             }
             generator = torch.Generator(device="cpu").manual_seed(INPUT_SEED)
             fp32 = torch.randn(

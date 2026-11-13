@@ -28,6 +28,16 @@ git pull --ff-only
 当前使用顶层包的 import spec 查找实际源码，不执行包的 `__init__`；
 此前 A5 记录的 Ascend 源码位于 `/opt/vllm-ascend`，无需为此重装依赖。
 
+随后 TP1 在 MoE 构造时报告 `RoutedExperts.__init__() got an unexpected
+keyword argument 'n_shared_experts'`，尚未载权。探针绕过原生 worker 构造，
+遗漏了 `register_ascend_customop(config)`；仅导入 ops 不会注册 Ascend 层替换。
+当前补齐原生的 dummy fusion op 和 Ascend custom op 注册，并在载权前记录、
+检查实际选择的 `AscendRoutedExperts` / `AscendMoERunner`。注册分发与 worker
+源码也随结果归档；构造成功后另外记录实际 MoE 实现类。
+A3 实际安装包的配置/注册检查确认：注册前通用类拒绝该参数，注册后选中
+Ascend 实现并接受该参数，TP4 配置重复注册也正常。该检查没有构造 MoE、
+加载权重或执行算子，修复后的 A5 数值部分仍待回传。
+
 入口会设置 vendor 的 OPP/OpAPI 路径和仓库 Python 路径。默认设备为 `0,1,2,3`，
 先单卡 TP1，再四卡 TP4；开始、阶段结束和最终退出都要求八卡空闲。整个组件有
 600 秒内部预算，额外监督负责中断、按 PID/start ticks 清理以及打包失败日志。
