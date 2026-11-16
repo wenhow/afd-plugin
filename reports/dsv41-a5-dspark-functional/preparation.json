@@ -1,0 +1,68 @@
+{
+  "baseline_archive": "openspec/changes/afd-hccl-full-parity/evidence/a3-text-u2-config-admission-20261116/engine-args-pd-green-001/source.tar.gz",
+  "baseline_archive_sha256": "af0c18647dc8f25bb42a901ae40a74bb0f796f75ceef23dc6259ca50964cebdd",
+  "baseline_sources_verified": 447,
+  "builder_sha256": "429909f2999dd73c8a882b75dfeb84cb0dced11ad5a63c52adde0966cbe920a7",
+  "contains_binary_or_vendor_payload": false,
+  "helper_deltas": {
+    "tests/npu/dsv41_dspark_speculator_probe.py": {
+      "donor_sha256": "a14a69da693a2462710204d6558c5c3abad0520142ce058924b4397d312e5724",
+      "successor_sha256": "67c97c264dd4cd83a046f44657e65ce2f50022dbda9e4a4fde2ebec7ea202213"
+    },
+    "tests/npu/hccl_native_attention_pd_dspark_decode_probe.py": {
+      "donor_sha256": "1b29762afcce1c1edb73435dcc1ab35a13320b8506824b4425bb06aca645f45e",
+      "successor_sha256": "4d859ac89ea63274fa1a8323e9c0d437e657179bcab7c2f998514f09c854f3ea"
+    },
+    "tests/npu/hccl_native_attention_pd_dspark_probe.py": {
+      "donor_sha256": "b41ed651bc6a6635dd82796d41154d4b8a74c3842151f3539ca1439faee8243c",
+      "successor_sha256": "b53c8bc39a04a13301528030679148de1cc78c8f638915e2224cecd2cbe68f96"
+    },
+    "tests/npu/hccl_native_attention_pd_dspark_run_probe.py": {
+      "donor_sha256": "a1562ae0d97fe1aa785e972b2feebfe8657bbbb79468106dd2abaa99a91c6e59",
+      "successor_sha256": "92a47ece4807baf95880f81ddf71d46c1629602d0de35f2ce5bd97fa7d0fd1c1"
+    }
+  },
+  "helpers": {
+    "tests/npu/dsv41_dspark_a5_runtime.py": "e9593e722f4d9b5ddb81b6c0f3be460cef3c2077e9dd6f4cb7e8392d1b745f68",
+    "tests/npu/dsv41_dspark_projection_model_probe.py": "3c14ad314abe52246396bbaac1e2fde1e574240345fa3ef493be9a8a67a0e8e9",
+    "tests/npu/dsv41_dspark_projection_ops_probe.py": "b007704a94e4420f8ed203c758d7797970fc97ed372e8ec7b995ea53d493f75f",
+    "tests/npu/dsv41_dspark_speculator_probe.py": "67c97c264dd4cd83a046f44657e65ce2f50022dbda9e4a4fde2ebec7ea202213",
+    "tests/npu/hccl_eager_backend_probe.py": "86ddf59910776a8b50b3dc76b5e56484f4d207e9eff9e8a2d375f271fdf91b34",
+    "tests/npu/hccl_native_attention_lifecycle_probe.py": "a5a1922f22ba0698526f78b639aebd0a8b4748fc5ee668cd79dc39264b190bac",
+    "tests/npu/hccl_native_attention_pd_aux_probe.py": "0cff2308a68e219bc6acc73abba8e76a26c8a17269e92714819091bd7dc51223",
+    "tests/npu/hccl_native_attention_pd_dspark_cross_layer_probe.py": "3180750cddfa12b4663367683e2ff5922380566bc495de360c85dd51bebd7213",
+    "tests/npu/hccl_native_attention_pd_dspark_decode_probe.py": "4d859ac89ea63274fa1a8323e9c0d437e657179bcab7c2f998514f09c854f3ea",
+    "tests/npu/hccl_native_attention_pd_dspark_eager_ffn_probe.py": "6f1c7959a2c2a9dac67a5426c283035533389bb6feb2e261b37e7680b4185a2e",
+    "tests/npu/hccl_native_attention_pd_dspark_eager_probe.py": "9653f1c14f9a1acd8b8af08dcf7e0a66618079a3f8314ff342aab7798abeb5e0",
+    "tests/npu/hccl_native_attention_pd_dspark_graph_ffn_probe.py": "82a7557d49698e02e8b6666c8b8a1de63e522a02994779f1117b1581922d8fe9",
+    "tests/npu/hccl_native_attention_pd_dspark_graph_probe.py": "87559172c4be2f2579c0630c159f8d24c872699bda3625cab4506887fe5e45b0",
+    "tests/npu/hccl_native_attention_pd_dspark_lifecycle_probe.py": "1c0f058526a3536e46f8b69f88a069671f4a8c54dec2859289db7a488294e37c",
+    "tests/npu/hccl_native_attention_pd_dspark_overlap_probe.py": "71adb248cb11cb9aa2628874100f5a27b105b36c86eda02047285f0bd58f2150",
+    "tests/npu/hccl_native_attention_pd_dspark_owner_probe.py": "dda655263a4761fb293b7da73194cd24ec9e8fc0a679e6c364700e0be1a9e682",
+    "tests/npu/hccl_native_attention_pd_dspark_probe.py": "b53c8bc39a04a13301528030679148de1cc78c8f638915e2224cecd2cbe68f96",
+    "tests/npu/hccl_native_attention_pd_dspark_ready_probe.py": "c6aa74547036922a96b97ba89c764dae69410d4725a527a105d9158a5269ccd1",
+    "tests/npu/hccl_native_attention_pd_dspark_run_probe.py": "92a47ece4807baf95880f81ddf71d46c1629602d0de35f2ce5bd97fa7d0fd1c1",
+    "tests/npu/hccl_native_attention_pd_dspark_u2_probe.py": "b855a090969cc5e5394c11db27233f7bf74a9b5931b171a82dd9ab4bb9420ffd",
+    "tests/npu/hccl_native_attention_pd_graph_lifecycle_probe.py": "d7afc819ad6d7b2c17c427bffa235a435f9818e14703fcec97650401090b92c0",
+    "tests/npu/hccl_native_attention_pd_graph_probe.py": "d4436b564ea50e1727db3f99f790c4126c7157ac88e1ce449e54cf3e6b4e9329",
+    "tests/npu/hccl_native_attention_pd_model_probe.py": "70acf331cfdda5e1c9d38d92a2d86dafff1c8382f479acbc50ea03152a216d46",
+    "tests/npu/hccl_native_attention_pd_probe.py": "33376c0992b32c50699f554f5809375486d5f20d076c37fbe74451220fe7f846",
+    "tests/npu/hccl_native_attention_pd_producer_probe.py": "8fe7cc308daf6c3a70d79018eae0399640e12f525e4eb44a86f7d546053bbc47",
+    "tests/npu/hccl_native_attention_pd_reuse_probe.py": "c738c3943287ac34afdcc17b28dc751b9663c330cd6d12edf4c873c557f7508a",
+    "tests/npu/hccl_native_attention_pd_scheduler_probe.py": "a1ceb1e7cf00e2f86ffd4181d748ef1f751ea88ee864f32e02548837e09f94d4",
+    "tests/npu/hccl_native_attention_probe.py": "3eddd5cd0498e732fb7863e08284a21f1165a6228441748b4295fd81249006ea",
+    "tests/npu/hccl_native_attention_profile_probe.py": "cded0cf903f10b2bf0e9da3a4f52138c83edea4584293454876760e385544ee0",
+    "tests/npu/hccl_staged_probe.py": "0e1df2a658d2871fe929d7cf32e2e27c6b492b6c930114e231ab8d3f628865cc"
+  },
+  "launcher_sha256": "da3a62d8034d74803781164aadd41ab1e1a5cda76d633026326c3af546daeb18",
+  "native_python_git_pins_verified": 194,
+  "npu_validation": "pending_on_A5",
+  "production_count": 146,
+  "production_exact_baseline": true,
+  "python_sources_compiled": 178,
+  "runtime_source_sha256": "311cafc72c81dd06f09a67fe903527db3820089e23a39192f971e022cc5f7c3b",
+  "source_count": 180,
+  "status": "source_prepared_not_device_validated",
+  "unchanged_donor_helpers": 25,
+  "uses_live_production_sources": false
+}

@@ -54,6 +54,8 @@ validation_paths:
   - "tests/unit/model_executor/test_async_cam_dbo.py"
   - "tests/npu/test_mrv2_dbo.py"
   - "tests/npu/v41_ubatch_constructor_probe.py"
+  - "tests/npu/dsv41_dspark_a5_validation.py"
+  - "tests/npu/dsv41_dspark_a5_runtime.py"
   - "tests/e2e/models/deepseek_v2_lite/test_deepseek_v2_lite.py"
   - "tests/e2e/accuracy/**"
   - "tests/e2e/models/deepseek_v2_lite/test_async_cam_npu.py"

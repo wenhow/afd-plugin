@@ -1,0 +1,136 @@
+{
+  "actual_archive_mutation_rejections": [
+    {
+      "error": "ValueError",
+      "message": "unsafe or duplicate source member: ../escape.py",
+      "name": "unsafe_member",
+      "rejected": true
+    },
+    {
+      "error": "ValueError",
+      "message": "source members differ from the bundle manifest",
+      "name": "binary_member",
+      "rejected": true
+    },
+    {
+      "error": "ValueError",
+      "message": "source hash mismatch: tests/npu/hccl_native_attention_pd_dspark_decode_probe.py",
+      "name": "changed_source",
+      "rejected": true
+    },
+    {
+      "error": "ValueError",
+      "message": "source members differ from the bundle manifest",
+      "name": "missing_helper",
+      "rejected": true
+    },
+    {
+      "error": "ValueError",
+      "message": "bundle does not derive from the reviewed 447-file baseline",
+      "name": "wrong_baseline",
+      "rejected": true
+    },
+    {
+      "error": "ValueError",
+      "message": "frozen 146-file production closure differs",
+      "name": "wrong_production",
+      "rejected": true
+    },
+    {
+      "message": "runtime source archive differs from the bundle lock",
+      "name": "archive_hash",
+      "rejected": true
+    }
+  ],
+  "builder_sha256": "429909f2999dd73c8a882b75dfeb84cb0dced11ad5a63c52adde0966cbe920a7",
+  "bundle_lock_sha256": "ddd153fe1e6438421b894884122efd961f957223b9f078525a8e0c879084b365",
+  "cli_checks": [
+    {
+      "log_sha256": "2f694d21dae0dded775cfabb4ce176ee62fb8edbd7b2052f67e01b12d26803b8",
+      "name": "help",
+      "returncode": 0
+    },
+    {
+      "log_sha256": "57c964bb1fae97cd610e401c686b5065dd62352db203603e9cb6ef0902c0bd06",
+      "name": "missing_required",
+      "returncode": 2
+    },
+    {
+      "log_sha256": "5e2b718fcef10fea215e24215c19f649d8e330ea8ce26330d5a8f7064c8e09d8",
+      "name": "duplicate_devices",
+      "returncode": 2
+    },
+    {
+      "log_sha256": "5e2b718fcef10fea215e24215c19f649d8e330ea8ce26330d5a8f7064c8e09d8",
+      "name": "too_few_devices",
+      "returncode": 2
+    },
+    {
+      "log_sha256": "5e2b718fcef10fea215e24215c19f649d8e330ea8ce26330d5a8f7064c8e09d8",
+      "name": "negative_device",
+      "returncode": 2
+    },
+    {
+      "log_sha256": "5e2b718fcef10fea215e24215c19f649d8e330ea8ce26330d5a8f7064c8e09d8",
+      "name": "nonnumeric_device",
+      "returncode": 2
+    },
+    {
+      "log_sha256": "8b54740ede717f996c28053226db9a80ff2c400f8b49a5658de06c7f096a7ed2",
+      "name": "zero_timeout",
+      "returncode": 2
+    },
+    {
+      "log_sha256": "8b54740ede717f996c28053226db9a80ff2c400f8b49a5658de06c7f096a7ed2",
+      "name": "retention_timeout",
+      "returncode": 2
+    },
+    {
+      "log_sha256": "f0276fd7d89a8c34efa7130f2e505cb83a76b8d2fd42a3fc9464cab07224a79e",
+      "name": "missing_python",
+      "returncode": 2
+    },
+    {
+      "log_sha256": "58d644ac5afd754657e1f7a00aacd3d7a8d560460ea7896933d750f6b4212431",
+      "name": "run_requires_linux",
+      "returncode": 2
+    },
+    {
+      "log_sha256": "d04e702544d5d6af69808c6db33cd56ef9b3a5aff79875aa4c321e60db4f78a7",
+      "name": "existing_output",
+      "returncode": 2
+    }
+  ],
+  "deterministic_archive_reproduced": true,
+  "launcher_sha256": "da3a62d8034d74803781164aadd41ab1e1a5cda76d633026326c3af546daeb18",
+  "linux_original_metadata_dryrun": {
+    "passed": true,
+    "summary_sha256": "c1e41a70b1c8195b09afd687daae8357c6c10028eda9372805e0e69fcd58eada"
+  },
+  "native_git_pins_verified_by_builder": 194,
+  "npu_validation": "pending_on_A5",
+  "original_metadata_scenes_passed": [
+    "reject-continue-ready",
+    "graph-u2-cancel-replace"
+  ],
+  "packed_scalar_reference": {
+    "actual_source_mutations_rejected": 5,
+    "candidate_sha256": "e9593e722f4d9b5ddb81b6c0f3be460cef3c2077e9dd6f4cb7e8392d1b745f68",
+    "checker_path": "openspec/changes/afd-hccl-full-parity/evidence/a5-dspark-packed-codec-review-20261116/check_scalar_codec.py",
+    "checker_sha256": "be3e06bbecefba79d256014fa5763046e382c020d5b67ddad7dfa988ee96b3c4",
+    "native_operator_equality_verified": false,
+    "result_sha256": "f88c3ee5e571df24c8f01bd281f38fd1aff8ad18c2ffda71426bf50515e0f8da",
+    "scalar_checks": 1319
+  },
+  "production_count": 146,
+  "python_compiled": 178,
+  "ruff_format_three_new_code_files": "passed",
+  "ruff_new_sources_and_four_generated_helpers": "passed",
+  "runtime_helper_sha256": "e9593e722f4d9b5ddb81b6c0f3be460cef3c2077e9dd6f4cb7e8392d1b745f68",
+  "runtime_imported": false,
+  "runtime_source_sha256": "311cafc72c81dd06f09a67fe903527db3820089e23a39192f971e022cc5f7c3b",
+  "scope": "stdlib source/CLI only; no NPU or SSH",
+  "source_count": 180,
+  "status": "passed",
+  "windows_dryrun_summary_sha256": "e2c61dc972573f79ddada1b23a339e1ba528d3aae0538c270a179e6bc22b3977"
+}
