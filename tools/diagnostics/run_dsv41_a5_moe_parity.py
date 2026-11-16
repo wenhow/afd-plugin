@@ -1,11 +1,14 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: Copyright contributors to the AFD plugin project
-"""Collect one bounded A5 single-layer TP1/TP4 MoE diagnostic archive.
+"""Collect one bounded A5 single-layer MoE diagnostic archive.
 
 The default only inspects checkpoint metadata and source files. --run explicitly
 loads one layer in sequential native TP1/TP4 phases; --setup-only with --run
 checks imports/configuration without loading weights or executing kernels.
+--comparison native-vs-afd runs native TP4 and a constructor-free actual AFD
+FFN-layer TP4 component instead, with same-weight compute controls. Complete
+FFN construction, workers, runners and AFD transport are not exercised.
 """
 
 from __future__ import annotations
@@ -58,6 +61,11 @@ def main() -> int:
         ),
     )
     parser.add_argument("--run", action="store_true")
+    parser.add_argument(
+        "--comparison",
+        choices=("native-tp1-tp4", "native-vs-afd"),
+        default="native-tp1-tp4",
+    )
     parser.add_argument("--setup-only", action="store_true")
     args = parser.parse_args()
     if args.setup_only and not args.run:
@@ -81,6 +89,8 @@ def main() -> int:
         args.devices,
         "--timeout",
         str(PROBE_TIMEOUT_SECONDS),
+        "--comparison",
+        args.comparison,
     ]
     if args.run:
         command.append("--run")
@@ -105,9 +115,13 @@ def main() -> int:
     }
     summary = {
         "scope": (
-            "single-layer native TP diagnostic; "
+            "single-layer native/AFD FFN component diagnostic; "
             "complete model and AFD equivalence unaccepted"
         ),
+        "comparison": args.comparison,
+        "full_ffn_constructor_exercised": False,
+        "ffn_runner_exercised": False,
+        "afd_transport_exercised": False,
         "run_requested": args.run,
         "setup_only": args.setup_only,
         "command": command,
@@ -160,12 +174,13 @@ def main() -> int:
         summary["operator_library"] = {
             "path": str(library),
             "exists": library.is_file(),
+            "required_for_this_run": args.run and not args.setup_only,
         }
-        if args.run and not library.is_file():
+        if args.run and not args.setup_only and not library.is_file():
             raise FileNotFoundError(
                 "transformer vendor requires op_api/lib/libcust_opapi.so"
             )
-        if args.run:
+        if args.run and library.is_file():
             summary["operator_library"].update(
                 {"bytes": library.stat().st_size, "sha256": file_sha256(library)}
             )

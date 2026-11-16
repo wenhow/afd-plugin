@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: Copyright contributors to the AFD plugin project
-"""Compare one real DSV4.1 checkpoint MoE at native TP1 and TP4.
+"""Compare one real DSV4.1 checkpoint MoE across controlled component paths.
 
 The default inspects checkpoint metadata and installed sources only. --run
 explicitly starts two sequential, bounded NPU phases. This is a numerical
@@ -8,6 +8,12 @@ diagnostic with controlled inputs, not a model-output equivalence acceptance.
 The full checkpoint config and layer-0 parameter namespace remain unchanged;
 Attention, Engram, AFD transport, services and native worker construction are
 not exercised. No complete-model TP4 allocation is attempted.
+
+--comparison native-vs-afd instead runs two TP4 phases. Its AFD phase uses the
+real FFN layer constructor, FFN load_weights override and compute_ffn_output,
+inside a constructor-free single-layer carrier. The complete FFN constructor,
+worker, runner and AFD transport remain excluded. Each phase also compares a
+direct MoE call with the FFN compute method on its own loaded weights.
 """
 
 from __future__ import annotations
@@ -37,6 +43,8 @@ LAYER_INDEX = 0
 TP_SIZES = (1, 4)
 PROMPT_TOKEN_IDS = (65106, 1192, 304, 3144, 260, 4654, 7274, 1116, 2912, 16)
 INPUT_SEED = 0
+ROUTER_CANARY_DELTA = 0.125
+COMPARISONS = ("native-tp1-tp4", "native-vs-afd")
 NATIVE_PLUGINS = (
     "ascend,ascend_model,ascend_model_loader,ascend_kv_connector,"
     "ascend_service_profiling"
@@ -95,6 +103,7 @@ SOURCE_PATHS = (
     "vllm_ascend/models/deepseek_v41/model.py",
     "vllm_ascend/device/device_op.py",
     "vllm_ascend/ascend_forward_context.py",
+    "vllm_ascend/ascend_config.py",
     "vllm_ascend/ops/linear.py",
     "vllm_ascend/ops/fused_moe/fused_moe.py",
     "vllm_ascend/ops/fused_moe/routed_experts.py",
@@ -111,6 +120,15 @@ SOURCE_PATHS = (
     "afd_plugin/__init__.py",
     "afd_plugin/compat/patches/npu/mxfp4.py",
     "afd_plugin/compat/patches/npu/mxfp_scales.py",
+    "afd_plugin/model_executor/models/npu/deepseek_v41.py",
+    "afd_plugin/compat/npu/runtime_config.py",
+    "afd_plugin/v1/worker/ffn_metadata.py",
+    "afd_plugin/compat/patches/npu/model_loader.py",
+    "afd_plugin/compat/patches/npu/ascend_config.py",
+    "afd_plugin/config.py",
+    "vllm/model_executor/model_loader/base_loader.py",
+    "vllm/model_executor/model_loader/default_loader.py",
+    "tools/diagnostics/run_dsv41_a5_moe_parity.py",
 )
 
 
@@ -127,6 +145,7 @@ def parse_args():
         ),
     )
     parser.add_argument("--run", action="store_true")
+    parser.add_argument("--comparison", choices=COMPARISONS, default=COMPARISONS[0])
     parser.add_argument(
         "--setup-only",
         action="store_true",
@@ -139,6 +158,12 @@ def parse_args():
     parser.add_argument("--tp-size", type=int, choices=TP_SIZES, help=argparse.SUPPRESS)
     parser.add_argument("--rank", type=int, help=argparse.SUPPRESS)
     parser.add_argument("--port", type=int, help=argparse.SUPPRESS)
+    parser.add_argument(
+        "--component",
+        choices=("native", "afd"),
+        default="native",
+        help=argparse.SUPPRESS,
+    )
     args = parser.parse_args()
     try:
         args.devices = tuple(map(int, args.devices.split(",")))
@@ -162,6 +187,12 @@ def parse_args():
         or not 0 <= args.rank < args.tp_size
     ):
         parser.error("internal rank invocation requires run/port and a valid rank")
+    if args.comparison == "native-vs-afd" and args.tp_size not in (None, TP_SIZES[-1]):
+        parser.error("native-vs-afd requires TP4 in both phases")
+    if args.component == "afd" and (
+        args.comparison != "native-vs-afd" or args.tp_size is None
+    ):
+        parser.error("AFD component is an internal native-vs-afd phase")
     args.model = args.model.resolve()
     args.output_dir = args.output_dir.resolve()
     return args
@@ -399,7 +430,32 @@ def build_runtime_config(args):
         raise ValueError("the actual DS FP4 expert quantization config is required")
     if config.parallel_config.use_sequence_parallel_moe:
         raise ValueError("the TP diagnostic requires non-SP execution")
+    if args.component == "afd":
+        from afd_plugin.compat.npu.runtime_config import get_npu_ffn_config
+        from afd_plugin.config import HCCL_P2P_CONNECTOR
+
+        config.additional_config["afd"] = {
+            "role": "ffn",
+            "connector": HCCL_P2P_CONNECTOR,
+            "compute_gate_on_attention": False,
+            "num_attention_ranks": args.tp_size,
+            "num_ffn_ranks": args.tp_size,
+        }
+        config = get_npu_ffn_config(config)
+        if config.engram_config is not None or config.speculative_config is not None:
+            raise ValueError("the FFN component must retain native F role isolation")
     return config
+
+
+def parameter_fingerprints(model):
+    return {
+        name: {
+            "shape": list(value.shape),
+            "dtype": str(value.dtype),
+            "sha256": hashlib.sha256(tensor_bytes(value)).hexdigest(),
+        }
+        for name, value in model.named_parameters()
+    }
 
 
 def load_layer(torch, args, config, report):
@@ -424,9 +480,15 @@ def load_layer(torch, args, config, report):
 
     # Native loader mapping uses model.layers.0.mlp. No full native constructor
     # or edited HF layer count is needed to retain that exact namespace.
-    carrier = native.AscendDeepseekV41LLMForCausalLM.__new__(
-        native.AscendDeepseekV41LLMForCausalLM
-    )
+    carrier_class = native.AscendDeepseekV41LLMForCausalLM
+    if args.component == "afd":
+        from afd_plugin.model_executor.models.npu.deepseek_v41 import (
+            AFDDeepseekV41FFNForCausalLM,
+            AFDDeepseekV41FFNLayer,
+        )
+
+        carrier_class = AFDDeepseekV41FFNForCausalLM
+    carrier = carrier_class.__new__(carrier_class)
     nn.Module.__init__(carrier)
     carrier.config = native.normalize_deepseek_v41_config(config.model_config.hf_config)
     carrier.quant_config = config.quant_config
@@ -435,7 +497,12 @@ def load_layer(torch, args, config, report):
     carrier.model.start_layer, carrier.model.end_layer = 0, 1
     device = torch.device("npu", args.devices[args.rank])
     with set_default_torch_dtype(config.model_config.dtype), device:
-        carrier.model.layers = nn.ModuleList([SingleMoELayer()])
+        layer = (
+            AFDDeepseekV41FFNLayer(config, carrier.config, "model.layers.0")
+            if args.component == "afd"
+            else SingleMoELayer()
+        )
+        carrier.model.layers = nn.ModuleList([layer])
     carrier.num_moe_layers = 1
     carrier.set_moe_parameters()
     carrier.moe_comm_methods = {kind: get_moe_comm_method(kind) for kind in MoECommType}
@@ -474,7 +541,11 @@ def load_layer(torch, args, config, report):
         raise ValueError(f"uninitialized layer-0 parameters: {missing_parameters}")
     loader = DefaultModelLoader(config.load_config)
     loader.track_weights_loading(carrier, set(loaded))
+    if args.comparison == "native-vs-afd":
+        report["parameters_before_postload"] = parameter_fingerprints(carrier)
     process_weights_after_loading(carrier, config.model_config, device)
+    if args.comparison == "native-vs-afd":
+        report["parameters_after_postload"] = parameter_fingerprints(carrier)
     report["routing_parameters"] = {
         name: {
             "shape": list(value.shape),
@@ -495,7 +566,20 @@ def load_layer(torch, args, config, report):
     report["runtime_config_num_hidden_layers"] = carrier.config.num_hidden_layers
     if carrier.config.num_hidden_layers != identity["config_num_hidden_layers"]:
         raise ValueError("the full checkpoint configuration must remain unchanged")
-    return carrier
+    report["component_construction"] = {
+        "carrier_class": f"{carrier_class.__module__}.{carrier_class.__name__}",
+        "layer_class": f"{type(layer).__module__}.{type(layer).__name__}",
+        "load_weights_method": carrier.load_weights.__qualname__,
+        "checkpoint_input_scope": "selected layer-0 FFN weights only",
+        "ffn_layer_constructor_exercised": args.component == "afd",
+        "ffn_load_weights_override_exercised": args.component == "afd",
+        "full_ffn_constructor_exercised": False,
+        "native_loader_create_model_exercised": False,
+        "native_worker_exercised": False,
+        "ffn_runner_exercised": False,
+        "afd_transport_exercised": False,
+    }
+    return carrier.eval() if args.comparison == "native-vs-afd" else carrier
 
 
 def load_native_router_operator(report):
@@ -528,8 +612,116 @@ def load_native_router_operator(report):
         raise RuntimeError("native MoE router operator lacks its PrivateUse1 kernel")
 
 
+def run_ffn_comparison_case(args, config, carrier, device, stem, cpu_inputs):
+    # Explicit --run device leaf. Each call owns fresh inputs: native MoE
+    # preparation/quantization may consume intermediate storage in place.
+    import torch
+    from vllm.forward_context import get_forward_context, set_forward_context
+    from vllm_ascend.ascend_forward_context import (
+        _EXTRA_CTX,
+        override_mrv2_in_profile_run,
+    )
+    from vllm_ascend.device.device_op import DeviceOperator
+
+    from afd_plugin.model_executor.models.npu.deepseek_v41 import (
+        AFDDeepseekV41FFNForCausalLM,
+    )
+    from afd_plugin.v1.worker.ffn_metadata import _set_moe_layer_index
+
+    primary = "ffn" if args.component == "afd" else "direct"
+    control = "direct" if primary == "ffn" else "ffn"
+    results = {}
+    for invocation in (primary, control):
+        inputs = tuple(value.to(device).clone() for value in cpu_inputs)
+        prefix = f"{stem}-{invocation}"
+        result = {
+            "invocation": (
+                "bound F.compute_ffn_output"
+                if invocation == "ffn" and args.component == "afd"
+                else "unbound F.compute_ffn_output on native carrier"
+                if invocation == "ffn"
+                else "direct native MoE.forward"
+            ),
+            "inputs": {
+                name: save_tensor(args.output_dir / f"{prefix}-{name}.bin", value)
+                for name, value in zip(("hidden", "router", "ids"), inputs, strict=True)
+            },
+        }
+        with (
+            torch.inference_mode(),
+            override_mrv2_in_profile_run(False),
+            set_forward_context(
+                None,
+                config,
+                num_tokens=inputs[0].shape[0],
+                num_tokens_across_dp=torch.tensor([inputs[0].shape[0]]),
+            ),
+        ):
+            context = get_forward_context()
+            context.additional_kwargs["model_instance"] = carrier
+            context.input_ids = inputs[2]
+            _set_moe_layer_index(context, LAYER_INDEX)
+            moe = carrier.model.layers[LAYER_INDEX].mlp
+            # Read the gate before MoE can consume its input storage.
+            gate = DeviceOperator.compute_gate_logits(
+                inputs[0].clone(),
+                moe.gate.weight,
+                moe.gate.weight_fp32,
+                prepared_input=inputs[1].clone(),
+            )
+            result["gate"] = save_tensor(
+                args.output_dir / f"{prefix}-gate.bin", gate.float()
+            )
+            if invocation == "direct":
+                output = moe(
+                    inputs[0],
+                    input_ids=inputs[2],
+                    hidden_states_fp32=inputs[1],
+                    already_sequence_parallel=False,
+                )
+            elif args.component == "afd":
+                output = carrier.compute_ffn_output(
+                    inputs[0],
+                    LAYER_INDEX,
+                    input_ids=inputs[2],
+                    hidden_states_fp32=inputs[1],
+                    already_sequence_parallel=False,
+                )
+            else:
+                output = AFDDeepseekV41FFNForCausalLM.compute_ffn_output(
+                    carrier,
+                    inputs[0],
+                    LAYER_INDEX,
+                    input_ids=inputs[2],
+                    hidden_states_fp32=inputs[1],
+                    already_sequence_parallel=False,
+                )
+            torch.npu.synchronize()
+            result["moe_comm_type"] = _EXTRA_CTX.moe_comm_type.name
+            result["moe_comm_method"] = type(_EXTRA_CTX.moe_comm_method).__name__
+            if result["moe_comm_type"] != "ALLGATHER":
+                raise ValueError("EP-off component must retain native ALLGATHER")
+            if not bool(torch.isfinite(output).all().item()):
+                raise ValueError("component MoE returned nonfinite output")
+            if not result["gate"]["statistics"]["finite"]:
+                raise ValueError("component gate returned nonfinite logits")
+            result["output"] = save_tensor(
+                args.output_dir / f"{prefix}-output.bin", output.float()
+            )
+        results[invocation] = result
+    if any(
+        results[primary]["inputs"][name]["sha256"]
+        != results[control]["inputs"][name]["sha256"]
+        for name in ("hidden", "router", "ids")
+    ):
+        raise ValueError("same-weight control must use identical fresh input bytes")
+    return {**results[primary], "same_weight_control": results[control]}
+
+
 def run_worker(args):
     report = {
+        "comparison": args.comparison,
+        "component": args.component,
         "tp_size": args.tp_size,
         "rank": args.rank,
         "device": args.devices[args.rank],
@@ -537,6 +729,9 @@ def run_worker(args):
         "execution_success": False,
         "setup_only": args.setup_only,
         "cases": [],
+        "full_ffn_constructor_exercised": False,
+        "ffn_runner_exercised": False,
+        "afd_transport_exercised": False,
     }
     path = args.output_dir / f"tp{args.tp_size}-rank{args.rank}.json"
     try:
@@ -591,7 +786,16 @@ def run_worker(args):
         with set_current_vllm_config(config):
             vllm_ascend.ops.register_dummy_fusion_op()
             register_ascend_customop(config)
-        init_ascend_config(config)
+        if args.component == "afd":
+            from afd_plugin.compat.patches.npu.ascend_config import (
+                init_ascend_config as init_ffn_ascend_config,
+            )
+
+            # Use the existing F namespace boundary, without applying unrelated
+            # runtime or quantization patches to this component process.
+            init_ffn_ascend_config(config)
+        else:
+            init_ascend_config(config)
         routed_experts_cls = maybe_get_oot_by_class(RoutedExperts)
         moe_runner_cls = maybe_get_oot_by_class(MoERunner)
         report["configuration"] = {
@@ -622,6 +826,34 @@ def run_worker(args):
                 (moe_runner_cls.__module__, moe_runner_cls.__name__)
             ),
         }
+        if args.comparison == "native-vs-afd":
+            from afd_plugin.model_executor.models.npu.deepseek_v41 import (
+                AFDDeepseekV41FFNForCausalLM,
+                AFDDeepseekV41FFNLayer,
+            )
+
+            report["runtime_contracts"].update(
+                {
+                    "ffn_layer_constructor": str(
+                        inspect.signature(AFDDeepseekV41FFNLayer)
+                    ),
+                    "ffn_load_weights": str(
+                        inspect.signature(AFDDeepseekV41FFNForCausalLM.load_weights)
+                    ),
+                    "ffn_compute": str(
+                        inspect.signature(
+                            AFDDeepseekV41FFNForCausalLM.compute_ffn_output
+                        )
+                    ),
+                    "context_scope": (
+                        "same native V2 component context; "
+                        "F runner metadata and connector context are not exercised"
+                    ),
+                    "afd_role": config.additional_config.get("afd"),
+                    "engram_config_is_none": config.engram_config is None,
+                    "speculative_config_is_none": config.speculative_config is None,
+                }
+            )
         if routed_experts_cls is RoutedExperts or moe_runner_cls is MoERunner:
             raise ValueError("native Ascend MoE implementations must be registered")
         if not config.use_v2_model_runner:
@@ -688,13 +920,40 @@ def run_worker(args):
             hidden = fp32.bfloat16()
             fp32 = hidden.float()
             ids = torch.tensor(PROMPT_TOKEN_IDS, dtype=torch.int32)
-            for label, count in (
+            cases = [
                 ("prefill-rows", len(PROMPT_TOKEN_IDS)),
                 ("decode-row", 1),
-            ):
+            ]
+            if args.comparison == "native-vs-afd":
+                cases.append(("decode-independent-fp32", 1))
+            for label, count in cases:
                 case = {"label": label, "rows": count}
                 report["cases"].append(case)
                 stem = f"tp{args.tp_size}-rank{args.rank}-{label}"
+                if args.comparison == "native-vs-afd":
+                    router = fp32[:count]
+                    if label == "decode-independent-fp32":
+                        router = router + ROUTER_CANARY_DELTA
+                    independent = not torch.equal(router, hidden[:count].float())
+                    case["independent_fp32_input"] = independent
+                    if label == "decode-independent-fp32" and not independent:
+                        raise ValueError("FP32 canary must differ from BF16.float()")
+                    case.update(
+                        run_ffn_comparison_case(
+                            args,
+                            config,
+                            carrier,
+                            device,
+                            stem,
+                            (hidden[:count], router, ids[:count]),
+                        )
+                    )
+                    native_value = torch.tensor([1.0], device=device)
+                    dist.all_reduce(native_value, group=get_tp_group().device_group)
+                    if native_value.item() != args.tp_size:
+                        raise ValueError("native TP group reduction changed")
+                    case["native_tp_check"] = native_value.item()
+                    continue
                 inputs = (
                     hidden[:count].to(device),
                     fp32[:count].to(device),
@@ -772,10 +1031,13 @@ def run_worker(args):
         write_json(path, report)
 
 
-def compare_outputs(output_dir, left, right):
+def compare_outputs(output_dir, left, right, *, right_output_dir=None):
     a, b = array.array("f"), array.array("f")
-    for item, target in ((left, a), (right, b)):
-        raw = (output_dir / item["path"]).read_bytes()
+    for directory, item, target in (
+        (output_dir, left, a),
+        (output_dir if right_output_dir is None else right_output_dir, right, b),
+    ):
+        raw = (directory / item["path"]).read_bytes()
         if hashlib.sha256(raw).hexdigest() != item["sha256"]:
             raise ValueError("saved output hash does not match its report")
         target.frombytes(raw)
@@ -799,7 +1061,99 @@ def compare_outputs(output_dir, left, right):
     }
 
 
+def compare_ffn_phases(args, report):
+    native_phase, afd_phase = report["phases"]
+    reference = native_phase["ranks"][0]
+    labels = [case["label"] for case in reference["cases"]]
+    report["same_weight_controls"] = []
+    report["comparisons"] = []
+    for phase in report["phases"]:
+        directory = args.output_dir / phase["directory"]
+        if len(phase["ranks"]) != TP_SIZES[-1]:
+            raise ValueError("each native-vs-afd phase requires four rank reports")
+        for rank_index, rank in enumerate(phase["ranks"]):
+            if rank["rank"] != rank_index or rank["tp_size"] != TP_SIZES[-1]:
+                raise ValueError("component rank inventory is not complete TP4")
+            if (
+                rank["checkpoint_before"] != reference["checkpoint_before"]
+                or rank["checkpoint_payload_sha256"]
+                != reference["checkpoint_payload_sha256"]
+                or rank["sources_before"] != reference["sources_before"]
+            ):
+                raise ValueError(
+                    "all eight ranks must use identical checkpoint/sources"
+                )
+            if [case["label"] for case in rank["cases"]] != labels:
+                raise ValueError("component case inventories differ")
+            for index, case in enumerate(rank["cases"]):
+                source_case = reference["cases"][index]
+                if any(
+                    case["inputs"][name]["sha256"]
+                    != source_case["inputs"][name]["sha256"]
+                    for name in ("hidden", "router", "ids")
+                ):
+                    raise ValueError(
+                        "all component ranks must use identical input bytes"
+                    )
+                peer_case = phase["ranks"][0]["cases"][index]
+                for route in (None, "same_weight_control"):
+                    result = case if route is None else case[route]
+                    peer = peer_case if route is None else peer_case[route]
+                    if result["output"]["sha256"] != peer["output"]["sha256"]:
+                        raise ValueError("TP4 ranks returned different reduced outputs")
+                report["same_weight_controls"].append(
+                    {
+                        "component": phase["component"],
+                        "rank": rank_index,
+                        "case": case["label"],
+                        "primary_invocation": case["invocation"],
+                        "control_invocation": case["same_weight_control"]["invocation"],
+                        "output": compare_outputs(
+                            directory,
+                            case["output"],
+                            case["same_weight_control"]["output"],
+                        ),
+                        "gate": compare_outputs(
+                            directory, case["gate"], case["same_weight_control"]["gate"]
+                        ),
+                    }
+                )
+    for rank_index, candidate in enumerate(afd_phase["ranks"]):
+        native = native_phase["ranks"][rank_index]
+        for index, case in enumerate(native["cases"]):
+            other = candidate["cases"][index]
+            report["comparisons"].append(
+                {
+                    "case": case["label"],
+                    "rank": rank_index,
+                    "output": compare_outputs(
+                        args.output_dir / native_phase["directory"],
+                        case["output"],
+                        other["output"],
+                        right_output_dir=args.output_dir / afd_phase["directory"],
+                    ),
+                    "gate": compare_outputs(
+                        args.output_dir / native_phase["directory"],
+                        case["gate"],
+                        other["gate"],
+                        right_output_dir=args.output_dir / afd_phase["directory"],
+                    ),
+                    "parameters_before_postload_equal": (
+                        native["parameters_before_postload"]
+                        == candidate["parameters_before_postload"]
+                    ),
+                    "parameters_after_postload_equal": (
+                        native["parameters_after_postload"]
+                        == candidate["parameters_after_postload"]
+                    ),
+                }
+            )
+
+
 def compare_phases(args, report):
+    if args.comparison == "native-vs-afd":
+        compare_ffn_phases(args, report)
+        return
     reference = report["phases"][0]["ranks"][0]
     compared = report["phases"][1]["ranks"]
     if any(
@@ -852,6 +1206,7 @@ def supervise(args, preflight):
     children, handles, owned = [], [], {}
     report = {
         "scope": __doc__,
+        "comparison": args.comparison,
         "preflight": preflight,
         "execution_success": False,
         "model_equivalence_accepted": False,
@@ -859,17 +1214,33 @@ def supervise(args, preflight):
         "phases": [],
         "timeout_seconds": args.timeout,
         "setup_only": args.setup_only,
+        "full_ffn_constructor_exercised": False,
+        "ffn_runner_exercised": False,
+        "afd_transport_exercised": False,
     }
     previous_sigterm_handler = signal.signal(signal.SIGTERM, interrupt_supervisor)
     try:
-        report["idle_boards_before"] = profiler_helpers.sample_idle(
-            args.output_dir, "before"
+        if not args.setup_only:
+            report["idle_boards_before"] = profiler_helpers.sample_idle(
+                args.output_dir, "before"
+            )
+        phases = (
+            [("native-tp4", TP_SIZES[-1], "native"), ("afd-tp4", TP_SIZES[-1], "afd")]
+            if args.comparison == "native-vs-afd"
+            else [(f"tp{size}", size, "native") for size in TP_SIZES]
         )
-        ports = hccl_helpers.select_port_block(len(TP_SIZES))
-        for phase, tp_size in enumerate(TP_SIZES):
+        ports = hccl_helpers.select_port_block(len(phases))
+        for phase, (phase_name, tp_size, component) in enumerate(phases):
+            phase_directory = (
+                args.output_dir / phase_name
+                if args.comparison == "native-vs-afd"
+                else args.output_dir
+            )
+            if phase_directory != args.output_dir:
+                phase_directory.mkdir()
             phase_children = []
             for rank in range(1 if args.setup_only else tp_size):
-                handle = (args.output_dir / f"tp{tp_size}-rank{rank}.log").open("wb")
+                handle = (phase_directory / f"tp{tp_size}-rank{rank}.log").open("wb")
                 handles.append(handle)
                 command = [
                     sys.executable,
@@ -878,7 +1249,7 @@ def supervise(args, preflight):
                     "--model",
                     str(args.model),
                     "--output-dir",
-                    str(args.output_dir),
+                    str(phase_directory),
                     "--devices",
                     ",".join(map(str, args.devices)),
                     "--run",
@@ -888,6 +1259,10 @@ def supervise(args, preflight):
                     str(rank),
                     "--port",
                     str(ports + phase),
+                    "--comparison",
+                    args.comparison,
+                    "--component",
+                    component,
                 ]
                 if args.setup_only:
                     command.append("--setup-only")
@@ -918,15 +1293,23 @@ def supervise(args, preflight):
                 raise RuntimeError(f"TP{tp_size} rank exited with an error")
             ranks = [
                 json.loads(
-                    (args.output_dir / f"tp{tp_size}-rank{rank}.json").read_text()
+                    (phase_directory / f"tp{tp_size}-rank{rank}.json").read_text()
                 )
                 for rank in range(1 if args.setup_only else tp_size)
             ]
             success_key = "setup_success" if args.setup_only else "execution_success"
             if not all(rank[success_key] for rank in ranks):
                 raise RuntimeError("a rank did not complete its numerical diagnostic")
-            report["phases"].append({"tp_size": tp_size, "ranks": ranks})
-            profiler_helpers.sample_idle(args.output_dir, f"after-tp{tp_size}")
+            report["phases"].append(
+                {
+                    "tp_size": tp_size,
+                    "component": component,
+                    "directory": str(phase_directory.relative_to(args.output_dir)),
+                    "ranks": ranks,
+                }
+            )
+            if not args.setup_only:
+                profiler_helpers.sample_idle(args.output_dir, f"after-{phase_name}")
         if args.setup_only:
             report["setup_success"] = True
         else:
@@ -958,14 +1341,15 @@ def supervise(args, preflight):
             handle.close()
         report["exit_codes"] = [child.returncode for child in children]
         report["owned_pid_start_ticks"] = owned
-        try:
-            report["idle_boards_after"] = profiler_helpers.sample_idle(
-                args.output_dir, "after"
-            )
-        except BaseException:
-            report["postcheck_error"] = traceback.format_exc()
-            report["execution_success"] = False
-            report["setup_success"] = False
+        if not args.setup_only:
+            try:
+                report["idle_boards_after"] = profiler_helpers.sample_idle(
+                    args.output_dir, "after"
+                )
+            except BaseException:
+                report["postcheck_error"] = traceback.format_exc()
+                report["execution_success"] = False
+                report["setup_success"] = False
         report["elapsed_seconds"] = time.monotonic() - started
         write_json(args.output_dir / "result.json", report)
         signal.signal(signal.SIGTERM, previous_sigterm_handler)
@@ -987,6 +1371,7 @@ def main():
             "checkpoint": checkpoint_identity(args.model),
             "sources": source_identity(args.output_dir),
             "run_requested": args.run,
+            "comparison": args.comparison,
             "devices": args.devices,
         }
         write_json(args.output_dir / "preflight.json", preflight)

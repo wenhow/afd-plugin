@@ -1,0 +1,10 @@
+{
+  "archive": "reports\\dsv41-a5-afd-moe-parity-20261113.tar.gz",
+  "archive_sha256": "e71795e8985e9b827b3b3d28f530320f70db8c029286f5d1a6402e612cd27989",
+  "bytes": 454167,
+  "files": 151,
+  "base_commit": "bca7ba9f4157c16b5de9ca41d5420f81d71f0761",
+  "probe_sha256": "8d4ed48638baafce40df85536ea91d2c3f880f032c6711932b820a3a14dc3556",
+  "wrapper_sha256": "4364b8d97ced87025f0c01806340af30b602ce77814bfbd8089271ddfe88ac64",
+  "scope": "same-TP4 native and actual AFD FFN-layer diagnostic; full constructors/runner/transport excluded"
+}
