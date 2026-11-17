@@ -15,6 +15,7 @@ from vllm_ascend.attention.dsa_v1 import (  # noqa: E402
     AscendDSAMetadata,
     AscendDSAMetadataBuilder,
 )
+from vllm_ascend.attention.dsa_v41 import AscendDSAV41Metadata  # noqa: E402
 from vllm_ascend.attention.mla_v1 import AscendMLAMetadata  # noqa: E402
 from vllm_ascend.attention.sfa_v1 import (  # noqa: E402
     AscendSFAMetadata,
@@ -129,8 +130,10 @@ def test_isolates_mutable_sfa_and_dsa_builder_inputs():
     assert block_table.tolist() == [[0, 1, 2], [3, 4, 5]]
 
 
-@pytest.fixture
-def dsa_rope_source(monkeypatch):
+@pytest.fixture(
+    params=[AscendDSAMetadata, AscendDSAV41Metadata], ids=["dsa", "dsa-v41"]
+)
+def dsa_rope_source(monkeypatch, request):
     # Use the real pinned getter and proxy, including multi-group selection.
     state = rope_dsv4.RopeGlobalState()
     for key, width, offset in (("config-a", 2, 100), ("config-b", 3, 300)):
@@ -158,8 +161,14 @@ def dsa_rope_source(monkeypatch):
     monkeypatch.setattr(deepseek_attention_metadata, "get_cos_and_sin_dsa", get_rope)
 
     def materialize(positions, num_tokens, buffers=None):
-        metadata = object.__new__(AscendDSAMetadata)
-        metadata.req_metadata = SimpleNamespace(cos=None, sin=None)
+        metadata = object.__new__(request.param)
+        if request.param is AscendDSAV41Metadata:
+            rope_metadata = metadata
+            rope_metadata.cos = object()
+            rope_metadata.sin = object()
+        else:
+            metadata.req_metadata = SimpleNamespace(cos=None, sin=None)
+            rope_metadata = metadata.req_metadata
         # Both layers share one request metadata object: one getter call is enough.
         deepseek_attention_metadata.materialize_deepseek_attention_metadata_by_layer(
             {"layer-a": metadata, "layer-b": metadata},
@@ -168,7 +177,7 @@ def dsa_rope_source(monkeypatch):
             rope_buffers=buffers,
             rope_capacity=8,
         )
-        return metadata.req_metadata
+        return rope_metadata
 
     return SimpleNamespace(
         state=state, calls=calls, returned=returned, materialize=materialize
