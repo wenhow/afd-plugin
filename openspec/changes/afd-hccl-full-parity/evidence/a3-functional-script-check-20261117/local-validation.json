@@ -1,0 +1,28 @@
+{
+  "ruff_check": true,
+  "ruff_format_check": true,
+  "compiled_frozen_python": 185,
+  "json_parse": true,
+  "source_capsule_runner_matches_delivered": true,
+  "harness_check": {
+    "ok": true,
+    "files": 434,
+    "changes": 8,
+    "tasks": 109,
+    "source_objects": 56,
+    "skills": 3,
+    "phase": "implementation",
+    "upstreams_unchanged": true,
+    "validation_scope": "local plan checks; not official CLI or NPU qualification"
+  },
+  "harness_guard": {
+    "ok": true,
+    "upstreams": [
+      "vllm",
+      "vllm_ascend",
+      "hccl_donor"
+    ],
+    "unchanged": true
+  },
+  "scope": "Local syntax/planning/upstream guard; A3 observations are in the raw archives"
+}

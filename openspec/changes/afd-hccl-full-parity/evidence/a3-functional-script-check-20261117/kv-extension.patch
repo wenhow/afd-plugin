@@ -1,0 +1,27 @@
+--- a/check_scripts.py
++++ b/check_scripts-kv.py
+@@ -119,7 +119,11 @@
+     # Use the actual native Worker and current functional configuration. Stop
+     # after loading/observation; A3's deferred inference diagnosis stays paused.
+     import torch
+-    from dsv41_functional_worker_probe import build_config, execution_environment
++    from dsv41_functional_worker_probe import (
++        build_config,
++        execution_environment,
++        initialize_attention_kv,
++    )
+     from dsv41_normal_native_probe import record_native_model
+     from vllm.config import set_current_vllm_config
+     from vllm.distributed import destroy_distributed_environment, destroy_model_parallel
+@@ -155,6 +159,11 @@
+                 record_native_model(worker) == report["loaded_model"]
+             )
+             assert report["readback_repeated_identically"]
++            initialize_attention_kv(wrapper, report)
++            report["parameters_unchanged_after_kv"] = (
++                record_native_model(worker) == report["loaded_model"]
++            )
++            assert report["parameters_unchanged_after_kv"]
+     finally:
+         callbacks = [("worker", wrapper.shutdown)] if constructed else []
+         callbacks += [

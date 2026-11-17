@@ -1,0 +1,83 @@
+{
+  "passed": true,
+  "baseline": {
+    "passed": true,
+    "bundle_sha256": "817d04ee81dc55a1e3d9053dfdd424eeb83df8f1045f09367dec4359d8d320f7",
+    "check_groups": 23,
+    "configuration_checks": 13,
+    "readback_formats": [
+      2,
+      29,
+      2
+    ],
+    "loaded_parameters": 79,
+    "index_n_heads": 64,
+    "native_kv_initialized": false,
+    "all_eight_idle_after": true,
+    "surviving_owned_pids": [],
+    "native_source_count": 194,
+    "inference_executed": false,
+    "a5_acceptance": false
+  },
+  "qli_delta": {
+    "passed": true,
+    "bundle_sha256": "28472209418f029a957f037fd1e8581bf18f34c13b7923db15797c875d0589bb",
+    "check_groups": 14,
+    "configuration_checks": 4,
+    "readback_formats": [
+      2,
+      29,
+      2
+    ],
+    "loaded_parameters": 79,
+    "index_n_heads": 32,
+    "native_kv_initialized": true,
+    "all_eight_idle_after": true,
+    "surviving_owned_pids": [],
+    "native_source_count": 194,
+    "inference_executed": false,
+    "a5_acceptance": false
+  },
+  "reused_exact_source_cpu_configurations": 9,
+  "combined_qli_configuration_coverage": 13,
+  "reused_cpu_source_paths": [
+    "tests/npu/dsv41_functional_worker_probe.py",
+    "afd_plugin/compat/npu/feature_validation.py",
+    "tests/npu/dsv41_dspark_a5_runtime.py"
+  ],
+  "latest_delivery_commit": "a4b3ab6ceec23e33a52c3f6fcc09e9e91949a662",
+  "latest_delivery_bundle_sha256": "bd537ca3ce1cef07faeb8e648c2e879fdd1a2dfe12791e6a6eeff15ea9b96cc9",
+  "latest_delivery_changed_members": [
+    "bundle-manifest.json",
+    "tests/npu/dsv41_a5_functional_validation.py"
+  ],
+  "latest_launcher_cli_checks": 4,
+  "latest_launcher_actual_a3_validation": {
+    "command": [
+      "/mnt/workspace/code/.venvs/afd-v030-dsv41-c0/bin/python",
+      "-B",
+      "-S",
+      "tests/e2e/diagnostics/test_dsv41_a5_functional_validation.py",
+      "-v"
+    ],
+    "remote_root": "/mnt/workspace/tmp/afd-c0-20261104.hVgsIf/functional-launcher-a4b3ab6-et4uew42",
+    "returncode": 0,
+    "passed": true,
+    "scope": "A3 stdlib CLI and actual child environment; no runtime import or device model",
+    "commit": "a4b3ab6ceec23e33a52c3f6fcc09e9e91949a662",
+    "bundle_sha256": "bd537ca3ce1cef07faeb8e648c2e879fdd1a2dfe12791e6a6eeff15ea9b96cc9",
+    "cli_checks": 4,
+    "source_capsule_sha256": "89b356fc8a12829d762c2b6757c2bb0280d1b05fc6f79c42fe165b712cce7df5",
+    "test_harness_sha256": "feb3231c8d3ed1294765c48818cdc28a80ea0cbb6b63c474f0dbb95051fa3390",
+    "test_harness_candidate": "two stdlib child processes now also use -S"
+  },
+  "pending": [
+    "A5 native/runtime bootstrap",
+    "A5 operator execution",
+    "seven A5 inference scenes",
+    "A/F numerical equivalence",
+    "full checkpoint accuracy",
+    "Engram",
+    "performance"
+  ]
+}

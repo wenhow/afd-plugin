@@ -1,0 +1,11 @@
+{
+  "commit": "63c5a44be72503a4930a11268bef17ec73a58307",
+  "remote_root": "/mnt/workspace/tmp/afd-c0-20261104.hVgsIf/functional-script-check-63c5a44-m1ch0zn5",
+  "source_archive_sha256": "28472209418f029a957f037fd1e8581bf18f34c13b7923db15797c875d0589bb",
+  "source_capsule_sha256": "a6b50fb7da34126708e4037007e5452177e7bb2f77658fbb113b3ed4cfa0384f",
+  "runner_sha256": "2115b7ce783663289569648ab2fe44a6b8557e163e45070bded446ff327fe252",
+  "reused_exact_source_cpu_evidence": "../a5-qli-geometry-20261117/cpu-green",
+  "configuration_checks": 4,
+  "all_configuration_checks_have_overlap": true,
+  "model_load_includes_native_kv": true
+}

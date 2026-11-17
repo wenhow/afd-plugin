@@ -1,0 +1,15 @@
+{
+  "remote_root": "/mnt/workspace/tmp/afd-c0-20261104.hVgsIf/functional-script-check-20261117-bgdlzfms",
+  "archive_sha256": "817d04ee81dc55a1e3d9053dfdd424eeb83df8f1045f09367dec4359d8d320f7",
+  "runner_sha256": "327d6528944422864623c321360e69f326bbd23ec5241b0d9a338496beb3b0e8",
+  "uploaded_members": 196,
+  "upload_sha256": "f53e2629495a6d7c6bf94bbeb3b440106101fcc08d5aa717bd0fe4ec22dd5322",
+  "private_jit_cache": "/mnt/workspace/tmp/afd-c0-20261104.hVgsIf/functional-script-check-20261117-aed7k8py/cache/torch-extensions",
+  "config_timeout_seconds": 600,
+  "result_directory": "results-serialized",
+  "before_preservation": "before-serialized-preservation.json",
+  "after_preservation": "after-serialized-preservation.json",
+  "serialized_shell_sha256": "5ee9a8e8070ef6e10c9c20ff90e11eae8e7613d9fc3b2ddda72cae56627c392e",
+  "serialized_upload_sha256": "946c93017401feb0e15cd3a7e93f14d53a2a6366030c2d5206b7a120b26e7ac0",
+  "additional_device_checks_concurrent": false
+}

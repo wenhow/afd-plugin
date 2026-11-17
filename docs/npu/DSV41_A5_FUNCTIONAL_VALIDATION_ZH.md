@@ -244,6 +244,17 @@ git pull --ff-only origin feat/dsv41-flash-hccl-v030
 本次[原始日志与检查记录](../../openspec/changes/afd-hccl-full-parity/evidence/a5-qli-geometry-20261117/README.md)
 保留独立失败证据。CPU配置检查不执行A5 QLI内核，实际首轮、后续采样和七场景仍待重跑。
 
+### 交付前先在 A3 检查共用脚本
+
+修改本套验证脚本后，先用同一冻结包在A3隔离环境检查共用路径，再交付A5设备验证。
+门禁覆盖七场景metadata、命令行参数、正常/异常/超时进程回收、原生与A/F的13种真实配置
+（含U2多流开关）、真实ND/NZ参数读取、原生验证模型加载与参数采集；KV规划和分配单独检查。
+每轮保留真实退出码、原始日志、来源SHA、清理结果，结束时确认无残留与八卡空闲。
+
+A5入口继续保留真实硬件门禁；A3应被该门禁拒绝，不能伪装成A5绕过检查。
+A3的脚本检查不代表A5专用bootstrap、Graph/U2执行或DSpark/PD七场景推理已通过。
+本次检查记录见 [A3共用脚本验证](../../openspec/changes/afd-hccl-full-parity/evidence/a3-functional-script-check-20261117/README.md)。
+
 ## 4. 源码与实施边界
 
 交付源码见 [准备记录](../../reports/dsv41-a5-functional/preparation.json) 和
