@@ -4,7 +4,8 @@
 包含原生对照、正常 A/F Worker 四模式，以及 DSpark/PD 两个代表组合。
 不需要重新执行旧的 17 场景列表，也不安排 profiler、性能或服务启停专项。
 
-本批的正常模型使用原生三层 `[0,0,2]` C2 Attention/HC、原生完整 BF16 MoE、
+本批的正常模型使用原生三层 `[0,0,2]` C2 Attention/HC、64个Attention头、
+32个Indexer头（维度128）、原生完整 BF16 MoE、
 真实 Scheduler、KV 规划和设备算子；参数为受控 dummy，Engram 关闭。
 DSpark/PD 使用真实原生 DSpark draft、设备缓存写入和 Mooncake 传输，target/FFN
 仍是有明确输出预期的受控组件。因此结果用于**功能组合验证**，不代表训练检查点
@@ -186,6 +187,39 @@ PY
 保留原模型参数存储、SHA/finite检查及原生/AFD对照。SHA表示逻辑连续元素字节，不含内部padding。
 共享helper和默认冻结包已同步，更新后保留旧结果，改用新目录执行原命令。
 实际A5读取及后续场景仍待重跑，本地CPU检查不能代替设备验收。
+
+### 首轮 QLI metadata 拒绝 64 个 Indexer 头
+
+11月17日 `rerun3/native-eager-u1.log` 的实际错误为：
+
+```text
+ValueError: QLI metadata requires N1=32, N2=1 and logical D=128
+```
+
+该次原生Worker、参数读取、KV初始化及公开warmup均已完成；首轮prefill在
+`prepare_attn -> build_qli_metadata -> quant_lightning_indexer_metadata` 中失败，
+尚未进入模型forward或采样。报告为 `model_loaded=true`、
+`attention_kv_initialized=true`、`inference_executed=false`。
+已加载的indexer `wq_b.weight=[8192,64]`、`weights_proj.weight=[64,512]`
+确认受控配置实际声明64个indexer头；A5当前DSL算子要求32个。
+两处数字分别指Attention与Indexer，不能互相替代，也不能通过更改TP来修复：
+锁定的原生Indexer在每个TP rank复制完整index heads。
+
+后继冻结包在首次 `hf_overrides` 中声明 `index_n_heads=32`、
+`index_head_dim=128`，正常原生及A/F使用同一配置，Attention仍为64头、维度512。
+同批DSpark受控配置也同步32个indexer头。生产资格校验仅在显式functional候选内
+增加32头声明，保留旧64头候选和其他限制；没有修改原模型文件或上游算子。
+参数形状已变化，需重新执行本批原生/AFD对照，不能复用旧轮参数SHA或采样结果。
+
+更新分支后，使用**新的输出目录**执行第1节命令：
+
+```bash
+git pull --ff-only origin feat/dsv41-flash-hccl-v030
+```
+
+提交同时更新源码、默认冻结包和锁；入口文件SHA保持不变，无需在A5重建冻结包。
+本次[原始日志与检查记录](../../openspec/changes/afd-hccl-full-parity/evidence/a5-qli-geometry-20261117/README.md)
+保留独立失败证据。CPU配置检查不执行A5 QLI内核，实际首轮、后续采样和七场景仍待重跑。
 
 ## 4. 源码与实施边界
 

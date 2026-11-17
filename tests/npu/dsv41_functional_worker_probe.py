@@ -25,7 +25,7 @@ from contextlib import contextmanager, nullcontext
 from dataclasses import asdict
 from pathlib import Path
 
-from dsv41_dspark_a5_runtime import native_a5_bootstrap
+from dsv41_dspark_a5_runtime import NATIVE_INDEX_HEADS, native_a5_bootstrap
 from dsv41_normal_c2_probe import (
     ATTENTION_KV_BUDGET_BYTES,
     BLOCK_SIZE,
@@ -54,6 +54,7 @@ from dsv41_normal_native_probe import (
     canonical_parameter_groups,
     record_native_model,
 )
+from dsv41_normal_worker_probe import INDEX_HEAD_SIZE
 
 FUNCTIONAL_ENV = "AFD_DSV41_FUNCTIONAL_QUALIFICATION"
 OLDER_QUALIFICATIONS = (
@@ -97,6 +98,20 @@ def execution_environment(args: argparse.Namespace) -> dict[str, str]:
     }
 
 
+def bounded_a5_c2_hf_config(hf_config):
+    """Declare A5's packed QLI geometry before native model construction."""
+    bounded = bounded_c2_hf_config(hf_config)
+    raw = bounded.to_dict()
+    raw["model_type"] = bounded.model_type
+    raw["index_n_heads"] = NATIVE_INDEX_HEADS
+    if "text_config" in raw:
+        raw["text_config"] = {
+            **raw["text_config"],
+            "index_n_heads": NATIVE_INDEX_HEADS,
+        }
+    return type(bounded)(**raw)
+
+
 def configuration_record(config) -> dict:
     model, parallel = config.model_config, config.parallel_config
     text = model.hf_text_config
@@ -109,6 +124,8 @@ def configuration_record(config) -> dict:
             "vocab_size": model.get_vocab_size(),
             "num_layers": model.get_num_layers(parallel),
             "num_attention_heads": text.num_attention_heads,
+            "index_n_heads": text.index_n_heads,
+            "index_head_dim": text.index_head_dim,
             "hc_mult": text.hc_mult,
             "compress_ratios": list(text.compress_ratios),
         },
@@ -193,10 +210,12 @@ def build_config(args: argparse.Namespace, report: dict):
     report["first_declaration"] = {
         "role": args.role,
         "mode": args.mode,
-        "hf_override": "bounded_c2_hf_config",
+        "hf_override": "bounded_a5_c2_hf_config",
         "hidden_size": HIDDEN_SIZE,
         "head_size": HEAD_SIZE,
         "num_attention_heads": QUERY_HEADS,
+        "index_n_heads": NATIVE_INDEX_HEADS,
+        "index_head_dim": INDEX_HEAD_SIZE,
         "hc_mult": HC_MULTIPLIER,
         "num_hidden_layers": LAYER_COUNT,
         "compress_ratios": [0, 0, 2],
@@ -215,7 +234,7 @@ def build_config(args: argparse.Namespace, report: dict):
         skip_tokenizer_init=True,
         language_model_only=True,
         dtype="bfloat16",
-        hf_overrides=bounded_c2_hf_config,
+        hf_overrides=bounded_a5_c2_hf_config,
         load_format="dummy",
         enforce_eager=not graph,
         max_model_len=MAX_MODEL_LEN,
@@ -259,6 +278,8 @@ def build_config(args: argparse.Namespace, report: dict):
         "vocab_size": VOCAB_SIZE,
         "num_layers": LAYER_COUNT,
         "num_attention_heads": QUERY_HEADS,
+        "index_n_heads": NATIVE_INDEX_HEADS,
+        "index_head_dim": INDEX_HEAD_SIZE,
         "hc_mult": HC_MULTIPLIER,
         "compress_ratios": [0, 0, 2],
     }

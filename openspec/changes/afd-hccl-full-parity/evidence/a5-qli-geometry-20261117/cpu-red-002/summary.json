@@ -1,0 +1,10 @@
+{
+  "unit_returncode": 1,
+  "config_runs": [],
+  "native_state": {
+    "before": false,
+    "after": false,
+    "returncode": 1
+  },
+  "source_unchanged": true
+}

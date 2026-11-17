@@ -126,13 +126,16 @@ def a5_helper_successors(original: dict[str, bytes], root: Path) -> tuple[dict, 
         spec,
         "from pathlib import Path\n",
         "from pathlib import Path\n\n"
-        "from dsv41_dspark_a5_runtime import NATIVE_ATTENTION_HEADS\n",
+        "from dsv41_dspark_a5_runtime import (\n"
+        "    NATIVE_ATTENTION_HEADS, NATIVE_INDEX_HEADS,\n"
+        ")\n",
     )
     replace(
         spec,
         '"num_attention_heads": 1,',
         '"num_attention_heads": NATIVE_ATTENTION_HEADS,',
     )
+    replace(spec, "INDEX_NUM_HEADS = 64", "INDEX_NUM_HEADS = NATIVE_INDEX_HEADS")
     replace(
         spec,
         "        assert hf.hc_mult == HC_MULT and hf.num_attention_heads == 1\n",

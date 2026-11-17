@@ -1,13 +1,13 @@
 {
   "contains_binaries": false,
   "native_git_pins_verified": 194,
-  "new_admission_source_sha256": "ab9ea4747fca18f3bc27d0bc2ac4add9b8764043c89ceba7ff39b67c12ec71a9",
+  "new_admission_source_sha256": "bb99320d6e1199d9947f5f169de3f2f2fbad080689d2a2f6c1a442f07fe1f2eb",
   "npu_validation": "pending_on_A5",
   "production_count": 146,
   "production_delta_from_dspark": {
     "afd_plugin/compat/npu/feature_validation.py": {
       "parent_sha256": "943aec35a56dfd9e7256c3b33620937b5988ac6a30f6ffc1a6d1382362ed0897",
-      "sha256": "ab9ea4747fca18f3bc27d0bc2ac4add9b8764043c89ceba7ff39b67c12ec71a9"
+      "sha256": "bb99320d6e1199d9947f5f169de3f2f2fbad080689d2a2f6c1a442f07fe1f2eb"
     },
     "afd_plugin/compat/npu/profiler.py": {
       "parent_sha256": "4dcd664757a788f26efbdf1a3dfaf8acbf7a0a007f26bd2e53c1b6a896d1c117",
@@ -31,7 +31,7 @@
     }
   },
   "python_sources_compiled": 185,
-  "runtime_source_sha256": "817d04ee81dc55a1e3d9053dfdd424eeb83df8f1045f09367dec4359d8d320f7",
+  "runtime_source_sha256": "28472209418f029a957f037fd1e8581bf18f34c13b7923db15797c875d0589bb",
   "source_count": 188,
   "status": "source_prepared_not_device_validated"
 }

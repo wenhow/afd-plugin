@@ -1544,3 +1544,17 @@ CPU错误报告接缝重放确认超时/非超时均失败且零场景，不计�
 六项真实CPU参数哈希与原件保持检查、七场景metadata、185Python编译、194Git对象核对、
 Ruff及本地规划/保护检查通过。原日志和父包保留；A5格式转换、KV、推理及全部设备场景待重跑，
 不提前变更任务勾选。
+
+### 2026-11-17：A5首轮QLI拒绝64头，修正受控Indexer声明
+
+[原始日志与本轮检查](evidence/a5-qli-geometry-20261117/README.md)确认原生模型、
+参数读取、KV与公开warmup完成，首prefill在QLI metadata失败，未进入forward/采样。
+真实DSL错误要求N1=32/N2=1/D=128；实际indexer权重证明受控声明为64头。
+正常原生/A/F首次配置统一indexer32/128，普通Attention仍64头、维度512；
+同批DSpark声明同步。functional资格入口增加该精确候选，旧dummy及默认限制保留。
+冻结包同步，旧日志、模型配置和父包保留，上游只读工作区不变。
+
+真实依赖CPU同测试RED36F/350P到GREEN386P/0F/E/S；原生1、A4、F4共9个
+首次配置全部通过，实际indexer32/128且NPU初始化前后均False。
+本地CPU56P/330S，跳过不计通过；七场景metadata、185Python编译、194Git身份、
+Ruff及规划/保护检查通过。A5新几何与后续设备场景仍待重跑，不变更任务勾选。

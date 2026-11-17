@@ -1,0 +1,2396 @@
+{
+  "schema_version": 1,
+  "role": "native",
+  "mode": "eager-u1",
+  "run": true,
+  "run_config": false,
+  "overlap_requested": false,
+  "environment_declaration": {
+    "AFD_HCCL_EAGER_U2_STREAM_OVERLAP": "0",
+    "AFD_HCCL_GRAPH_U2_COMPUTE_OVERLAP": "0",
+    "AFD_HCCL_GRAPH_U2_HYBRID_DAG": "0",
+    "AFD_HCCL_GRAPH_U2_ATTENTION_THREE_STREAM": "0",
+    "AFD_HCCL_GRAPH_U2_FFN_RECV_STREAM": "0",
+    "AFD_HCCL_GRAPH_U2_FFN_CROSS_LAYER": "0",
+    "AFD_HCCL_STAGE_DIAGNOSTICS": "0",
+    "AFD_HCCL_FFN_COMPUTE_SYNC_DIAGNOSTICS": "0",
+    "VLLM_USE_V2_MODEL_RUNNER": "1",
+    "VLLM_PLUGINS": "ascend,ascend_model,ascend_model_loader,ascend_kv_connector,ascend_service_profiling",
+    "AFD_DSV41_FUNCTIONAL_QUALIFICATION": "0",
+    "AFD_DSV41_EAGER_QUALIFICATION": "0",
+    "AFD_DSV41_DUMMY_QUALIFICATION": "0"
+  },
+  "runtime_imported": true,
+  "model_loaded": true,
+  "attention_kv_initialized": true,
+  "ffn_empty_kv_initialized": false,
+  "inference_executed": false,
+  "compile_or_warm_up_returned": true,
+  "mode_execution_accepted": false,
+  "request_lifecycle_accepted": false,
+  "functional_worker_component_accepted": false,
+  "cross_role_weight_equivalence_verified": false,
+  "numerical_equivalence_accepted": false,
+  "physical_overlap_accepted": false,
+  "performance_accepted": false,
+  "full_checkpoint_accepted": false,
+  "pd_accepted": false,
+  "dspark_accepted": false,
+  "engram_accepted": false,
+  "canonical_parameter_groups": {
+    "attention_identity_names": [
+      "language_model.model.embed_tokens.weight",
+      "language_model.model.norm.weight",
+      "language_model.lm_head.weight",
+      "language_model.model.layers.0.hc_attn_fn",
+      "language_model.model.layers.0.hc_ffn_fn",
+      "language_model.model.layers.0.hc_attn_base",
+      "language_model.model.layers.0.hc_ffn_base",
+      "language_model.model.layers.0.hc_attn_scale",
+      "language_model.model.layers.0.hc_ffn_scale",
+      "language_model.model.layers.0.self_attn.attn_sink",
+      "language_model.model.layers.0.self_attn.wq_a.weight",
+      "language_model.model.layers.0.self_attn.q_norm.weight",
+      "language_model.model.layers.0.self_attn.wq_b.weight",
+      "language_model.model.layers.0.self_attn.wkv.weight",
+      "language_model.model.layers.0.self_attn.kv_norm.weight",
+      "language_model.model.layers.0.self_attn.wo_a.weight",
+      "language_model.model.layers.0.self_attn.wo_b.weight",
+      "language_model.model.layers.0.input_layernorm.weight",
+      "language_model.model.layers.0.post_attention_layernorm.weight",
+      "language_model.model.layers.1.hc_attn_fn",
+      "language_model.model.layers.1.hc_ffn_fn",
+      "language_model.model.layers.1.hc_attn_base",
+      "language_model.model.layers.1.hc_ffn_base",
+      "language_model.model.layers.1.hc_attn_scale",
+      "language_model.model.layers.1.hc_ffn_scale",
+      "language_model.model.layers.1.self_attn.attn_sink",
+      "language_model.model.layers.1.self_attn.wq_a.weight",
+      "language_model.model.layers.1.self_attn.q_norm.weight",
+      "language_model.model.layers.1.self_attn.wq_b.weight",
+      "language_model.model.layers.1.self_attn.wkv.weight",
+      "language_model.model.layers.1.self_attn.kv_norm.weight",
+      "language_model.model.layers.1.self_attn.wo_a.weight",
+      "language_model.model.layers.1.self_attn.wo_b.weight",
+      "language_model.model.layers.1.input_layernorm.weight",
+      "language_model.model.layers.1.post_attention_layernorm.weight",
+      "language_model.model.layers.2.hc_attn_fn",
+      "language_model.model.layers.2.hc_ffn_fn",
+      "language_model.model.layers.2.hc_attn_base",
+      "language_model.model.layers.2.hc_ffn_base",
+      "language_model.model.layers.2.hc_attn_scale",
+      "language_model.model.layers.2.hc_ffn_scale",
+      "language_model.model.layers.2.self_attn.attn_sink",
+      "language_model.model.layers.2.self_attn.wq_a.weight",
+      "language_model.model.layers.2.self_attn.q_norm.weight",
+      "language_model.model.layers.2.self_attn.wq_b.weight",
+      "language_model.model.layers.2.self_attn.wkv.weight",
+      "language_model.model.layers.2.self_attn.kv_norm.weight",
+      "language_model.model.layers.2.self_attn.wo_a.weight",
+      "language_model.model.layers.2.self_attn.wo_b.weight",
+      "language_model.model.layers.2.input_layernorm.weight",
+      "language_model.model.layers.2.post_attention_layernorm.weight",
+      "language_model.model.layers.2.self_attn.compressor.wkv.weight",
+      "language_model.model.layers.2.self_attn.compressor.norm.weight",
+      "language_model.model.layers.2.self_attn.compressor.wgate.weight",
+      "language_model.model.layers.2.self_attn.indexer.wq_b.weight",
+      "language_model.model.layers.2.self_attn.indexer.weights_proj.weight",
+      "language_model.model.layers.2.self_attn.indexer.wk.weight",
+      "language_model.model.layers.2.self_attn.indexer.k_norm.weight"
+    ],
+    "ffn_to_native_names": {
+      "model.layers.0.mlp.gate.weight": "language_model.model.layers.0.mlp.gate.weight",
+      "model.layers.0.mlp.gate.e_score_correction_bias": "language_model.model.layers.0.mlp.gate.e_score_correction_bias",
+      "model.layers.0.mlp.gate.weight_fp32": "language_model.model.layers.0.mlp.gate.weight_fp32",
+      "model.layers.0.mlp.shared_experts.gate_up_proj.weight": "language_model.model.layers.0.mlp.shared_experts.gate_up_proj.weight",
+      "model.layers.0.mlp.shared_experts.down_proj.weight": "language_model.model.layers.0.mlp.shared_experts.down_proj.weight",
+      "model.layers.0.mlp.experts.routed_experts.w13_weight": "language_model.model.layers.0.mlp.experts.routed_experts.w13_weight",
+      "model.layers.0.mlp.experts.routed_experts.w2_weight": "language_model.model.layers.0.mlp.experts.routed_experts.w2_weight",
+      "model.layers.1.mlp.gate.weight": "language_model.model.layers.1.mlp.gate.weight",
+      "model.layers.1.mlp.gate.e_score_correction_bias": "language_model.model.layers.1.mlp.gate.e_score_correction_bias",
+      "model.layers.1.mlp.gate.weight_fp32": "language_model.model.layers.1.mlp.gate.weight_fp32",
+      "model.layers.1.mlp.shared_experts.gate_up_proj.weight": "language_model.model.layers.1.mlp.shared_experts.gate_up_proj.weight",
+      "model.layers.1.mlp.shared_experts.down_proj.weight": "language_model.model.layers.1.mlp.shared_experts.down_proj.weight",
+      "model.layers.1.mlp.experts.routed_experts.w13_weight": "language_model.model.layers.1.mlp.experts.routed_experts.w13_weight",
+      "model.layers.1.mlp.experts.routed_experts.w2_weight": "language_model.model.layers.1.mlp.experts.routed_experts.w2_weight",
+      "model.layers.2.mlp.gate.weight": "language_model.model.layers.2.mlp.gate.weight",
+      "model.layers.2.mlp.gate.e_score_correction_bias": "language_model.model.layers.2.mlp.gate.e_score_correction_bias",
+      "model.layers.2.mlp.gate.weight_fp32": "language_model.model.layers.2.mlp.gate.weight_fp32",
+      "model.layers.2.mlp.shared_experts.gate_up_proj.weight": "language_model.model.layers.2.mlp.shared_experts.gate_up_proj.weight",
+      "model.layers.2.mlp.shared_experts.down_proj.weight": "language_model.model.layers.2.mlp.shared_experts.down_proj.weight",
+      "model.layers.2.mlp.experts.routed_experts.w13_weight": "language_model.model.layers.2.mlp.experts.routed_experts.w13_weight",
+      "model.layers.2.mlp.experts.routed_experts.w2_weight": "language_model.model.layers.2.mlp.experts.routed_experts.w2_weight"
+    }
+  },
+  "scope": "bounded BF16 dummy C2 normal Worker functional component",
+  "success": false,
+  "output_dir": "/home/z00569729/dsv41-afd/src/afd-plugin-dsv41-a5/results/dsv41-a5-functional-20261117-rerun3/native-eager-u1",
+  "npu_initialized_before_config": false,
+  "configuration_device_before": 0,
+  "checkpoint_config_sha256": "8be45ce0476004a3f529fd896115a4a2e800a129ad2d3ec05b16050f52e21879",
+  "first_declaration": {
+    "role": "native",
+    "mode": "eager-u1",
+    "hf_override": "bounded_c2_hf_config",
+    "hidden_size": 512,
+    "head_size": 512,
+    "num_attention_heads": 64,
+    "hc_mult": 4,
+    "num_hidden_layers": 3,
+    "compress_ratios": [
+      0,
+      0,
+      2
+    ],
+    "max_num_seqs": 2,
+    "ubatch_size": 0,
+    "enforce_eager": true,
+    "capture_sizes": [],
+    "kv_budget_bytes": 8388608,
+    "additional_config": {
+      "enable_cpu_binding": false
+    },
+    "geometry_or_mode_mutated_after_construction": false
+  },
+  "configuration": {
+    "config_identity": 281456657361808,
+    "worker_cls": "vllm_ascend.worker.worker.NPUWorker",
+    "native_geometry": {
+      "hidden_size": 512,
+      "head_size": 512,
+      "vocab_size": 4096,
+      "num_layers": 3,
+      "num_attention_heads": 64,
+      "hc_mult": 4,
+      "compress_ratios": [
+        0,
+        0,
+        2
+      ]
+    },
+    "max_num_seqs": 2,
+    "max_num_batched_tokens": 16,
+    "max_model_len": 128,
+    "enable_chunked_prefill": true,
+    "enforce_eager": true,
+    "use_ubatching": false,
+    "num_ubatches": 0,
+    "dbo_prefill_token_threshold": 2,
+    "dbo_decode_token_threshold": 2,
+    "compile_mode": "NONE",
+    "graph_mode": "NONE",
+    "capture_sizes": [],
+    "language_model_only": true,
+    "model_is_multimodal": true,
+    "skip_tokenizer_init": true,
+    "load_format": "dummy",
+    "speculation_is_none": true,
+    "pd_is_none": true,
+    "engram_is_none": true,
+    "quantization_is_none": true,
+    "additional_config": {
+      "enable_cpu_binding": false,
+      "ascend_compilation_config": {
+        "enable_npugraph_ex": false,
+        "enable_static_kernel": false,
+        "enable_super_kernel": false,
+        "fuse_norm_quant": true,
+        "fuse_qknorm_rope": true,
+        "fuse_muls_add": true
+      }
+    }
+  },
+  "npu_initialized_after_config": true,
+  "configuration_device_after": 0,
+  "initial_engine_args_configuration_accepted": true,
+  "worker_class": {
+    "qualified_name": "vllm_ascend.worker.worker.NPUWorker",
+    "path": "/opt/vllm-ascend/vllm_ascend/worker/worker.py",
+    "sha256": "51cfb3da18046af8c72ccefe940de5f24d9502bfdae75b941e1798c0a165cda4"
+  },
+  "normal_init_device_returned": true,
+  "actual_device": "npu:0",
+  "runner_class": {
+    "qualified_name": "vllm_ascend.worker.v2.model_runner.NPUModelRunner",
+    "path": "/opt/vllm-ascend/vllm_ascend/worker/v2/model_runner.py",
+    "sha256": "a3471a9f181b45742b8f985c86137cdaafc2871d2ef6f96aa6a45236a242969b"
+  },
+  "worker_configuration": {
+    "config_identity": 281456657361808,
+    "worker_cls": "vllm_ascend.worker.worker.NPUWorker",
+    "native_geometry": {
+      "hidden_size": 512,
+      "head_size": 512,
+      "vocab_size": 4096,
+      "num_layers": 3,
+      "num_attention_heads": 64,
+      "hc_mult": 4,
+      "compress_ratios": [
+        0,
+        0,
+        2
+      ]
+    },
+    "max_num_seqs": 2,
+    "max_num_batched_tokens": 16,
+    "max_model_len": 128,
+    "enable_chunked_prefill": true,
+    "enforce_eager": true,
+    "use_ubatching": false,
+    "num_ubatches": 0,
+    "dbo_prefill_token_threshold": 2,
+    "dbo_decode_token_threshold": 2,
+    "compile_mode": "NONE",
+    "graph_mode": "NONE",
+    "capture_sizes": [],
+    "language_model_only": true,
+    "model_is_multimodal": true,
+    "skip_tokenizer_init": true,
+    "load_format": "dummy",
+    "speculation_is_none": true,
+    "pd_is_none": true,
+    "engram_is_none": true,
+    "quantization_is_none": true,
+    "additional_config": {
+      "enable_cpu_binding": false,
+      "ascend_compilation_config": {
+        "enable_npugraph_ex": false,
+        "enable_static_kernel": false,
+        "enable_super_kernel": false,
+        "fuse_norm_quant": true,
+        "fuse_qknorm_rope": true,
+        "fuse_muls_add": true
+      }
+    }
+  },
+  "native_a5_bootstrap": {
+    "native_enable_custom_op_result": false,
+    "runtime_custom_ops_capability": false,
+    "packed_cache_capability": true,
+    "native_partial_rotary_kernel_registered": true,
+    "direct_installed_extension_import": true,
+    "replaced_native_method_or_kernel": false,
+    "modules": {
+      "vllm_ascend_C": {
+        "path": "/opt/vllm-ascend/vllm_ascend/vllm_ascend_C.cpython-311-aarch64-linux-gnu.so",
+        "sha256": "c0476a67006e7eeea2b34f17ff103be8034852aeb4b07a923a0e6436002a7da6"
+      },
+      "custom_ops": {
+        "path": "/usr/local/python3.11.10/lib/python3.11/site-packages/custom_ops/__init__.py",
+        "sha256": "ac77c05e1000a1b5f0b77b0eb20bc98445981204669233f81da9a4cae97e88ec"
+      },
+      "cann_ops_transformer": {
+        "path": "/usr/local/python3.11.10/lib/python3.11/site-packages/cann_ops_transformer/__init__.py",
+        "sha256": "cd60c29a125cfbf351c3f5a38529ca922aa93db9996721d947f3ffb532c2193d"
+      }
+    },
+    "schemas": {
+      "partial_rotary": "_C_ascend::inplace_partial_rotary_mul(Tensor(a!) x, Tensor r1, Tensor r2, str rotary_mode, int[] partial_slice, bool negate_sin=False) -> ()",
+      "hc_pre": "custom::npu_hc_pre_v2(Tensor x, Tensor hc_fn, Tensor hc_scale, Tensor hc_base, Tensor? pre_mix=None, *, int hc_mult=4, int hc_sinkhorn_iters=20, float norm_eps=9.9999999999999995e-07, float hc_eps=9.9999999999999995e-07) -> (Tensor, Tensor, Tensor, Tensor)",
+      "hc_post": "cann_ops_transformer::mhc_post(Tensor x, Tensor? hRes, Tensor hOut, Tensor hPost) -> Tensor",
+      "packed_swa_writer": "custom::kv_compress_epilog_v2(Tensor(a!) cache, Tensor x, Tensor slot_mapping, *, int quant_group_size=32, str quant_mode=\"mxfp8_bf16\", bool round_scale=True, float x_scale=1.) -> ()"
+    },
+    "packed_writer_dispatch": {
+      "PrivateUse1": true,
+      "CompositeExplicitAutograd": false,
+      "CompositeImplicitAutograd": false
+    }
+  },
+  "loaded_model": {
+    "root_class": {
+      "qualified_name": "vllm_ascend.models.deepseek_v41.vl_model.AscendDeepseekV41ForCausalLM",
+      "path": "/opt/vllm-ascend/vllm_ascend/models/deepseek_v41/vl_model.py",
+      "sha256": "bb98a2e2a0e24c18aafe17229eb593937aaed2e37c1fd7cc2003c45ce872d282"
+    },
+    "language_model_class": {
+      "qualified_name": "vllm_ascend.models.deepseek_v41.model.AscendDeepseekV41LLMForCausalLM",
+      "path": "/opt/vllm-ascend/vllm_ascend/models/deepseek_v41/model.py",
+      "sha256": "989aec6db1e344dca76159dcbef0d5876874facedaa36b47e993146d5b8a2b9f"
+    },
+    "inner_class": {
+      "qualified_name": "vllm_ascend.models.deepseek_v41.model.DeepseekV41Model",
+      "path": "/opt/vllm-ascend/vllm_ascend/models/deepseek_v41/model.py",
+      "sha256": "989aec6db1e344dca76159dcbef0d5876874facedaa36b47e993146d5b8a2b9f"
+    },
+    "model_state_class": {
+      "qualified_name": "vllm_ascend.models.deepseek_v41.engram.model_state.EngramModelState",
+      "path": "/opt/vllm-ascend/vllm_ascend/models/deepseek_v41/engram/model_state.py",
+      "sha256": "677cb13bb86ad80a154e0ff9a43620aa3344e7e93170a05e27aba0cc1f10aa8b"
+    },
+    "normal_worker_load_method": {
+      "qualified_name": "vllm_ascend.worker.worker.NPUWorker.load_model",
+      "path": "/opt/vllm-ascend/vllm_ascend/worker/worker.py",
+      "sha256": "51cfb3da18046af8c72ccefe940de5f24d9502bfdae75b941e1798c0a165cda4"
+    },
+    "normal_runner_load_method": {
+      "qualified_name": "vllm_ascend.worker.v2.model_runner.NPUModelRunner.load_model",
+      "path": "/opt/vllm-ascend/vllm_ascend/worker/v2/model_runner.py",
+      "sha256": "a3471a9f181b45742b8f985c86137cdaafc2871d2ef6f96aa6a45236a242969b"
+    },
+    "model_load_weights_method_definition": {
+      "qualified_name": "vllm_ascend.models.deepseek_v41.vl_model.AscendDeepseekV41ForCausalLM.load_weights",
+      "path": "/opt/vllm-ascend/vllm_ascend/models/deepseek_v41/vl_model.py",
+      "sha256": "bb98a2e2a0e24c18aafe17229eb593937aaed2e37c1fd7cc2003c45ce872d282"
+    },
+    "dummy_loader_does_not_call_model_load_weights": true,
+    "training": false,
+    "parameters": {
+      "language_model.model.embed_tokens.weight": {
+        "shape": [
+          4096,
+          512
+        ],
+        "stride": [
+          512,
+          1
+        ],
+        "dtype": "torch.bfloat16",
+        "device": "npu:0",
+        "storage_offset": 0,
+        "data_ptr": 19792513728512,
+        "numel": 2097152,
+        "bytes": 4194304,
+        "sha256": "33209b906ecaadb4c4055607f0fe5d9b9ffc4836752a2755fbf36d7d9c145464",
+        "finite": true
+      },
+      "language_model.model.layers.0.hc_attn_fn": {
+        "shape": [
+          24,
+          2048
+        ],
+        "stride": [
+          2048,
+          1
+        ],
+        "dtype": "torch.float32",
+        "device": "npu:0",
+        "storage_offset": 0,
+        "data_ptr": 19792513416192,
+        "numel": 49152,
+        "bytes": 196608,
+        "sha256": "fb86b7f4ad08418c20f929f579c2d555f15236a369e5e0f3bb748d716ff316d9",
+        "finite": true
+      },
+      "language_model.model.layers.0.hc_ffn_fn": {
+        "shape": [
+          24,
+          2048
+        ],
+        "stride": [
+          2048,
+          1
+        ],
+        "dtype": "torch.float32",
+        "device": "npu:0",
+        "storage_offset": 0,
+        "data_ptr": 19793090969600,
+        "numel": 49152,
+        "bytes": 196608,
+        "sha256": "fb86b7f4ad08418c20f929f579c2d555f15236a369e5e0f3bb748d716ff316d9",
+        "finite": true
+      },
+      "language_model.model.layers.0.hc_attn_base": {
+        "shape": [
+          24
+        ],
+        "stride": [
+          1
+        ],
+        "dtype": "torch.float32",
+        "device": "npu:0",
+        "storage_offset": 0,
+        "data_ptr": 19792513612800,
+        "numel": 24,
+        "bytes": 96,
+        "sha256": "52a983a73c02c46557c7f2d88c184065ce66a8f0f928b6c7dccab323dc9cac6d",
+        "finite": true
+      },
+      "language_model.model.layers.0.hc_ffn_base": {
+        "shape": [
+          24
+        ],
+        "stride": [
+          1
+        ],
+        "dtype": "torch.float32",
+        "device": "npu:0",
+        "storage_offset": 0,
+        "data_ptr": 19792513613312,
+        "numel": 24,
+        "bytes": 96,
+        "sha256": "52a983a73c02c46557c7f2d88c184065ce66a8f0f928b6c7dccab323dc9cac6d",
+        "finite": true
+      },
+      "language_model.model.layers.0.hc_attn_scale": {
+        "shape": [
+          3
+        ],
+        "stride": [
+          1
+        ],
+        "dtype": "torch.float32",
+        "device": "npu:0",
+        "storage_offset": 0,
+        "data_ptr": 19792513613824,
+        "numel": 3,
+        "bytes": 12,
+        "sha256": "5426eb8206d792e30b636964afd659df3224a16dfb05ffd53f8dc1d0bae34d55",
+        "finite": true
+      },
+      "language_model.model.layers.0.hc_ffn_scale": {
+        "shape": [
+          3
+        ],
+        "stride": [
+          1
+        ],
+        "dtype": "torch.float32",
+        "device": "npu:0",
+        "storage_offset": 0,
+        "data_ptr": 19792513614336,
+        "numel": 3,
+        "bytes": 12,
+        "sha256": "5426eb8206d792e30b636964afd659df3224a16dfb05ffd53f8dc1d0bae34d55",
+        "finite": true
+      },
+      "language_model.model.layers.0.self_attn.attn_sink": {
+        "shape": [
+          64
+        ],
+        "stride": [
+          1
+        ],
+        "dtype": "torch.float32",
+        "device": "npu:0",
+        "storage_offset": 0,
+        "data_ptr": 19792511687168,
+        "numel": 64,
+        "bytes": 256,
+        "sha256": "a33a45214f71b31168cdf38f418f3edd0a7065acd6b4d67c5fc6e332ee0f0062",
+        "finite": true
+      },
+      "language_model.model.layers.0.self_attn.wq_a.weight": {
+        "shape": [
+          64,
+          512
+        ],
+        "stride": [
+          512,
+          1
+        ],
+        "dtype": "torch.bfloat16",
+        "device": "npu:0",
+        "storage_offset": 0,
+        "data_ptr": 19792511687680,
+        "numel": 32768,
+        "bytes": 65536,
+        "sha256": "bbd71ac15cdba409c7a8118d34d7ecf8bde97af227890c200eb7905a949364cf",
+        "finite": true
+      },
+      "language_model.model.layers.0.self_attn.q_norm.weight": {
+        "shape": [
+          64
+        ],
+        "stride": [
+          1
+        ],
+        "dtype": "torch.bfloat16",
+        "device": "npu:0",
+        "storage_offset": 0,
+        "data_ptr": 19792511753216,
+        "numel": 64,
+        "bytes": 128,
+        "sha256": "ab81e891803360e80361e363d3656ef9bc8b959e68003d88c7df39f50df0371a",
+        "finite": true
+      },
+      "language_model.model.layers.0.self_attn.wq_b.weight": {
+        "shape": [
+          32768,
+          64
+        ],
+        "stride": [
+          64,
+          1
+        ],
+        "dtype": "torch.bfloat16",
+        "device": "npu:0",
+        "storage_offset": 0,
+        "data_ptr": 19792517922816,
+        "numel": 2097152,
+        "bytes": 4194304,
+        "sha256": "33209b906ecaadb4c4055607f0fe5d9b9ffc4836752a2755fbf36d7d9c145464",
+        "finite": true
+      },
+      "language_model.model.layers.0.self_attn.wkv.weight": {
+        "shape": [
+          512,
+          512
+        ],
+        "stride": [
+          512,
+          1
+        ],
+        "dtype": "torch.bfloat16",
+        "device": "npu:0",
+        "storage_offset": 0,
+        "data_ptr": 19792511754752,
+        "numel": 262144,
+        "bytes": 524288,
+        "sha256": "c9c6a89cb46b180e7742cbda7b1368d1e7ac6c1bc9c2fa1f9fbdc9a2644f9f2f",
+        "finite": true
+      },
+      "language_model.model.layers.0.self_attn.kv_norm.weight": {
+        "shape": [
+          512
+        ],
+        "stride": [
+          1
+        ],
+        "dtype": "torch.bfloat16",
+        "device": "npu:0",
+        "storage_offset": 0,
+        "data_ptr": 19792512279040,
+        "numel": 512,
+        "bytes": 1024,
+        "sha256": "73e6bd77cac462d1df5a4648ccd709b6a248a74d38562e847d5746cf207cf38f",
+        "finite": true
+      },
+      "language_model.model.layers.0.self_attn.wo_a.weight": {
+        "shape": [
+          1,
+          32768,
+          64
+        ],
+        "stride": [
+          2097152,
+          64,
+          1
+        ],
+        "dtype": "torch.bfloat16",
+        "device": "npu:0",
+        "storage_offset": 0,
+        "data_ptr": 19792591323136,
+        "numel": 2097152,
+        "bytes": 4194304,
+        "sha256": "37f076d86cc4218185ea1f72c6f73cec7e6f90e68105a890a18c8dbd0e76f8f2",
+        "finite": true
+      },
+      "language_model.model.layers.0.self_attn.wo_b.weight": {
+        "shape": [
+          512,
+          64
+        ],
+        "stride": [
+          64,
+          1
+        ],
+        "dtype": "torch.bfloat16",
+        "device": "npu:0",
+        "storage_offset": 0,
+        "data_ptr": 19792512280064,
+        "numel": 32768,
+        "bytes": 65536,
+        "sha256": "bbd71ac15cdba409c7a8118d34d7ecf8bde97af227890c200eb7905a949364cf",
+        "finite": true
+      },
+      "language_model.model.layers.0.mlp.gate.weight": {
+        "shape": [
+          8,
+          512
+        ],
+        "stride": [
+          512,
+          1
+        ],
+        "dtype": "torch.bfloat16",
+        "device": "npu:0",
+        "storage_offset": 0,
+        "data_ptr": 19792512356864,
+        "numel": 4096,
+        "bytes": 8192,
+        "sha256": "9a12625c2839dc69ec421595b26d031069259693aafb6ace49948bebedaeaf40",
+        "finite": true
+      },
+      "language_model.model.layers.0.mlp.gate.e_score_correction_bias": {
+        "shape": [
+          8
+        ],
+        "stride": [
+          1
+        ],
+        "dtype": "torch.float32",
+        "device": "npu:0",
+        "storage_offset": 0,
+        "data_ptr": 19792513413632,
+        "numel": 8,
+        "bytes": 32,
+        "sha256": "9a785b3bffca456836af7fb42b6d3c7cdb6a319ec2f86d40d89f5aff190bf8d9",
+        "finite": true
+      },
+      "language_model.model.layers.0.mlp.gate.weight_fp32": {
+        "shape": [
+          8,
+          512
+        ],
+        "stride": [
+          512,
+          1
+        ],
+        "dtype": "torch.float32",
+        "device": "npu:0",
+        "storage_offset": 0,
+        "data_ptr": 19793094594560,
+        "numel": 4096,
+        "bytes": 16384,
+        "sha256": "6e3186cb23ae375b30a29b087556cc494670b1656bb2356ade7f3c1102f0ee35",
+        "finite": true
+      },
+      "language_model.model.layers.0.mlp.shared_experts.gate_up_proj.weight": {
+        "shape": [
+          1024,
+          512
+        ],
+        "stride": [
+          512,
+          1
+        ],
+        "dtype": "torch.bfloat16",
+        "device": "npu:0",
+        "storage_offset": 0,
+        "data_ptr": 19792512365056,
+        "numel": 524288,
+        "bytes": 1048576,
+        "sha256": "18b777a8618e05cf8323c83703f868385f91f0e4b1b1a419a56c5d9edd82fbe1",
+        "finite": true
+      },
+      "language_model.model.layers.0.mlp.shared_experts.down_proj.weight": {
+        "shape": [
+          512,
+          512
+        ],
+        "stride": [
+          512,
+          1
+        ],
+        "dtype": "torch.bfloat16",
+        "device": "npu:0",
+        "storage_offset": 0,
+        "data_ptr": 19793090445312,
+        "numel": 262144,
+        "bytes": 524288,
+        "sha256": "c9c6a89cb46b180e7742cbda7b1368d1e7ac6c1bc9c2fa1f9fbdc9a2644f9f2f",
+        "finite": true
+      },
+      "language_model.model.layers.0.mlp.experts.routed_experts.w13_weight": {
+        "shape": [
+          8,
+          512,
+          1024
+        ],
+        "stride": [
+          524288,
+          1024,
+          1
+        ],
+        "dtype": "torch.bfloat16",
+        "device": "npu:0",
+        "storage_offset": 0,
+        "data_ptr": 19792595517440,
+        "numel": 4194304,
+        "bytes": 8388608,
+        "sha256": "6ea9c26cd0c9216cc1fe7c158b6bbccbdff23c96ae17a27486723ea94c868e69",
+        "finite": true
+      },
+      "language_model.model.layers.0.mlp.experts.routed_experts.w2_weight": {
+        "shape": [
+          8,
+          512,
+          512
+        ],
+        "stride": [
+          262144,
+          512,
+          1
+        ],
+        "dtype": "torch.bfloat16",
+        "device": "npu:0",
+        "storage_offset": 0,
+        "data_ptr": 19792522117120,
+        "numel": 2097152,
+        "bytes": 4194304,
+        "sha256": "2515f9546e88ed3d70116fbd0ceddef2b74d85a471e66ca65524dc890425077f",
+        "finite": true
+      },
+      "language_model.model.layers.0.input_layernorm.weight": {
+        "shape": [
+          512
+        ],
+        "stride": [
+          1
+        ],
+        "dtype": "torch.bfloat16",
+        "device": "npu:0",
+        "storage_offset": 0,
+        "data_ptr": 19792513414144,
+        "numel": 512,
+        "bytes": 1024,
+        "sha256": "73e6bd77cac462d1df5a4648ccd709b6a248a74d38562e847d5746cf207cf38f",
+        "finite": true
+      },
+      "language_model.model.layers.0.post_attention_layernorm.weight": {
+        "shape": [
+          512
+        ],
+        "stride": [
+          1
+        ],
+        "dtype": "torch.bfloat16",
+        "device": "npu:0",
+        "storage_offset": 0,
+        "data_ptr": 19792513415168,
+        "numel": 512,
+        "bytes": 1024,
+        "sha256": "73e6bd77cac462d1df5a4648ccd709b6a248a74d38562e847d5746cf207cf38f",
+        "finite": true
+      },
+      "language_model.model.layers.1.hc_attn_fn": {
+        "shape": [
+          24,
+          2048
+        ],
+        "stride": [
+          2048,
+          1
+        ],
+        "dtype": "torch.float32",
+        "device": "npu:0",
+        "storage_offset": 0,
+        "data_ptr": 19793092280320,
+        "numel": 49152,
+        "bytes": 196608,
+        "sha256": "fb86b7f4ad08418c20f929f579c2d555f15236a369e5e0f3bb748d716ff316d9",
+        "finite": true
+      },
+      "language_model.model.layers.1.hc_ffn_fn": {
+        "shape": [
+          24,
+          2048
+        ],
+        "stride": [
+          2048,
+          1
+        ],
+        "dtype": "torch.float32",
+        "device": "npu:0",
+        "storage_offset": 0,
+        "data_ptr": 19793093591040,
+        "numel": 49152,
+        "bytes": 196608,
+        "sha256": "fb86b7f4ad08418c20f929f579c2d555f15236a369e5e0f3bb748d716ff316d9",
+        "finite": true
+      },
+      "language_model.model.layers.1.hc_attn_base": {
+        "shape": [
+          24
+        ],
+        "stride": [
+          1
+        ],
+        "dtype": "torch.float32",
+        "device": "npu:0",
+        "storage_offset": 0,
+        "data_ptr": 19792513697280,
+        "numel": 24,
+        "bytes": 96,
+        "sha256": "52a983a73c02c46557c7f2d88c184065ce66a8f0f928b6c7dccab323dc9cac6d",
+        "finite": true
+      },
+      "language_model.model.layers.1.hc_ffn_base": {
+        "shape": [
+          24
+        ],
+        "stride": [
+          1
+        ],
+        "dtype": "torch.float32",
+        "device": "npu:0",
+        "storage_offset": 0,
+        "data_ptr": 19792513697792,
+        "numel": 24,
+        "bytes": 96,
+        "sha256": "52a983a73c02c46557c7f2d88c184065ce66a8f0f928b6c7dccab323dc9cac6d",
+        "finite": true
+      },
+      "language_model.model.layers.1.hc_attn_scale": {
+        "shape": [
+          3
+        ],
+        "stride": [
+          1
+        ],
+        "dtype": "torch.float32",
+        "device": "npu:0",
+        "storage_offset": 0,
+        "data_ptr": 19792513698304,
+        "numel": 3,
+        "bytes": 12,
+        "sha256": "5426eb8206d792e30b636964afd659df3224a16dfb05ffd53f8dc1d0bae34d55",
+        "finite": true
+      },
+      "language_model.model.layers.1.hc_ffn_scale": {
+        "shape": [
+          3
+        ],
+        "stride": [
+          1
+        ],
+        "dtype": "torch.float32",
+        "device": "npu:0",
+        "storage_offset": 0,
+        "data_ptr": 19792513698816,
+        "numel": 3,
+        "bytes": 12,
+        "sha256": "5426eb8206d792e30b636964afd659df3224a16dfb05ffd53f8dc1d0bae34d55",
+        "finite": true
+      },
+      "language_model.model.layers.1.self_attn.attn_sink": {
+        "shape": [
+          64
+        ],
+        "stride": [
+          1
+        ],
+        "dtype": "torch.float32",
+        "device": "npu:0",
+        "storage_offset": 0,
+        "data_ptr": 19792513614848,
+        "numel": 64,
+        "bytes": 256,
+        "sha256": "a33a45214f71b31168cdf38f418f3edd0a7065acd6b4d67c5fc6e332ee0f0062",
+        "finite": true
+      },
+      "language_model.model.layers.1.self_attn.wq_a.weight": {
+        "shape": [
+          64,
+          512
+        ],
+        "stride": [
+          512,
+          1
+        ],
+        "dtype": "torch.bfloat16",
+        "device": "npu:0",
+        "storage_offset": 0,
+        "data_ptr": 19792513615360,
+        "numel": 32768,
+        "bytes": 65536,
+        "sha256": "bbd71ac15cdba409c7a8118d34d7ecf8bde97af227890c200eb7905a949364cf",
+        "finite": true
+      },
+      "language_model.model.layers.1.self_attn.q_norm.weight": {
+        "shape": [
+          64
+        ],
+        "stride": [
+          1
+        ],
+        "dtype": "torch.bfloat16",
+        "device": "npu:0",
+        "storage_offset": 0,
+        "data_ptr": 19792513680896,
+        "numel": 64,
+        "bytes": 128,
+        "sha256": "ab81e891803360e80361e363d3656ef9bc8b959e68003d88c7df39f50df0371a",
+        "finite": true
+      },
+      "language_model.model.layers.1.self_attn.wq_b.weight": {
+        "shape": [
+          32768,
+          64
+        ],
+        "stride": [
+          64,
+          1
+        ],
+        "dtype": "torch.bfloat16",
+        "device": "npu:0",
+        "storage_offset": 0,
+        "data_ptr": 19792540991488,
+        "numel": 2097152,
+        "bytes": 4194304,
+        "sha256": "33209b906ecaadb4c4055607f0fe5d9b9ffc4836752a2755fbf36d7d9c145464",
+        "finite": true
+      },
+      "language_model.model.layers.1.self_attn.wkv.weight": {
+        "shape": [
+          512,
+          512
+        ],
+        "stride": [
+          512,
+          1
+        ],
+        "dtype": "torch.bfloat16",
+        "device": "npu:0",
+        "storage_offset": 0,
+        "data_ptr": 19793091166208,
+        "numel": 262144,
+        "bytes": 524288,
+        "sha256": "c9c6a89cb46b180e7742cbda7b1368d1e7ac6c1bc9c2fa1f9fbdc9a2644f9f2f",
+        "finite": true
+      },
+      "language_model.model.layers.1.self_attn.kv_norm.weight": {
+        "shape": [
+          512
+        ],
+        "stride": [
+          1
+        ],
+        "dtype": "torch.bfloat16",
+        "device": "npu:0",
+        "storage_offset": 0,
+        "data_ptr": 19792513682432,
+        "numel": 512,
+        "bytes": 1024,
+        "sha256": "73e6bd77cac462d1df5a4648ccd709b6a248a74d38562e847d5746cf207cf38f",
+        "finite": true
+      },
+      "language_model.model.layers.1.self_attn.wo_a.weight": {
+        "shape": [
+          1,
+          32768,
+          64
+        ],
+        "stride": [
+          2097152,
+          64,
+          1
+        ],
+        "dtype": "torch.bfloat16",
+        "device": "npu:0",
+        "storage_offset": 0,
+        "data_ptr": 19792526311424,
+        "numel": 2097152,
+        "bytes": 4194304,
+        "sha256": "37f076d86cc4218185ea1f72c6f73cec7e6f90e68105a890a18c8dbd0e76f8f2",
+        "finite": true
+      },
+      "language_model.model.layers.1.self_attn.wo_b.weight": {
+        "shape": [
+          512,
+          64
+        ],
+        "stride": [
+          64,
+          1
+        ],
+        "dtype": "torch.bfloat16",
+        "device": "npu:0",
+        "storage_offset": 0,
+        "data_ptr": 19793091690496,
+        "numel": 32768,
+        "bytes": 65536,
+        "sha256": "bbd71ac15cdba409c7a8118d34d7ecf8bde97af227890c200eb7905a949364cf",
+        "finite": true
+      },
+      "language_model.model.layers.1.mlp.gate.weight": {
+        "shape": [
+          8,
+          512
+        ],
+        "stride": [
+          512,
+          1
+        ],
+        "dtype": "torch.bfloat16",
+        "device": "npu:0",
+        "storage_offset": 0,
+        "data_ptr": 19792513686528,
+        "numel": 4096,
+        "bytes": 8192,
+        "sha256": "9a12625c2839dc69ec421595b26d031069259693aafb6ace49948bebedaeaf40",
+        "finite": true
+      },
+      "language_model.model.layers.1.mlp.gate.e_score_correction_bias": {
+        "shape": [
+          8
+        ],
+        "stride": [
+          1
+        ],
+        "dtype": "torch.float32",
+        "device": "npu:0",
+        "storage_offset": 0,
+        "data_ptr": 19792513694720,
+        "numel": 8,
+        "bytes": 32,
+        "sha256": "9a785b3bffca456836af7fb42b6d3c7cdb6a319ec2f86d40d89f5aff190bf8d9",
+        "finite": true
+      },
+      "language_model.model.layers.1.mlp.gate.weight_fp32": {
+        "shape": [
+          8,
+          512
+        ],
+        "stride": [
+          512,
+          1
+        ],
+        "dtype": "torch.float32",
+        "device": "npu:0",
+        "storage_offset": 0,
+        "data_ptr": 19793094610944,
+        "numel": 4096,
+        "bytes": 16384,
+        "sha256": "6e3186cb23ae375b30a29b087556cc494670b1656bb2356ade7f3c1102f0ee35",
+        "finite": true
+      },
+      "language_model.model.layers.1.mlp.shared_experts.gate_up_proj.weight": {
+        "shape": [
+          1024,
+          512
+        ],
+        "stride": [
+          512,
+          1
+        ],
+        "dtype": "torch.bfloat16",
+        "device": "npu:0",
+        "storage_offset": 0,
+        "data_ptr": 19793092542464,
+        "numel": 524288,
+        "bytes": 1048576,
+        "sha256": "18b777a8618e05cf8323c83703f868385f91f0e4b1b1a419a56c5d9edd82fbe1",
+        "finite": true
+      },
+      "language_model.model.layers.1.mlp.shared_experts.down_proj.weight": {
+        "shape": [
+          512,
+          512
+        ],
+        "stride": [
+          512,
+          1
+        ],
+        "dtype": "torch.bfloat16",
+        "device": "npu:0",
+        "storage_offset": 0,
+        "data_ptr": 19793091756032,
+        "numel": 262144,
+        "bytes": 524288,
+        "sha256": "c9c6a89cb46b180e7742cbda7b1368d1e7ac6c1bc9c2fa1f9fbdc9a2644f9f2f",
+        "finite": true
+      },
+      "language_model.model.layers.1.mlp.experts.routed_experts.w13_weight": {
+        "shape": [
+          8,
+          512,
+          1024
+        ],
+        "stride": [
+          524288,
+          1024,
+          1
+        ],
+        "dtype": "torch.bfloat16",
+        "device": "npu:0",
+        "storage_offset": 0,
+        "data_ptr": 19792532602880,
+        "numel": 4194304,
+        "bytes": 8388608,
+        "sha256": "6ea9c26cd0c9216cc1fe7c158b6bbccbdff23c96ae17a27486723ea94c868e69",
+        "finite": true
+      },
+      "language_model.model.layers.1.mlp.experts.routed_experts.w2_weight": {
+        "shape": [
+          8,
+          512,
+          512
+        ],
+        "stride": [
+          262144,
+          512,
+          1
+        ],
+        "dtype": "torch.bfloat16",
+        "device": "npu:0",
+        "storage_offset": 0,
+        "data_ptr": 19792545185792,
+        "numel": 2097152,
+        "bytes": 4194304,
+        "sha256": "2515f9546e88ed3d70116fbd0ceddef2b74d85a471e66ca65524dc890425077f",
+        "finite": true
+      },
+      "language_model.model.layers.1.input_layernorm.weight": {
+        "shape": [
+          512
+        ],
+        "stride": [
+          1
+        ],
+        "dtype": "torch.bfloat16",
+        "device": "npu:0",
+        "storage_offset": 0,
+        "data_ptr": 19792513695232,
+        "numel": 512,
+        "bytes": 1024,
+        "sha256": "73e6bd77cac462d1df5a4648ccd709b6a248a74d38562e847d5746cf207cf38f",
+        "finite": true
+      },
+      "language_model.model.layers.1.post_attention_layernorm.weight": {
+        "shape": [
+          512
+        ],
+        "stride": [
+          1
+        ],
+        "dtype": "torch.bfloat16",
+        "device": "npu:0",
+        "storage_offset": 0,
+        "data_ptr": 19792513696256,
+        "numel": 512,
+        "bytes": 1024,
+        "sha256": "73e6bd77cac462d1df5a4648ccd709b6a248a74d38562e847d5746cf207cf38f",
+        "finite": true
+      },
+      "language_model.model.layers.2.hc_attn_fn": {
+        "shape": [
+          24,
+          2048
+        ],
+        "stride": [
+          2048,
+          1
+        ],
+        "dtype": "torch.float32",
+        "device": "npu:0",
+        "storage_offset": 0,
+        "data_ptr": 19793233575936,
+        "numel": 49152,
+        "bytes": 196608,
+        "sha256": "fb86b7f4ad08418c20f929f579c2d555f15236a369e5e0f3bb748d716ff316d9",
+        "finite": true
+      },
+      "language_model.model.layers.2.hc_ffn_fn": {
+        "shape": [
+          24,
+          2048
+        ],
+        "stride": [
+          2048,
+          1
+        ],
+        "dtype": "torch.float32",
+        "device": "npu:0",
+        "storage_offset": 0,
+        "data_ptr": 19793233772544,
+        "numel": 49152,
+        "bytes": 196608,
+        "sha256": "fb86b7f4ad08418c20f929f579c2d555f15236a369e5e0f3bb748d716ff316d9",
+        "finite": true
+      },
+      "language_model.model.layers.2.hc_attn_base": {
+        "shape": [
+          24
+        ],
+        "stride": [
+          1
+        ],
+        "dtype": "torch.float32",
+        "device": "npu:0",
+        "storage_offset": 0,
+        "data_ptr": 19792513725952,
+        "numel": 24,
+        "bytes": 96,
+        "sha256": "52a983a73c02c46557c7f2d88c184065ce66a8f0f928b6c7dccab323dc9cac6d",
+        "finite": true
+      },
+      "language_model.model.layers.2.hc_ffn_base": {
+        "shape": [
+          24
+        ],
+        "stride": [
+          1
+        ],
+        "dtype": "torch.float32",
+        "device": "npu:0",
+        "storage_offset": 0,
+        "data_ptr": 19792513726464,
+        "numel": 24,
+        "bytes": 96,
+        "sha256": "52a983a73c02c46557c7f2d88c184065ce66a8f0f928b6c7dccab323dc9cac6d",
+        "finite": true
+      },
+      "language_model.model.layers.2.hc_attn_scale": {
+        "shape": [
+          3
+        ],
+        "stride": [
+          1
+        ],
+        "dtype": "torch.float32",
+        "device": "npu:0",
+        "storage_offset": 0,
+        "data_ptr": 19792513726976,
+        "numel": 3,
+        "bytes": 12,
+        "sha256": "5426eb8206d792e30b636964afd659df3224a16dfb05ffd53f8dc1d0bae34d55",
+        "finite": true
+      },
+      "language_model.model.layers.2.hc_ffn_scale": {
+        "shape": [
+          3
+        ],
+        "stride": [
+          1
+        ],
+        "dtype": "torch.float32",
+        "device": "npu:0",
+        "storage_offset": 0,
+        "data_ptr": 19792513727488,
+        "numel": 3,
+        "bytes": 12,
+        "sha256": "5426eb8206d792e30b636964afd659df3224a16dfb05ffd53f8dc1d0bae34d55",
+        "finite": true
+      },
+      "language_model.model.layers.2.self_attn.attn_sink": {
+        "shape": [
+          64
+        ],
+        "stride": [
+          1
+        ],
+        "dtype": "torch.float32",
+        "device": "npu:0",
+        "storage_offset": 0,
+        "data_ptr": 19792513699328,
+        "numel": 64,
+        "bytes": 256,
+        "sha256": "a33a45214f71b31168cdf38f418f3edd0a7065acd6b4d67c5fc6e332ee0f0062",
+        "finite": true
+      },
+      "language_model.model.layers.2.self_attn.wq_a.weight": {
+        "shape": [
+          64,
+          512
+        ],
+        "stride": [
+          512,
+          1
+        ],
+        "dtype": "torch.bfloat16",
+        "device": "npu:0",
+        "storage_offset": 0,
+        "data_ptr": 19793092476928,
+        "numel": 32768,
+        "bytes": 65536,
+        "sha256": "bbd71ac15cdba409c7a8118d34d7ecf8bde97af227890c200eb7905a949364cf",
+        "finite": true
+      },
+      "language_model.model.layers.2.self_attn.q_norm.weight": {
+        "shape": [
+          64
+        ],
+        "stride": [
+          1
+        ],
+        "dtype": "torch.bfloat16",
+        "device": "npu:0",
+        "storage_offset": 0,
+        "data_ptr": 19792513699840,
+        "numel": 64,
+        "bytes": 128,
+        "sha256": "ab81e891803360e80361e363d3656ef9bc8b959e68003d88c7df39f50df0371a",
+        "finite": true
+      },
+      "language_model.model.layers.2.self_attn.wq_b.weight": {
+        "shape": [
+          32768,
+          64
+        ],
+        "stride": [
+          64,
+          1
+        ],
+        "dtype": "torch.bfloat16",
+        "device": "npu:0",
+        "storage_offset": 0,
+        "data_ptr": 19792566157312,
+        "numel": 2097152,
+        "bytes": 4194304,
+        "sha256": "33209b906ecaadb4c4055607f0fe5d9b9ffc4836752a2755fbf36d7d9c145464",
+        "finite": true
+      },
+      "language_model.model.layers.2.self_attn.wkv.weight": {
+        "shape": [
+          512,
+          512
+        ],
+        "stride": [
+          512,
+          1
+        ],
+        "dtype": "torch.bfloat16",
+        "device": "npu:0",
+        "storage_offset": 0,
+        "data_ptr": 19793093787648,
+        "numel": 262144,
+        "bytes": 524288,
+        "sha256": "c9c6a89cb46b180e7742cbda7b1368d1e7ac6c1bc9c2fa1f9fbdc9a2644f9f2f",
+        "finite": true
+      },
+      "language_model.model.layers.2.self_attn.kv_norm.weight": {
+        "shape": [
+          512
+        ],
+        "stride": [
+          1
+        ],
+        "dtype": "torch.bfloat16",
+        "device": "npu:0",
+        "storage_offset": 0,
+        "data_ptr": 19792513701376,
+        "numel": 512,
+        "bytes": 1024,
+        "sha256": "73e6bd77cac462d1df5a4648ccd709b6a248a74d38562e847d5746cf207cf38f",
+        "finite": true
+      },
+      "language_model.model.layers.2.self_attn.wo_a.weight": {
+        "shape": [
+          1,
+          32768,
+          64
+        ],
+        "stride": [
+          2097152,
+          64,
+          1
+        ],
+        "dtype": "torch.bfloat16",
+        "device": "npu:0",
+        "storage_offset": 0,
+        "data_ptr": 19792553574400,
+        "numel": 2097152,
+        "bytes": 4194304,
+        "sha256": "37f076d86cc4218185ea1f72c6f73cec7e6f90e68105a890a18c8dbd0e76f8f2",
+        "finite": true
+      },
+      "language_model.model.layers.2.self_attn.wo_b.weight": {
+        "shape": [
+          512,
+          64
+        ],
+        "stride": [
+          64,
+          1
+        ],
+        "dtype": "torch.bfloat16",
+        "device": "npu:0",
+        "storage_offset": 0,
+        "data_ptr": 19793094311936,
+        "numel": 32768,
+        "bytes": 65536,
+        "sha256": "bbd71ac15cdba409c7a8118d34d7ecf8bde97af227890c200eb7905a949364cf",
+        "finite": true
+      },
+      "language_model.model.layers.2.self_attn.compressor.wkv.weight": {
+        "shape": [
+          512,
+          512
+        ],
+        "stride": [
+          512,
+          1
+        ],
+        "dtype": "torch.bfloat16",
+        "device": "npu:0",
+        "storage_offset": 0,
+        "data_ptr": 19793233985536,
+        "numel": 262144,
+        "bytes": 524288,
+        "sha256": "6241656ae0602ab3455a2b07516afbcbf40d504972bef5b2741fe67d5af05524",
+        "finite": true
+      },
+      "language_model.model.layers.2.self_attn.compressor.norm.weight": {
+        "shape": [
+          512
+        ],
+        "stride": [
+          1
+        ],
+        "dtype": "torch.bfloat16",
+        "device": "npu:0",
+        "storage_offset": 0,
+        "data_ptr": 19792513714176,
+        "numel": 512,
+        "bytes": 1024,
+        "sha256": "73e6bd77cac462d1df5a4648ccd709b6a248a74d38562e847d5746cf207cf38f",
+        "finite": true
+      },
+      "language_model.model.layers.2.self_attn.compressor.wgate.weight": {
+        "shape": [
+          512,
+          512
+        ],
+        "stride": [
+          512,
+          1
+        ],
+        "dtype": "torch.bfloat16",
+        "device": "npu:0",
+        "storage_offset": 0,
+        "data_ptr": 19793234509824,
+        "numel": 262144,
+        "bytes": 524288,
+        "sha256": "6241656ae0602ab3455a2b07516afbcbf40d504972bef5b2741fe67d5af05524",
+        "finite": true
+      },
+      "language_model.model.layers.2.self_attn.indexer.wq_b.weight": {
+        "shape": [
+          8192,
+          64
+        ],
+        "stride": [
+          64,
+          1
+        ],
+        "dtype": "torch.bfloat16",
+        "device": "npu:0",
+        "storage_offset": 0,
+        "data_ptr": 19793230954496,
+        "numel": 524288,
+        "bytes": 1048576,
+        "sha256": "18b777a8618e05cf8323c83703f868385f91f0e4b1b1a419a56c5d9edd82fbe1",
+        "finite": true
+      },
+      "language_model.model.layers.2.self_attn.indexer.weights_proj.weight": {
+        "shape": [
+          64,
+          512
+        ],
+        "stride": [
+          512,
+          1
+        ],
+        "dtype": "torch.bfloat16",
+        "device": "npu:0",
+        "storage_offset": 0,
+        "data_ptr": 19793094393856,
+        "numel": 32768,
+        "bytes": 65536,
+        "sha256": "bbd71ac15cdba409c7a8118d34d7ecf8bde97af227890c200eb7905a949364cf",
+        "finite": true
+      },
+      "language_model.model.layers.2.self_attn.indexer.wk.weight": {
+        "shape": [
+          128,
+          512
+        ],
+        "stride": [
+          512,
+          1
+        ],
+        "dtype": "torch.bfloat16",
+        "device": "npu:0",
+        "storage_offset": 0,
+        "data_ptr": 19793228857344,
+        "numel": 65536,
+        "bytes": 131072,
+        "sha256": "141809278b13f7385a726d6e1ea8fb691ca3f2d6712847613ccc99ea315c8a31",
+        "finite": true
+      },
+      "language_model.model.layers.2.self_attn.indexer.k_norm.weight": {
+        "shape": [
+          128
+        ],
+        "stride": [
+          1
+        ],
+        "dtype": "torch.bfloat16",
+        "device": "npu:0",
+        "storage_offset": 0,
+        "data_ptr": 19792513705472,
+        "numel": 128,
+        "bytes": 256,
+        "sha256": "eee492f7e7d9a2d88270b6df35c90002421eee22df76e7bbe8c99ff787d0c424",
+        "finite": true
+      },
+      "language_model.model.layers.2.mlp.gate.weight": {
+        "shape": [
+          8,
+          512
+        ],
+        "stride": [
+          512,
+          1
+        ],
+        "dtype": "torch.bfloat16",
+        "device": "npu:0",
+        "storage_offset": 0,
+        "data_ptr": 19792513715200,
+        "numel": 4096,
+        "bytes": 8192,
+        "sha256": "9a12625c2839dc69ec421595b26d031069259693aafb6ace49948bebedaeaf40",
+        "finite": true
+      },
+      "language_model.model.layers.2.mlp.gate.e_score_correction_bias": {
+        "shape": [
+          8
+        ],
+        "stride": [
+          1
+        ],
+        "dtype": "torch.float32",
+        "device": "npu:0",
+        "storage_offset": 0,
+        "data_ptr": 19792513723392,
+        "numel": 8,
+        "bytes": 32,
+        "sha256": "9a785b3bffca456836af7fb42b6d3c7cdb6a319ec2f86d40d89f5aff190bf8d9",
+        "finite": true
+      },
+      "language_model.model.layers.2.mlp.gate.weight_fp32": {
+        "shape": [
+          8,
+          512
+        ],
+        "stride": [
+          512,
+          1
+        ],
+        "dtype": "torch.float32",
+        "device": "npu:0",
+        "storage_offset": 0,
+        "data_ptr": 19793233969152,
+        "numel": 4096,
+        "bytes": 16384,
+        "sha256": "6e3186cb23ae375b30a29b087556cc494670b1656bb2356ade7f3c1102f0ee35",
+        "finite": true
+      },
+      "language_model.model.layers.2.mlp.shared_experts.gate_up_proj.weight": {
+        "shape": [
+          1024,
+          512
+        ],
+        "stride": [
+          512,
+          1
+        ],
+        "dtype": "torch.bfloat16",
+        "device": "npu:0",
+        "storage_offset": 0,
+        "data_ptr": 19793232003072,
+        "numel": 524288,
+        "bytes": 1048576,
+        "sha256": "18b777a8618e05cf8323c83703f868385f91f0e4b1b1a419a56c5d9edd82fbe1",
+        "finite": true
+      },
+      "language_model.model.layers.2.mlp.shared_experts.down_proj.weight": {
+        "shape": [
+          512,
+          512
+        ],
+        "stride": [
+          512,
+          1
+        ],
+        "dtype": "torch.bfloat16",
+        "device": "npu:0",
+        "storage_offset": 0,
+        "data_ptr": 19793233051648,
+        "numel": 262144,
+        "bytes": 524288,
+        "sha256": "c9c6a89cb46b180e7742cbda7b1368d1e7ac6c1bc9c2fa1f9fbdc9a2644f9f2f",
+        "finite": true
+      },
+      "language_model.model.layers.2.mlp.experts.routed_experts.w13_weight": {
+        "shape": [
+          8,
+          512,
+          1024
+        ],
+        "stride": [
+          524288,
+          1024,
+          1
+        ],
+        "dtype": "torch.bfloat16",
+        "device": "npu:0",
+        "storage_offset": 0,
+        "data_ptr": 19792557768704,
+        "numel": 4194304,
+        "bytes": 8388608,
+        "sha256": "6ea9c26cd0c9216cc1fe7c158b6bbccbdff23c96ae17a27486723ea94c868e69",
+        "finite": true
+      },
+      "language_model.model.layers.2.mlp.experts.routed_experts.w2_weight": {
+        "shape": [
+          8,
+          512,
+          512
+        ],
+        "stride": [
+          262144,
+          512,
+          1
+        ],
+        "dtype": "torch.bfloat16",
+        "device": "npu:0",
+        "storage_offset": 0,
+        "data_ptr": 19792570351616,
+        "numel": 2097152,
+        "bytes": 4194304,
+        "sha256": "2515f9546e88ed3d70116fbd0ceddef2b74d85a471e66ca65524dc890425077f",
+        "finite": true
+      },
+      "language_model.model.layers.2.input_layernorm.weight": {
+        "shape": [
+          512
+        ],
+        "stride": [
+          1
+        ],
+        "dtype": "torch.bfloat16",
+        "device": "npu:0",
+        "storage_offset": 0,
+        "data_ptr": 19792513723904,
+        "numel": 512,
+        "bytes": 1024,
+        "sha256": "73e6bd77cac462d1df5a4648ccd709b6a248a74d38562e847d5746cf207cf38f",
+        "finite": true
+      },
+      "language_model.model.layers.2.post_attention_layernorm.weight": {
+        "shape": [
+          512
+        ],
+        "stride": [
+          1
+        ],
+        "dtype": "torch.bfloat16",
+        "device": "npu:0",
+        "storage_offset": 0,
+        "data_ptr": 19792513724928,
+        "numel": 512,
+        "bytes": 1024,
+        "sha256": "73e6bd77cac462d1df5a4648ccd709b6a248a74d38562e847d5746cf207cf38f",
+        "finite": true
+      },
+      "language_model.model.norm.weight": {
+        "shape": [
+          512
+        ],
+        "stride": [
+          1
+        ],
+        "dtype": "torch.bfloat16",
+        "device": "npu:0",
+        "storage_offset": 0,
+        "data_ptr": 19793094590464,
+        "numel": 512,
+        "bytes": 1024,
+        "sha256": "73e6bd77cac462d1df5a4648ccd709b6a248a74d38562e847d5746cf207cf38f",
+        "finite": true
+      },
+      "language_model.lm_head.weight": {
+        "shape": [
+          4096,
+          512
+        ],
+        "stride": [
+          512,
+          1
+        ],
+        "dtype": "torch.bfloat16",
+        "device": "npu:0",
+        "storage_offset": 0,
+        "data_ptr": 19792587128832,
+        "numel": 2097152,
+        "bytes": 4194304,
+        "sha256": "33209b906ecaadb4c4055607f0fe5d9b9ffc4836752a2755fbf36d7d9c145464",
+        "finite": true
+      }
+    },
+    "parameter_count": 79,
+    "parameter_bytes": 81548392,
+    "canonical_parameter_groups": {
+      "attention_identity_names": [
+        "language_model.model.embed_tokens.weight",
+        "language_model.model.norm.weight",
+        "language_model.lm_head.weight",
+        "language_model.model.layers.0.hc_attn_fn",
+        "language_model.model.layers.0.hc_ffn_fn",
+        "language_model.model.layers.0.hc_attn_base",
+        "language_model.model.layers.0.hc_ffn_base",
+        "language_model.model.layers.0.hc_attn_scale",
+        "language_model.model.layers.0.hc_ffn_scale",
+        "language_model.model.layers.0.self_attn.attn_sink",
+        "language_model.model.layers.0.self_attn.wq_a.weight",
+        "language_model.model.layers.0.self_attn.q_norm.weight",
+        "language_model.model.layers.0.self_attn.wq_b.weight",
+        "language_model.model.layers.0.self_attn.wkv.weight",
+        "language_model.model.layers.0.self_attn.kv_norm.weight",
+        "language_model.model.layers.0.self_attn.wo_a.weight",
+        "language_model.model.layers.0.self_attn.wo_b.weight",
+        "language_model.model.layers.0.input_layernorm.weight",
+        "language_model.model.layers.0.post_attention_layernorm.weight",
+        "language_model.model.layers.1.hc_attn_fn",
+        "language_model.model.layers.1.hc_ffn_fn",
+        "language_model.model.layers.1.hc_attn_base",
+        "language_model.model.layers.1.hc_ffn_base",
+        "language_model.model.layers.1.hc_attn_scale",
+        "language_model.model.layers.1.hc_ffn_scale",
+        "language_model.model.layers.1.self_attn.attn_sink",
+        "language_model.model.layers.1.self_attn.wq_a.weight",
+        "language_model.model.layers.1.self_attn.q_norm.weight",
+        "language_model.model.layers.1.self_attn.wq_b.weight",
+        "language_model.model.layers.1.self_attn.wkv.weight",
+        "language_model.model.layers.1.self_attn.kv_norm.weight",
+        "language_model.model.layers.1.self_attn.wo_a.weight",
+        "language_model.model.layers.1.self_attn.wo_b.weight",
+        "language_model.model.layers.1.input_layernorm.weight",
+        "language_model.model.layers.1.post_attention_layernorm.weight",
+        "language_model.model.layers.2.hc_attn_fn",
+        "language_model.model.layers.2.hc_ffn_fn",
+        "language_model.model.layers.2.hc_attn_base",
+        "language_model.model.layers.2.hc_ffn_base",
+        "language_model.model.layers.2.hc_attn_scale",
+        "language_model.model.layers.2.hc_ffn_scale",
+        "language_model.model.layers.2.self_attn.attn_sink",
+        "language_model.model.layers.2.self_attn.wq_a.weight",
+        "language_model.model.layers.2.self_attn.q_norm.weight",
+        "language_model.model.layers.2.self_attn.wq_b.weight",
+        "language_model.model.layers.2.self_attn.wkv.weight",
+        "language_model.model.layers.2.self_attn.kv_norm.weight",
+        "language_model.model.layers.2.self_attn.wo_a.weight",
+        "language_model.model.layers.2.self_attn.wo_b.weight",
+        "language_model.model.layers.2.input_layernorm.weight",
+        "language_model.model.layers.2.post_attention_layernorm.weight",
+        "language_model.model.layers.2.self_attn.compressor.wkv.weight",
+        "language_model.model.layers.2.self_attn.compressor.norm.weight",
+        "language_model.model.layers.2.self_attn.compressor.wgate.weight",
+        "language_model.model.layers.2.self_attn.indexer.wq_b.weight",
+        "language_model.model.layers.2.self_attn.indexer.weights_proj.weight",
+        "language_model.model.layers.2.self_attn.indexer.wk.weight",
+        "language_model.model.layers.2.self_attn.indexer.k_norm.weight"
+      ],
+      "ffn_to_native_names": {
+        "model.layers.0.mlp.gate.weight": "language_model.model.layers.0.mlp.gate.weight",
+        "model.layers.0.mlp.gate.e_score_correction_bias": "language_model.model.layers.0.mlp.gate.e_score_correction_bias",
+        "model.layers.0.mlp.gate.weight_fp32": "language_model.model.layers.0.mlp.gate.weight_fp32",
+        "model.layers.0.mlp.shared_experts.gate_up_proj.weight": "language_model.model.layers.0.mlp.shared_experts.gate_up_proj.weight",
+        "model.layers.0.mlp.shared_experts.down_proj.weight": "language_model.model.layers.0.mlp.shared_experts.down_proj.weight",
+        "model.layers.0.mlp.experts.routed_experts.w13_weight": "language_model.model.layers.0.mlp.experts.routed_experts.w13_weight",
+        "model.layers.0.mlp.experts.routed_experts.w2_weight": "language_model.model.layers.0.mlp.experts.routed_experts.w2_weight",
+        "model.layers.1.mlp.gate.weight": "language_model.model.layers.1.mlp.gate.weight",
+        "model.layers.1.mlp.gate.e_score_correction_bias": "language_model.model.layers.1.mlp.gate.e_score_correction_bias",
+        "model.layers.1.mlp.gate.weight_fp32": "language_model.model.layers.1.mlp.gate.weight_fp32",
+        "model.layers.1.mlp.shared_experts.gate_up_proj.weight": "language_model.model.layers.1.mlp.shared_experts.gate_up_proj.weight",
+        "model.layers.1.mlp.shared_experts.down_proj.weight": "language_model.model.layers.1.mlp.shared_experts.down_proj.weight",
+        "model.layers.1.mlp.experts.routed_experts.w13_weight": "language_model.model.layers.1.mlp.experts.routed_experts.w13_weight",
+        "model.layers.1.mlp.experts.routed_experts.w2_weight": "language_model.model.layers.1.mlp.experts.routed_experts.w2_weight",
+        "model.layers.2.mlp.gate.weight": "language_model.model.layers.2.mlp.gate.weight",
+        "model.layers.2.mlp.gate.e_score_correction_bias": "language_model.model.layers.2.mlp.gate.e_score_correction_bias",
+        "model.layers.2.mlp.gate.weight_fp32": "language_model.model.layers.2.mlp.gate.weight_fp32",
+        "model.layers.2.mlp.shared_experts.gate_up_proj.weight": "language_model.model.layers.2.mlp.shared_experts.gate_up_proj.weight",
+        "model.layers.2.mlp.shared_experts.down_proj.weight": "language_model.model.layers.2.mlp.shared_experts.down_proj.weight",
+        "model.layers.2.mlp.experts.routed_experts.w13_weight": "language_model.model.layers.2.mlp.experts.routed_experts.w13_weight",
+        "model.layers.2.mlp.experts.routed_experts.w2_weight": "language_model.model.layers.2.mlp.experts.routed_experts.w2_weight"
+      }
+    },
+    "layers": [
+      {
+        "index": 0,
+        "decoder_class": {
+          "qualified_name": "vllm_ascend.models.deepseek_v41.model.DeepseekV41DecoderLayer",
+          "path": "/opt/vllm-ascend/vllm_ascend/models/deepseek_v41/model.py",
+          "sha256": "989aec6db1e344dca76159dcbef0d5876874facedaa36b47e993146d5b8a2b9f"
+        },
+        "attention_class": {
+          "qualified_name": "vllm_ascend.models.deepseek_v41.model.DeepseekV41Attention",
+          "path": "/opt/vllm-ascend/vllm_ascend/models/deepseek_v41/model.py",
+          "sha256": "989aec6db1e344dca76159dcbef0d5876874facedaa36b47e993146d5b8a2b9f"
+        },
+        "moe_class": {
+          "qualified_name": "vllm_ascend.models.deepseek_v41.model.DeepseekV41MoE",
+          "path": "/opt/vllm-ascend/vllm_ascend/models/deepseek_v41/model.py",
+          "sha256": "989aec6db1e344dca76159dcbef0d5876874facedaa36b47e993146d5b8a2b9f"
+        },
+        "gate_class": {
+          "qualified_name": "vllm_ascend.ops.linear.AscendReplicatedLinear",
+          "path": "/opt/vllm-ascend/vllm_ascend/ops/linear.py",
+          "sha256": "7654777d9252fc6a3cc2c95f92b67a42410a0de24a5912ef20e807cf64ab74e6"
+        },
+        "experts_class": {
+          "qualified_name": "vllm_ascend.ops.fused_moe.fused_moe.AscendMoERunner",
+          "path": "/opt/vllm-ascend/vllm_ascend/ops/fused_moe/fused_moe.py",
+          "sha256": "29a02e758cd347cd9382e86f214d64c0feea7c2df4ff559c293b9e5d6c16344d"
+        }
+      },
+      {
+        "index": 1,
+        "decoder_class": {
+          "qualified_name": "vllm_ascend.models.deepseek_v41.model.DeepseekV41DecoderLayer",
+          "path": "/opt/vllm-ascend/vllm_ascend/models/deepseek_v41/model.py",
+          "sha256": "989aec6db1e344dca76159dcbef0d5876874facedaa36b47e993146d5b8a2b9f"
+        },
+        "attention_class": {
+          "qualified_name": "vllm_ascend.models.deepseek_v41.model.DeepseekV41Attention",
+          "path": "/opt/vllm-ascend/vllm_ascend/models/deepseek_v41/model.py",
+          "sha256": "989aec6db1e344dca76159dcbef0d5876874facedaa36b47e993146d5b8a2b9f"
+        },
+        "moe_class": {
+          "qualified_name": "vllm_ascend.models.deepseek_v41.model.DeepseekV41MoE",
+          "path": "/opt/vllm-ascend/vllm_ascend/models/deepseek_v41/model.py",
+          "sha256": "989aec6db1e344dca76159dcbef0d5876874facedaa36b47e993146d5b8a2b9f"
+        },
+        "gate_class": {
+          "qualified_name": "vllm_ascend.ops.linear.AscendReplicatedLinear",
+          "path": "/opt/vllm-ascend/vllm_ascend/ops/linear.py",
+          "sha256": "7654777d9252fc6a3cc2c95f92b67a42410a0de24a5912ef20e807cf64ab74e6"
+        },
+        "experts_class": {
+          "qualified_name": "vllm_ascend.ops.fused_moe.fused_moe.AscendMoERunner",
+          "path": "/opt/vllm-ascend/vllm_ascend/ops/fused_moe/fused_moe.py",
+          "sha256": "29a02e758cd347cd9382e86f214d64c0feea7c2df4ff559c293b9e5d6c16344d"
+        }
+      },
+      {
+        "index": 2,
+        "decoder_class": {
+          "qualified_name": "vllm_ascend.models.deepseek_v41.model.DeepseekV41DecoderLayer",
+          "path": "/opt/vllm-ascend/vllm_ascend/models/deepseek_v41/model.py",
+          "sha256": "989aec6db1e344dca76159dcbef0d5876874facedaa36b47e993146d5b8a2b9f"
+        },
+        "attention_class": {
+          "qualified_name": "vllm_ascend.models.deepseek_v41.model.DeepseekV41Attention",
+          "path": "/opt/vllm-ascend/vllm_ascend/models/deepseek_v41/model.py",
+          "sha256": "989aec6db1e344dca76159dcbef0d5876874facedaa36b47e993146d5b8a2b9f"
+        },
+        "moe_class": {
+          "qualified_name": "vllm_ascend.models.deepseek_v41.model.DeepseekV41MoE",
+          "path": "/opt/vllm-ascend/vllm_ascend/models/deepseek_v41/model.py",
+          "sha256": "989aec6db1e344dca76159dcbef0d5876874facedaa36b47e993146d5b8a2b9f"
+        },
+        "gate_class": {
+          "qualified_name": "vllm_ascend.ops.linear.AscendReplicatedLinear",
+          "path": "/opt/vllm-ascend/vllm_ascend/ops/linear.py",
+          "sha256": "7654777d9252fc6a3cc2c95f92b67a42410a0de24a5912ef20e807cf64ab74e6"
+        },
+        "experts_class": {
+          "qualified_name": "vllm_ascend.ops.fused_moe.fused_moe.AscendMoERunner",
+          "path": "/opt/vllm-ascend/vllm_ascend/ops/fused_moe/fused_moe.py",
+          "sha256": "29a02e758cd347cd9382e86f214d64c0feea7c2df4ff559c293b9e5d6c16344d"
+        }
+      }
+    ],
+    "parameter_readback_is_observation": true,
+    "cross_role_weight_equivalence_verified": false
+  },
+  "attention_kv": {
+    "budget_bytes": 8388608,
+    "budget_scope": "native KV backing only, excluding model/graphs/scratch",
+    "planner": {
+      "qualified_name": "vllm_ascend.patch.platform.patch_kv_cache_utils._ascend_get_kv_cache_configs",
+      "path": "/opt/vllm-ascend/vllm_ascend/patch/platform/patch_kv_cache_utils.py",
+      "sha256": "cc7ea7651b3eff6fad1f72f24096a6059bbd40149746680485525409b93e5be1"
+    },
+    "resolved_layout": "LBNHC",
+    "specs": {
+      "language_model.model.layers.0.self_attn.swa_cache": {
+        "class": {
+          "qualified_name": "vllm_ascend.core.kv_cache_interface.AscendSlidingWindowMLASpec",
+          "path": "/opt/vllm-ascend/vllm_ascend/core/kv_cache_interface.py",
+          "sha256": "b7356c5e499446a1bbf92be9490753336ed7f7d31e521735659491b613f370b3"
+        },
+        "fields": {
+          "block_size": 128,
+          "num_kv_heads": 1,
+          "head_size": 544,
+          "dtype": "torch.uint8",
+          "head_size_v": 0,
+          "kv_quant_mode": 0,
+          "page_size_padded": null,
+          "num_head_slots": null,
+          "state_content_bytes": null,
+          "tokens_per_state": 1,
+          "sliding_window": 128,
+          "extra_retained_tokens": 0,
+          "cache_dtype_str": "a5_mxfp8_bf16_scale",
+          "alignment": null,
+          "model_version": "deepseek_v41",
+          "compress_ratio": 1,
+          "indexes_kv_by_block_stride": false
+        }
+      },
+      "language_model.model.layers.1.self_attn.swa_cache": {
+        "class": {
+          "qualified_name": "vllm_ascend.core.kv_cache_interface.AscendSlidingWindowMLASpec",
+          "path": "/opt/vllm-ascend/vllm_ascend/core/kv_cache_interface.py",
+          "sha256": "b7356c5e499446a1bbf92be9490753336ed7f7d31e521735659491b613f370b3"
+        },
+        "fields": {
+          "block_size": 128,
+          "num_kv_heads": 1,
+          "head_size": 544,
+          "dtype": "torch.uint8",
+          "head_size_v": 0,
+          "kv_quant_mode": 0,
+          "page_size_padded": null,
+          "num_head_slots": null,
+          "state_content_bytes": null,
+          "tokens_per_state": 1,
+          "sliding_window": 128,
+          "extra_retained_tokens": 0,
+          "cache_dtype_str": "a5_mxfp8_bf16_scale",
+          "alignment": null,
+          "model_version": "deepseek_v41",
+          "compress_ratio": 1,
+          "indexes_kv_by_block_stride": false
+        }
+      },
+      "language_model.model.layers.2.self_attn.swa_cache": {
+        "class": {
+          "qualified_name": "vllm_ascend.core.kv_cache_interface.AscendSlidingWindowMLASpec",
+          "path": "/opt/vllm-ascend/vllm_ascend/core/kv_cache_interface.py",
+          "sha256": "b7356c5e499446a1bbf92be9490753336ed7f7d31e521735659491b613f370b3"
+        },
+        "fields": {
+          "block_size": 128,
+          "num_kv_heads": 1,
+          "head_size": 544,
+          "dtype": "torch.uint8",
+          "head_size_v": 0,
+          "kv_quant_mode": 0,
+          "page_size_padded": null,
+          "num_head_slots": null,
+          "state_content_bytes": null,
+          "tokens_per_state": 1,
+          "sliding_window": 128,
+          "extra_retained_tokens": 0,
+          "cache_dtype_str": "a5_mxfp8_bf16_scale",
+          "alignment": null,
+          "model_version": "deepseek_v41",
+          "compress_ratio": 1,
+          "indexes_kv_by_block_stride": false
+        }
+      },
+      "language_model.model.layers.2.self_attn.long_kv_cache": {
+        "class": {
+          "qualified_name": "vllm_ascend.core.kv_cache_interface.AscendMLAAttentionSpec",
+          "path": "/opt/vllm-ascend/vllm_ascend/core/kv_cache_interface.py",
+          "sha256": "b7356c5e499446a1bbf92be9490753336ed7f7d31e521735659491b613f370b3"
+        },
+        "fields": {
+          "block_size": 128,
+          "num_kv_heads": 1,
+          "head_size": 320,
+          "dtype": "torch.uint8",
+          "head_size_v": 0,
+          "kv_quant_mode": 0,
+          "page_size_padded": null,
+          "num_head_slots": null,
+          "state_content_bytes": null,
+          "tokens_per_state": 2,
+          "sliding_window": null,
+          "attention_chunk_size": null,
+          "non_causal": false,
+          "cache_dtype_str": null,
+          "alignment": null,
+          "model_version": "deepseek_v41",
+          "cache_role": "sparse",
+          "is_index_group_leader": false,
+          "storage_block_size": 64,
+          "non_causal_multi_token_decode": false,
+          "scale_dim": 0,
+          "scale_dtype": "torch.bfloat16",
+          "cache_sparse_sfa_c8": false,
+          "cache_sparse_sfa_turboquant": false,
+          "store_on_host": false,
+          "indexes_kv_by_block_stride": false
+        }
+      },
+      "language_model.model.layers.2.self_attn.compressor.state_cache": {
+        "class": {
+          "qualified_name": "vllm_ascend.core.kv_cache_interface.AscendCircularBufferSpec",
+          "path": "/opt/vllm-ascend/vllm_ascend/core/kv_cache_interface.py",
+          "sha256": "b7356c5e499446a1bbf92be9490753336ed7f7d31e521735659491b613f370b3"
+        },
+        "fields": {
+          "block_size": 32,
+          "num_kv_heads": 1,
+          "head_size": 1024,
+          "dtype": "torch.float32",
+          "head_size_v": 0,
+          "kv_quant_mode": 0,
+          "page_size_padded": null,
+          "num_head_slots": null,
+          "state_content_bytes": null,
+          "tokens_per_state": 1
+        }
+      },
+      "language_model.model.layers.2.self_attn.indexer.k_cache": {
+        "class": {
+          "qualified_name": "vllm_ascend.core.kv_cache_interface.AscendMLAAttentionSpec",
+          "path": "/opt/vllm-ascend/vllm_ascend/core/kv_cache_interface.py",
+          "sha256": "b7356c5e499446a1bbf92be9490753336ed7f7d31e521735659491b613f370b3"
+        },
+        "fields": {
+          "block_size": 128,
+          "num_kv_heads": 1,
+          "head_size": 64,
+          "dtype": "torch.uint8",
+          "head_size_v": 0,
+          "kv_quant_mode": 0,
+          "page_size_padded": null,
+          "num_head_slots": null,
+          "state_content_bytes": null,
+          "tokens_per_state": 2,
+          "sliding_window": null,
+          "attention_chunk_size": null,
+          "non_causal": false,
+          "cache_dtype_str": null,
+          "alignment": null,
+          "model_version": "deepseek_v41",
+          "cache_role": "sparse",
+          "is_index_group_leader": false,
+          "storage_block_size": 64,
+          "non_causal_multi_token_decode": false,
+          "scale_dim": 4,
+          "scale_dtype": "torch.uint8",
+          "cache_sparse_sfa_c8": false,
+          "cache_sparse_sfa_turboquant": false,
+          "store_on_host": false,
+          "indexes_kv_by_block_stride": false
+        }
+      }
+    },
+    "num_blocks": 64,
+    "descriptors": [
+      {
+        "size": 8388608,
+        "layers": [
+          "language_model.model.layers.2.self_attn.long_kv_cache",
+          "language_model.model.layers.2.self_attn.indexer.k_cache",
+          "language_model.model.layers.2.self_attn.compressor.state_cache",
+          "language_model.model.layers.0.self_attn.swa_cache",
+          "language_model.model.layers.1.self_attn.swa_cache",
+          "language_model.model.layers.2.self_attn.swa_cache"
+        ],
+        "layer_stride": 0,
+        "block_stride": 131072,
+        "offset": 0,
+        "host_resident": false
+      }
+    ],
+    "groups": [
+      {
+        "layer_names": [
+          "language_model.model.layers.2.self_attn.long_kv_cache",
+          "language_model.model.layers.2.self_attn.indexer.k_cache"
+        ],
+        "spec_class": {
+          "qualified_name": "vllm_ascend.core.kv_cache_interface.AscendMLAAttentionSpec",
+          "path": "/opt/vllm-ascend/vllm_ascend/core/kv_cache_interface.py",
+          "sha256": "b7356c5e499446a1bbf92be9490753336ed7f7d31e521735659491b613f370b3"
+        },
+        "block_size": 128
+      },
+      {
+        "layer_names": [
+          "language_model.model.layers.2.self_attn.compressor.state_cache"
+        ],
+        "spec_class": {
+          "qualified_name": "vllm_ascend.core.kv_cache_interface.AscendCircularBufferSpec",
+          "path": "/opt/vllm-ascend/vllm_ascend/core/kv_cache_interface.py",
+          "sha256": "b7356c5e499446a1bbf92be9490753336ed7f7d31e521735659491b613f370b3"
+        },
+        "block_size": 32
+      },
+      {
+        "layer_names": [
+          "language_model.model.layers.0.self_attn.swa_cache"
+        ],
+        "spec_class": {
+          "qualified_name": "vllm_ascend.core.kv_cache_interface.AscendSlidingWindowMLASpec",
+          "path": "/opt/vllm-ascend/vllm_ascend/core/kv_cache_interface.py",
+          "sha256": "b7356c5e499446a1bbf92be9490753336ed7f7d31e521735659491b613f370b3"
+        },
+        "block_size": 128
+      },
+      {
+        "layer_names": [
+          "language_model.model.layers.1.self_attn.swa_cache"
+        ],
+        "spec_class": {
+          "qualified_name": "vllm_ascend.core.kv_cache_interface.AscendSlidingWindowMLASpec",
+          "path": "/opt/vllm-ascend/vllm_ascend/core/kv_cache_interface.py",
+          "sha256": "b7356c5e499446a1bbf92be9490753336ed7f7d31e521735659491b613f370b3"
+        },
+        "block_size": 128
+      },
+      {
+        "layer_names": [
+          "language_model.model.layers.2.self_attn.swa_cache"
+        ],
+        "spec_class": {
+          "qualified_name": "vllm_ascend.core.kv_cache_interface.AscendSlidingWindowMLASpec",
+          "path": "/opt/vllm-ascend/vllm_ascend/core/kv_cache_interface.py",
+          "sha256": "b7356c5e499446a1bbf92be9490753336ed7f7d31e521735659491b613f370b3"
+        },
+        "block_size": 128
+      }
+    ],
+    "bindings": {
+      "language_model.model.layers.0.self_attn.swa_cache": {
+        "carrier_class": {
+          "qualified_name": "vllm_ascend.models.deepseek_v41.model.AscendDeepseekV41SWACache",
+          "path": "/opt/vllm-ascend/vllm_ascend/models/deepseek_v41/model.py",
+          "sha256": "989aec6db1e344dca76159dcbef0d5876874facedaa36b47e993146d5b8a2b9f"
+        },
+        "components": [
+          {
+            "shape": [
+              64,
+              128,
+              1,
+              544
+            ],
+            "stride": [
+              131072,
+              544,
+              544,
+              1
+            ],
+            "dtype": "torch.uint8",
+            "device": "npu:0",
+            "data_ptr": 19792574545920,
+            "storage_offset": 0,
+            "storage_ptr": 19792574545920,
+            "storage_bytes": 8388608
+          }
+        ]
+      },
+      "language_model.model.layers.1.self_attn.swa_cache": {
+        "carrier_class": {
+          "qualified_name": "vllm_ascend.models.deepseek_v41.model.AscendDeepseekV41SWACache",
+          "path": "/opt/vllm-ascend/vllm_ascend/models/deepseek_v41/model.py",
+          "sha256": "989aec6db1e344dca76159dcbef0d5876874facedaa36b47e993146d5b8a2b9f"
+        },
+        "components": [
+          {
+            "shape": [
+              64,
+              128,
+              1,
+              544
+            ],
+            "stride": [
+              131072,
+              544,
+              544,
+              1
+            ],
+            "dtype": "torch.uint8",
+            "device": "npu:0",
+            "data_ptr": 19792574545920,
+            "storage_offset": 0,
+            "storage_ptr": 19792574545920,
+            "storage_bytes": 8388608
+          }
+        ]
+      },
+      "language_model.model.layers.2.self_attn.swa_cache": {
+        "carrier_class": {
+          "qualified_name": "vllm_ascend.models.deepseek_v41.model.AscendDeepseekV41SWACache",
+          "path": "/opt/vllm-ascend/vllm_ascend/models/deepseek_v41/model.py",
+          "sha256": "989aec6db1e344dca76159dcbef0d5876874facedaa36b47e993146d5b8a2b9f"
+        },
+        "components": [
+          {
+            "shape": [
+              64,
+              128,
+              1,
+              544
+            ],
+            "stride": [
+              131072,
+              544,
+              544,
+              1
+            ],
+            "dtype": "torch.uint8",
+            "device": "npu:0",
+            "data_ptr": 19792574545920,
+            "storage_offset": 0,
+            "storage_ptr": 19792574545920,
+            "storage_bytes": 8388608
+          }
+        ]
+      },
+      "language_model.model.layers.2.self_attn.long_kv_cache": {
+        "carrier_class": {
+          "qualified_name": "vllm_ascend.attention.dsa_v41.DeepseekV41CacheLayer",
+          "path": "/opt/vllm-ascend/vllm_ascend/attention/dsa_v41.py",
+          "sha256": "d9a9f3c02eda7ba50fbfe3de1e42022921539cb2c7c16947f63ef60fbfb8adb4"
+        },
+        "components": [
+          {
+            "shape": [
+              64,
+              64,
+              1,
+              320
+            ],
+            "stride": [
+              131072,
+              320,
+              320,
+              1
+            ],
+            "dtype": "torch.uint8",
+            "device": "npu:0",
+            "data_ptr": 19792574545920,
+            "storage_offset": 0,
+            "storage_ptr": 19792574545920,
+            "storage_bytes": 8388608
+          }
+        ]
+      },
+      "language_model.model.layers.2.self_attn.compressor.state_cache": {
+        "carrier_class": {
+          "qualified_name": "vllm_ascend.attention.dsa_v41.DeepseekV41CacheLayer",
+          "path": "/opt/vllm-ascend/vllm_ascend/attention/dsa_v41.py",
+          "sha256": "d9a9f3c02eda7ba50fbfe3de1e42022921539cb2c7c16947f63ef60fbfb8adb4"
+        },
+        "components": [
+          {
+            "shape": [
+              64,
+              32,
+              1,
+              1024
+            ],
+            "stride": [
+              32768,
+              1024,
+              1024,
+              1
+            ],
+            "dtype": "torch.float32",
+            "device": "npu:0",
+            "data_ptr": 19792574545920,
+            "storage_offset": 0,
+            "storage_ptr": 19792574545920,
+            "storage_bytes": 8388608
+          }
+        ]
+      },
+      "language_model.model.layers.2.self_attn.indexer.k_cache": {
+        "carrier_class": {
+          "qualified_name": "vllm_ascend.attention.dsa_v41.DeepseekV41CacheLayer",
+          "path": "/opt/vllm-ascend/vllm_ascend/attention/dsa_v41.py",
+          "sha256": "d9a9f3c02eda7ba50fbfe3de1e42022921539cb2c7c16947f63ef60fbfb8adb4"
+        },
+        "components": [
+          {
+            "shape": [
+              64,
+              64,
+              1,
+              64
+            ],
+            "stride": [
+              131072,
+              64,
+              64,
+              1
+            ],
+            "dtype": "torch.uint8",
+            "device": "npu:0",
+            "data_ptr": 19792574566400,
+            "storage_offset": 20480,
+            "storage_ptr": 19792574545920,
+            "storage_bytes": 8388608
+          },
+          {
+            "shape": [
+              64,
+              64,
+              1,
+              4
+            ],
+            "stride": [
+              131072,
+              4,
+              4,
+              1
+            ],
+            "dtype": "torch.uint8",
+            "device": "npu:0",
+            "data_ptr": 19792574570496,
+            "storage_offset": 24576,
+            "storage_ptr": 19792574545920,
+            "storage_bytes": 8388608
+          }
+        ]
+      }
+    }
+  },
+  "compilation_times": {
+    "language_model": 0.0,
+    "encoder": 0.0
+  },
+  "captured_graphs_before_requests": [],
+  "request_lifecycle": {
+    "scheduler_class": {
+      "qualified_name": "vllm_ascend.patch.platform.patch_balance_schedule.BalanceScheduler",
+      "path": "/opt/vllm-ascend/vllm_ascend/patch/platform/patch_balance_schedule.py",
+      "sha256": "190626c663c03ff98f32a6edab7b279fd64dce4ad81900de614fc291c7dd618e"
+    },
+    "steps": [],
+    "retirements": [],
+    "prompts": {
+      "functional-A": [
+        11,
+        12,
+        13,
+        14
+      ],
+      "functional-B": [
+        21,
+        22,
+        23,
+        24
+      ],
+      "functional-C": [
+        31,
+        32,
+        33,
+        34
+      ]
+    },
+    "output_limits": {
+      "functional-A": 4,
+      "functional-B": 4,
+      "functional-C": 2
+    },
+    "outputs": {
+      "functional-A": [],
+      "functional-B": [],
+      "functional-C": []
+    },
+    "slots": {},
+    "same_owner_identity": 281453942426768,
+    "physical_block_reuse_required": false
+  },
+  "worker_failure_traceback": "Traceback (most recent call last):\n  File \"/home/z00569729/dsv41-afd/src/afd-plugin-dsv41-a5/results/dsv41-a5-functional-20261117-rerun3/snapshot/tests/npu/dsv41_functional_worker_probe.py\", line 817, in run_worker\n    run_lifecycle(wrapper, report)\n  File \"/home/z00569729/dsv41-afd/src/afd-plugin-dsv41-a5/results/dsv41-a5-functional-20261117-rerun3/snapshot/tests/npu/dsv41_functional_worker_probe.py\", line 641, in run_lifecycle\n    assert set(execute_step()) == {\"functional-A\", \"functional-B\"}\n               ^^^^^^^^^^^^^^\n  File \"/home/z00569729/dsv41-afd/src/afd-plugin-dsv41-a5/results/dsv41-a5-functional-20261117-rerun3/snapshot/tests/npu/dsv41_functional_worker_probe.py\", line 547, in execute_step\n    result = wrapper.execute_model(step)\n             ^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/usr/local/python3.11.10/lib/python3.11/site-packages/vllm/v1/worker/worker_base.py\", line 375, in execute_model\n    return self.worker.execute_model(scheduler_output)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/opt/vllm-ascend/vllm_ascend/worker/worker.py\", line 791, in execute_model\n    output = self.model_runner.execute_model(scheduler_output, intermediate_tensors)\n             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/usr/local/python3.11.10/lib/python3.11/site-packages/torch/utils/_contextlib.py\", line 124, in decorate_context\n    return func(*args, **kwargs)\n           ^^^^^^^^^^^^^^^^^^^^^\n  File \"/opt/vllm-ascend/vllm_ascend/worker/v2/model_runner.py\", line 517, in execute_model\n    output = super().execute_model(\n             ^^^^^^^^^^^^^^^^^^^^^^\n  File \"/usr/local/python3.11.10/lib/python3.11/site-packages/torch/utils/_contextlib.py\", line 124, in decorate_context\n    return func(*args, **kwargs)\n           ^^^^^^^^^^^^^^^^^^^^^\n  File \"/usr/local/python3.11.10/lib/python3.11/site-packages/vllm/v1/worker/gpu/model_runner.py\", line 1811, in execute_model\n    attn_metadata = self.model_state.prepare_attn(\n                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/opt/vllm-ascend/vllm_ascend/models/deepseek_v41/engram/model_state.py\", line 88, in prepare_attn\n    return super().prepare_attn(\n           ^^^^^^^^^^^^^^^^^^^^^\n  File \"/opt/vllm-ascend/vllm_ascend/worker/v2/model_states/default.py\", line 277, in prepare_attn\n    self.attn_metadata = build_metadata(\n                         ^^^^^^^^^^^^^^^\n  File \"/opt/vllm-ascend/vllm_ascend/worker/device_metadata.py\", line 190, in run_build\n    with self.build(kwargs[\"attn_groups\"], full_graph):\n  File \"/usr/local/python3.11.10/lib/python3.11/contextlib.py\", line 144, in __exit__\n    next(self.gen)\n  File \"/opt/vllm-ascend/vllm_ascend/worker/device_metadata.py\", line 222, in build\n    self.begin_forward()\n  File \"/opt/vllm-ascend/vllm_ascend/worker/device_metadata.py\", line 229, in begin_forward\n    self.executor.submit(self._tasks)\n  File \"/opt/vllm-ascend/vllm_ascend/worker/device_metadata.py\", line 122, in submit\n    task.run()\n  File \"/opt/vllm-ascend/vllm_ascend/attention/dsa_v41.py\", line 1238, in build_qli_metadata\n    value = self._device_backend.quant_lightning_indexer_metadata(\n            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/usr/local/python3.11.10/lib/python3.11/site-packages/torch/_ops.py\", line 819, in __call__\n    return self._op(*args, **kwargs)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/opt/vllm-ascend/vllm_ascend/ops/packaged_attention.py\", line 225, in _quant_lightning_indexer_metadata_impl\n    return _get_ds41_compute(\"quant_lightning_indexer_metadata\")(\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/usr/local/python3.11.10/lib/python3.11/site-packages/torch/_ops.py\", line 819, in __call__\n    return self._op(*args, **kwargs)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/usr/local/python3.11.10/lib/python3.11/site-packages/cann_ops_transformer/ops/attention/quant_lightning_indexer_dsl/quant_lightning_indexer.py\", line 238, in _quant_lightning_indexer_metadata_impl\n    return dsl_metadata(\n           ^^^^^^^^^^^^^\n  File \"/usr/local/python3.11.10/lib/python3.11/site-packages/ops/quant_lightning_indexer_metadata_dsl.py\", line 536, in quant_lightning_indexer_metadata\n    raise ValueError(\"QLI metadata requires N1=32, N2=1 and logical D=128\")\nValueError: QLI metadata requires N1=32, N2=1 and logical D=128\n",
+  "worker_shutdown_completed": true,
+  "ascend_groups_completed": true,
+  "model_groups_completed": true,
+  "distributed_environment_completed": true,
+  "cleanup_failures": [],
+  "native_groups_destroyed": true,
+  "traceback": "Traceback (most recent call last):\n  File \"/home/z00569729/dsv41-afd/src/afd-plugin-dsv41-a5/results/dsv41-a5-functional-20261117-rerun3/snapshot/tests/npu/dsv41_functional_worker_probe.py\", line 940, in main\n    run_worker(args, config, report)\n  File \"/home/z00569729/dsv41-afd/src/afd-plugin-dsv41-a5/results/dsv41-a5-functional-20261117-rerun3/snapshot/tests/npu/dsv41_functional_worker_probe.py\", line 817, in run_worker\n    run_lifecycle(wrapper, report)\n  File \"/home/z00569729/dsv41-afd/src/afd-plugin-dsv41-a5/results/dsv41-a5-functional-20261117-rerun3/snapshot/tests/npu/dsv41_functional_worker_probe.py\", line 641, in run_lifecycle\n    assert set(execute_step()) == {\"functional-A\", \"functional-B\"}\n               ^^^^^^^^^^^^^^\n  File \"/home/z00569729/dsv41-afd/src/afd-plugin-dsv41-a5/results/dsv41-a5-functional-20261117-rerun3/snapshot/tests/npu/dsv41_functional_worker_probe.py\", line 547, in execute_step\n    result = wrapper.execute_model(step)\n             ^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/usr/local/python3.11.10/lib/python3.11/site-packages/vllm/v1/worker/worker_base.py\", line 375, in execute_model\n    return self.worker.execute_model(scheduler_output)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/opt/vllm-ascend/vllm_ascend/worker/worker.py\", line 791, in execute_model\n    output = self.model_runner.execute_model(scheduler_output, intermediate_tensors)\n             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/usr/local/python3.11.10/lib/python3.11/site-packages/torch/utils/_contextlib.py\", line 124, in decorate_context\n    return func(*args, **kwargs)\n           ^^^^^^^^^^^^^^^^^^^^^\n  File \"/opt/vllm-ascend/vllm_ascend/worker/v2/model_runner.py\", line 517, in execute_model\n    output = super().execute_model(\n             ^^^^^^^^^^^^^^^^^^^^^^\n  File \"/usr/local/python3.11.10/lib/python3.11/site-packages/torch/utils/_contextlib.py\", line 124, in decorate_context\n    return func(*args, **kwargs)\n           ^^^^^^^^^^^^^^^^^^^^^\n  File \"/usr/local/python3.11.10/lib/python3.11/site-packages/vllm/v1/worker/gpu/model_runner.py\", line 1811, in execute_model\n    attn_metadata = self.model_state.prepare_attn(\n                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/opt/vllm-ascend/vllm_ascend/models/deepseek_v41/engram/model_state.py\", line 88, in prepare_attn\n    return super().prepare_attn(\n           ^^^^^^^^^^^^^^^^^^^^^\n  File \"/opt/vllm-ascend/vllm_ascend/worker/v2/model_states/default.py\", line 277, in prepare_attn\n    self.attn_metadata = build_metadata(\n                         ^^^^^^^^^^^^^^^\n  File \"/opt/vllm-ascend/vllm_ascend/worker/device_metadata.py\", line 190, in run_build\n    with self.build(kwargs[\"attn_groups\"], full_graph):\n  File \"/usr/local/python3.11.10/lib/python3.11/contextlib.py\", line 144, in __exit__\n    next(self.gen)\n  File \"/opt/vllm-ascend/vllm_ascend/worker/device_metadata.py\", line 222, in build\n    self.begin_forward()\n  File \"/opt/vllm-ascend/vllm_ascend/worker/device_metadata.py\", line 229, in begin_forward\n    self.executor.submit(self._tasks)\n  File \"/opt/vllm-ascend/vllm_ascend/worker/device_metadata.py\", line 122, in submit\n    task.run()\n  File \"/opt/vllm-ascend/vllm_ascend/attention/dsa_v41.py\", line 1238, in build_qli_metadata\n    value = self._device_backend.quant_lightning_indexer_metadata(\n            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/usr/local/python3.11.10/lib/python3.11/site-packages/torch/_ops.py\", line 819, in __call__\n    return self._op(*args, **kwargs)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/opt/vllm-ascend/vllm_ascend/ops/packaged_attention.py\", line 225, in _quant_lightning_indexer_metadata_impl\n    return _get_ds41_compute(\"quant_lightning_indexer_metadata\")(\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/usr/local/python3.11.10/lib/python3.11/site-packages/torch/_ops.py\", line 819, in __call__\n    return self._op(*args, **kwargs)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/usr/local/python3.11.10/lib/python3.11/site-packages/cann_ops_transformer/ops/attention/quant_lightning_indexer_dsl/quant_lightning_indexer.py\", line 238, in _quant_lightning_indexer_metadata_impl\n    return dsl_metadata(\n           ^^^^^^^^^^^^^\n  File \"/usr/local/python3.11.10/lib/python3.11/site-packages/ops/quant_lightning_indexer_metadata_dsl.py\", line 536, in quant_lightning_indexer_metadata\n    raise ValueError(\"QLI metadata requires N1=32, N2=1 and logical D=128\")\nValueError: QLI metadata requires N1=32, N2=1 and logical D=128\n",
+  "afd_modules_imported": []
+}

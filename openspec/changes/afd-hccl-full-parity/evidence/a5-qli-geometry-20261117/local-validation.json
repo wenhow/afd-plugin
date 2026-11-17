@@ -1,0 +1,93 @@
+{
+  "runtime_source_sha256": "28472209418f029a957f037fd1e8581bf18f34c13b7923db15797c875d0589bb",
+  "source_count": 188,
+  "compiled_python": 185,
+  "native_identity_unchanged": true,
+  "native_identity_count": 194,
+  "launcher_unchanged": true,
+  "changed_members": [
+    "afd_plugin/compat/npu/feature_validation.py",
+    "functional-source-provenance.json",
+    "tests/npu/dsv41_dspark_a5_runtime.py",
+    "tests/npu/dsv41_dspark_speculator_probe.py",
+    "tests/npu/dsv41_functional_worker_probe.py"
+  ],
+  "cpu": {
+    "cpu-red-002": {
+      "tests": 386,
+      "failures": 36,
+      "errors": 0,
+      "skipped": 0
+    },
+    "cpu-green": {
+      "tests": 386,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    }
+  },
+  "metadata": {
+    "returncode": 0,
+    "success": true,
+    "run_requested": false,
+    "npu_acceptance": "pending_on_A5",
+    "scene_count": 7,
+    "scenes": [
+      {
+        "name": "afd-eager-u1.log",
+        "runtime_imported": false,
+        "success": true
+      },
+      {
+        "name": "afd-eager-u2-streams.log",
+        "runtime_imported": false,
+        "success": true
+      },
+      {
+        "name": "afd-graph-u1.log",
+        "runtime_imported": false,
+        "success": true
+      },
+      {
+        "name": "afd-graph-u2-streams.log",
+        "runtime_imported": false,
+        "success": true
+      },
+      {
+        "name": "dspark-pd-graph-u2-cancel-replace.log",
+        "runtime_imported": false,
+        "success": null
+      },
+      {
+        "name": "dspark-pd-reject-continue-ready.log",
+        "runtime_imported": false,
+        "success": null
+      },
+      {
+        "name": "native-eager-u1.log",
+        "runtime_imported": false,
+        "success": true
+      }
+    ]
+  },
+  "harness_check": {
+    "ok": true,
+    "files": 434,
+    "changes": 8,
+    "tasks": 109,
+    "source_objects": 56,
+    "skills": 3,
+    "phase": "implementation",
+    "upstreams_unchanged": true,
+    "validation_scope": "local plan checks; not official CLI or NPU qualification"
+  },
+  "harness_guard": {
+    "ok": true,
+    "upstreams": [
+      "vllm",
+      "vllm_ascend",
+      "hccl_donor"
+    ],
+    "unchanged": true
+  }
+}

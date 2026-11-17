@@ -367,6 +367,7 @@ def v41_functional_candidate():
 
 
 @pytest.mark.parametrize("role", ["attention", "ffn"])
+@pytest.mark.parametrize("index_heads", [32, 64])
 @pytest.mark.parametrize(
     "u2,graph", [(False, False), (True, False), (False, True), (True, True)]
 )
@@ -381,11 +382,12 @@ def v41_functional_candidate():
     ],
 )
 def test_v41_functional_qualification_preserves_supported_combinations(
-    monkeypatch, v41_functional_candidate, role, u2, graph, dspark, pd_role
+    monkeypatch, v41_functional_candidate, role, index_heads, u2, graph, dspark, pd_role
 ):
     source = v41_functional_candidate(
         role=role, u2=u2, graph=graph, dspark=dspark, pd_role=pd_role
     )
+    source.model_config.hf_text_config.index_n_heads = index_heads
     original = deepcopy(source)
     monkeypatch.setenv("AFD_DSV41_FUNCTIONAL_QUALIFICATION", "1")
 
@@ -419,6 +421,9 @@ def test_v41_functional_qualification_requires_exact_opt_in(monkeypatch, flag):
     [
         ("config", "engram_config", True, "Engram off"),
         ("target", "engram_layer_ids", [0], "Engram off"),
+        ("target", "index_n_heads", 16, "index_n_heads"),
+        ("target", "index_n_heads", 32.0, "index_n_heads"),
+        ("target", "index_head_dim", 64, "index_head_dim"),
         ("draft", "engram_layer_ids", [0], "draft Engram off"),
         ("draft", "hidden_size", 1024, "matching draft hidden_size"),
         ("target", "dspark_block_size", 4, "native checkpoint draft metadata"),
@@ -604,6 +609,7 @@ def test_v41_dummy_c2_qualification_keeps_native_source_ownership(
         ("sliding_window", 64),
         ("index_topk", 16),
         ("index_n_heads", 1),
+        ("index_n_heads", 32),
         ("index_head_dim", 64),
         ("vocab_size", 8192),
         ("intermediate_size", 1024),

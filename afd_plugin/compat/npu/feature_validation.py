@@ -49,6 +49,7 @@ V41_DUMMY_MAX_MODEL_LEN = 128
 V41_DUMMY_BLOCK_SIZE = 128
 V41_DUMMY_BATCH_TOKENS = 16
 V41_FUNCTIONAL_QUALIFICATION_ENV = "AFD_DSV41_FUNCTIONAL_QUALIFICATION"
+V41_FUNCTIONAL_INDEX_HEADS = 32
 V41_FUNCTIONAL_MAX_SEQUENCES = 2
 V41_FUNCTIONAL_MAX_SPECULATIVE_TOKENS = 2
 
@@ -284,7 +285,6 @@ def _validate_v41_dummy_qualification(
         ("o_groups", text.o_groups, 1),
         ("sliding_window", text.sliding_window, V41_DUMMY_BLOCK_SIZE),
         ("index_topk", text.index_topk, V41_DUMMY_HEAD_SIZE),
-        ("index_n_heads", text.index_n_heads, V41_DUMMY_QUERY_HEADS),
         ("index_head_dim", text.index_head_dim, V41_DUMMY_INDEX_HEAD_SIZE),
         ("vocab_size", text.vocab_size, V41_DUMMY_VOCAB_SIZE),
         ("intermediate_size", text.intermediate_size, V41_DUMMY_HIDDEN_SIZE),
@@ -298,6 +298,17 @@ def _validate_v41_dummy_qualification(
     ):
         if type(actual) is not int or actual != expected:
             raise ValueError(f"V4.1 dummy qualification requires {name}={expected}")
+    # A5 packed QLI requires 32 replicated index heads. Keep the historical
+    # 64-head candidate for its separate non-packed component evidence.
+    index_heads = (
+        (V41_FUNCTIONAL_INDEX_HEADS, V41_DUMMY_QUERY_HEADS)
+        if functional
+        else (V41_DUMMY_QUERY_HEADS,)
+    )
+    if type(text.index_n_heads) is not int or text.index_n_heads not in index_heads:
+        raise ValueError(
+            f"V4.1 dummy qualification requires index_n_heads in {index_heads}"
+        )
     layer_count = text.num_hidden_layers
     if type(layer_count) is not int or layer_count not in (
         V41_DUMMY_LAYER_COUNT,

@@ -11,7 +11,10 @@ import json
 from pathlib import Path
 
 from prepare_dsv41_a5_dspark_bundle import (
+    A5_RUNTIME,
+    BASELINE,
     BASELINE_SHA256,
+    a5_helper_successors,
     archive_files,
     json_bytes,
     read_locked_sources,
@@ -100,6 +103,12 @@ def main() -> int:
     if output.exists():
         parser.error("--output-dir must be fresh")
     files = verified_archive(root, DSPARK_BUNDLE, DSPARK_SHA256)
+    # Refresh only the A5 indexer declarations from the immutable donor;
+    # retain all other reviewed DSpark helper bytes from its parent bundle.
+    donor = verified_archive(root, BASELINE, BASELINE_SHA256)
+    successors, _ = a5_helper_successors(donor, root)
+    for name in (A5_RUNTIME, "tests/npu/dsv41_dspark_speculator_probe.py"):
+        files[name] = successors[name]
     original_production = {
         name: digest(raw)
         for name, raw in files.items()
