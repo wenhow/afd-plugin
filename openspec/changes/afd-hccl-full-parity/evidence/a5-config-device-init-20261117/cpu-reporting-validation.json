@@ -1,0 +1,527 @@
+{
+  "scope": "CPU source/reporting contracts only; all torch/NPU behavior controlled; not device evidence",
+  "checks": [
+    {
+      "check": "old_rejects_recorded_A5_initialization",
+      "accepted": false,
+      "expected": false,
+      "requested_device": 0,
+      "report": {
+        "npu_initialized_before_config": false,
+        "checkpoint_config_sha256": "7982114570f3fdb643ed9cd272f521dbcda0a7f4d284b886f65ee4ae12a2861f",
+        "first_declaration": {
+          "role": "native",
+          "mode": "eager-u1",
+          "hf_override": "bounded_c2_hf_config",
+          "hidden_size": 512,
+          "head_size": 512,
+          "num_attention_heads": 64,
+          "hc_mult": 4,
+          "num_hidden_layers": 3,
+          "compress_ratios": [
+            0,
+            0,
+            2
+          ],
+          "max_num_seqs": 2,
+          "ubatch_size": 0,
+          "enforce_eager": true,
+          "capture_sizes": [],
+          "kv_budget_bytes": 8388608,
+          "additional_config": {
+            "enable_cpu_binding": false
+          },
+          "geometry_or_mode_mutated_after_construction": false
+        },
+        "configuration": {
+          "config_identity": 281456005266384,
+          "worker_cls": "vllm_ascend.worker.worker.NPUWorker",
+          "native_geometry": {
+            "hidden_size": 512,
+            "head_size": 512,
+            "vocab_size": 4096,
+            "num_layers": 3,
+            "num_attention_heads": 64,
+            "hc_mult": 4,
+            "compress_ratios": [
+              0,
+              0,
+              2
+            ]
+          },
+          "max_num_seqs": 2,
+          "max_num_batched_tokens": 16,
+          "max_model_len": 128,
+          "enable_chunked_prefill": true,
+          "enforce_eager": true,
+          "use_ubatching": false,
+          "num_ubatches": 0,
+          "dbo_prefill_token_threshold": 2,
+          "dbo_decode_token_threshold": 2,
+          "compile_mode": "NONE",
+          "graph_mode": "NONE",
+          "capture_sizes": [],
+          "language_model_only": true,
+          "model_is_multimodal": true,
+          "skip_tokenizer_init": true,
+          "load_format": "dummy",
+          "speculation_is_none": true,
+          "pd_is_none": true,
+          "engram_is_none": true,
+          "quantization_is_none": true,
+          "additional_config": {
+            "enable_cpu_binding": false,
+            "ascend_compilation_config": {
+              "enable_npugraph_ex": false,
+              "enable_static_kernel": false,
+              "enable_super_kernel": false,
+              "fuse_norm_quant": true,
+              "fuse_qknorm_rope": true,
+              "fuse_muls_add": true
+            }
+          }
+        },
+        "npu_initialized_after_config": true
+      },
+      "scope": "synthetic CPU reporting contract; no NPU execution"
+    },
+    {
+      "check": "run_device_zero_accepts_initialization",
+      "accepted": true,
+      "expected": true,
+      "requested_device": 0,
+      "report": {
+        "npu_initialized_before_config": false,
+        "configuration_device_before": 0,
+        "checkpoint_config_sha256": "7982114570f3fdb643ed9cd272f521dbcda0a7f4d284b886f65ee4ae12a2861f",
+        "first_declaration": {
+          "role": "native",
+          "mode": "eager-u1",
+          "hf_override": "bounded_c2_hf_config",
+          "hidden_size": 512,
+          "head_size": 512,
+          "num_attention_heads": 64,
+          "hc_mult": 4,
+          "num_hidden_layers": 3,
+          "compress_ratios": [
+            0,
+            0,
+            2
+          ],
+          "max_num_seqs": 2,
+          "ubatch_size": 0,
+          "enforce_eager": true,
+          "capture_sizes": [],
+          "kv_budget_bytes": 8388608,
+          "additional_config": {
+            "enable_cpu_binding": false
+          },
+          "geometry_or_mode_mutated_after_construction": false
+        },
+        "configuration": {
+          "config_identity": 281456005266384,
+          "worker_cls": "vllm_ascend.worker.worker.NPUWorker",
+          "native_geometry": {
+            "hidden_size": 512,
+            "head_size": 512,
+            "vocab_size": 4096,
+            "num_layers": 3,
+            "num_attention_heads": 64,
+            "hc_mult": 4,
+            "compress_ratios": [
+              0,
+              0,
+              2
+            ]
+          },
+          "max_num_seqs": 2,
+          "max_num_batched_tokens": 16,
+          "max_model_len": 128,
+          "enable_chunked_prefill": true,
+          "enforce_eager": true,
+          "use_ubatching": false,
+          "num_ubatches": 0,
+          "dbo_prefill_token_threshold": 2,
+          "dbo_decode_token_threshold": 2,
+          "compile_mode": "NONE",
+          "graph_mode": "NONE",
+          "capture_sizes": [],
+          "language_model_only": true,
+          "model_is_multimodal": true,
+          "skip_tokenizer_init": true,
+          "load_format": "dummy",
+          "speculation_is_none": true,
+          "pd_is_none": true,
+          "engram_is_none": true,
+          "quantization_is_none": true,
+          "additional_config": {
+            "enable_cpu_binding": false,
+            "ascend_compilation_config": {
+              "enable_npugraph_ex": false,
+              "enable_static_kernel": false,
+              "enable_super_kernel": false,
+              "fuse_norm_quant": true,
+              "fuse_qknorm_rope": true,
+              "fuse_muls_add": true
+            }
+          }
+        },
+        "npu_initialized_after_config": true,
+        "configuration_device_after": 0,
+        "initial_engine_args_configuration_accepted": true
+      },
+      "scope": "synthetic CPU reporting contract; no NPU execution"
+    },
+    {
+      "check": "run_nonzero_device_is_preserved",
+      "accepted": true,
+      "expected": true,
+      "requested_device": 3,
+      "report": {
+        "npu_initialized_before_config": false,
+        "configuration_device_before": 3,
+        "checkpoint_config_sha256": "7982114570f3fdb643ed9cd272f521dbcda0a7f4d284b886f65ee4ae12a2861f",
+        "first_declaration": {
+          "role": "native",
+          "mode": "eager-u1",
+          "hf_override": "bounded_c2_hf_config",
+          "hidden_size": 512,
+          "head_size": 512,
+          "num_attention_heads": 64,
+          "hc_mult": 4,
+          "num_hidden_layers": 3,
+          "compress_ratios": [
+            0,
+            0,
+            2
+          ],
+          "max_num_seqs": 2,
+          "ubatch_size": 0,
+          "enforce_eager": true,
+          "capture_sizes": [],
+          "kv_budget_bytes": 8388608,
+          "additional_config": {
+            "enable_cpu_binding": false
+          },
+          "geometry_or_mode_mutated_after_construction": false
+        },
+        "configuration": {
+          "config_identity": 281456005266384,
+          "worker_cls": "vllm_ascend.worker.worker.NPUWorker",
+          "native_geometry": {
+            "hidden_size": 512,
+            "head_size": 512,
+            "vocab_size": 4096,
+            "num_layers": 3,
+            "num_attention_heads": 64,
+            "hc_mult": 4,
+            "compress_ratios": [
+              0,
+              0,
+              2
+            ]
+          },
+          "max_num_seqs": 2,
+          "max_num_batched_tokens": 16,
+          "max_model_len": 128,
+          "enable_chunked_prefill": true,
+          "enforce_eager": true,
+          "use_ubatching": false,
+          "num_ubatches": 0,
+          "dbo_prefill_token_threshold": 2,
+          "dbo_decode_token_threshold": 2,
+          "compile_mode": "NONE",
+          "graph_mode": "NONE",
+          "capture_sizes": [],
+          "language_model_only": true,
+          "model_is_multimodal": true,
+          "skip_tokenizer_init": true,
+          "load_format": "dummy",
+          "speculation_is_none": true,
+          "pd_is_none": true,
+          "engram_is_none": true,
+          "quantization_is_none": true,
+          "additional_config": {
+            "enable_cpu_binding": false,
+            "ascend_compilation_config": {
+              "enable_npugraph_ex": false,
+              "enable_static_kernel": false,
+              "enable_super_kernel": false,
+              "fuse_norm_quant": true,
+              "fuse_qknorm_rope": true,
+              "fuse_muls_add": true
+            }
+          }
+        },
+        "npu_initialized_after_config": true,
+        "configuration_device_after": 3,
+        "initial_engine_args_configuration_accepted": true
+      },
+      "scope": "synthetic CPU reporting contract; no NPU execution"
+    },
+    {
+      "check": "run_config_rejects_device_initialization",
+      "accepted": false,
+      "expected": false,
+      "requested_device": 0,
+      "report": {
+        "npu_initialized_before_config": false,
+        "checkpoint_config_sha256": "7982114570f3fdb643ed9cd272f521dbcda0a7f4d284b886f65ee4ae12a2861f",
+        "first_declaration": {
+          "role": "native",
+          "mode": "eager-u1",
+          "hf_override": "bounded_c2_hf_config",
+          "hidden_size": 512,
+          "head_size": 512,
+          "num_attention_heads": 64,
+          "hc_mult": 4,
+          "num_hidden_layers": 3,
+          "compress_ratios": [
+            0,
+            0,
+            2
+          ],
+          "max_num_seqs": 2,
+          "ubatch_size": 0,
+          "enforce_eager": true,
+          "capture_sizes": [],
+          "kv_budget_bytes": 8388608,
+          "additional_config": {
+            "enable_cpu_binding": false
+          },
+          "geometry_or_mode_mutated_after_construction": false
+        },
+        "configuration": {
+          "config_identity": 281456005266384,
+          "worker_cls": "vllm_ascend.worker.worker.NPUWorker",
+          "native_geometry": {
+            "hidden_size": 512,
+            "head_size": 512,
+            "vocab_size": 4096,
+            "num_layers": 3,
+            "num_attention_heads": 64,
+            "hc_mult": 4,
+            "compress_ratios": [
+              0,
+              0,
+              2
+            ]
+          },
+          "max_num_seqs": 2,
+          "max_num_batched_tokens": 16,
+          "max_model_len": 128,
+          "enable_chunked_prefill": true,
+          "enforce_eager": true,
+          "use_ubatching": false,
+          "num_ubatches": 0,
+          "dbo_prefill_token_threshold": 2,
+          "dbo_decode_token_threshold": 2,
+          "compile_mode": "NONE",
+          "graph_mode": "NONE",
+          "capture_sizes": [],
+          "language_model_only": true,
+          "model_is_multimodal": true,
+          "skip_tokenizer_init": true,
+          "load_format": "dummy",
+          "speculation_is_none": true,
+          "pd_is_none": true,
+          "engram_is_none": true,
+          "quantization_is_none": true,
+          "additional_config": {
+            "enable_cpu_binding": false,
+            "ascend_compilation_config": {
+              "enable_npugraph_ex": false,
+              "enable_static_kernel": false,
+              "enable_super_kernel": false,
+              "fuse_norm_quant": true,
+              "fuse_qknorm_rope": true,
+              "fuse_muls_add": true
+            }
+          }
+        },
+        "npu_initialized_after_config": true
+      },
+      "scope": "synthetic CPU reporting contract; no NPU execution"
+    },
+    {
+      "check": "run_config_accepts_host_only",
+      "accepted": true,
+      "expected": true,
+      "requested_device": 0,
+      "report": {
+        "npu_initialized_before_config": false,
+        "checkpoint_config_sha256": "7982114570f3fdb643ed9cd272f521dbcda0a7f4d284b886f65ee4ae12a2861f",
+        "first_declaration": {
+          "role": "native",
+          "mode": "eager-u1",
+          "hf_override": "bounded_c2_hf_config",
+          "hidden_size": 512,
+          "head_size": 512,
+          "num_attention_heads": 64,
+          "hc_mult": 4,
+          "num_hidden_layers": 3,
+          "compress_ratios": [
+            0,
+            0,
+            2
+          ],
+          "max_num_seqs": 2,
+          "ubatch_size": 0,
+          "enforce_eager": true,
+          "capture_sizes": [],
+          "kv_budget_bytes": 8388608,
+          "additional_config": {
+            "enable_cpu_binding": false
+          },
+          "geometry_or_mode_mutated_after_construction": false
+        },
+        "configuration": {
+          "config_identity": 281456005266384,
+          "worker_cls": "vllm_ascend.worker.worker.NPUWorker",
+          "native_geometry": {
+            "hidden_size": 512,
+            "head_size": 512,
+            "vocab_size": 4096,
+            "num_layers": 3,
+            "num_attention_heads": 64,
+            "hc_mult": 4,
+            "compress_ratios": [
+              0,
+              0,
+              2
+            ]
+          },
+          "max_num_seqs": 2,
+          "max_num_batched_tokens": 16,
+          "max_model_len": 128,
+          "enable_chunked_prefill": true,
+          "enforce_eager": true,
+          "use_ubatching": false,
+          "num_ubatches": 0,
+          "dbo_prefill_token_threshold": 2,
+          "dbo_decode_token_threshold": 2,
+          "compile_mode": "NONE",
+          "graph_mode": "NONE",
+          "capture_sizes": [],
+          "language_model_only": true,
+          "model_is_multimodal": true,
+          "skip_tokenizer_init": true,
+          "load_format": "dummy",
+          "speculation_is_none": true,
+          "pd_is_none": true,
+          "engram_is_none": true,
+          "quantization_is_none": true,
+          "additional_config": {
+            "enable_cpu_binding": false,
+            "ascend_compilation_config": {
+              "enable_npugraph_ex": false,
+              "enable_static_kernel": false,
+              "enable_super_kernel": false,
+              "fuse_norm_quant": true,
+              "fuse_qknorm_rope": true,
+              "fuse_muls_add": true
+            }
+          }
+        },
+        "npu_initialized_after_config": false,
+        "initial_engine_args_configuration_accepted": true
+      },
+      "scope": "synthetic CPU reporting contract; no NPU execution"
+    },
+    {
+      "check": "run_rejects_configuration_changing_device",
+      "accepted": false,
+      "expected": false,
+      "requested_device": 3,
+      "report": {
+        "npu_initialized_before_config": false,
+        "configuration_device_before": 3,
+        "checkpoint_config_sha256": "7982114570f3fdb643ed9cd272f521dbcda0a7f4d284b886f65ee4ae12a2861f",
+        "first_declaration": {
+          "role": "native",
+          "mode": "eager-u1",
+          "hf_override": "bounded_c2_hf_config",
+          "hidden_size": 512,
+          "head_size": 512,
+          "num_attention_heads": 64,
+          "hc_mult": 4,
+          "num_hidden_layers": 3,
+          "compress_ratios": [
+            0,
+            0,
+            2
+          ],
+          "max_num_seqs": 2,
+          "ubatch_size": 0,
+          "enforce_eager": true,
+          "capture_sizes": [],
+          "kv_budget_bytes": 8388608,
+          "additional_config": {
+            "enable_cpu_binding": false
+          },
+          "geometry_or_mode_mutated_after_construction": false
+        },
+        "configuration": {
+          "config_identity": 281456005266384,
+          "worker_cls": "vllm_ascend.worker.worker.NPUWorker",
+          "native_geometry": {
+            "hidden_size": 512,
+            "head_size": 512,
+            "vocab_size": 4096,
+            "num_layers": 3,
+            "num_attention_heads": 64,
+            "hc_mult": 4,
+            "compress_ratios": [
+              0,
+              0,
+              2
+            ]
+          },
+          "max_num_seqs": 2,
+          "max_num_batched_tokens": 16,
+          "max_model_len": 128,
+          "enable_chunked_prefill": true,
+          "enforce_eager": true,
+          "use_ubatching": false,
+          "num_ubatches": 0,
+          "dbo_prefill_token_threshold": 2,
+          "dbo_decode_token_threshold": 2,
+          "compile_mode": "NONE",
+          "graph_mode": "NONE",
+          "capture_sizes": [],
+          "language_model_only": true,
+          "model_is_multimodal": true,
+          "skip_tokenizer_init": true,
+          "load_format": "dummy",
+          "speculation_is_none": true,
+          "pd_is_none": true,
+          "engram_is_none": true,
+          "quantization_is_none": true,
+          "additional_config": {
+            "enable_cpu_binding": false,
+            "ascend_compilation_config": {
+              "enable_npugraph_ex": false,
+              "enable_static_kernel": false,
+              "enable_super_kernel": false,
+              "fuse_norm_quant": true,
+              "fuse_qknorm_rope": true,
+              "fuse_muls_add": true
+            }
+          }
+        },
+        "npu_initialized_after_config": true,
+        "configuration_device_after": 0
+      },
+      "scope": "synthetic CPU reporting contract; no NPU execution"
+    }
+  ],
+  "changed_source_members": [
+    "tests/npu/dsv41_functional_worker_probe.py"
+  ],
+  "source_count": 188,
+  "production_count": 146,
+  "production_and_native_identity_unchanged": true,
+  "launcher_unchanged": true,
+  "runtime_source_sha256": "43c0f8b20e473722401ad3037ccaf1f2e1679caa32e9c09f7ada44b659dee759",
+  "npu_validation": "pending_on_A5"
+}

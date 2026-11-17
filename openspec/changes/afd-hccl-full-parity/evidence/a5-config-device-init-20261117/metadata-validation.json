@@ -1,0 +1,20 @@
+{
+  "command": [
+    "D:\\Programs\\python314\\python.exe",
+    "-B",
+    "tests/npu/dsv41_a5_functional_validation.py",
+    "--model",
+    "/home/models/DeepSeek-V4.1-Flash",
+    "--output-dir",
+    "D:\\openSource\\afd-plugin-dsv41-flash-v030\\.tmp\\a5-config-metadata-m3mk6abt\\metadata",
+    "--source-bundle",
+    "D:\\openSource\\afd-plugin-dsv41-flash-v030\\.tmp\\dsv41-a5-config-device-init-20261117\\runtime-source.tar.gz",
+    "--preflight-timeout",
+    "900"
+  ],
+  "returncode": 0,
+  "scenes": 7,
+  "runtime_imported": false,
+  "archive_sha256": "43c0f8b20e473722401ad3037ccaf1f2e1679caa32e9c09f7ada44b659dee759",
+  "npu_acceptance": "pending_on_A5"
+}

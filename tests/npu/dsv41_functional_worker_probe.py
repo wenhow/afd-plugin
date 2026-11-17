@@ -146,7 +146,14 @@ def build_config(args: argparse.Namespace, report: dict):
     from vllm.plugins import load_general_plugins
 
     report["npu_initialized_before_config"] = torch.npu.is_initialized()
-    assert report["npu_initialized_before_config"] is False
+    if args.run:
+        # Native config queries may initialize NPU on A5. Bind the role's
+        # visible ordinal first, before those queries can select a default.
+        torch.npu.set_device(args.device)
+        report["configuration_device_before"] = torch.npu.current_device()
+        assert report["configuration_device_before"] == args.device
+    else:
+        assert report["npu_initialized_before_config"] is False
     assert current_platform.device_type == "npu"
     current_platform.pre_register_and_update()
     load_general_plugins()
@@ -273,7 +280,11 @@ def build_config(args: argparse.Namespace, report: dict):
     )
     assert original_path.read_bytes() == original
     report["npu_initialized_after_config"] = torch.npu.is_initialized()
-    assert report["npu_initialized_after_config"] is False
+    if args.run:
+        report["configuration_device_after"] = torch.npu.current_device()
+        assert report["configuration_device_after"] == args.device
+    else:
+        assert report["npu_initialized_after_config"] is False
     report["initial_engine_args_configuration_accepted"] = True
     return config
 

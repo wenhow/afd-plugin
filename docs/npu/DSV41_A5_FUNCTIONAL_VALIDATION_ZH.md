@@ -161,6 +161,20 @@ PY
 一个 `surviving_owned_pids`；保留为失败证据，不能宣称该次清理成功，也不能仅凭旧PID
 推断进程现在仍存在。旧结果目录保留，重跑使用新目录。
 
+### 正常场景配置阶段的 NPU 初始化
+
+如果旧结果在 `dsv41_functional_worker_probe.py` 的
+`assert report["npu_initialized_after_config"] is False` 失败，查看同一报告的
+`configuration`、`model_loaded` 和 `inference_executed`。11月17日回传已确认
+原生预检通过，正常原生配置构造完成，但配置查询使NPU初始化，随后被验证脚本的CPU断言阻断，
+当时模型尚未加载。
+
+修复后的 `--run` 会在配置前绑定指定的进程可见设备，记录
+`configuration_device_before/after`，并检查配置后仍为同一设备，再进入原生Worker。
+`npu_initialized_before_config/after_config` 保留实际值；真实设备场景允许为True。
+独立 `--run-config` 仍要求配置前后NPU未初始化，避免将设备行为记为CPU证据。
+此修复只涉及验证probe；更新时同步拉取对应冻结包，保留旧结果，使用新输出目录重跑。
+
 ## 4. 源码与实施边界
 
 交付源码见 [准备记录](../../reports/dsv41-a5-functional/preparation.json) 和
