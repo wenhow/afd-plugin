@@ -175,6 +175,18 @@ PY
 独立 `--run-config` 仍要求配置前后NPU未初始化，避免将设备行为记为CPU证据。
 此修复只涉及验证probe；更新时同步拉取对应冻结包，保留旧结果，使用新输出目录重跑。
 
+### 模型加载后读取参数时报内部格式错误
+
+如果错误来自 `dsv41_normal_model_probe.parameter_record` 的 `tensor.detach().cpu()`，
+且包含 `copy_ do not support internal format`，查看角色报告的 `model_loaded` 与
+`inference_executed`。11月17日回传已完成原生Worker初始化和模型加载，随后在采集参数SHA时失败，
+尚未进行KV初始化与推理。
+
+修复后的采集函数只将读取用的detached张量以非原地接口转换为ND格式，再复制到CPU；
+保留原模型参数存储、SHA/finite检查及原生/AFD对照。SHA表示逻辑连续元素字节，不含内部padding。
+共享helper和默认冻结包已同步，更新后保留旧结果，改用新目录执行原命令。
+实际A5读取及后续场景仍待重跑，本地CPU检查不能代替设备验收。
+
 ## 4. 源码与实施边界
 
 交付源码见 [准备记录](../../reports/dsv41-a5-functional/preparation.json) 和

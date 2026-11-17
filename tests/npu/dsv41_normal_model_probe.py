@@ -126,9 +126,17 @@ def observe_controls(report: dict):
 def parameter_record(tensor: torch.Tensor) -> dict:
     import torch
 
-    # Observation only: blocking readback records post-loader bytes, including
-    # scalars. It is not a timed load, kernel check or cross-role value oracle.
-    cpu = tensor.detach().cpu().contiguous()
+    # Observation only: hash logical post-loader elements, including scalars,
+    # without changing the parameter's storage or private-format padding.
+    observed = tensor.detach()
+    if observed.device.type == "npu":
+        import torch_npu
+
+        # A5's CPU copy path rejects internal formats. Normalize only the
+        # detached observation with the out-of-place native format cast.
+        if torch_npu.get_npu_format(observed) != torch_npu.Format.ND:
+            observed = torch_npu.npu_format_cast(observed, torch_npu.Format.ND)
+    cpu = observed.cpu().contiguous()
     raw = cpu.reshape(-1).view(torch.uint8).numpy().tobytes()
     return {
         "shape": list(tensor.shape),

@@ -27,6 +27,7 @@ WORKER_BUNDLE = (
 WORKER_SHA256 = "a8bde079dd5126e6cf0f7b6aede1c093e02489aa070f1df88d5d7478df2ece81"
 LAUNCHER = "tests/npu/dsv41_a5_functional_validation.py"
 PROBE = "tests/npu/dsv41_functional_worker_probe.py"
+MODEL_PROBE = "tests/npu/dsv41_normal_model_probe.py"
 FEATURE = "afd_plugin/compat/npu/feature_validation.py"
 PRODUCTION_OVERLAYS = (
     FEATURE,
@@ -60,7 +61,7 @@ def verified_archive(root: Path, name: str, expected: str) -> dict[str, bytes]:
 
 
 def add_local_helpers(root: Path, files: dict[str, bytes]) -> None:
-    pending = [LAUNCHER, PROBE]
+    pending = [LAUNCHER, PROBE, MODEL_PROBE]
     seen = set()
     while pending:
         name = pending.pop()

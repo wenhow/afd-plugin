@@ -1,0 +1,128 @@
+{
+  "status": "passed_cpu_only",
+  "torch_version": "2.14.1+cu126",
+  "cases": [
+    {
+      "case": "scalar_with_grad",
+      "record": {
+        "shape": [],
+        "stride": [],
+        "dtype": "torch.float32",
+        "device": "cpu",
+        "storage_offset": 0,
+        "data_ptr": 4953204654208,
+        "numel": 1,
+        "bytes": 4,
+        "sha256": "2f90de89a933bd8118953f22550293198c812014b434e29d79bcdea4cb34c56a",
+        "finite": true
+      },
+      "original_unchanged": true
+    },
+    {
+      "case": "strided_view_with_offset",
+      "record": {
+        "shape": [
+          2,
+          3
+        ],
+        "stride": [
+          1,
+          4
+        ],
+        "dtype": "torch.float32",
+        "device": "cpu",
+        "storage_offset": 1,
+        "data_ptr": 4953204719812,
+        "numel": 6,
+        "bytes": 24,
+        "sha256": "394db05f05b52902e4d41d187520b6a686756c2de7aac7668ab608823bba0300",
+        "finite": true
+      },
+      "original_unchanged": true
+    },
+    {
+      "case": "bfloat16",
+      "record": {
+        "shape": [
+          2
+        ],
+        "stride": [
+          1
+        ],
+        "dtype": "torch.bfloat16",
+        "device": "cpu",
+        "storage_offset": 0,
+        "data_ptr": 4953204654272,
+        "numel": 2,
+        "bytes": 4,
+        "sha256": "52e29da4fe83b0d77efd7b5138f1f55f9e3fffcbb721c712e8bef930eb74bd97",
+        "finite": true
+      },
+      "original_unchanged": true
+    },
+    {
+      "case": "integer",
+      "record": {
+        "shape": [
+          3
+        ],
+        "stride": [
+          1
+        ],
+        "dtype": "torch.int64",
+        "device": "cpu",
+        "storage_offset": 0,
+        "data_ptr": 4953204785280,
+        "numel": 3,
+        "bytes": 24,
+        "sha256": "bcceb09c6a924f938b2d115a6a07041e1faeb340c2b6c577e80027959dbbf228",
+        "finite": null
+      },
+      "original_unchanged": true
+    },
+    {
+      "case": "infinite",
+      "record": {
+        "shape": [
+          1
+        ],
+        "stride": [
+          1
+        ],
+        "dtype": "torch.float32",
+        "device": "cpu",
+        "storage_offset": 0,
+        "data_ptr": 4953204654336,
+        "numel": 1,
+        "bytes": 4,
+        "sha256": "d7173dd8a9e81deded3f2e4719ef149effbd21afd81da9d10ed50b5dff69a708",
+        "finite": false
+      },
+      "original_unchanged": true
+    },
+    {
+      "case": "empty",
+      "record": {
+        "shape": [
+          0,
+          2
+        ],
+        "stride": [
+          2,
+          1
+        ],
+        "dtype": "torch.float32",
+        "device": "cpu",
+        "storage_offset": 0,
+        "data_ptr": 0,
+        "numel": 0,
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "finite": true
+      },
+      "original_unchanged": true
+    }
+  ],
+  "torch_npu_imported": false,
+  "npu_format_conversion": "not_exercised_pending_A5"
+}
