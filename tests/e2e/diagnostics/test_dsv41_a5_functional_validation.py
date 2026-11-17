@@ -43,6 +43,7 @@ class TestTransformerVendor(unittest.TestCase):
         command = [
             sys.executable,
             "-B",
+            "-S",
             str(LAUNCHER),
             "--model",
             str(self.directory),
@@ -71,6 +72,7 @@ class TestTransformerVendor(unittest.TestCase):
                 [
                     sys.executable,
                     "-B",
+                    "-S",
                     "-c",
                     "import json,os; print(json.dumps({name:os.environ[name] "
                     "for name in ('ASCEND_CUSTOM_OPP_PATH','LD_LIBRARY_PATH')}))",

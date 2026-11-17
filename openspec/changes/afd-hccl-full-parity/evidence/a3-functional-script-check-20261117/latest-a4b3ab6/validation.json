@@ -1,0 +1,19 @@
+{
+  "command": [
+    "/mnt/workspace/code/.venvs/afd-v030-dsv41-c0/bin/python",
+    "-B",
+    "-S",
+    "tests/e2e/diagnostics/test_dsv41_a5_functional_validation.py",
+    "-v"
+  ],
+  "remote_root": "/mnt/workspace/tmp/afd-c0-20261104.hVgsIf/functional-launcher-a4b3ab6-et4uew42",
+  "returncode": 0,
+  "passed": true,
+  "scope": "A3 stdlib CLI and actual child environment; no runtime import or device model",
+  "commit": "a4b3ab6ceec23e33a52c3f6fcc09e9e91949a662",
+  "bundle_sha256": "bd537ca3ce1cef07faeb8e648c2e879fdd1a2dfe12791e6a6eeff15ea9b96cc9",
+  "cli_checks": 4,
+  "source_capsule_sha256": "89b356fc8a12829d762c2b6757c2bb0280d1b05fc6f79c42fe165b712cce7df5",
+  "test_harness_sha256": "feb3231c8d3ed1294765c48818cdc28a80ea0cbb6b63c474f0dbb95051fa3390",
+  "test_harness_candidate": "two stdlib child processes now also use -S"
+}

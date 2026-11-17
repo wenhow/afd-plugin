@@ -1,0 +1,19 @@
+{
+  "passed": true,
+  "bundle_sha256": "817d04ee81dc55a1e3d9053dfdd424eeb83df8f1045f09367dec4359d8d320f7",
+  "check_groups": 23,
+  "configuration_checks": 13,
+  "readback_formats": [
+    2,
+    29,
+    2
+  ],
+  "loaded_parameters": 79,
+  "index_n_heads": 64,
+  "native_kv_initialized": false,
+  "all_eight_idle_after": true,
+  "surviving_owned_pids": [],
+  "native_source_count": 194,
+  "inference_executed": false,
+  "a5_acceptance": false
+}

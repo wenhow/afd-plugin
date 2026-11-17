@@ -1,0 +1,9 @@
+{
+  "remote_root": "/mnt/workspace/tmp/afd-c0-20261104.hVgsIf/functional-script-check-20261117-et_66i00",
+  "archive_sha256": "817d04ee81dc55a1e3d9053dfdd424eeb83df8f1045f09367dec4359d8d320f7",
+  "runner_sha256": "dae6e70b5d8e29e73e192cfb9d06119dd46758d2f2607dddc7a0b0f6be1bbb15",
+  "uploaded_members": 196,
+  "upload_sha256": "fe4bbbd9408422ba7b69b9b4d1bfb338943bb4e194547f533c1ba881a2e947e3",
+  "private_jit_cache": "/mnt/workspace/tmp/afd-c0-20261104.hVgsIf/functional-script-check-20261117-aed7k8py/cache/torch-extensions",
+  "config_timeout_seconds": 600
+}
