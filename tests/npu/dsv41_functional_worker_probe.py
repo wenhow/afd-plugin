@@ -34,7 +34,6 @@ from dsv41_normal_c2_probe import (
     GROUP_TIMEOUT_SECONDS,
     HC_MULTIPLIER,
     HEAD_SIZE,
-    HIDDEN_SIZE,
     LAYER_COUNT,
     MAX_BATCHED_TOKENS,
     MAX_MODEL_LEN,
@@ -57,6 +56,8 @@ from dsv41_normal_native_probe import (
 from dsv41_normal_worker_probe import INDEX_HEAD_SIZE
 
 FUNCTIONAL_ENV = "AFD_DSV41_FUNCTIONAL_QUALIFICATION"
+# CompressorV2 accepts H >= 1024, while packed Attention keeps D=512.
+A5_MODEL_HIDDEN_SIZE = 1024
 OLDER_QUALIFICATIONS = (
     "AFD_DSV41_EAGER_QUALIFICATION",
     "AFD_DSV41_DUMMY_QUALIFICATION",
@@ -103,11 +104,15 @@ def bounded_a5_c2_hf_config(hf_config):
     bounded = bounded_c2_hf_config(hf_config)
     raw = bounded.to_dict()
     raw["model_type"] = bounded.model_type
-    raw["index_n_heads"] = NATIVE_INDEX_HEADS
+    values = {
+        "hidden_size": A5_MODEL_HIDDEN_SIZE,
+        "index_n_heads": NATIVE_INDEX_HEADS,
+    }
+    raw.update(values)
     if "text_config" in raw:
         raw["text_config"] = {
             **raw["text_config"],
-            "index_n_heads": NATIVE_INDEX_HEADS,
+            **values,
         }
     return type(bounded)(**raw)
 
@@ -211,7 +216,7 @@ def build_config(args: argparse.Namespace, report: dict):
         "role": args.role,
         "mode": args.mode,
         "hf_override": "bounded_a5_c2_hf_config",
-        "hidden_size": HIDDEN_SIZE,
+        "hidden_size": A5_MODEL_HIDDEN_SIZE,
         "head_size": HEAD_SIZE,
         "num_attention_heads": QUERY_HEADS,
         "index_n_heads": NATIVE_INDEX_HEADS,
@@ -273,7 +278,7 @@ def build_config(args: argparse.Namespace, report: dict):
         fail_if_unsupported_npu_afd_features(config)
     actual = report["configuration"] = configuration_record(config)
     assert actual["native_geometry"] == {
-        "hidden_size": HIDDEN_SIZE,
+        "hidden_size": A5_MODEL_HIDDEN_SIZE,
         "head_size": HEAD_SIZE,
         "vocab_size": VOCAB_SIZE,
         "num_layers": LAYER_COUNT,

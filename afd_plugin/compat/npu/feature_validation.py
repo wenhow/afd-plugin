@@ -50,6 +50,7 @@ V41_DUMMY_BLOCK_SIZE = 128
 V41_DUMMY_BATCH_TOKENS = 16
 V41_FUNCTIONAL_QUALIFICATION_ENV = "AFD_DSV41_FUNCTIONAL_QUALIFICATION"
 V41_FUNCTIONAL_INDEX_HEADS = 32
+V41_FUNCTIONAL_HIDDEN_SIZE = 1024
 V41_FUNCTIONAL_MAX_SEQUENCES = 2
 V41_FUNCTIONAL_MAX_SPECULATIVE_TOKENS = 2
 
@@ -273,7 +274,6 @@ def _validate_v41_dummy_qualification(
     ):
         raise ValueError("V4.1 dummy qualification requires uniform native TP")
     for name, actual, expected in (
-        ("hidden_size", text.hidden_size, V41_DUMMY_HIDDEN_SIZE),
         ("hc_mult", text.hc_mult, V41_DUMMY_HC_MULT),
         ("num_attention_heads", text.num_attention_heads, V41_DUMMY_QUERY_HEADS),
         ("num_key_value_heads", text.num_key_value_heads, 1),
@@ -298,6 +298,17 @@ def _validate_v41_dummy_qualification(
     ):
         if type(actual) is not int or actual != expected:
             raise ValueError(f"V4.1 dummy qualification requires {name}={expected}")
+    # Native A5 CompressorV2 requires H >= 1024. Retain the 512-wide
+    # historical/controlled components; this opt-in is not hardware acceptance.
+    hidden_sizes = (
+        (V41_DUMMY_HIDDEN_SIZE, V41_FUNCTIONAL_HIDDEN_SIZE)
+        if functional
+        else (V41_DUMMY_HIDDEN_SIZE,)
+    )
+    if type(text.hidden_size) is not int or text.hidden_size not in hidden_sizes:
+        raise ValueError(
+            f"V4.1 dummy qualification requires hidden_size in {hidden_sizes}"
+        )
     # A5 packed QLI requires 32 replicated index heads. Keep the historical
     # 64-head candidate for its separate non-packed component evidence.
     index_heads = (

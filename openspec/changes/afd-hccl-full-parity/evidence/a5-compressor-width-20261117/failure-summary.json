@@ -1,0 +1,33 @@
+{
+  "flags": {
+    "success": false,
+    "model_loaded": true,
+    "attention_kv_initialized": true,
+    "inference_executed": false,
+    "compile_or_warm_up_returned": true,
+    "native_groups_destroyed": true
+  },
+  "cleanup_failure_phases": [
+    "worker_shutdown"
+  ],
+  "geometry": {
+    "hidden_size": 512,
+    "head_size": 512,
+    "vocab_size": 4096,
+    "num_layers": 3,
+    "num_attention_heads": 64,
+    "index_n_heads": 32,
+    "index_head_dim": 128,
+    "hc_mult": 4,
+    "compress_ratios": [
+      0,
+      0,
+      2
+    ]
+  },
+  "completed_request_steps": 0,
+  "failure_call": "DeepseekV41Compressor.pool_projected -> cann_ops_transformer CompressorV2",
+  "runtime_error": 507035,
+  "vector_error_code": 341,
+  "vector_error": "The address for VEC to access UB is out of bounds"
+}

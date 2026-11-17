@@ -244,6 +244,27 @@ git pull --ff-only origin feat/dsv41-flash-hccl-v030
 本次[原始日志与检查记录](../../openspec/changes/afd-hccl-full-parity/evidence/a5-qli-geometry-20261117/README.md)
 保留独立失败证据。CPU配置检查不执行A5 QLI内核，实际首轮、后续采样和七场景仍待重跑。
 
+### CompressorV2 首轮执行报 UB 越界
+
+11月17日后续上传的 `be689bf9c63d4da9b744c1f90c0816b3.zip` 中，
+原生场景已完成模型加载、KV初始化和warmup，首轮prefill进入
+`DeepseekV41Compressor.pool_projected -> CompressorV2` 后报
+`507035`、`The address for VEC to access UB is out of bounds`。
+这次没有完成采样；`cleanup_failures`也非空，不能记为通过。
+
+日志中的compressor权重为`[512,512]`，输入模型宽度`hidden_size=512`。
+[CANN CompressorV2约束](https://atomgit.com/cann/ops-transformer/blob/8e4bfd80ccb385ee7a9cd24c41ea81df1e3d3e05/experimental/attention/compressor_v2/README.md)
+要求H为1024至10240且按512对齐，D为128或512；原最小模型的H越过了下限。
+本轮普通Worker原生/A/F场景在首次配置声明时统一使用`hidden_size=1024`，
+保留Attention `head_dim=512`、Indexer `index_head_dim=128`及32个头，
+MoE intermediate仍为512。权重观察按实际模型宽度核对embedding、lm_head与mHC形状。
+既有受控DSpark组件继续使用独立的512宽配置，不据此宣称其执行了原生CompressorV2。
+
+拉取分支后，继续使用第1节带`--transformer-vendor`的命令，换一个全新的输出目录。
+提交同时更新默认冻结包，入口SHA保持不变；无需在A5手工重建归档。
+[本次失败与CPU检查记录](../../openspec/changes/afd-hccl-full-parity/evidence/a5-compressor-width-20261117/README.md)
+单独保留。H=512违反算子约束已确认；本次UB越界是否消除及后续七场景功能仍需A5重跑。
+
 ## 4. 源码与实施边界
 
 交付源码见 [准备记录](../../reports/dsv41-a5-functional/preparation.json) 和

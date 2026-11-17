@@ -1571,3 +1571,17 @@ Ruff及规划/保护检查通过。A5新几何与后续设备场景仍待重跑�
 CLI/真实子进程环境检查通过，含七场景metadata、无参数继承和错误路径拒绝。
 新冻结包只变更launcher，146生产与194原生身份锁不变；185Python编译、Ruff及
 规划/保护检查通过。实际A5库符号、CompressorV2与七场景仍待重跑，不变更任务勾选。
+
+### 2026-11-17：CompressorV2最小输入宽度
+
+[本轮失败与CPU检查](evidence/a5-compressor-width-20261117/README.md)记录新上传日志：
+原生加载/KV/warmup通过，首prefill进入CompressorV2后报507035/向量341 UB越界，
+请求无已完成步骤且清理非全通过。日志模型H=512，低于官方算子公开H>=1024约束。
+普通Worker原生及A/F在首次配置统一H=1024，D512和Index32/D128保留；权重观察按
+实际配置核对embedding/lm_head/mHC。functional入口仅增加固定1024候选，旧dummy
+限制保留；独立受控DSpark组件不改写，不推断其执行原生CompressorV2。
+
+同一真实依赖CPU测试由旧校验RED36F/392P变为GREEN428P/0F/E/S；9组EngineArgs
+均通过且实际H1024，NPU初始化前后均False。七场景metadata/4项CLI、185Python编译、
+194原生Git身份、Ruff与规划/保护检查通过。源码、默认包及锁同步，保留父包和失败证据。
+A5越界是否消除、采样及七场景组合仍待更新重跑，不变更设备验收任务勾选。

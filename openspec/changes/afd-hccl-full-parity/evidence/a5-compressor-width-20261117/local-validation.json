@@ -1,0 +1,285 @@
+{
+  "cpu-red-002": {
+    "junit": {
+      "name": "pytest",
+      "errors": "0",
+      "failures": "36",
+      "skipped": "0",
+      "tests": "428",
+      "time": "2.073",
+      "timestamp": "2026-11-17T21:08:33.976563+08:00",
+      "hostname": "4ff038c993bf40219c03182f786a9def"
+    },
+    "results": {
+      "unit_returncode": 1,
+      "config_runs": [],
+      "native_state": {
+        "before": false,
+        "after": false,
+        "returncode": 1
+      },
+      "source_unchanged": true
+    }
+  },
+  "cpu-green": {
+    "junit": {
+      "name": "pytest",
+      "errors": "0",
+      "failures": "0",
+      "skipped": "0",
+      "tests": "428",
+      "time": "0.826",
+      "timestamp": "2026-11-17T21:09:25.941814+08:00",
+      "hostname": "4ff038c993bf40219c03182f786a9def"
+    },
+    "results": {
+      "unit_returncode": 0,
+      "config_runs": [
+        {
+          "role": "native",
+          "mode": "eager-u1",
+          "returncode": 0,
+          "success": true,
+          "npu_before": false,
+          "npu_after": false,
+          "geometry": {
+            "hidden_size": 1024,
+            "head_size": 512,
+            "vocab_size": 4096,
+            "num_layers": 3,
+            "num_attention_heads": 64,
+            "index_n_heads": 32,
+            "index_head_dim": 128,
+            "hc_mult": 4,
+            "compress_ratios": [
+              0,
+              0,
+              2
+            ]
+          },
+          "traceback": null
+        },
+        {
+          "role": "attention",
+          "mode": "eager-u1",
+          "returncode": 0,
+          "success": true,
+          "npu_before": false,
+          "npu_after": false,
+          "geometry": {
+            "hidden_size": 1024,
+            "head_size": 512,
+            "vocab_size": 4096,
+            "num_layers": 3,
+            "num_attention_heads": 64,
+            "index_n_heads": 32,
+            "index_head_dim": 128,
+            "hc_mult": 4,
+            "compress_ratios": [
+              0,
+              0,
+              2
+            ]
+          },
+          "traceback": null
+        },
+        {
+          "role": "attention",
+          "mode": "eager-u2",
+          "returncode": 0,
+          "success": true,
+          "npu_before": false,
+          "npu_after": false,
+          "geometry": {
+            "hidden_size": 1024,
+            "head_size": 512,
+            "vocab_size": 4096,
+            "num_layers": 3,
+            "num_attention_heads": 64,
+            "index_n_heads": 32,
+            "index_head_dim": 128,
+            "hc_mult": 4,
+            "compress_ratios": [
+              0,
+              0,
+              2
+            ]
+          },
+          "traceback": null
+        },
+        {
+          "role": "attention",
+          "mode": "graph-u1",
+          "returncode": 0,
+          "success": true,
+          "npu_before": false,
+          "npu_after": false,
+          "geometry": {
+            "hidden_size": 1024,
+            "head_size": 512,
+            "vocab_size": 4096,
+            "num_layers": 3,
+            "num_attention_heads": 64,
+            "index_n_heads": 32,
+            "index_head_dim": 128,
+            "hc_mult": 4,
+            "compress_ratios": [
+              0,
+              0,
+              2
+            ]
+          },
+          "traceback": null
+        },
+        {
+          "role": "attention",
+          "mode": "graph-u2",
+          "returncode": 0,
+          "success": true,
+          "npu_before": false,
+          "npu_after": false,
+          "geometry": {
+            "hidden_size": 1024,
+            "head_size": 512,
+            "vocab_size": 4096,
+            "num_layers": 3,
+            "num_attention_heads": 64,
+            "index_n_heads": 32,
+            "index_head_dim": 128,
+            "hc_mult": 4,
+            "compress_ratios": [
+              0,
+              0,
+              2
+            ]
+          },
+          "traceback": null
+        },
+        {
+          "role": "ffn",
+          "mode": "eager-u1",
+          "returncode": 0,
+          "success": true,
+          "npu_before": false,
+          "npu_after": false,
+          "geometry": {
+            "hidden_size": 1024,
+            "head_size": 512,
+            "vocab_size": 4096,
+            "num_layers": 3,
+            "num_attention_heads": 64,
+            "index_n_heads": 32,
+            "index_head_dim": 128,
+            "hc_mult": 4,
+            "compress_ratios": [
+              0,
+              0,
+              2
+            ]
+          },
+          "traceback": null
+        },
+        {
+          "role": "ffn",
+          "mode": "eager-u2",
+          "returncode": 0,
+          "success": true,
+          "npu_before": false,
+          "npu_after": false,
+          "geometry": {
+            "hidden_size": 1024,
+            "head_size": 512,
+            "vocab_size": 4096,
+            "num_layers": 3,
+            "num_attention_heads": 64,
+            "index_n_heads": 32,
+            "index_head_dim": 128,
+            "hc_mult": 4,
+            "compress_ratios": [
+              0,
+              0,
+              2
+            ]
+          },
+          "traceback": null
+        },
+        {
+          "role": "ffn",
+          "mode": "graph-u1",
+          "returncode": 0,
+          "success": true,
+          "npu_before": false,
+          "npu_after": false,
+          "geometry": {
+            "hidden_size": 1024,
+            "head_size": 512,
+            "vocab_size": 4096,
+            "num_layers": 3,
+            "num_attention_heads": 64,
+            "index_n_heads": 32,
+            "index_head_dim": 128,
+            "hc_mult": 4,
+            "compress_ratios": [
+              0,
+              0,
+              2
+            ]
+          },
+          "traceback": null
+        },
+        {
+          "role": "ffn",
+          "mode": "graph-u2",
+          "returncode": 0,
+          "success": true,
+          "npu_before": false,
+          "npu_after": false,
+          "geometry": {
+            "hidden_size": 1024,
+            "head_size": 512,
+            "vocab_size": 4096,
+            "num_layers": 3,
+            "num_attention_heads": 64,
+            "index_n_heads": 32,
+            "index_head_dim": 128,
+            "hc_mult": 4,
+            "compress_ratios": [
+              0,
+              0,
+              2
+            ]
+          },
+          "traceback": null
+        }
+      ],
+      "native_state": {
+        "before": false,
+        "after": false,
+        "returncode": 0
+      },
+      "source_unchanged": true
+    }
+  },
+  "local": {
+    "feature_tests": {
+      "passed": 56,
+      "skipped": 372,
+      "reason": "Windows lacks torch/vLLM; isolated CPU run has no skips"
+    },
+    "cli_and_metadata_unittests": {
+      "passed": 4,
+      "seven_scene_metadata_success": true
+    },
+    "harness_check": {
+      "ok": true,
+      "tasks": 109,
+      "phase": "implementation",
+      "upstreams_unchanged": true,
+      "scope": "local plan checks, not official CLI or NPU qualification"
+    },
+    "harness_guard": {
+      "unchanged": true
+    },
+    "npu_validation": "pending_A5_rerun"
+  }
+}

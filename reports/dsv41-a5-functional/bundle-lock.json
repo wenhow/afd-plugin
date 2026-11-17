@@ -7,7 +7,7 @@
     "afd_plugin/compat/__init__.py": "bbf9e106d0fc577a8b5fd8a21a7a1462e7921a3d438d0b8ffba6ed58d3ac5308",
     "afd_plugin/compat/npu/__init__.py": "ce057b751c0b31f62c311f11edd4af4a687ed95c002066ab02abe7d3b2c6bbcd",
     "afd_plugin/compat/npu/dspark_pd.py": "389fd8cb27a43935238a88549201e4378d2b7788d570de5cec839c431625c4cf",
-    "afd_plugin/compat/npu/feature_validation.py": "bb99320d6e1199d9947f5f169de3f2f2fbad080689d2a2f6c1a442f07fe1f2eb",
+    "afd_plugin/compat/npu/feature_validation.py": "7727d81654a094e9ac1ee81109a4465452c3d802e1baca55afc7a2167e7925ed",
     "afd_plugin/compat/npu/forward_context.py": "257ba8190117dad672bd4a7f70c0d1fbd28cfb2cd1475764102c5f5763344478",
     "afd_plugin/compat/npu/kv_layout.py": "5c6d107ea3edbf1866ef966b7e0ee51458e8d738aa7cf51e6758cd9f140fa0c5",
     "afd_plugin/compat/npu/kv_layout_connector.py": "8c6ef6392995d7c80b5fed5eb3f2b4d3b8e9bc8f94750e53f2c5f5bb2c53af0e",
@@ -149,5 +149,5 @@
     "afd_plugin/v1/worker/ubatch_wrapper.py": "72612fc48659d27ee70c821dbdd313c752965395a626217be4ce249e1b1f4457",
     "afd_plugin/validation.py": "c4b5315d95d1f7ee95e8b43f9f37f88b06d985d381ce90ca1afc394dec82f234"
   },
-  "runtime_source_sha256": "bd537ca3ce1cef07faeb8e648c2e879fdd1a2dfe12791e6a6eeff15ea9b96cc9"
+  "runtime_source_sha256": "35bcf327a8f030dd7fe089737f4446e4410657993ef0c2b0593078fbbe535447"
 }

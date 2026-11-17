@@ -75,6 +75,7 @@ def record_loaded_model(worker, role: str) -> dict:
 
     runner = worker.model_runner
     model = runner.get_model()
+    hidden_size = worker.vllm_config.model_config.get_hidden_size()
     assert model.training is False
     parameters = {name: parameter_record(p) for name, p in model.named_parameters()}
     assert parameters
@@ -101,8 +102,8 @@ def record_loaded_model(worker, role: str) -> dict:
         record["model_state_class"] = source_record(type(runner.model_state))
         record["embedding"] = parameter_record(inner.embed_tokens.weight)
         record["lm_head"] = parameter_record(model.language_model.lm_head.weight)
-        assert record["embedding"]["shape"] == [VOCAB_SIZE, HIDDEN_SIZE]
-        assert record["lm_head"]["shape"] == [VOCAB_SIZE, HIDDEN_SIZE]
+        assert record["embedding"]["shape"] == [VOCAB_SIZE, hidden_size]
+        assert record["lm_head"]["shape"] == [VOCAB_SIZE, hidden_size]
         for index, layer in enumerate(inner.layers):
             assert type(layer.self_attn) is AFDDeepseekV41Attention
             assert isinstance(layer.self_attn, native.DeepseekV41Attention)
@@ -155,7 +156,7 @@ def record_loaded_model(worker, role: str) -> dict:
             for name, item in hc.items():
                 assert item["dtype"] == str(torch.float32)
                 expected = (
-                    [mix_size, HC_MULTIPLIER * HIDDEN_SIZE]
+                    [mix_size, HC_MULTIPLIER * hidden_size]
                     if name.endswith("_fn")
                     else [3]
                     if name.endswith("_scale")

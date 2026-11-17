@@ -367,7 +367,7 @@ def v41_functional_candidate():
 
 
 @pytest.mark.parametrize("role", ["attention", "ffn"])
-@pytest.mark.parametrize("index_heads", [32, 64])
+@pytest.mark.parametrize("hidden_size,index_heads", [(512, 32), (512, 64), (1024, 32)])
 @pytest.mark.parametrize(
     "u2,graph", [(False, False), (True, False), (False, True), (True, True)]
 )
@@ -382,12 +382,25 @@ def v41_functional_candidate():
     ],
 )
 def test_v41_functional_qualification_preserves_supported_combinations(
-    monkeypatch, v41_functional_candidate, role, index_heads, u2, graph, dspark, pd_role
+    monkeypatch,
+    v41_functional_candidate,
+    role,
+    hidden_size,
+    index_heads,
+    u2,
+    graph,
+    dspark,
+    pd_role,
 ):
     source = v41_functional_candidate(
         role=role, u2=u2, graph=graph, dspark=dspark, pd_role=pd_role
     )
     source.model_config.hf_text_config.index_n_heads = index_heads
+    source.model_config.hf_text_config.hidden_size = hidden_size
+    if dspark:
+        source.speculative_config.draft_model_config.hf_text_config.hidden_size = (
+            hidden_size
+        )
     original = deepcopy(source)
     monkeypatch.setenv("AFD_DSV41_FUNCTIONAL_QUALIFICATION", "1")
 
@@ -421,6 +434,8 @@ def test_v41_functional_qualification_requires_exact_opt_in(monkeypatch, flag):
     [
         ("config", "engram_config", True, "Engram off"),
         ("target", "engram_layer_ids", [0], "Engram off"),
+        ("target", "hidden_size", 1536, "hidden_size"),
+        ("target", "hidden_size", 1024.0, "hidden_size"),
         ("target", "index_n_heads", 16, "index_n_heads"),
         ("target", "index_n_heads", 32.0, "index_n_heads"),
         ("target", "index_head_dim", 64, "index_head_dim"),
