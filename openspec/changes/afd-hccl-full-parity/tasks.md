@@ -1558,3 +1558,16 @@ Ruff及本地规划/保护检查通过。原日志和父包保留；A5格式转�
 首次配置全部通过，实际indexer32/128且NPU初始化前后均False。
 本地CPU56P/330S，跳过不计通过；七场景metadata、185Python编译、194Git身份、
 Ruff及规划/保护检查通过。A5新几何与后续设备场景仍待重跑，不变更任务勾选。
+
+### 2026-11-17：集中入口补齐Transformer vendor路径
+
+用户回传CompressorV2库或符号未找到；此前原生入口已有vendor环境处理，集中入口
+只继承环境，遗漏显式参数。新增可选`--transformer-vendor`，检查现有libcust_opapi.so
+路径，在子进程启动前前置ASCEND_CUSTOM_OPP_PATH和LD_LIBRARY_PATH；
+预检、原生/A/F及DSpark继承同一环境，父环境及共享安装不改写。
+首次声明和实际两组路径记录在summary，指导默认命令同步该参数及新入口SHA。
+
+[本轮CPU及源码记录](evidence/a5-transformer-vendor-20261117/README.md)：四项stdlib
+CLI/真实子进程环境检查通过，含七场景metadata、无参数继承和错误路径拒绝。
+新冻结包只变更launcher，146生产与194原生身份锁不变；185Python编译、Ruff及
+规划/保护检查通过。实际A5库符号、CompressorV2与七场景仍待重跑，不变更任务勾选。

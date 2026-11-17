@@ -44,6 +44,23 @@ NORMAL_REQUIRED_FLAGS = (
 PARAMETER_IDENTITY_FIELDS = ("shape", "dtype", "numel", "bytes", "sha256", "finite")
 
 
+def runtime_environment(
+    snapshot: Path, transformer_vendor: Path | None
+) -> dict[str, str]:
+    environment = shared.source_environment(snapshot)
+    if transformer_vendor is not None:
+        # The dynamic loader must see these paths when each child starts,
+        # before importing torch, custom_ops or the native CompressorV2 caller.
+        for name, prefix in (
+            ("ASCEND_CUSTOM_OPP_PATH", transformer_vendor),
+            ("LD_LIBRARY_PATH", transformer_vendor / "op_api/lib"),
+        ):
+            environment[name] = os.pathsep.join(
+                part for part in (str(prefix), environment.get(name)) if part
+            )
+    return environment
+
+
 def probe_command(
     args, snapshot: Path, output: Path, role: str, device: int
 ) -> list[str]:
@@ -76,7 +93,7 @@ def probe_command(
 def run_pair(args, snapshot: Path, devices: tuple[int, ...]) -> int:
     output = args.output_dir
     output.mkdir(parents=True, exist_ok=False)
-    environment = shared.source_environment(snapshot)
+    environment = runtime_environment(snapshot, args.transformer_vendor)
     processes = {}
     report = {"success": False, "roles": {}}
     try:
@@ -261,6 +278,11 @@ def main() -> int:
     parser.add_argument("--devices", default="0,1,2,3")
     parser.add_argument("--python", default=sys.executable)
     parser.add_argument("--source-bundle", type=Path)
+    parser.add_argument(
+        "--transformer-vendor",
+        type=Path,
+        help="existing vendor root containing op_api/lib/libcust_opapi.so",
+    )
     parser.add_argument("--timeout", type=int, default=DEFAULT_TIMEOUT_SECONDS)
     parser.add_argument(
         "--preflight-timeout",
@@ -294,6 +316,10 @@ def main() -> int:
     # Keep a venv interpreter symlink intact: resolving it loses sys.prefix.
     args.python = os.path.abspath(executable)
     args.output_dir = args.output_dir.absolute()
+    if args.transformer_vendor is not None:
+        args.transformer_vendor = args.transformer_vendor.resolve()
+        if not (args.transformer_vendor / "op_api/lib/libcust_opapi.so").is_file():
+            parser.error("--transformer-vendor requires op_api/lib/libcust_opapi.so")
     if args.run and os.name != "posix":
         parser.error("--run requires the existing A5 Linux environment")
     if args._pair:
@@ -317,7 +343,7 @@ def main() -> int:
         path = snapshot / name
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_bytes(raw)
-    environment = shared.source_environment(snapshot)
+    environment = runtime_environment(snapshot, args.transformer_vendor)
     report = {
         "success": False,
         "run_requested": args.run,
@@ -326,6 +352,15 @@ def main() -> int:
         "runtime_source_sha256": shared.file_sha256(archive),
         "source_files": len(files),
         "production_files": manifest["production_count"],
+        "transformer_vendor": (
+            str(args.transformer_vendor)
+            if args.transformer_vendor is not None
+            else None
+        ),
+        "runtime_environment": {
+            name: environment.get(name)
+            for name in ("ASCEND_CUSTOM_OPP_PATH", "LD_LIBRARY_PATH")
+        },
         "full_checkpoint_accuracy_accepted": False,
         "engram_accepted": False,
         "physical_overlap_or_performance_accepted": False,

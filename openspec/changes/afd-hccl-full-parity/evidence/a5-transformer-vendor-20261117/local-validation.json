@@ -1,0 +1,32 @@
+{
+  "changed_bundle_members": [
+    "tests/npu/dsv41_a5_functional_validation.py"
+  ],
+  "production_files_unchanged": 146,
+  "native_source_identity_unchanged": true,
+  "compiled_python": 185,
+  "runtime_source_sha256": "bd537ca3ce1cef07faeb8e648c2e879fdd1a2dfe12791e6a6eeff15ea9b96cc9",
+  "launcher_sha256": "b0c6bba5b068efdd35aa52b79eb825ff8943e9c4e5e5cb89c9f05ba2889a11e7",
+  "cli_checks_passed": 4,
+  "npu_acceptance": "pending_on_A5",
+  "harness_check": {
+    "ok": true,
+    "files": 434,
+    "changes": 8,
+    "tasks": 109,
+    "source_objects": 56,
+    "skills": 3,
+    "phase": "implementation",
+    "upstreams_unchanged": true,
+    "validation_scope": "local plan checks; not official CLI or NPU qualification"
+  },
+  "harness_guard": {
+    "ok": true,
+    "upstreams": [
+      "vllm",
+      "vllm_ascend",
+      "hccl_donor"
+    ],
+    "unchanged": true
+  }
+}

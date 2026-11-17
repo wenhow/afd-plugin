@@ -24,6 +24,7 @@ git pull --ff-only origin feat/dsv41-flash-hccl-v030
 
 python -B tests/npu/dsv41_a5_functional_validation.py \
   --model /mnt/workspace/models/DeepSeek-V4.1-Flash \
+  --transformer-vendor /usr/local/Ascend/ascend-toolkit/latest/opp/vendors/custom_transformer \
   --devices 0,1,2,3 \
   --output-dir /mnt/workspace/tmp/dsv41-a5-functional-20261117 \
   --run
@@ -33,6 +34,13 @@ python -B tests/npu/dsv41_a5_functional_validation.py \
 `--output-dir` 必须不存在，重跑时换一个目录。默认使用当前 `python`；也可显式传
 `--python /实际虚拟环境/bin/python`。`--devices` 是当前进程可见的四个不同设备序号；
 正常 A/F 用前两个，DSpark/PD 四角色用四个。执行前后检查整机八卡空闲。
+
+`--transformer-vendor` 指向现有算子vendor根目录，要求其中存在
+`op_api/lib/libcust_opapi.so`。入口在启动预检和各角色子进程前，将vendor根目录
+前置到`ASCEND_CUSTOM_OPP_PATH`，将其`op_api/lib`前置到`LD_LIBRARY_PATH`；
+原有路径保留，原生/A/F/DSpark各进程均继承。实际选值写入`summary.json`的
+`transformer_vendor`和`runtime_environment`。若容器已正确设置这两个环境变量，
+可以省略该参数。仅修改本次子进程环境，不安装或替换算子库。
 
 原生导入/注册预检的上限默认 600 秒，可用 `--preflight-timeout 900` 单独调整，
 为首次导入的 JIT 编译留出时间；该参数不改变单场景 `--timeout`（默认 480 秒）。
@@ -105,7 +113,7 @@ python -B -c 'import json; print(json.load(open("reports/dsv41-a5-functional/bun
 ```
 
 默认交付包的入口 SHA256 为
-`c05e717ebf3064acc6e148b8c602371b77d29bc9bc9e4c8418af58c8141b9d14`。
+`b0c6bba5b068efdd35aa52b79eb825ff8943e9c4e5e5cb89c9f05ba2889a11e7`。
 更新时需要同步入口与 `reports/dsv41-a5-functional/` 下的归档、锁和准备记录，
 不要只复制新增超时参数后的脚本。
 保留现场脚本，再从已经通过校验的同一冻结包恢复入口：
@@ -187,6 +195,21 @@ PY
 保留原模型参数存储、SHA/finite检查及原生/AFD对照。SHA表示逻辑连续元素字节，不含内部padding。
 共享helper和默认冻结包已同步，更新后保留旧结果，改用新目录执行原命令。
 实际A5读取及后续场景仍待重跑，本地CPU检查不能代替设备验收。
+
+### CompressorV2 的算子库或符号未找到
+
+`aclnnCompressorV2 or aclnnCompressorV2GetWorkspaceSize not in ...` 表示原生
+调用未找到对应库或导出符号。此前A5原生入口已为此设置Transformer vendor路径；
+旧集中验证入口只继承现有环境，遗漏了显式`--transformer-vendor`选项。
+更新入口和同版冻结包后，在第1节命令中传入实际vendor根目录即可，默认示例为
+`/usr/local/Ascend/ascend-toolkit/latest/opp/vendors/custom_transformer`。
+必须在子进程启动、导入torch及算子调用方之前设置两组路径，运行中只修改Python
+进程的`LD_LIBRARY_PATH`不等同于重新启动加载器。
+
+参数检查只核对`op_api/lib/libcust_opapi.so`存在，CPU路径不加载该库或执行内核。
+预检保留实际环境和原生库身份；库的实际符号及CompressorV2执行仍需A5重跑确认。
+本次[检查记录](../../openspec/changes/afd-hccl-full-parity/evidence/a5-transformer-vendor-20261117/README.md)
+与此前QLI几何修复独立保留，不能将两种失败混为同一原因。
 
 ### 首轮 QLI metadata 拒绝 64 个 Indexer 头
 

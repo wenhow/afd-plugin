@@ -1,0 +1,5 @@
+{
+  "returncode": 0,
+  "command": "python -B -S tests/e2e/diagnostics/test_dsv41_a5_functional_validation.py -v",
+  "runtime_or_operator_library_loaded": false
+}
