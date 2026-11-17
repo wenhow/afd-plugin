@@ -45,7 +45,7 @@ PARAMETER_IDENTITY_FIELDS = ("shape", "dtype", "numel", "bytes", "sha256", "fini
 
 
 def runtime_environment(
-    snapshot: Path, transformer_vendor: Path | None
+    snapshot: Path, transformer_vendor: Path | None, *, diagnose_native: bool = False
 ) -> dict[str, str]:
     environment = shared.source_environment(snapshot)
     if transformer_vendor is not None:
@@ -58,6 +58,8 @@ def runtime_environment(
             environment[name] = os.pathsep.join(
                 part for part in (str(prefix), environment.get(name)) if part
             )
+    if diagnose_native:
+        environment["ASCEND_LAUNCH_BLOCKING"] = "1"
     return environment
 
 
@@ -291,6 +293,11 @@ def main() -> int:
         help="native runtime import/bootstrap timeout, including cold JIT compilation",
     )
     parser.add_argument("--run", action="store_true")
+    parser.add_argument(
+        "--diagnose-native",
+        action="store_true",
+        help="native eager/U1 only; synchronous operator errors; diagnostic only",
+    )
     parser.add_argument("--_pair", action="store_true", help=argparse.SUPPRESS)
     parser.add_argument("--_snapshot", type=Path, help=argparse.SUPPRESS)
     parser.add_argument("--_mode", default="eager-u1", help=argparse.SUPPRESS)
@@ -299,6 +306,8 @@ def main() -> int:
     )
     parser.add_argument("--_overlap", action="store_true", help=argparse.SUPPRESS)
     args = parser.parse_args()
+    if args.diagnose_native and args._pair:
+        parser.error("--diagnose-native cannot run an A/F pair")
     try:
         devices = tuple(map(int, args.devices.split(",")))
     except ValueError:
@@ -343,10 +352,14 @@ def main() -> int:
         path = snapshot / name
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_bytes(raw)
-    environment = runtime_environment(snapshot, args.transformer_vendor)
+    environment = runtime_environment(
+        snapshot, args.transformer_vendor, diagnose_native=args.diagnose_native
+    )
     report = {
         "success": False,
         "run_requested": args.run,
+        "diagnostic_only": args.diagnose_native,
+        "ascend_launch_blocking": environment.get("ASCEND_LAUNCH_BLOCKING"),
         "preflight_timeout_seconds": args.preflight_timeout,
         "scenes": [],
         "runtime_source_sha256": shared.file_sha256(archive),
@@ -404,7 +417,8 @@ def main() -> int:
                     f"(returncode={check['returncode']}); "
                     "see native-runtime.json and native-runtime.process.json"
                 )
-        for index, (name, role, mode, overlap) in enumerate(NORMAL_SCENES):
+        normal_scenes = NORMAL_SCENES[:1] if args.diagnose_native else NORMAL_SCENES
+        for index, (name, role, mode, overlap) in enumerate(normal_scenes):
             if args.run:
                 command = normal_command(
                     args,
@@ -440,13 +454,13 @@ def main() -> int:
                 item["npu_after"] = idle
                 if not idle["all_eight_idle"]:
                     raise RuntimeError(f"devices not idle after {name}")
-        if args.run:
+        if args.run and not args.diagnose_native:
             report["native_afd_comparison"] = compare_normal_scenes(report["scenes"])
             if not report["native_afd_comparison"]["success"]:
                 raise RuntimeError(
                     "normal native/AFD parameter or sampled-token comparison failed"
                 )
-        for scene in shared.SCENES:
+        for scene in () if args.diagnose_native else shared.SCENES:
             name = "dspark-pd-" + scene
             output = args.output_dir / name
             command = shared.scene_command(
@@ -492,7 +506,9 @@ def main() -> int:
                     raise RuntimeError(f"devices not idle after {name}")
         report["success"] = True
         report["npu_acceptance"] = (
-            "component_suite_passed" if args.run else "pending_on_A5"
+            ("diagnostic_only" if args.diagnose_native else "component_suite_passed")
+            if args.run
+            else "pending_on_A5"
         )
     except BaseException:
         report["traceback"] = traceback.format_exc()

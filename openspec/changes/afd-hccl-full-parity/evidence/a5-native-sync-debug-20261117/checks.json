@@ -1,0 +1,19 @@
+{
+  "checks": [
+    {
+      "command": ".venv/Scripts/ruff.exe check tests/npu/dsv41_a5_functional_validation.py tests/npu/dsv41_functional_worker_probe.py tests/e2e/diagnostics/test_dsv41_a5_functional_validation.py openspec/changes/afd-hccl-full-parity/evidence/a5-native-sync-debug-20261117/run_cpu_cli_validation.py openspec/changes/afd-hccl-full-parity/evidence/a5-native-sync-debug-20261117/cpu_cli_runner.py",
+      "exit_code": 0,
+      "output": "All checks passed!\n"
+    },
+    {
+      "command": ".venv/Scripts/ruff.exe format --check tests/npu/dsv41_a5_functional_validation.py tests/npu/dsv41_functional_worker_probe.py tests/e2e/diagnostics/test_dsv41_a5_functional_validation.py openspec/changes/afd-hccl-full-parity/evidence/a5-native-sync-debug-20261117/run_cpu_cli_validation.py openspec/changes/afd-hccl-full-parity/evidence/a5-native-sync-debug-20261117/cpu_cli_runner.py",
+      "exit_code": 0,
+      "output": "5 files already formatted\n"
+    },
+    {
+      "command": ".venv/Scripts/python.exe -B -S -m unittest tests.e2e.diagnostics.test_dsv41_a5_functional_validation -v",
+      "exit_code": 0,
+      "output": "test_cli_preserves_inherited_paths_without_vendor_override (tests.e2e.diagnostics.test_dsv41_a5_functional_validation.TestTransformerVendor.test_cli_preserves_inherited_paths_without_vendor_override) ... ok\r\ntest_cli_uses_vendor_environment_for_all_metadata_scenes (tests.e2e.diagnostics.test_dsv41_a5_functional_validation.TestTransformerVendor.test_cli_uses_vendor_environment_for_all_metadata_scenes) ... ok\r\ntest_missing_vendor_library_stops_before_output_creation (tests.e2e.diagnostics.test_dsv41_a5_functional_validation.TestTransformerVendor.test_missing_vendor_library_stops_before_output_creation) ... ok\r\ntest_native_diagnosis_runs_one_synchronous_child_without_accepting_suite (tests.e2e.diagnostics.test_dsv41_a5_functional_validation.TestTransformerVendor.test_native_diagnosis_runs_one_synchronous_child_without_accepting_suite) ... ok\r\ntest_synchronous_environment_does_not_change_parent_or_default_children (tests.e2e.diagnostics.test_dsv41_a5_functional_validation.TestTransformerVendor.test_synchronous_environment_does_not_change_parent_or_default_children) ... ok\r\ntest_vendor_environment_reaches_a_fresh_python_process (tests.e2e.diagnostics.test_dsv41_a5_functional_validation.TestTransformerVendor.test_vendor_environment_reaches_a_fresh_python_process) ... ok\r\n\r\n----------------------------------------------------------------------\r\nRan 6 tests in 5.449s\r\n\r\nOK\r\n"
+    }
+  ]
+}

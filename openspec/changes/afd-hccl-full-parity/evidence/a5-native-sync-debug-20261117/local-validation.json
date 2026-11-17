@@ -1,0 +1,44 @@
+{
+  "windows_cli": {
+    "tests_run": 6,
+    "failures": 0,
+    "errors": 0
+  },
+  "isolated_a3_cli": {
+    "returncode": 0,
+    "command": [
+      "/mnt/workspace/code/.venvs/afd-v030-dsv41-c0/bin/python",
+      "-B",
+      "-S",
+      "-c",
+      "\nimport json,pathlib,sys,unittest\nsuite=unittest.defaultTestLoader.loadTestsFromName(\n    'tests.e2e.diagnostics.test_dsv41_a5_functional_validation')\nresult=unittest.TextTestRunner(verbosity=2).run(suite)\nruntime=[name for name in sys.modules if name.split('.')[0] in (\n    'torch','torch_npu','vllm','vllm_ascend','afd_plugin','cann_ops_transformer')]\nsummary={'tests_run':result.testsRun,'failures':len(result.failures),\n         'errors':len(result.errors),'runtime_modules_imported':runtime}\npathlib.Path('../results/tests.json').write_text(json.dumps(summary))\nraise SystemExit(int(not result.wasSuccessful() or bool(runtime)))\n"
+    ],
+    "source_unchanged": true,
+    "scope": "CPU CLI and metadata only, no A5 operator acceptance",
+    "tests": {
+      "tests_run": 6,
+      "failures": 0,
+      "errors": 0,
+      "runtime_modules_imported": []
+    }
+  },
+  "tests": {
+    "tests_run": 6,
+    "failures": 0,
+    "errors": 0,
+    "runtime_modules_imported": []
+  },
+  "npu_acceptance": "pending_synchronous_A5_trace",
+  "production_sources_changed": 0,
+  "python_sources_compiled": 185,
+  "native_git_pins_verified": 194,
+  "bundle_sha256": "fe3b8caf908ec24f5d80296eda68dec3e06d1084d0ada01d2e2551a3742233dc",
+  "harness_check": {
+    "ok": true,
+    "tasks": 109,
+    "upstreams_unchanged": true
+  },
+  "harness_guard": {
+    "unchanged": true
+  }
+}

@@ -38,7 +38,7 @@ class TestTransformerVendor(unittest.TestCase):
         # Metadata checks file presence only; this fixture is never loaded.
         library.write_bytes(b"CPU CLI fixture, not an operator library\n")
 
-    def run_cli(self, *, vendor=None):
+    def run_cli(self, *, vendor=None, diagnose_native=False):
         output = self.directory / "result"
         command = [
             sys.executable,
@@ -52,6 +52,8 @@ class TestTransformerVendor(unittest.TestCase):
         ]
         if vendor is not None:
             command.extend(("--transformer-vendor", str(vendor)))
+        if diagnose_native:
+            command.append("--diagnose-native")
         result = subprocess.run(
             command,
             env={**os.environ, **INHERITED_PATHS},
@@ -123,6 +125,36 @@ class TestTransformerVendor(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn(b"requires op_api/lib/libcust_opapi.so", result.stderr)
         self.assertFalse(output.exists())
+
+    def test_native_diagnosis_runs_one_synchronous_child_without_accepting_suite(self):
+        result, output = self.run_cli(vendor=self.vendor, diagnose_native=True)
+        self.assertEqual(result.returncode, 0, result.stderr.decode(errors="replace"))
+        report = json.loads((output / "summary.json").read_bytes())
+        self.assertTrue(report["success"])
+        self.assertIs(report["diagnostic_only"], True)
+        self.assertEqual(report["ascend_launch_blocking"], "1")
+        self.assertEqual(report["npu_acceptance"], "pending_on_A5")
+        self.assertNotIn("native_afd_comparison", report)
+        self.assertEqual([s["name"] for s in report["scenes"]], ["native-eager-u1"])
+        metadata = json.loads((output / "native-eager-u1.log").read_bytes())
+        self.assertEqual(metadata["ascend_launch_blocking"], "1")
+        self.assertIs(metadata["runtime_imported"], False)
+        self.assertIs(metadata["functional_worker_component_accepted"], False)
+
+    def test_synchronous_environment_does_not_change_parent_or_default_children(self):
+        spec = importlib.util.spec_from_file_location("a5_debug_launcher", LAUNCHER)
+        launcher = importlib.util.module_from_spec(spec)
+        with patch.object(sys, "path", [str(LAUNCHER.parent), *sys.path]):
+            spec.loader.exec_module(launcher)
+        with patch.dict(os.environ, {"ASCEND_LAUNCH_BLOCKING": "0"}):
+            before = dict(os.environ)
+            diagnostic = launcher.runtime_environment(
+                self.directory, self.vendor, diagnose_native=True
+            )
+            normal = launcher.runtime_environment(self.directory, self.vendor)
+            self.assertEqual(dict(os.environ), before)
+        self.assertEqual(diagnostic["ASCEND_LAUNCH_BLOCKING"], "1")
+        self.assertEqual(normal["ASCEND_LAUNCH_BLOCKING"], "0")
 
 
 if __name__ == "__main__":

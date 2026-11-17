@@ -113,7 +113,7 @@ python -B -c 'import json; print(json.load(open("reports/dsv41-a5-functional/bun
 ```
 
 默认交付包的入口 SHA256 为
-`b0c6bba5b068efdd35aa52b79eb825ff8943e9c4e5e5cb89c9f05ba2889a11e7`。
+`68ebe0a924959e2870bfc47b04076b38fe6d70e537406638c015a6ce27f8ab2d`。
 更新时需要同步入口与 `reports/dsv41-a5-functional/` 下的归档、锁和准备记录，
 不要只复制新增超时参数后的脚本。
 保留现场脚本，再从已经通过校验的同一冻结包恢复入口：
@@ -275,6 +275,40 @@ MoE intermediate仍为512。权重观察按实际模型宽度核对embedding、l
 提交同时更新默认冻结包，入口SHA保持不变；无需在A5手工重建归档。
 [本次失败与CPU检查记录](../../openspec/changes/afd-hccl-full-parity/evidence/a5-compressor-width-20261117/README.md)
 单独保留。H=512违反算子约束已确认；本次UB越界是否消除及后续七场景功能仍需A5重跑。
+
+### H=1024 后仍报异步向量核异常
+
+新上传的`aab351a8beb94dd0931099cc8103b0c2.zip`确认H=1024已生效，
+但原生首轮仍未完成。日志只有`[Bisheng] Launch kernel failure! ret 507035`，
+Python栈停在`torch.ops.vllm.dsa_v41_forward`，随后报stream/event的向量核异常；
+运行时明确提示异步栈可能不准确。此日志不能确认实际失败的是CompressorV2还是其他算子。
+上一轮修正了H的公开约束违规，没有证明首轮设备异常已解决。
+
+先用同步诊断模式，只运行原生eager/U1：
+
+```bash
+git pull --ff-only origin feat/dsv41-flash-hccl-v030
+
+python -B tests/npu/dsv41_a5_functional_validation.py \
+  --model /mnt/workspace/models/DeepSeek-V4.1-Flash \
+  --transformer-vendor /usr/local/Ascend/ascend-toolkit/latest/opp/vendors/custom_transformer \
+  --devices 0,1,2,3 \
+  --output-dir /mnt/workspace/tmp/dsv41-a5-native-sync-20261117 \
+  --diagnose-native \
+  --run
+```
+
+模型路径沿用实际环境，输出目录必须全新。该参数在启动子进程前设置
+`ASCEND_LAUNCH_BLOCKING=1`，只使用第一个设备执行`native-eager-u1`，
+保留原生预检、真实Worker及已有清理；不启动A/F、Graph/U2或DSpark场景。
+父进程环境不改写，后续正常七场景命令移除`--diagnose-native`即可。
+`summary.json`的`diagnostic_only=true`，即使原生运行成功也只标记为诊断，
+不会记录七场景通过或原生/AFD等价；Worker报告记录实际继承的同步开关。
+
+回传新目录中的`native-eager-u1.log`、`summary.json`和`native-runtime.json`，
+用同步异常栈定位实际失败算子，再决定具体修复。
+[本次失败与检查记录](../../openspec/changes/afd-hccl-full-parity/evidence/a5-native-sync-debug-20261117/README.md)
+与此前H下限、QLI头数和vendor路径问题分别保留。当前首轮及七场景设备功能仍未通过。
 
 ## 4. 源码与实施边界
 

@@ -932,6 +932,7 @@ def main() -> int:
         "mode": args.mode,
         "run": args.run,
         "run_config": args.run_config,
+        "ascend_launch_blocking": os.environ.get("ASCEND_LAUNCH_BLOCKING"),
         "overlap_requested": args.overlap,
         "environment_declaration": environment,
         "runtime_imported": False,
