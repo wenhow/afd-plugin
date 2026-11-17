@@ -53,11 +53,14 @@ from dsv41_normal_native_probe import (
     canonical_parameter_groups,
     record_native_model,
 )
-from dsv41_normal_worker_probe import INDEX_HEAD_SIZE
+from dsv41_normal_worker_probe import EXPERTS_PER_TOKEN, INDEX_HEAD_SIZE
 
 FUNCTIONAL_ENV = "AFD_DSV41_FUNCTIONAL_QUALIFICATION"
 # CompressorV2 accepts H >= 1024, while packed Attention keeps D=512.
 A5_MODEL_HIDDEN_SIZE = 1024
+# The A5 hash router loads full 64-lane FP32 vectors from its UB buffers.
+# Eight experts only allocate 32 padded lanes in the pinned native kernel.
+A5_ROUTED_EXPERTS = 64
 OLDER_QUALIFICATIONS = (
     "AFD_DSV41_EAGER_QUALIFICATION",
     "AFD_DSV41_DUMMY_QUALIFICATION",
@@ -100,13 +103,14 @@ def execution_environment(args: argparse.Namespace) -> dict[str, str]:
 
 
 def bounded_a5_c2_hf_config(hf_config):
-    """Declare A5's packed QLI geometry before native model construction."""
+    """Declare A5 operator geometry before native model construction."""
     bounded = bounded_c2_hf_config(hf_config)
     raw = bounded.to_dict()
     raw["model_type"] = bounded.model_type
     values = {
         "hidden_size": A5_MODEL_HIDDEN_SIZE,
         "index_n_heads": NATIVE_INDEX_HEADS,
+        "n_routed_experts": A5_ROUTED_EXPERTS,
     }
     raw.update(values)
     if "text_config" in raw:
@@ -133,6 +137,8 @@ def configuration_record(config) -> dict:
             "index_head_dim": text.index_head_dim,
             "hc_mult": text.hc_mult,
             "compress_ratios": list(text.compress_ratios),
+            "n_routed_experts": text.n_routed_experts,
+            "num_experts_per_tok": text.num_experts_per_tok,
         },
         "max_num_seqs": config.scheduler_config.max_num_seqs,
         "max_num_batched_tokens": config.scheduler_config.max_num_batched_tokens,
@@ -217,6 +223,8 @@ def build_config(args: argparse.Namespace, report: dict):
         "mode": args.mode,
         "hf_override": "bounded_a5_c2_hf_config",
         "hidden_size": A5_MODEL_HIDDEN_SIZE,
+        "n_routed_experts": A5_ROUTED_EXPERTS,
+        "num_experts_per_tok": EXPERTS_PER_TOKEN,
         "head_size": HEAD_SIZE,
         "num_attention_heads": QUERY_HEADS,
         "index_n_heads": NATIVE_INDEX_HEADS,
@@ -279,6 +287,8 @@ def build_config(args: argparse.Namespace, report: dict):
     actual = report["configuration"] = configuration_record(config)
     assert actual["native_geometry"] == {
         "hidden_size": A5_MODEL_HIDDEN_SIZE,
+        "n_routed_experts": A5_ROUTED_EXPERTS,
+        "num_experts_per_tok": EXPERTS_PER_TOKEN,
         "head_size": HEAD_SIZE,
         "vocab_size": VOCAB_SIZE,
         "num_layers": LAYER_COUNT,

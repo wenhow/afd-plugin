@@ -1,0 +1,36 @@
+{
+  "vllm_ascend_commit": "7e37e29a7803d6897a7113088e2b771f83205bc0",
+  "sources": {
+    "vllm_ascend/ops/fused_moe/router/fused_topk_router.py": {
+      "sha256": "06c47fd91e8c36f6f5465cea0b32a184280f842833c2bff27a18fc6d17fcb838",
+      "git_blob": "a90cfafa9810d4af8637f48bc849bd8fa08dd924"
+    },
+    "csrc/moe/moe_gating_top_k_hash/op_host/moe_gating_top_k_hash_tiling_arch35.h": {
+      "sha256": "ac9948fc31e3ab62f9418a06429cae44466e35f89ae49ff1f4e8ba15aa112294",
+      "git_blob": "9fa1ad8bb1dee64e34ca95a08a80444db40d0cce"
+    },
+    "csrc/moe/moe_gating_top_k_hash/op_kernel/arch35/moe_gating_top_k_hash_regbase.h": {
+      "sha256": "90407af0d524c79c30a98e9fd1b86a76b0d2f4842de918b3af6f54edcdbe5572",
+      "git_blob": "ae40058c7bc11dda96685838a4c36ab98d0b65fa"
+    },
+    "csrc/moe/moe_gating_top_k_hash/op_kernel/arch35/common.h": {
+      "sha256": "f35c6ed53bda32d9ea8b51370e2dbaa2dbbd6badb26e26585187e138eb58c201",
+      "git_blob": "9438c4afa7a5d152fe26ca7fba798a0ffbdbc5f8"
+    }
+  },
+  "a5_kernel_cpp_build_provenance_verified": false,
+  "native_python_preflight_sources_match": true,
+  "expert8": {
+    "padded_experts": 32,
+    "fp32_buffer_bytes": 128,
+    "fp32_vector_load_bytes": 256
+  },
+  "expert64": {
+    "padded_experts": 64,
+    "fp32_buffer_bytes": 256,
+    "fp32_vector_load_bytes": 256
+  },
+  "kernel_failure_confirmed": "_C_ascend.moe_gating_top_k_hash",
+  "hypothesis": "Small expert UB allocation is shorter than full unmasked native vector loads. E64 removes this discrepancy; on-device verification pending.",
+  "vector_width_reference": "https://www.hiascend.com/document/detail/en/CANNCommunityEdition/910/API/ascendcopapi/docs/en/api/SIMD-API/C-API/reg/reg_data_definition.md"
+}

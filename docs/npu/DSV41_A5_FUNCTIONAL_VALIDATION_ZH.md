@@ -310,6 +310,30 @@ python -B tests/npu/dsv41_a5_functional_validation.py \
 [本次失败与检查记录](../../openspec/changes/afd-hccl-full-parity/evidence/a5-native-sync-debug-20261117/README.md)
 与此前H下限、QLI头数和vendor路径问题分别保留。当前首轮及七场景设备功能仍未通过。
 
+### A5 MoE 路由同步越界
+
+`c4416cd61d6b4c05bd80ee69c0ea2662.zip`及补充summary确认同步开关已生效，
+原生预检194份源码匹配；首轮实际失败于`_C_ascend.moe_gating_top_k_hash`，
+报507035/341 UB越界。gate权重为`[8,1024]`，说明受控模型仅有8个专家；
+名称中的hash不代表启用了模型Hash MoE，当前`num_hash_layers=0`。
+模型加载、KV和warmup已完成，但尚未完成推理；Worker shutdown失败，八卡最终空闲。
+
+锁定A5内核把8专家补齐到32，而部分UB读取使用完整64个FP32元素的向量。
+这是源码分析发现的小形状风险；预检核对Python源码，未证明已安装C++内核的构建来源，
+因此仍需设备重跑确认具体成因与修复效果。普通Worker原生/A/F首次声明统一改为
+`n_routed_experts=64`，保留top-k=2、H1024和Index32/D128，并记录实际专家数。
+functional准入仅增加固定64专家候选；历史8专家及独立DSpark组件保留。
+
+拉取分支后，继续使用上方`--diagnose-native`命令、实际模型路径和全新输出目录，
+建议目录名`dsv41-a5-native-sync-experts64-20261117`。先检查原生生命周期和清理结果；
+原生通过后，再移除`--diagnose-native`并另建目录运行完整七场景。
+提交包含更新后的默认冻结包，无需在A5重建。仍回传`native-eager-u1.log`、
+`summary.json`和`native-runtime.json`。
+
+[本轮证据](../../openspec/changes/afd-hccl-full-parity/evidence/a5-routing-width-20261117/README.md)
+记录472项真实依赖CPU测试、9组EngineArgs配置及本地/A3各6项CLI检查通过；
+CPU过程未初始化NPU。A5越界消除、采样及原生/AFD等价仍待验证。
+
 ## 4. 源码与实施边界
 
 交付源码见 [准备记录](../../reports/dsv41-a5-functional/preparation.json) 和

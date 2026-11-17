@@ -1,0 +1,16 @@
+{
+  "unit_returncode": 1,
+  "config_runs": [],
+  "native_state": {
+    "before": false,
+    "after": false,
+    "returncode": 1
+  },
+  "source_unchanged": true,
+  "counts": {
+    "tests": 472,
+    "failures": 36,
+    "errors": 0,
+    "skipped": 0
+  }
+}

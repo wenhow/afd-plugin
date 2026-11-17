@@ -51,6 +51,7 @@ V41_DUMMY_BATCH_TOKENS = 16
 V41_FUNCTIONAL_QUALIFICATION_ENV = "AFD_DSV41_FUNCTIONAL_QUALIFICATION"
 V41_FUNCTIONAL_INDEX_HEADS = 32
 V41_FUNCTIONAL_HIDDEN_SIZE = 1024
+V41_FUNCTIONAL_EXPERT_COUNT = 64
 V41_FUNCTIONAL_MAX_SEQUENCES = 2
 V41_FUNCTIONAL_MAX_SPECULATIVE_TOKENS = 2
 
@@ -289,7 +290,6 @@ def _validate_v41_dummy_qualification(
         ("vocab_size", text.vocab_size, V41_DUMMY_VOCAB_SIZE),
         ("intermediate_size", text.intermediate_size, V41_DUMMY_HIDDEN_SIZE),
         ("moe_intermediate_size", text.moe_intermediate_size, V41_DUMMY_HIDDEN_SIZE),
-        ("n_routed_experts", text.n_routed_experts, V41_DUMMY_EXPERT_COUNT),
         ("num_experts_per_tok", text.num_experts_per_tok, V41_DUMMY_EXPERT_TOP_K),
         ("n_shared_experts", text.n_shared_experts, 1),
         ("n_group", text.n_group, 1),
@@ -298,6 +298,20 @@ def _validate_v41_dummy_qualification(
     ):
         if type(actual) is not int or actual != expected:
             raise ValueError(f"V4.1 dummy qualification requires {name}={expected}")
+    # The pinned A5 hash router uses full-vector UB loads. The normal Worker
+    # fixture declares 64 experts; retain eight for historical components.
+    expert_counts = (
+        (V41_DUMMY_EXPERT_COUNT, V41_FUNCTIONAL_EXPERT_COUNT)
+        if functional
+        else (V41_DUMMY_EXPERT_COUNT,)
+    )
+    if (
+        type(text.n_routed_experts) is not int
+        or text.n_routed_experts not in expert_counts
+    ):
+        raise ValueError(
+            f"V4.1 dummy qualification requires n_routed_experts in {expert_counts}"
+        )
     # Native A5 CompressorV2 requires H >= 1024. Retain the 512-wide
     # historical/controlled components; this opt-in is not hardware acceptance.
     hidden_sizes = (

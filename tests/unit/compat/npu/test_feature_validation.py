@@ -367,7 +367,10 @@ def v41_functional_candidate():
 
 
 @pytest.mark.parametrize("role", ["attention", "ffn"])
-@pytest.mark.parametrize("hidden_size,index_heads", [(512, 32), (512, 64), (1024, 32)])
+@pytest.mark.parametrize(
+    "hidden_size,index_heads,expert_count",
+    [(512, 32, 8), (512, 64, 8), (1024, 32, 8), (1024, 32, 64)],
+)
 @pytest.mark.parametrize(
     "u2,graph", [(False, False), (True, False), (False, True), (True, True)]
 )
@@ -387,6 +390,7 @@ def test_v41_functional_qualification_preserves_supported_combinations(
     role,
     hidden_size,
     index_heads,
+    expert_count,
     u2,
     graph,
     dspark,
@@ -397,6 +401,7 @@ def test_v41_functional_qualification_preserves_supported_combinations(
     )
     source.model_config.hf_text_config.index_n_heads = index_heads
     source.model_config.hf_text_config.hidden_size = hidden_size
+    source.model_config.hf_text_config.n_routed_experts = expert_count
     if dspark:
         source.speculative_config.draft_model_config.hf_text_config.hidden_size = (
             hidden_size
@@ -436,6 +441,9 @@ def test_v41_functional_qualification_requires_exact_opt_in(monkeypatch, flag):
         ("target", "engram_layer_ids", [0], "Engram off"),
         ("target", "hidden_size", 1536, "hidden_size"),
         ("target", "hidden_size", 1024.0, "hidden_size"),
+        ("target", "n_routed_experts", 16, "n_routed_experts"),
+        ("target", "n_routed_experts", 64.0, "n_routed_experts"),
+        ("target", "n_routed_experts", True, "n_routed_experts"),
         ("target", "index_n_heads", 16, "index_n_heads"),
         ("target", "index_n_heads", 32.0, "index_n_heads"),
         ("target", "index_head_dim", 64, "index_head_dim"),
@@ -630,6 +638,7 @@ def test_v41_dummy_c2_qualification_keeps_native_source_ownership(
         ("intermediate_size", 1024),
         ("moe_intermediate_size", 1024),
         ("n_routed_experts", 16),
+        ("n_routed_experts", 64),
         ("num_experts_per_tok", 4),
         ("n_shared_experts", 2),
         ("n_group", 2),

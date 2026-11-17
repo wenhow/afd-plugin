@@ -1,0 +1,12 @@
+{
+  "changed_members": [
+    "afd_plugin/compat/npu/feature_validation.py",
+    "bundle-manifest.json",
+    "functional-source-provenance.json",
+    "tests/npu/dsv41_functional_worker_probe.py"
+  ],
+  "native_identity_unchanged": true,
+  "unchanged_production_files": 145,
+  "changed_production_file": "afd_plugin/compat/npu/feature_validation.py",
+  "archive_sha256": "a068006f17f14277435de1f86bbe9dfeb17696e8a4e6591a733ddfc2fc3400ba"
+}

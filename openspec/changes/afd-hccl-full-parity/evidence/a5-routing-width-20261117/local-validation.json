@@ -1,0 +1,378 @@
+{
+  "cpu_red": {
+    "unit_returncode": 1,
+    "config_runs": [],
+    "native_state": {
+      "before": false,
+      "after": false,
+      "returncode": 1
+    },
+    "source_unchanged": true,
+    "counts": {
+      "tests": 472,
+      "failures": 36,
+      "errors": 0,
+      "skipped": 0
+    }
+  },
+  "cpu_green": {
+    "unit_returncode": 0,
+    "config_runs": [
+      {
+        "role": "native",
+        "mode": "eager-u1",
+        "returncode": 0,
+        "success": true,
+        "npu_before": false,
+        "npu_after": false,
+        "geometry": {
+          "hidden_size": 1024,
+          "head_size": 512,
+          "vocab_size": 4096,
+          "num_layers": 3,
+          "num_attention_heads": 64,
+          "index_n_heads": 32,
+          "index_head_dim": 128,
+          "hc_mult": 4,
+          "compress_ratios": [
+            0,
+            0,
+            2
+          ],
+          "n_routed_experts": 64,
+          "num_experts_per_tok": 2
+        },
+        "traceback": null
+      },
+      {
+        "role": "attention",
+        "mode": "eager-u1",
+        "returncode": 0,
+        "success": true,
+        "npu_before": false,
+        "npu_after": false,
+        "geometry": {
+          "hidden_size": 1024,
+          "head_size": 512,
+          "vocab_size": 4096,
+          "num_layers": 3,
+          "num_attention_heads": 64,
+          "index_n_heads": 32,
+          "index_head_dim": 128,
+          "hc_mult": 4,
+          "compress_ratios": [
+            0,
+            0,
+            2
+          ],
+          "n_routed_experts": 64,
+          "num_experts_per_tok": 2
+        },
+        "traceback": null
+      },
+      {
+        "role": "attention",
+        "mode": "eager-u2",
+        "returncode": 0,
+        "success": true,
+        "npu_before": false,
+        "npu_after": false,
+        "geometry": {
+          "hidden_size": 1024,
+          "head_size": 512,
+          "vocab_size": 4096,
+          "num_layers": 3,
+          "num_attention_heads": 64,
+          "index_n_heads": 32,
+          "index_head_dim": 128,
+          "hc_mult": 4,
+          "compress_ratios": [
+            0,
+            0,
+            2
+          ],
+          "n_routed_experts": 64,
+          "num_experts_per_tok": 2
+        },
+        "traceback": null
+      },
+      {
+        "role": "attention",
+        "mode": "graph-u1",
+        "returncode": 0,
+        "success": true,
+        "npu_before": false,
+        "npu_after": false,
+        "geometry": {
+          "hidden_size": 1024,
+          "head_size": 512,
+          "vocab_size": 4096,
+          "num_layers": 3,
+          "num_attention_heads": 64,
+          "index_n_heads": 32,
+          "index_head_dim": 128,
+          "hc_mult": 4,
+          "compress_ratios": [
+            0,
+            0,
+            2
+          ],
+          "n_routed_experts": 64,
+          "num_experts_per_tok": 2
+        },
+        "traceback": null
+      },
+      {
+        "role": "attention",
+        "mode": "graph-u2",
+        "returncode": 0,
+        "success": true,
+        "npu_before": false,
+        "npu_after": false,
+        "geometry": {
+          "hidden_size": 1024,
+          "head_size": 512,
+          "vocab_size": 4096,
+          "num_layers": 3,
+          "num_attention_heads": 64,
+          "index_n_heads": 32,
+          "index_head_dim": 128,
+          "hc_mult": 4,
+          "compress_ratios": [
+            0,
+            0,
+            2
+          ],
+          "n_routed_experts": 64,
+          "num_experts_per_tok": 2
+        },
+        "traceback": null
+      },
+      {
+        "role": "ffn",
+        "mode": "eager-u1",
+        "returncode": 0,
+        "success": true,
+        "npu_before": false,
+        "npu_after": false,
+        "geometry": {
+          "hidden_size": 1024,
+          "head_size": 512,
+          "vocab_size": 4096,
+          "num_layers": 3,
+          "num_attention_heads": 64,
+          "index_n_heads": 32,
+          "index_head_dim": 128,
+          "hc_mult": 4,
+          "compress_ratios": [
+            0,
+            0,
+            2
+          ],
+          "n_routed_experts": 64,
+          "num_experts_per_tok": 2
+        },
+        "traceback": null
+      },
+      {
+        "role": "ffn",
+        "mode": "eager-u2",
+        "returncode": 0,
+        "success": true,
+        "npu_before": false,
+        "npu_after": false,
+        "geometry": {
+          "hidden_size": 1024,
+          "head_size": 512,
+          "vocab_size": 4096,
+          "num_layers": 3,
+          "num_attention_heads": 64,
+          "index_n_heads": 32,
+          "index_head_dim": 128,
+          "hc_mult": 4,
+          "compress_ratios": [
+            0,
+            0,
+            2
+          ],
+          "n_routed_experts": 64,
+          "num_experts_per_tok": 2
+        },
+        "traceback": null
+      },
+      {
+        "role": "ffn",
+        "mode": "graph-u1",
+        "returncode": 0,
+        "success": true,
+        "npu_before": false,
+        "npu_after": false,
+        "geometry": {
+          "hidden_size": 1024,
+          "head_size": 512,
+          "vocab_size": 4096,
+          "num_layers": 3,
+          "num_attention_heads": 64,
+          "index_n_heads": 32,
+          "index_head_dim": 128,
+          "hc_mult": 4,
+          "compress_ratios": [
+            0,
+            0,
+            2
+          ],
+          "n_routed_experts": 64,
+          "num_experts_per_tok": 2
+        },
+        "traceback": null
+      },
+      {
+        "role": "ffn",
+        "mode": "graph-u2",
+        "returncode": 0,
+        "success": true,
+        "npu_before": false,
+        "npu_after": false,
+        "geometry": {
+          "hidden_size": 1024,
+          "head_size": 512,
+          "vocab_size": 4096,
+          "num_layers": 3,
+          "num_attention_heads": 64,
+          "index_n_heads": 32,
+          "index_head_dim": 128,
+          "hc_mult": 4,
+          "compress_ratios": [
+            0,
+            0,
+            2
+          ],
+          "n_routed_experts": 64,
+          "num_experts_per_tok": 2
+        },
+        "traceback": null
+      }
+    ],
+    "native_state": {
+      "before": false,
+      "after": false,
+      "returncode": 0
+    },
+    "source_unchanged": true,
+    "counts": {
+      "tests": 472,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    }
+  },
+  "cpu_cli": {
+    "returncode": 0,
+    "command": [
+      "/mnt/workspace/code/.venvs/afd-v030-dsv41-c0/bin/python",
+      "-B",
+      "-S",
+      "-c",
+      "\nimport json,pathlib,sys,unittest\nsuite=unittest.defaultTestLoader.loadTestsFromName(\n    'tests.e2e.diagnostics.test_dsv41_a5_functional_validation')\nresult=unittest.TextTestRunner(verbosity=2).run(suite)\nruntime=[name for name in sys.modules if name.split('.')[0] in (\n    'torch','torch_npu','vllm','vllm_ascend','afd_plugin','cann_ops_transformer')]\nsummary={'tests_run':result.testsRun,'failures':len(result.failures),\n         'errors':len(result.errors),'runtime_modules_imported':runtime}\npathlib.Path('../results/tests.json').write_text(json.dumps(summary))\nraise SystemExit(int(not result.wasSuccessful() or bool(runtime)))\n"
+    ],
+    "source_unchanged": true,
+    "scope": "CPU CLI and metadata only, no A5 operator acceptance",
+    "tests": {
+      "tests_run": 6,
+      "failures": 0,
+      "errors": 0,
+      "runtime_modules_imported": []
+    }
+  },
+  "local_checks": [
+    {
+      "command": [
+        ".venv/Scripts/ruff.exe",
+        "check",
+        "afd_plugin/compat/npu/feature_validation.py",
+        "tests/npu/dsv41_functional_worker_probe.py",
+        "tests/unit/compat/npu/test_feature_validation.py",
+        "D:\\openSource\\afd-plugin-dsv41-flash-v030\\openspec\\changes\\afd-hccl-full-parity\\evidence\\a5-routing-width-20261117\\run_cpu_validation.py",
+        "D:\\openSource\\afd-plugin-dsv41-flash-v030\\openspec\\changes\\afd-hccl-full-parity\\evidence\\a5-routing-width-20261117\\cpu_native_runner.py"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        ".venv/Scripts/ruff.exe",
+        "format",
+        "--check",
+        "afd_plugin/compat/npu/feature_validation.py",
+        "tests/npu/dsv41_functional_worker_probe.py",
+        "tests/unit/compat/npu/test_feature_validation.py",
+        "D:\\openSource\\afd-plugin-dsv41-flash-v030\\openspec\\changes\\afd-hccl-full-parity\\evidence\\a5-routing-width-20261117\\run_cpu_validation.py",
+        "D:\\openSource\\afd-plugin-dsv41-flash-v030\\openspec\\changes\\afd-hccl-full-parity\\evidence\\a5-routing-width-20261117\\cpu_native_runner.py"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        ".venv/Scripts/python.exe",
+        "-B",
+        ".agents/dsv41/harness.py",
+        "check"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        ".venv/Scripts/python.exe",
+        "-B",
+        ".agents/dsv41/harness.py",
+        "guard"
+      ],
+      "returncode": 0
+    }
+  ],
+  "windows_cli": {
+    "command": ".venv/Scripts/python.exe -B -m unittest discover -s tests/e2e/diagnostics -p test_dsv41_a5_functional_validation.py -v",
+    "tests_run": 6,
+    "failures": 0,
+    "errors": 0,
+    "returncode": 0
+  },
+  "bundle": {
+    "contains_binaries": false,
+    "native_git_pins_verified": 194,
+    "new_admission_source_sha256": "f953fd72cf37114a3d0ab1e256f1e17870db3111c97c11d419e6af8dc62c3fd5",
+    "npu_validation": "pending_on_A5",
+    "production_count": 146,
+    "production_delta_from_dspark": {
+      "afd_plugin/compat/npu/feature_validation.py": {
+        "parent_sha256": "943aec35a56dfd9e7256c3b33620937b5988ac6a30f6ffc1a6d1382362ed0897",
+        "sha256": "f953fd72cf37114a3d0ab1e256f1e17870db3111c97c11d419e6af8dc62c3fd5"
+      },
+      "afd_plugin/compat/npu/profiler.py": {
+        "parent_sha256": "4dcd664757a788f26efbdf1a3dfaf8acbf7a0a007f26bd2e53c1b6a896d1c117",
+        "sha256": "92b418c949591c5f67f75c8ddfc4225944ce95446a48bf55697e3615f1516dc0"
+      },
+      "afd_plugin/compat/npu/profiler_api.py": {
+        "parent_sha256": "d75cbba9548607feedd65f0c739f6ede827dfdb34bf3b5a1090ee4004cbd5841",
+        "sha256": "107d4458d6caf63ff79cd3a89eee55dde13db364f459f3d455ef6976c324616e"
+      },
+      "afd_plugin/compat/npu/runtime_config.py": {
+        "parent_sha256": "f9c5471728faae1102993df5205468714bb32af157139479729e8cd06966b316",
+        "sha256": "b74ba2210ed2f3a9aab7421df825f07dd1681f47d57dee20b12fecb2fc66e623"
+      },
+      "afd_plugin/compat/patches/engine_core.py": {
+        "parent_sha256": "ee5d31461487c8ca03fb08a0a725ce8f9fdb22612f0347d605f2deebf9726fad",
+        "sha256": "c84b5ec7e2be6231da409b5ab3823b9e1f67eeaba021e8d446e27f858f925d4e"
+      },
+      "afd_plugin/v1/worker/npu/ffn_worker.py": {
+        "parent_sha256": "a05670efc7318681b91367a8185ca0fa4e0b0500c551d19701e43414418e5396",
+        "sha256": "8965c3fd62663731b594c77871d5c98bf62c17c85b79c44b973d3dbd165983ac"
+      }
+    },
+    "python_sources_compiled": 185,
+    "runtime_source_sha256": "a068006f17f14277435de1f86bbe9dfeb17696e8a4e6591a733ddfc2fc3400ba",
+    "source_count": 188,
+    "status": "source_prepared_not_device_validated"
+  },
+  "A5_device_validation": "pending",
+  "prior_dirty_paths": 27
+}
