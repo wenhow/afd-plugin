@@ -29,6 +29,7 @@ NORMAL_SCENES = (
     ("afd-graph-u2-streams", "attention", "graph-u2", True),
 )
 DEFAULT_TIMEOUT_SECONDS = 480
+DEFAULT_PREFLIGHT_TIMEOUT_SECONDS = 600
 PAIR_EXIT_TIMEOUT_SECONDS = 45
 FIRST_AFD_PORT = 31010
 PORT_STRIDE = 20
@@ -261,6 +262,12 @@ def main() -> int:
     parser.add_argument("--python", default=sys.executable)
     parser.add_argument("--source-bundle", type=Path)
     parser.add_argument("--timeout", type=int, default=DEFAULT_TIMEOUT_SECONDS)
+    parser.add_argument(
+        "--preflight-timeout",
+        type=int,
+        default=DEFAULT_PREFLIGHT_TIMEOUT_SECONDS,
+        help="native runtime import/bootstrap timeout, including cold JIT compilation",
+    )
     parser.add_argument("--run", action="store_true")
     parser.add_argument("--_pair", action="store_true", help=argparse.SUPPRESS)
     parser.add_argument("--_snapshot", type=Path, help=argparse.SUPPRESS)
@@ -279,6 +286,8 @@ def main() -> int:
     args._devices = devices
     if not 0 < args.timeout < shared.SOURCE_RETENTION_SECONDS:
         parser.error("--timeout must be positive and below 720 seconds")
+    if args.preflight_timeout <= 0:
+        parser.error("--preflight-timeout must be positive")
     executable = shutil.which(args.python)
     if executable is None:
         parser.error("--python must name an existing interpreter")
@@ -312,6 +321,7 @@ def main() -> int:
     report = {
         "success": False,
         "run_requested": args.run,
+        "preflight_timeout_seconds": args.preflight_timeout,
         "scenes": [],
         "runtime_source_sha256": shared.file_sha256(archive),
         "source_files": len(files),
@@ -343,11 +353,22 @@ def main() -> int:
                 environment,
                 snapshot,
                 args.output_dir / "native-runtime.log",
-                120,
+                args.preflight_timeout,
             )
             report["runtime_preflight"] = check
             if not check["success"]:
-                raise RuntimeError("A5 native/runtime preflight failed")
+                if check["timed_out"]:
+                    raise RuntimeError(
+                        "A5 native/runtime preflight timed out after "
+                        f"{args.preflight_timeout} seconds; "
+                        "see native-runtime.log and native-runtime.process.json. "
+                        "Increase --preflight-timeout for cold JIT compilation."
+                    )
+                raise RuntimeError(
+                    "A5 native/runtime preflight failed "
+                    f"(returncode={check['returncode']}); "
+                    "see native-runtime.json and native-runtime.process.json"
+                )
         for index, (name, role, mode, overlap) in enumerate(NORMAL_SCENES):
             if args.run:
                 command = normal_command(

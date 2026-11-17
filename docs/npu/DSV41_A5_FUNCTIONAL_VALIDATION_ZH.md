@@ -33,7 +33,10 @@ python -B tests/npu/dsv41_a5_functional_validation.py \
 `--python /实际虚拟环境/bin/python`。`--devices` 是当前进程可见的四个不同设备序号；
 正常 A/F 用前两个，DSpark/PD 四角色用四个。执行前后检查整机八卡空闲。
 
-默认单场景上限 480 秒；超时、任一角色非零退出、被强制清理、报告失败、残留进程或
+原生导入/注册预检的上限默认 600 秒，可用 `--preflight-timeout 900` 单独调整，
+为首次导入的 JIT 编译留出时间；该参数不改变单场景 `--timeout`（默认 480 秒）。
+预检超时会明确报告 `preflight timed out`，所用上限保存在 `summary.json` 的
+`preflight_timeout_seconds` 中。超时、任一角色非零退出、被强制清理、报告失败、残留进程或
 设备未空闲都算失败。必要的每轮清理保留。遇到失败即停止，保留首次原始日志，
 不会把已写出的成功字段覆盖进程异常。
 
@@ -84,6 +87,79 @@ tar -czf dsv41-a5-functional-20261117-results.tar.gz \
 如果仍在 `SparseFlashMlaMetadata` 失败，保留这次结果，不先改模型几何或替换算子库。
 A3 已知是首轮与原生一致、第二轮 decode C2 metadata 失败；本批 A5 原生/AFD 同参数
 对照用于区分这个差异。**目前不能确认 A3 环境就是根因。**
+
+### 启动脚本与冻结包不匹配时
+
+`launcher differs from the frozen bundle` 表示当前
+`tests/npu/dsv41_a5_functional_validation.py` 的文件 SHA256 与同包
+`bundle-lock.json` 的 `launcher_sha256` 不一致。此时归档及包内文件校验已通过，
+尚未创建结果目录，也未开始原生源码预检或设备场景；与 vLLM-Ascend 的 Git 版本核对分开。
+脚本内容改动、换行转换或脚本/归档混用版本都可能触发，需比较实际文件确定原因。
+
+在 AFD 仓库根目录查看实际值和期望值：
+
+```bash
+sha256sum tests/npu/dsv41_a5_functional_validation.py
+python -B -c 'import json; print(json.load(open("reports/dsv41-a5-functional/bundle-lock.json"))["launcher_sha256"])'
+```
+
+默认交付包的入口 SHA256 为
+`c05e717ebf3064acc6e148b8c602371b77d29bc9bc9e4c8418af58c8141b9d14`。
+更新时需要同步入口与 `reports/dsv41-a5-functional/` 下的归档、锁和准备记录，
+不要只复制新增超时参数后的脚本。
+保留现场脚本，再从已经通过校验的同一冻结包恢复入口：
+
+```bash
+launcher=tests/npu/dsv41_a5_functional_validation.py
+backup=$(mktemp "${launcher}.before-frozen.XXXXXX")
+cp -p "$launcher" "$backup" &&
+  tar -xzf reports/dsv41-a5-functional/runtime-source.tar.gz "$launcher"
+```
+
+如果执行时显式传了 `--source-bundle`，上述归档和锁文件路径也应改为那一份。
+恢复后重新执行第 1 节命令即可；若此次仅停在入口校验，同一个输出目录仍未创建，可以复用。
+无需在 A5 重建冻结包或修改 `launcher_sha256`；该恢复只涉及 AFD 验证入口，原生仓库不变。
+
+### 原生运行时预检失败时
+
+外层 `A5 native/runtime preflight failed` 是汇总错误。具体异常写入结果目录的
+`native-runtime.json`；退出码、超时与强制清理记录在 `native-runtime.process.json`，
+同一进程结果也保存在 `summary.json` 的 `runtime_preflight` 中。
+`native-runtime.log` 只有导入/编译输出时，不能根据最后一条 warning 判断失败原因。
+无需重跑场景，先读取已有记录：
+
+```bash
+python -B - <<'PY'
+import json
+from pathlib import Path
+
+root = Path('results/dsv41-a5-functional-20261117')  # 改为实际输出目录
+for name in ('native-runtime.process.json', 'native-runtime.json', 'summary.json'):
+    path = root / name
+    print('\n' + str(path))
+    if not path.exists():
+        print('missing')
+        continue
+    report = json.loads(path.read_text())
+    fields = ('status', 'traceback', 'sources_match', 'source_count',
+              'returncode', 'timed_out', 'forced_killed_pids',
+              'surviving_owned_pids', 'elapsed_seconds',
+              'preflight_timeout_seconds', 'runtime_preflight')
+    print(json.dumps({k: report[k] for k in fields if k in report}, indent=2))
+PY
+```
+
+原始交付入口的预检上限固定为 120 秒；11月17日修复后默认 600 秒，
+可由 `--preflight-timeout` 调整，独立于单场景 `--timeout`。如果 `timed_out=true`，
+表示预检被外层超时清理；首次导入的 JIT 编译可能占用该时限，需结合日志确认，
+不能将这种退出直接归因为算子缺失。若 `timed_out=false` 且有 `traceback`，
+按其中的原始异常定位。源码身份检查在运行库导入前完成；该检查失败时，先核对实际安装目录对应的锁定源码。
+
+11月17日第二次回传已确认 `sources_match=true`、194份源码全部匹配，
+`timed_out=true`、`returncode=-9`；日志停在 JIT 编译输出，尚未进入七个功能场景。
+这是预检超时退出，不能据此认定缺失算子是根因或功能已通过。报告还在清理采样时记录了
+一个 `surviving_owned_pids`；保留为失败证据，不能宣称该次清理成功，也不能仅凭旧PID
+推断进程现在仍存在。旧结果目录保留，重跑使用新目录。
 
 ## 4. 源码与实施边界
 

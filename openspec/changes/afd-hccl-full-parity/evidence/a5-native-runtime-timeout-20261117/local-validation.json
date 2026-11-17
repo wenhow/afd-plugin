@@ -1,0 +1,70 @@
+{
+  "artifact_directory": "D:\\openSource\\afd-plugin-dsv41-flash-v030\\.tmp\\preflight-timeout-checks-odyi5tgk",
+  "changed_source_members": [
+    "tests/npu/dsv41_a5_functional_validation.py"
+  ],
+  "checks": [
+    {
+      "check": "seven_scene_metadata_default",
+      "preflight_timeout_seconds": 600,
+      "returncode": 0,
+      "runtime_imported": false,
+      "scenes": 7
+    },
+    {
+      "check": "seven_scene_metadata_override",
+      "preflight_timeout_seconds": 900,
+      "returncode": 0,
+      "runtime_imported": false,
+      "scenes": 7
+    },
+    {
+      "check": "cpu_error_report_replay_recorded_timeout",
+      "device_acceptance": false,
+      "expected_message_present": true,
+      "returncode": 1,
+      "scenes": 0
+    },
+    {
+      "check": "cpu_error_report_replay_non_timeout_failure",
+      "device_acceptance": false,
+      "expected_message_present": true,
+      "returncode": 1,
+      "scenes": 0
+    },
+    {
+      "check": "invalid_preflight_timeout_cli",
+      "values": [
+        "0",
+        "-1",
+        "not-an-integer"
+      ],
+      "returncodes": [
+        2,
+        2,
+        2
+      ],
+      "output_created": false
+    },
+    {
+      "check": "isolated_fix_archive_install_and_default_bundle",
+      "returncode": 0,
+      "preflight_timeout_seconds": 900,
+      "scenes": 7,
+      "runtime_imported": false
+    }
+  ],
+  "launcher_sha256": "c05e717ebf3064acc6e148b8c602371b77d29bc9bc9e4c8418af58c8141b9d14",
+  "native_identity_unchanged": true,
+  "npu_validation": "pending_on_A5",
+  "parent_archive_sha256": "87391afb4559f73a07ddf2211f17e31d8dba40b3d0e6efbaeeb7bb01f7ca51c0",
+  "production_bytes_unchanged": true,
+  "production_count": 146,
+  "python_sources_compiled": 185,
+  "scope": "stdlib CLI, archive identity and CPU error-report replay only; no runtime or device acceptance",
+  "source_count": 188,
+  "successor_archive_sha256": "3d6da6143d19a72886162c260b01257caa00f7643b99c9d356d1b98dddfffe9e",
+  "fix_archive_sha256": "481dd3a61ef397bfbf0f9abf1ef3c9775e5509179639aa4b26bd6b0f40d1d669",
+  "isolated_package_install_artifacts": "D:\\openSource\\afd-plugin-dsv41-flash-v030\\.tmp\\preflight-fix-install-rrhdzcq0",
+  "ruff": "not_run: ruff module and executable unavailable; no packages installed"
+}
