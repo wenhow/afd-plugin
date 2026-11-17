@@ -10,10 +10,12 @@ No target model, worker read, sampling or device operation runs in this helper.
 
 from copy import deepcopy
 from types import SimpleNamespace
+from typing import Literal
 
 from transformers import PretrainedConfig
 from vllm import SamplingParams
 from vllm.config import (
+    AttentionConfig,
     CacheConfig,
     EncoderCacheManagerConfig,
     KVTransferConfig,
@@ -23,13 +25,14 @@ from vllm.config import (
     StructuredOutputsConfig,
     VllmConfig,
 )
-from vllm.v1.core.sched.scheduler import Scheduler
+from vllm.v1.core.sched import scheduler as native_scheduler
 from vllm.v1.kv_cache_interface import KVCacheConfig
 from vllm.v1.request import Request
 from vllm.v1.structured_output import StructuredOutputManager
 from vllm_ascend import utils as ascend_utils
 from vllm_ascend.ascend_config import SchedulerConfig as AscendSchedulerConfig
 from vllm_ascend.distributed.kv_transfer.kv_p2p import mooncake_hybrid_connector
+from vllm_ascend.patch.platform import patch_balance_schedule
 
 from tests.unit.fakes.kv_layout_connector import DSPARK_CPU_COMPRESS_RATIO
 
@@ -58,6 +61,9 @@ class SchedulerSpeculativeConfig(SimpleNamespace):
     use_dflash = SpeculativeConfig.use_dflash
     use_dspark = SpeculativeConfig.use_dspark
     uses_draft_model = SpeculativeConfig.uses_draft_model
+    uses_dynamic_speculative_decoding = (
+        SpeculativeConfig.uses_dynamic_speculative_decoding
+    )
     max_num_new_slots_for_drafting = SpeculativeConfig.max_num_new_slots_for_drafting
 
 
@@ -79,12 +85,14 @@ def make_native_pd_scheduler_case(
     prompt_token_ids: list[int],
     kv_transfer_params: dict,
     sampling_params: SamplingParams | None = None,
+    role: Literal["kv_producer", "kv_consumer"] = "kv_consumer",
+    engine_id: str = SCHEDULER_DESTINATION_ENGINE,
 ):
-    """Build and admit one actual D request, without inventing worker completion.
+    """Build and admit one P/D request, without inventing worker completion.
 
     Call the returned scheduler's real schedule/update_from_output methods.
     Worker KVConnectorOutput is supplied explicitly by the caller. The first
-    schedule exposes the actual D allocation in connector metadata; this helper
+    schedule exposes the actual allocation in connector metadata; this helper
     neither starts a receiver nor assumes that a registered cache was filled.
 
     The input DSpark count and source schema stay unchanged. Recompute policy
@@ -114,6 +122,7 @@ def make_native_pd_scheduler_case(
     prepared.ec_transfer_config = None
     prepared.ec_manager_config = EncoderCacheManagerConfig()
     prepared.observability_config = ObservabilityConfig()
+    prepared.attention_config = AttentionConfig()
     prepared.structured_outputs_config = StructuredOutputsConfig()
     prepared.diffusion_config = None
     prepared.parallel_config.data_parallel_index = 0
@@ -130,22 +139,23 @@ def make_native_pd_scheduler_case(
         block_size=SCHEDULER_BLOCK_SIZE, enable_prefix_caching=False
     )
     prepared.cache_config.num_gpu_blocks = kv_cache_config.num_blocks
-    prepared.speculative_config = SchedulerSpeculativeConfig(
-        **(
-            {
-                "num_speculative_tokens_per_batch_size": None,
-                "disable_eagle_block_drop": False,
-                "parallel_drafting": True,
-            }
-            | vars(prepared.speculative_config)
+    if prepared.speculative_config is not None:
+        prepared.speculative_config = SchedulerSpeculativeConfig(
+            **(
+                {
+                    "num_speculative_tokens_per_batch_size": None,
+                    "disable_eagle_block_drop": False,
+                    "parallel_drafting": True,
+                }
+                | vars(prepared.speculative_config)
+            )
         )
-    )
     original = prepared.kv_transfer_config
     prepared.kv_transfer_config = KVTransferConfig(
         kv_connector=original.kv_connector,
         kv_connector_module_path=original.kv_connector_module_path,
-        kv_role="kv_consumer",
-        engine_id=SCHEDULER_DESTINATION_ENGINE,
+        kv_role=role,
+        engine_id=engine_id,
         kv_buffer_device="cpu",
         kv_port=SCHEDULER_HANDSHAKE_PORT,
         kv_connector_extra_config=deepcopy(original.kv_connector_extra_config),
@@ -165,8 +175,13 @@ def make_native_pd_scheduler_case(
         mooncake_hybrid_connector, "get_ascend_config", lambda: ascend_config
     )
     monkeypatch.setattr(ascend_utils, "get_ascend_config", lambda: ascend_config)
+    monkeypatch.setattr(
+        patch_balance_schedule, "init_ascend_config", lambda config: ascend_config
+    )
     structured_output = StructuredOutputManager(prepared)
-    scheduler = Scheduler(
+    # Ascend may replace the public Scheduler alias during platform import.
+    # Resolve its current selection after those imports, as native core does.
+    scheduler = native_scheduler.Scheduler(
         prepared,
         kv_cache_config,
         structured_output,

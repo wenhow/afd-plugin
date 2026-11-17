@@ -203,6 +203,7 @@ class NPUUBatchRunner(UBatchRunner):
             ),
             is_prefilling=torch.from_numpy(input_batch.is_prefilling_np),
             for_cudagraph_capture=for_capture,
+            full_graph_mode=cudagraph_mode == CUDAGraphMode.FULL,
         )
         if cudagraph_mode == CUDAGraphMode.FULL:
             materialize_deepseek_attention_metadata_by_layer(

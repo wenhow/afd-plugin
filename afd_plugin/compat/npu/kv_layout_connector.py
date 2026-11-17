@@ -3,7 +3,8 @@
 """Opt-in V4.1 eager PD attestation on the pinned native Mooncake lifecycle.
 
 Native source: Ascend 7e37e29a, mooncake_hybrid_connector.py. The external
-connector factory selects this module explicitly; no upstream/global patches.
+connector factory selects this module explicitly. Its exact DSpark P scheduler
+installs a narrow native retirement guard; upstream source files stay unchanged.
 Remove the copies when upstream exposes worker/thread factories and a typed
 metadata validation hook. Layout compatibility is not remote authentication.
 """
@@ -156,6 +157,13 @@ class DsparkMooncakeConnectorMetadata(MooncakeConnectorMetadata):
         self.dspark_sources: tuple[DsparkPdSourceRequest, ...] = ()
         self.dspark_destinations: dict[str, DsparkPdDestination] = {}
         self.dspark_cancelled: tuple[tuple[str, str], ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class _DsparkMetadataAdmission:
+    metadata: DsparkMooncakeConnectorMetadata
+    sources: tuple[DsparkPdSourceRequest, ...]
+    cancelled: tuple[tuple[str, str], ...]
 
 
 @dataclass(slots=True)
@@ -544,7 +552,11 @@ class AFDMooncakeConnectorScheduler(MooncakeConnectorScheduler):
 
     # Native 7e37e29a:1566-1571, exact signature. Preserve the original prompt
     # before native P truncation; D validates that same prompt before any pull.
+    # Native caps P output only when it truncates a multi-token prompt. Cap
+    # every DSpark remote-decode producer request so later P decode cannot
+    # rewrite a published prefix. This adds no synchronization or new state.
     # Remove when native preserves an authenticated original-prompt declaration.
+    # Remove the cap when native handles every producer prompt length itself.
     def on_new_request(self, request: Request) -> None:
         params = request.kv_transfer_params
         # ### PATCH START: original prompt and source generation
@@ -580,6 +592,17 @@ class AFDMooncakeConnectorScheduler(MooncakeConnectorScheduler):
                     )
                 self._dspark_remote_sources[request.request_id] = source
         # ### PATCH END: original prompt and source generation
+        # ### PATCH START: P prefix quiescence
+        if (
+            self._dspark_enabled
+            and params is not None
+            and params.get("do_remote_decode")
+        ):
+            transfer = self.vllm_config.kv_transfer_config
+            assert transfer is not None
+            if transfer.kv_role == "kv_producer":
+                request.max_tokens = 1
+        # ### PATCH END: P prefix quiescence
         # Native truncation must remain after the original-prompt capture.
         if params is not None and params.get("do_remote_decode") and self.need_truncate:
             self._truncate_request_for_prefill(request)
@@ -739,6 +762,7 @@ class MooncakeHybridConnector(MooncakeConnector):
     # Upstream: MooncakeConnector.__init__ @ 7e37e29a:1303-1318.
     # Reason/functionality: external selection must construct the attesting
     # worker before registration starts native threads; scheduler stays native.
+    # Exact DSpark P construction also installs its page-lease retirement guard.
     # Signature matches upstream, including its omitted return annotation.
 
     def __init__(  # type: ignore[misc]
@@ -753,6 +777,20 @@ class MooncakeHybridConnector(MooncakeConnector):
         self._connector_metadata = MooncakeConnectorMetadata()
 
         if role == KVConnectorRole.SCHEDULER:
+            # ### PATCH START: opt-in DSpark P page-lease retirement
+            if (
+                type(self) is MooncakeHybridConnector
+                and uses_deepseek_v41_dspark_pd(vllm_config)
+                and self._kv_transfer_config.kv_role == "kv_producer"
+            ):
+                # Circular dependency: the guard uses this exact connector
+                # type. Wait until construction, after this module is loaded.
+                from afd_plugin.compat.patches.npu.dspark_pd_scheduler import (
+                    install_dspark_pd_scheduler_retention,
+                )
+
+                install_dspark_pd_scheduler_retention()
+            # ### PATCH END: opt-in DSpark P page-lease retirement
             self.connector_scheduler: MooncakeConnectorScheduler | None = (
                 AFDMooncakeConnectorScheduler(
                     vllm_config, str(self.engine_id), kv_cache_config
@@ -766,6 +804,27 @@ class MooncakeHybridConnector(MooncakeConnector):
                 vllm_config, str(self.engine_id), kv_cache_config
             )
             # ### PATCH END: attesting worker
+
+    # Upstream: KVConnectorBase_V1.bind_connector_metadata @ ced6857a:239-249.
+    # Reason/functionality: V2 may defer start_load_kv until sample/post_forward,
+    # while final sampling publishes Ready against the original P source ticket.
+    # Admit that immutable generation before model execution, keeping native
+    # asynchronous KV loading unchanged. The native body is one assignment.
+    # Signature matches upstream exactly. Remove when native provides a distinct
+    # pre-model producer admission hook; ownership remains on the bound worker.
+    def bind_connector_metadata(self, connector_metadata: KVConnectorMetadata) -> None:
+        # ### PATCH START: bind P sources before deferred native KV loading
+        worker = self.connector_worker
+        if (
+            isinstance(worker, AFDMooncakeConnectorWorker)
+            and worker._dspark_enabled
+            and worker.kv_role == "kv_producer"
+        ):
+            if not isinstance(connector_metadata, DsparkMooncakeConnectorMetadata):
+                raise ValueError("DSpark worker requires typed allocation metadata")
+            worker.admit_dspark_metadata(connector_metadata)
+        # ### PATCH END: bind P sources before deferred native KV loading
+        self._connector_metadata = connector_metadata
 
     def bind_dspark_model(self, consumer: DsparkPdPrefixConsumer) -> None:
         if not isinstance(self.connector_worker, AFDMooncakeConnectorWorker):
@@ -799,18 +858,22 @@ class MooncakeHybridConnector(MooncakeConnector):
 
     # Native MooncakeConnector.shutdown(self), 7e37e29a, is a no-op. Native
     # Ascend Worker.shutdown calls ensure_kv_transfer_shutdown before releasing
-    # runner/KV resources. Keep target-only behavior, but DSpark cannot release
-    # storage until real read/DONE frontiers drain. Signature is exact (no ann).
+    # runner/KV resources. Registered consumers, including target-only D, must
+    # drain real read/DONE/ACK and retire receiver/executor before that release.
+    # Preserve native pre-registration shutdown; partial registration fails
+    # closed. DSpark producers additionally drain leases. Signature is exact.
     # Remove when native owns request leases and cooperative receiver retirement.
     def shutdown(self):
-        # ### PATCH START: retire DSpark leases before native storage release
+        # ### PATCH START: drain consumers before native storage release
         worker = self.connector_worker
-        if worker is not None and worker._dspark_enabled:
-            if worker.kv_role == "kv_producer":
-                worker._dspark_registry.close()
-            else:
+        if worker is not None and (
+            worker._dspark_enabled or worker._registration_started
+        ):
+            if worker.kv_role == "kv_consumer":
                 worker.retire_receiver(timeout=DSPARK_SHUTDOWN_TIMEOUT)
-        # ### PATCH END: retire DSpark leases before native storage release
+            elif worker._dspark_enabled:
+                worker._dspark_registry.close()
+        # ### PATCH END: drain consumers before native storage release
         return super().shutdown()
 
 
@@ -829,9 +892,7 @@ class AFDMooncakeConnectorWorker(MooncakeConnectorWorker):
             if self._dspark_consumer is None:
                 raise RuntimeError("DSpark loaded model is not bound")
             if self.kv_role == "kv_producer":
-                self._dspark_registry.admit(metadata.dspark_sources)
-                for request_id, generation in metadata.dspark_cancelled:
-                    self._dspark_registry.cancel(request_id, generation)
+                self.admit_dspark_metadata(metadata)
         if self.kv_role == "kv_consumer":
             receiver = self.kv_recv_thread
             if not isinstance(receiver, AFDMooncakeRecvingThread):
@@ -870,6 +931,14 @@ class AFDMooncakeConnectorWorker(MooncakeConnectorWorker):
         validate_deepseek_v41_pd(vllm_config)
         if global_te.transfer_engine is not None:
             raise RuntimeError("attested PD requires a fresh native engine owner")
+        # Native P does not enter the AFD attention-worker runtime facade.
+        # Install after role validation, before its ordinary KV initialization.
+        # Worker-local import keeps NPU MRV2 code out of scheduler processes.
+        from afd_plugin.compat.patches.npu.mrv2_kv_zeroing import (
+            apply_dsv41_kv_zeroing_patch,
+        )
+
+        apply_dsv41_kv_zeroing_patch()
         # ### PATCH END: constrained external connector
         super().__init__(vllm_config, engine_id, kv_cache_config)
         # ### PATCH START: single registration lifetime
@@ -878,7 +947,34 @@ class AFDMooncakeConnectorWorker(MooncakeConnectorWorker):
         self._dspark_enabled = uses_deepseek_v41_dspark_pd(vllm_config)
         self._dspark_consumer: DsparkPdPrefixConsumer | None = None
         self._dspark_registry = DsparkPdReadyRegistry()
+        self._dspark_metadata_admission: _DsparkMetadataAdmission | None = None
         # ### PATCH END: single registration lifetime
+
+    def admit_dspark_metadata(self, metadata: DsparkMooncakeConnectorMetadata) -> None:
+        """Admit one P batch once, retaining only its immutable host snapshot."""
+        if self._dspark_consumer is None:
+            raise RuntimeError("DSpark loaded model is not bound")
+        sources = tuple(metadata.dspark_sources)
+        cancelled = tuple(
+            (request_id, generation)
+            for request_id, generation in metadata.dspark_cancelled
+        )
+        admission = self._dspark_metadata_admission
+        if admission is not None and admission.metadata is metadata:
+            if admission.sources != sources or admission.cancelled != cancelled:
+                raise RuntimeError("DSpark bound source metadata changed")
+            # A typed DONE or cancellation may precede native post_forward.
+            # Empty admission checks the registry's locked open frontier without
+            # reopening that completed generation. Keep this ticket across clear;
+            # the next batch replaces its one retained metadata reference.
+            self._dspark_registry.admit(())
+            return
+        self._dspark_registry.admit(sources)
+        for request_id, generation in cancelled:
+            self._dspark_registry.cancel(request_id, generation)
+        self._dspark_metadata_admission = _DsparkMetadataAdmission(
+            metadata, sources, cancelled
+        )
 
     def bind_dspark_model(self, consumer: DsparkPdPrefixConsumer) -> None:
         if not self._dspark_enabled or self._registration_started:
@@ -1539,13 +1635,22 @@ class AFDMooncakeRecvingThread(KVCacheRecvingThread):
     # Upstream: KVCacheRecvingThread._handle_request @ 7e37e29a:706-745.
     # Reason/functionality: native task_done precedes DONE/ACK; retain acceptance
     # through the complete finalization, with a sticky failure on any exception.
+    # Native per-peer dispatch logs exceptions and continues its queue. Reject
+    # subsequent task entry once failed, retaining accepted tasks and storage.
+    # Already-started reads still require the existing drain/process supervisor.
+    # Cost: one flag read under the existing owner lock; no device work/cleanup.
     # Delegation exception: preserve native failed-transfer retirement and both
-    # DONE routes as one owner; only the post-finalization counter is new.
+    # DONE routes as one owner, with DSpark's stricter lease finalization below.
     # Signature matches upstream, including its omitted return annotation.
+    # Remove when native dispatch owns terminal admission and ACK-aware drain.
     def _handle_request(self, req_meta: dict[str, Any]):
         # ### PATCH START: task remains live through final native ACK
         request_id = req_meta["request_id"]
         with self._retire_condition:
+            # ### PATCH START: failed owners cannot start queued transfers
+            if self._retirement_failed.is_set():
+                raise RuntimeError("attested receiver has a retained failure")
+            # ### PATCH END: failed owners cannot start queued transfers
             if request_id not in self._accepted_requests:
                 # Native component callers may directly execute one queued task.
                 if self._admission_closed:

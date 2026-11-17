@@ -1,0 +1,33 @@
+{
+  "source_blockers": [],
+  "scope": "existing completed terminal-ownership fixes only",
+  "native_pin": "ced6857afa0ea7b2e3f0846a62e1394e90f15607",
+  "sources": {
+    "afd_plugin/compat/patches/engine_core.py": {
+      "005_sha256": "ee5d31461487c8ca03fb08a0a725ce8f9fdb22612f0347d605f2deebf9726fad",
+      "current_sha256": "c84b5ec7e2be6231da409b5ab3823b9e1f67eeaba021e8d446e27f858f925d4e"
+    },
+    "afd_plugin/compat/npu/profiler.py": {
+      "005_sha256": "4dcd664757a788f26efbdf1a3dfaf8acbf7a0a007f26bd2e53c1b6a896d1c117",
+      "current_sha256": "92b418c949591c5f67f75c8ddfc4225944ce95446a48bf55697e3615f1516dc0"
+    },
+    "afd_plugin/compat/npu/profiler_api.py": {
+      "005_sha256": "d75cbba9548607feedd65f0c739f6ede827dfdb34bf3b5a1090ee4004cbd5841",
+      "current_sha256": "107d4458d6caf63ff79cd3a89eee55dde13db364f459f3d455ef6976c324616e"
+    }
+  },
+  "signature": {
+    "parameters_and_defaults_ast_equal": true,
+    "return_annotation_ast_equal": true,
+    "uses_original_R_import": true
+  },
+  "read_only": true,
+  "pytest_or_ssh_or_device_run": false,
+  "limitations": [
+    "Blocks subsequent Multiproc enqueue, not previously-created futures.",
+    "No reply drain, same-process recovery, or device quiescence claim.",
+    "Fatal callbacks may race with native worker monitoring; no exactly-once claim.",
+    "Full unit outcomes belong to root actual execution records."
+  ],
+  "markdown_sha256": "0b7c538be31667618ef400153a0604ec25a33b135d61fad8e6071c79a9c95e1f"
+}

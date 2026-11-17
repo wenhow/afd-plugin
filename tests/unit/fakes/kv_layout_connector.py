@@ -8,8 +8,10 @@ storage, transfer-engine registration or execution.
 """
 
 import threading
+from collections import deque
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import suppress
+from copy import deepcopy
 from dataclasses import replace
 from types import SimpleNamespace
 
@@ -21,7 +23,7 @@ from vllm import SamplingParams
 from vllm.config import KVTransferConfig
 from vllm.distributed.kv_transfer import kv_transfer_state
 from vllm.v1.core.kv_cache_manager import KVCacheManager
-from vllm.v1.request import Request
+from vllm.v1.request import Request, RequestStatus
 from vllm.v1.worker.gpu.kv_connector import ActiveKVConnector
 from vllm_ascend.distributed.kv_transfer.kv_p2p import (
     mooncake_hybrid_connector as native_mooncake,
@@ -50,6 +52,8 @@ DSPARK_CPU_COMPRESS_RATIO = 2
 DESTINATION_SENTINEL = 165
 SCHEDULED_DESTINATION_BLOCKS = 64
 SCHEDULED_DESTINATION_REQUEST = "destination-request"
+REUSED_PREFIX_CONTEXT_OFFSET = 128
+SOURCE_COMPLETION_TOKEN = 19
 
 
 def connector_config(*, role="kv_consumer"):
@@ -228,7 +232,7 @@ class _StartBoundary:
         self.ready_event.set()
 
 
-def make_registration_case(monkeypatch, *, role="kv_producer"):
+def make_registration_case(monkeypatch, *, role="kv_producer", receiver_boundary=True):
     cache = make_native_kv_cache_case()
     config = connector_config(role=role)
     worker = adapter.AFDMooncakeConnectorWorker.__new__(
@@ -248,6 +252,7 @@ def make_registration_case(monkeypatch, *, role="kv_producer"):
         "tp_rank": 0,
         "tp_size": 1,
         "pcp_rank": 0,
+        "pcp_size": config.parallel_config.prefill_context_parallel_size,
         "side_channel_host": "127.0.0.1",
         "side_channel_port": LOCAL_HANDSHAKE_PORT,
         "handshake_port": LOCAL_HANDSHAKE_PORT,
@@ -257,6 +262,9 @@ def make_registration_case(monkeypatch, *, role="kv_producer"):
         "kv_recv_thread": None,
         "xfer_handshake_metadata": None,
         "_prefill_tp_size": 1,
+        "_decode_tp_size": config.kv_transfer_config.kv_connector_extra_config[
+            "decode"
+        ]["tp_size"],
         "_prefill_pp_size": 1,
         "_prefill_pp_layer_partition": None,
         "_mamba_ssm_size": (0, 0),
@@ -265,12 +273,14 @@ def make_registration_case(monkeypatch, *, role="kv_producer"):
         "_dspark_enabled": False,
         "_dspark_consumer": None,
         "_dspark_registry": adapter.DsparkPdReadyRegistry(),
+        "_dspark_metadata_admission": None,
     }
     vars(worker).update(values)
     boundary = RegistrationBoundary()
     monkeypatch.setattr(adapter, "global_te", boundary)
     monkeypatch.setattr(adapter, "KVCacheSendingThread", boundary.sender)
-    monkeypatch.setattr(adapter, "AFDMooncakeRecvingThread", boundary.receiver)
+    if receiver_boundary:
+        monkeypatch.setattr(adapter, "AFDMooncakeRecvingThread", boundary.receiver)
     monkeypatch.setattr(
         adapter,
         "collect_deepseek_v41_kv_layout",
@@ -406,6 +416,30 @@ class _QueuedReceiverBoundary(_ReceiverSocketBoundary):
         self.ready_event.set()
 
 
+class _StartedReceiverSocketBoundary(_ReceiverSocketBoundary):
+    """Actual receiver input/peer threads with CPU executor initialization.
+
+    The Event observes the actual handler's return after typed DONE and its
+    accepted-work frontier. It supplies no result or retirement state.
+    """
+
+    def start(self):
+        self.executor.shutdown(wait=True)
+        self.executor = ThreadPoolExecutor(max_workers=1)
+        self.request_finished = threading.Event()
+        self.processing_error = None
+        super().start()
+
+    def _handle_request(self, request):
+        try:
+            return super()._handle_request(request)
+        except BaseException as error:
+            self.processing_error = error
+            raise
+        finally:
+            self.request_finished.set()
+
+
 def make_retiring_receiver_case(monkeypatch, *, ack=b"ACK", start=True):
     case = make_receiver_case(monkeypatch, receiver_type=_ReceiverSocketBoundary)
     receiver = case.receiver
@@ -480,6 +514,7 @@ def attach_consumer_worker(case, *, dspark=False):
         tp_num_need_pulls=1,
         _dspark_enabled=dspark,
         _dspark_consumer=None,
+        _registration_started=True,
     )
     metadata = adapter.MooncakeConnectorMetadata()
     for request_id in ("first", "second"):
@@ -621,6 +656,11 @@ def make_dspark_registration_case(monkeypatch, prefix_case, *, bind=True):
     worker.tp_rank = prefix.expected_ready.source_tp_rank
     worker.tp_size = prefix.expected_ready.tp_size
     worker._prefill_tp_size = worker.tp_size
+    # Native requests_to_send walks PCP selection and both P/D TP sizes before
+    # invoking the sender's real delayed/unused-source lifecycle methods.
+    worker._decode_tp_size = prefix.config.kv_transfer_config.kv_connector_extra_config[
+        "decode"
+    ]["tp_size"]
     worker._dspark_enabled = True
     worker.hma_group_size = len(prefix.kv_config.kv_cache_groups)
     monkeypatch.setattr(
@@ -684,14 +724,16 @@ def dspark_query(prefix, *, generation="destination-generation"):
     )
 
 
-def publish_dspark_prefix(case, *, acquire=True):
+def publish_dspark_prefix(case, *, acquire=True, execution=None):
     case.admit()
-    scheduler, state = case.prefix_case.make_step(
-        0, case.prefix_case.source.computed_prefix_tokens
-    )
-    ready = case.prefix_case.consumer.consume_prefill(
-        scheduler, state, (case.prefix_case.source,)
-    )
+    if execution is None:
+        scheduler, state = case.prefix_case.make_step(
+            0, case.prefix_case.source.computed_prefix_tokens
+        )
+        sources = (case.prefix_case.source,)
+    else:
+        scheduler, state, sources = execution
+    ready = case.prefix_case.consumer.consume_prefill(scheduler, state, sources)
     case.connector.publish_dspark_ready(ready)
     if not acquire:
         return None
@@ -700,7 +742,9 @@ def publish_dspark_prefix(case, *, acquire=True):
     )
 
 
-def make_dspark_scheduler_case(monkeypatch, prefix, *, role="kv_producer"):
+def make_dspark_scheduler_case(
+    monkeypatch, prefix, *, role="kv_producer", sampling_params=None
+):
     """Native scheduler metadata and KV manager allocation; no model/device work."""
     config = prefix.config
     original = config.kv_transfer_config
@@ -723,9 +767,16 @@ def make_dspark_scheduler_case(monkeypatch, prefix, *, role="kv_producer"):
         config, prefix.source.source_engine_id, prefix.kv_config
     )
 
-    def new_request(tokens, *, params=None):
+    def new_request(tokens, *, params=None, request_id=None):
         request = Request(
-            prefix.source.request_id, tokens, SamplingParams(max_tokens=1), None
+            prefix.source.request_id if request_id is None else request_id,
+            tokens,
+            (
+                SamplingParams(max_tokens=1)
+                if sampling_params is None
+                else deepcopy(sampling_params)
+            ),
+            None,
         )
         request.kv_transfer_params = (
             {"do_remote_decode": True} if params is None else params
@@ -910,6 +961,141 @@ def make_retiring_dspark_read_case(monkeypatch, prefix, *, done_ack=b"ACK"):
     return case
 
 
+class _DeferredReceiverExecutor:
+    """Defer host scheduling so native peer dispatch sees both queued requests."""
+
+    def __init__(self):
+        self.pending = deque()
+
+    def submit(self, function, *args):
+        self.pending.append((function, args))
+
+    def run_pending(self):
+        while self.pending:
+            function, args = self.pending.popleft()
+            function(*args)
+
+
+def make_queued_dspark_read_case(monkeypatch, prefix, *, first_failure):
+    """Two real projected publications and queued reads on the same owners.
+
+    Native queue admission, per-peer dispatch and typed lease/DONE remain real.
+    Only executor scheduling, socket exchange and CPU copying are host leaves;
+    this does not prove DMA drain, device execution or process supervision.
+    """
+    case = make_dspark_read_case(monkeypatch, prefix, copy_payload=True)
+    publish_dspark_prefix(case.producer, acquire=False)
+    source_offset = 1 + max(
+        block for group in prefix.source.allocation_block_ids for block in group
+    )
+    source = replace(
+        prefix.source,
+        request_id="queued-source",
+        source_generation="queued-source-generation",
+        allocation_block_ids=tuple(
+            tuple(block + source_offset for block in group)
+            for group in prefix.source.allocation_block_ids
+        ),
+        transfer_block_ids=tuple(
+            tuple(block + source_offset for block in group)
+            for group in prefix.source.transfer_block_ids
+        ),
+    )
+    metadata = adapter.DsparkMooncakeConnectorMetadata()
+    metadata.dspark_sources = (source,)
+    metadata.reqs_in_batch = {source.request_id}
+    case.producer.worker.start_load_kv(metadata)
+    scheduled, state = prefix.make_step(0, source.computed_prefix_tokens)
+    scheduled.num_scheduled_tokens = {source.request_id: source.computed_prefix_tokens}
+    state.input_batch.req_ids[:] = [source.request_id]
+    case.producer.connector.publish_dspark_ready(
+        prefix.consumer.consume_prefill(scheduled, state, (source,))
+    )
+    destination_offset = 1 + max(
+        block for group in case.destination.block_ids for block in group
+    )
+    destination = adapter.DsparkPdDestination(
+        source,
+        "queued-destination-generation",
+        tuple(
+            tuple(block + destination_offset for block in group)
+            for group in case.destination.block_ids
+        ),
+    )
+    request = {
+        **case.request,
+        "request_id": "queued-destination",
+        "remote_request_id": source.request_id,
+        "remote_block_ids": [list(group) for group in source.transfer_block_ids],
+        "local_block_ids": [list(group) for group in destination.block_ids],
+    }
+    receive = adapter.ensure_zmq_recv
+
+    def receive_first_failure(sock, path):
+        kind, payload = msgspec.msgpack.decode(case.sent[-1])
+        if (
+            first_failure == "done-nack"
+            and kind == adapter.DONE_DSPARK_RECV_MSG
+            and read_lease_from_payload(payload).ready.source_request_id
+            == prefix.source.request_id
+        ):
+            return b"NACK"
+        return receive(sock, path)
+
+    monkeypatch.setattr(adapter, "ensure_zmq_recv", receive_first_failure)
+    read = case.engine.batch_transfer_sync_read
+
+    def read_first_failure(*args):
+        case.engine.result = (
+            -1 if first_failure == "negative-read" and not case.engine.reads else 0
+        )
+        return read(*args)
+
+    monkeypatch.setattr(case.engine, "batch_transfer_sync_read", read_first_failure)
+    executor = _DeferredReceiverExecutor()
+    case.receiver.executor = executor
+    case.admit_request()
+    with case.receiver.admission_scope(
+        destinations={request["request_id"]: destination}
+    ):
+        case.receiver.task_tracker.add_req_to_process(request["request_id"])
+        case.receiver.add_request(**request)
+
+    def process_queued():
+        # Actual native submit/per-peer methods own counters, exception handling
+        # and the decision whether the second request may enter its read.
+        while not case.receiver.request_queue.empty():
+            case.receiver._submit_request(case.receiver.request_queue.get_nowait())
+        executor.run_pending()
+
+    spans = []
+    for index, page in enumerate(case.layout.pages):
+        group_index = next(
+            group_index
+            for group_index, group in enumerate(case.layout.groups)
+            if set(page.layers) & set(group.layer_names)
+        )
+        stride = page.block_stride_bytes
+        for remote, local in zip(
+            source.transfer_block_ids[group_index],
+            destination.block_ids[group_index],
+            strict=True,
+        ):
+            spans.append(
+                (
+                    case.destination_cache.pages[index][
+                        local * stride : (local + 1) * stride
+                    ],
+                    case.destination_cache.source_pages[index][
+                        remote * stride : (remote + 1) * stride
+                    ].clone(),
+                )
+            )
+    case.process_queued = process_queued
+    case.queued_source, case.queued_request, case.queued_spans = source, request, spans
+    return case
+
+
 def make_scheduled_dspark_read_case(
     monkeypatch,
     prefix,
@@ -919,6 +1105,11 @@ def make_scheduled_dspark_read_case(
     done_ack=b"ACK",
     initialize_source_pages=None,
     sampling_params: SamplingParams | None = None,
+    scheduler_source=False,
+    producer=None,
+    producer_execution=None,
+    started_receiver=False,
+    destination_config=None,
 ):
     """Real scheduler allocation -> ActiveKV registration -> typed queued read.
 
@@ -935,29 +1126,36 @@ def make_scheduled_dspark_read_case(
     # Circular: scheduler reuses this module's checkpoint-metadata constant.
     from tests.unit.fakes.scheduler import make_native_pd_scheduler_case
 
-    producer = make_dspark_registration_case(monkeypatch, prefix)
+    source_scheduler_case = None
+    if scheduler_source:
+        source_scheduler_case = make_dspark_scheduler_case(monkeypatch, prefix)
+        source_metadata, _ = _allocate_source_prefix(
+            prefix, source_scheduler_case, source_scheduler_case.request
+        )
+        prefix.source = source_metadata.dspark_sources[0]
+        prefix.expected_ready = replace(
+            prefix.expected_ready,
+            source_generation=prefix.source.source_generation,
+            transfer_block_ids=prefix.source.transfer_block_ids,
+        )
+    if producer is None:
+        producer = make_dspark_registration_case(monkeypatch, prefix)
     destination_cache = _independent_destination_cache(prefix, destination_blocks)
     if initialize_source_pages is not None:
         # The optional caller's page/block byte pattern precedes projection
         # and Ready publication. Published source storage is never rewritten.
         initialize_source_pages(destination_cache.source_pages, prefix.layout)
-    publish_dspark_prefix(producer, acquire=False)
+    publish_dspark_prefix(producer, acquire=False, execution=producer_execution)
     scheduler_case = make_native_pd_scheduler_case(
         monkeypatch,
-        config=prefix.config,
+        config=prefix.config if destination_config is None else destination_config,
         kv_cache_config=destination_cache.config,
         request_id=request_id,
         prompt_token_ids=list(range(prefix.source.original_prompt_tokens)),
         sampling_params=sampling_params,
-        kv_transfer_params={
-            "do_remote_prefill": True,
-            "remote_request_id": prefix.source.request_id,
-            "remote_engine_id": prefix.source.source_engine_id,
-            "remote_host": "127.0.0.1",
-            "remote_port": producer.worker.handshake_port,
-            "remote_block_ids": prefix.source.transfer_block_ids,
-            adapter.DSPARK_SOURCE_PARAM: source_request_payload(prefix.source),
-        },
+        kv_transfer_params=_remote_prefill_params(
+            prefix.source, producer.worker.handshake_port
+        ),
     )
     config = scheduler_case.config
     loaded = make_dspark_pd_loaded_case(
@@ -996,7 +1194,11 @@ def make_scheduled_dspark_read_case(
     monkeypatch.setattr(
         adapter, "collect_deepseek_v41_kv_layout", collect_deepseek_v41_kv_layout
     )
-    monkeypatch.setattr(adapter, "AFDMooncakeRecvingThread", _QueuedReceiverBoundary)
+    monkeypatch.setattr(
+        adapter,
+        "AFDMooncakeRecvingThread",
+        _StartedReceiverSocketBoundary if started_receiver else _QueuedReceiverBoundary,
+    )
     monkeypatch.setattr(kv_transfer_state, "_KV_CONNECTOR_AGENT", connector)
     context = zmq.Context()
     sent = []
@@ -1023,6 +1225,14 @@ def make_scheduled_dspark_read_case(
 
     def process_next_queued_request():
         receiver = worker.kv_recv_thread
+        if started_receiver:
+            if not receiver.request_finished.wait(THREAD_TEST_TIMEOUT):
+                raise AssertionError(
+                    "native typed read did not finish on its CPU thread"
+                )
+            if receiver.processing_error is not None:
+                raise receiver.processing_error
+            return
         # Only process a task admitted by the real native worker. Do not build
         # a second envelope or call add_request again at this boundary.
         queued = receiver.request_queue.get_nowait()
@@ -1031,6 +1241,13 @@ def make_scheduled_dspark_read_case(
 
     def close():
         if worker.kv_recv_thread is not None:
+            if started_receiver and worker.kv_recv_thread.is_alive():
+                # Test-only finalization of retained failure; production owns
+                # no cooperative cleanup after the fail-closed worker gate.
+                worker.kv_recv_thread.request_queue.put(adapter._ReceiverControl.RETIRE)
+                worker.kv_recv_thread.join(THREAD_TEST_TIMEOUT)
+                if worker.kv_recv_thread.is_alive():
+                    raise AssertionError("CPU test receiver did not exit")
             worker.kv_recv_thread.executor.shutdown(wait=True)
         context.destroy(linger=0)
         scheduler_case.close()
@@ -1038,6 +1255,7 @@ def make_scheduled_dspark_read_case(
     return SimpleNamespace(
         producer=producer,
         prefix_case=prefix,
+        source_scheduler_case=source_scheduler_case,
         scheduler_case=scheduler_case,
         scheduler=scheduler_case.scheduler,
         config=config,
@@ -1052,6 +1270,71 @@ def make_scheduled_dspark_read_case(
         process_next_queued_request=process_next_queued_request,
         close=close,
     )
+
+
+def _allocate_source_prefix(prefix, case, request):
+    if case.manager.allocate_slots(request, request.num_prompt_tokens) is None:
+        raise AssertionError("CPU source prefix allocation failed")
+    case.scheduler.update_state_after_alloc(
+        request, case.manager.get_blocks(request.request_id), 0
+    )
+    scheduled, state = prefix.make_step(0, request.num_prompt_tokens)
+    return case.scheduler.build_connector_meta(scheduled), state
+
+
+def _remote_prefill_params(source, handshake_port):
+    return {
+        "do_remote_prefill": True,
+        "remote_request_id": source.request_id,
+        "remote_engine_id": source.source_engine_id,
+        "remote_host": "127.0.0.1",
+        "remote_port": handshake_port,
+        "remote_block_ids": source.transfer_block_ids,
+        adapter.DSPARK_SOURCE_PARAM: source_request_payload(source),
+    }
+
+
+def reuse_scheduled_remote_prefix(case, prompt_token_ids):
+    """Reuse registered P/D owners after the first native D request retires.
+
+    P generation/allocation and D admission come from their existing native
+    schedulers. The caller has already observed the first typed DONE/ACK and
+    delivered P's finished notification before these source pages are reused.
+    The same CPU projection model writes a distinct second context; no second
+    source/destination fixture, registration, worker or consumer is constructed.
+    """
+    source_case, prefix = case.source_scheduler_case, case.prefix_case
+    previous = source_case.request
+    previous.append_output_token_ids(SOURCE_COMPLETION_TOKEN)
+    previous.status = RequestStatus.FINISHED_LENGTH_CAPPED
+    delayed, _ = source_case.scheduler.request_finished_all_groups(
+        previous, source_case.manager.get_block_ids(previous.request_id)
+    )
+    if not delayed:
+        raise AssertionError("CPU source did not retain its transfer allocation")
+    source_case.manager.free(previous)
+    replacement = source_case.new_request(list(prompt_token_ids))
+    metadata, state = _allocate_source_prefix(prefix, source_case, replacement)
+    source = metadata.dspark_sources[0]
+    scheduled, _ = prefix.make_step(0, source.computed_prefix_tokens)
+    scheduled.finished_req_ids = {source.request_id}
+    for hidden_states in state.aux_hidden_states:
+        hidden_states.add_(REUSED_PREFIX_CONTEXT_OFFSET)
+    case.producer.worker.start_load_kv(metadata)
+    ready = prefix.consumer.consume_prefill(scheduled, state, (source,))
+    case.producer.connector.publish_dspark_ready(ready)
+    destination = Request(
+        case.request.request_id,
+        list(prompt_token_ids),
+        SamplingParams(max_tokens=1),
+        None,
+    )
+    destination.kv_transfer_params = _remote_prefill_params(
+        source, case.producer.worker.handshake_port
+    )
+    case.scheduler.add_request(destination)
+    source_case.request = replacement
+    return destination, source
 
 
 def _encoded_sender_reply(sender, kind, payload):

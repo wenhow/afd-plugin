@@ -1,0 +1,95 @@
+# HCCL 全能力组合、PD 与交付验收：设计
+
+状态：已有实现与有限组件证据，剩余契约、完整模型及组合验收按任务补齐。
+源码编号见 [来源索引](../../../.agents/dsv41/sources.lock.json)，能力编号见 [迁移矩阵](../../HCCL_CAPABILITY_MIGRATION_ZH.md)。
+
+## 范围、依赖与源码
+
+依赖 C2/C3/C4/C5/C6，闭合 H12–H15 并审计 H01–H11。
+2026-11-12 开发顺序按[总计划优先级](../../ROADMAP_ZH.md#engram-priority)：先完成
+DSpark/PD、U2/Graph/多流和运维的非 Engram 实现、审查及独立组件，其他 DSV4.1
+功能具备后才开始中优先级 Engram 专项。上述依赖是最终模型验收依赖，不阻止可独立
+推进的开发。Engram 专项归属 [tasks 2.1–2.7](tasks.md#engram-medium)，混合任务保持
+pending，不通过关闭 Engram 或放宽拒绝条件替代真实验收。旧 MTP 后续开发继续暂停。
+D03/D04 的普通 MTP、D12/D13 的 PD patch、D14/D15 的 recipe 是语义参考，不能直接复制旧 v0.23 API。
+本阶段是必交付，不把 PD、Graph+DSpark 再列为无主延期项。
+
+## DSpark 和普通 MTP 映射
+
+V4.1 使用 RFC DeepseekV41DSparkModel，完整 draft 留 A，target Graph/U2 + eager draft 必须可用；
+若目标原生提供可捕获 draft，再按该接口验证，不伪造旧远程 MTP。
+每 stage 在正确入口采集 target aux 并归并，draft 不发布 F 工作、不覆盖 target Graph 状态。
+microbatch、block size、proposal、draft stage 数和远程 MoE 次数分开。
+
+已注册 DSpark PD owner 的异常边界覆盖 target execute 与后续原生 sample/proposal。
+采样/proposal 抛错时保留已有 history/KV 并将 consumer 置为 terminal，禁止下一次
+execute 或消费已有待采样状态；没有待采样状态时沿用原生 None。原异常继续传播，
+不新增回滚、重建、collective 或资源释放。AsyncOutput 返回后的错误仍由原生
+engine/worker 监督，不能据本边界宣称多 rank 故障恢复或设备验收。实现与 CPU
+范围见 [采样失败审查](evidence/dspark-pd-sampling-failure-review-20261112.md)。
+原生 AsyncOutput/UniProc/EngineCore 已有输出完成错误传播，新增 CPU 契约验证
+失败批次不提交成功输出并保留已推进 history/KV，不新增重复包装。同 ID 第二次
+远端 PD 读取验证新 generation/lease 与旧消息隔离。真实 HCCL 的 idle STOP/ACK
+及全新进程重启另由 A3 组件验证，不能拼接为完整模型故障恢复验收，见
+[异步输出与请求复用](evidence/dspark-output-failure-review-20261112.md)。
+
+PD receiver 的失败状态还必须约束已经进入 native peer 队列的后续任务。原生 peer
+循环捕获异常后继续队列，因此仅关闭新批次 admission 不足以形成 terminal 边界。
+插件在每个任务进入既有 owner 锁后检查 sticky failure，早于 DSpark GETREADY、
+lease、read 与 finished 发布；普通 admission 关闭仍允许已接受任务正常 drain。
+其他 peer 已经开始的 read 不由此取消，失败分配和 lease 保留给既有进程监督，
+不新增 abort/rollback/cleanup。见[排队失败审查](evidence/pd-retained-failure-review-20261113.md)。
+
+逐分支登记供体普通 MTP N 次（有效范围 1–3）、merged stage0、phase-ready/header、
+eager/target graph/full-draft graph 的去向。
+对原生支持普通 MTP 的既有模型保留适用能力和回归，迁移完整次数、形状和生命周期。
+V4.1 原生只接受 DSpark，普通 MTP 只能标为有源码证据的模型语义映射，不强行新增 V4.1 MTP；
+不能一句“不需要旧 MTP”就删除公共 connector 能力。
+图 key 含 speculative 签名；N 写进 metadata 不会自动让一次捕获交换变成 N 次。
+
+## PD 五组合
+
+本次验收包含：
+1. PD+AFD eager/U1。
+2. PD+AFD+DSpark eager/U1。
+3. PD+AFD Graph/U2。
+4. PD+AFD+DSpark eager/U2。
+5. PD+AFD+DSpark Graph/U2。
+
+同时保留 standalone eager/U1/U2、Graph/U1/U2。
+PD 的 KV connector 与 A/F activation HCCL 分离，F 不因 PD 拥有请求 KV/Engram 历史。
+核对 Prefill→Decode shared-KV/index、compressor/SWA、Engram history、prefix 和 target/draft cache owner。
+按逻辑 layer/component、dtype、stride/block geometry 对齐，不能 zip 异构 group/注册数组。
+旧 dspark_pd.py/dspark_pd_layout.py 有 v0.23 特定逻辑/版本门禁，先检查 v0.30 等价行为；
+已被上游覆盖的补丁不重复，缺失行为只在 afd-plugin 最小重建，不修改上游或单放开版本判断。
+若原生 PD metadata 无法传递所需 Engram history，保留为最终验收阻断，按中优先级
+tasks 2.6 后置解决；继续其他 PD/KV/index 组件工作，不假装该依赖不适用或已完成。
+记录 HIXL/本地资源路径、proxy/listener/端口/路由与 P/A/F 锁定环境；healthcheck 不能替代请求成功。
+
+## 操作、观测和完成条件
+
+迁移 recipe 模式、U2 阈值、rank/device/TP 映射、checkpoint 族检查、capture-size 推导/覆盖。
+恢复所有 rank overlap/diagnostic 生效值记录、A/F profiler 启停/step/按 rank trace；
+管理 RPC 不因 F 常驻 recv 阻塞，按 v0.30 实际接口适配。
+部署观测由独立标准库 CLI 读取冻结 recipe 与逐 rank 原始记录，校验八项配置、
+协商坐标，并可按显式 expected transaction 清单检查 eager/U2 首末层的 host
+事件因果链、空 stage 和 parent 完成。Graph/serial 只作配置汇总，不能用 Python
+capture 日志证明 replay。记录没有 session/PID/source 绑定，run 归属和设备可见
+映射由调用方保证；payload、真实设备完成及物理重叠各自需要独立证据。见
+[观测审查](evidence/hccl-observations-review-20261113.md)。实际 prepared argv 的
+完整模型启动与完整逐模式观测尚未闭合，1.6 不因该组件汇总而勾选。
+锁定 native executor 顺序消费未带请求 ID 的回复；profiler/start/poll/STOP RPC
+失败或中断后将 F 管理通道置为失效，禁止后续 collective 清理并由原生 executor
+监督进程。正常已经 ACK 的 peer STOP 流程保留；错误通道不能发出清理成功日志。
+Unix/UniProc/F daemon/HCCL/profiler 已有 A3 启停、同 owner 重启和 active STOP
+导出的有限组件证据；五秒 join 仅有该规模实测，没有普遍耗时保证。后续实际
+EngineCore busy-loop/shutdown 与 MP IPC 成功链也已完成 A3 组件验证，见
+[EngineCore 审查](evidence/h14-engine-core-review-20261112.md)；原生构造/前端、
+失败注入与完整模型仍待验收。
+冷加载、prefill/decode、并发/取消/随后请求、STOP/错误后全新进程重启覆盖代表 eager 与 Graph/U2 格子。
+设备失败保留 terminal+进程监督，不宣称错误 HCCL 组同进程自愈。
+
+逐行填写能力矩阵的实现/等价映射、测试/日志和支持状态；源码有分支/历史 A5 只证明供体存在该行为。
+同硬件同请求比较 native、eager/U1、eager/U2 开/关、Graph/U2 全开/全关，再测 DSpark/PD。
+报告 TTFT/TPOT、总吞吐、真实 acceptance、实际卡数/每卡效率、HBM/冷捕获成本。
+未验收格子保持 pending，不通过缩小矩阵或 C1 完成来宣告整体完成。

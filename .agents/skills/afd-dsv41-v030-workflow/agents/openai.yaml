@@ -1,0 +1,6 @@
+interface:
+  display_name: "DSV4.1 v0.30 Workflow"
+  short_description: "Resume the HCCL-first DSV4.1 adaptation"
+  default_prompt: "Use $afd-dsv41-v030-workflow for the current DSV4.1 HCCL adaptation task."
+policy:
+  allow_implicit_invocation: true

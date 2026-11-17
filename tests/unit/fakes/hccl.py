@@ -14,15 +14,21 @@ from vllm.forward_context import get_forward_context
 
 from afd_plugin.compat.npu.runtime_config import resolve_deepseek_v41_target_shape
 from afd_plugin.config import HCCL_P2P_CONNECTOR, AFDConfig
+from afd_plugin.connectors.factory import AFDConnectorFactory
 from afd_plugin.connectors.npu import hccl_staged_transport as staged_transport_module
+from afd_plugin.connectors.npu import hccl_transport as eager_transport_module
 from afd_plugin.connectors.npu import p2p_hccl as connector_module
 from afd_plugin.connectors.npu.hccl_protocol import (
     HcclCapabilities,
+    HcclControlMessage,
     HcclForwardPlan,
+    HcclMessageType,
     HcclRole,
+    decode_hccl_control_message,
+    encode_hccl_control_message,
 )
 from afd_plugin.connectors.npu.hccl_staged_transport import HcclStagedTransport
-from afd_plugin.connectors.npu.hccl_transport import HcclLayerInputs
+from afd_plugin.connectors.npu.hccl_transport import HcclEagerTransport, HcclLayerInputs
 from afd_plugin.connectors.npu.p2p_hccl import P2pHcclAFDConnector
 from afd_plugin.distributed.hccl import HcclStageLayout
 from afd_plugin.distributed.hccl_plan import (
@@ -32,11 +38,80 @@ from afd_plugin.distributed.hccl_plan import (
     decode_hccl_plan_message,
     encode_hccl_plan_message,
 )
+from tests.unit.fakes.connector import FakeRoutedConnector
 from tests.unit.fakes.vllm_config import hccl_vllm_config
 
 ROUTER_DELTA_SCALE = 4_096
 WORKER_JOIN_TIMEOUT_SECONDS = 3
 STAGED_FFN_HIDDEN_SIZE = 16
+
+
+class HcclCpuControlWire:
+    """CPU framed-I/O boundary; it creates no groups or device runtime."""
+
+    def __init__(self, peer_rank, messages):
+        self.peer_rank = peer_rank
+        self.group = SimpleNamespace(backend="gloo")
+        self.incoming = deque()
+        self.messages = []
+        self.pending_size = None
+        for message in messages:
+            data = encode_hccl_control_message(message)
+            self.incoming.extend(
+                (
+                    torch.tensor([len(data)], dtype=torch.int64, device="cpu"),
+                    torch.tensor(list(data), dtype=torch.uint8, device="cpu"),
+                )
+            )
+
+    def send(self, tensor, *, group_dst, group):
+        assert group is self.group and group_dst == self.peer_rank
+        assert tensor.device.type == "cpu", "Gloo control frames must use CPU"
+        if self.pending_size is None:
+            assert tensor.dtype == torch.int64 and tensor.shape == (1,)
+            self.pending_size = tensor.item()
+        else:
+            assert tensor.dtype == torch.uint8 and tensor.numel() == self.pending_size
+            self.messages.append(decode_hccl_control_message(bytes(tensor.tolist())))
+            self.pending_size = None
+
+    def recv(self, tensor, *, group_src, group):
+        assert group is self.group and group_src == self.peer_rank
+        assert tensor.device.type == "cpu", "Gloo control frames must use CPU"
+        frame = self.incoming.popleft()
+        assert tensor.dtype == frame.dtype and tensor.shape == frame.shape
+        tensor.copy_(frame)
+
+
+def make_hccl_control_frame_case(monkeypatch, role):
+    """Use the real eager public protocol with a CPU-only external wire."""
+    plan = HcclForwardPlan("cpu-control-frame", (0, 1), 0, 0)
+    forward = HcclControlMessage(HcclMessageType.FORWARD, plan=plan)
+    accept = HcclControlMessage(
+        HcclMessageType.ACCEPT, transaction_id=plan.transaction_id
+    )
+    complete = HcclControlMessage(
+        HcclMessageType.COMPLETE, transaction_id=plan.transaction_id
+    )
+    stop = HcclControlMessage(HcclMessageType.STOP)
+    stopped = HcclControlMessage(HcclMessageType.STOP_ACK)
+    attention = role == "attention"
+    incoming = (accept, complete, stopped) if attention else (forward, stop)
+    outgoing = (forward, stop) if attention else (accept, complete, stopped)
+    transport = HcclEagerTransport(
+        HcclRole(role),
+        HcclCapabilities(16, 32, 1, plan.layer_indices),
+        init_method="cpu-wire-only",
+        local_device=0,
+    )
+    wire = HcclCpuControlWire(transport.peer_rank, incoming)
+    transport.control_group = wire.group
+    transport.initialized = True
+    monkeypatch.setattr(eager_transport_module.dist, "send", wire.send)
+    monkeypatch.setattr(eager_transport_module.dist, "recv", wire.recv)
+    return SimpleNamespace(
+        transport=transport, wire=wire, plan=plan, outgoing=list(outgoing)
+    )
 
 
 class StagedModelPeer:
@@ -136,7 +211,15 @@ class StagedAttentionPeer(StagedModelPeer):
 
 
 def make_hccl_connector_pair(
-    monkeypatch, *, layer_count=2, tensor_parallel_size=1, role_rank=0, wire=None
+    monkeypatch,
+    *,
+    layer_count=2,
+    tensor_parallel_size=1,
+    role_rank=0,
+    wire=None,
+    initialize=True,
+    overlap_settings=None,
+    local_device=None,
 ):
     """Construct actual adapters with a CPU protocol wire and no process groups."""
     wire = wire or HcclLoopbackSession()
@@ -153,7 +236,7 @@ def make_hccl_connector_pair(
         config.model_config.hf_config.num_hidden_layers = layer_count
         connector = P2pHcclAFDConnector(
             role_rank,
-            role_rank,
+            role_rank if local_device is None else local_device,
             config,
             AFDConfig(
                 connector=HCCL_P2P_CONNECTOR,
@@ -163,9 +246,60 @@ def make_hccl_connector_pair(
             ),
             role_rank,
         )
-        connector.init_afd_connector()
+        if overlap_settings is not None:
+            connector.bind_overlap_settings(overlap_settings)
+        if initialize:
+            connector.init_afd_connector()
         connectors.append(connector)
     return tuple(connectors)
+
+
+def make_hccl_configuration_case(monkeypatch, *, role="attention", **kwargs):
+    pair = make_hccl_connector_pair(monkeypatch, **kwargs)
+    connector = pair[0 if role == "attention" else 1]
+    return SimpleNamespace(
+        pair=pair, connector=connector, transport=connector._transport
+    )
+
+
+class RegisteredHcclConnector(P2pHcclAFDConnector):
+    """Identity returned through the real connector registry in factory tests."""
+
+
+class RegisteredNonHcclConnector(FakeRoutedConnector):
+    """A registered replacement that intentionally has no HCCL settings API."""
+
+    def __init__(self, rank, local_rank, vllm_config, afd_config, role_rank):
+        super().__init__()
+        self.vllm_config, self.afd_config = vllm_config, afd_config
+
+
+def make_registered_hccl_runtime_connector(
+    monkeypatch, adapter_module, *, class_name, overlap_settings, role="attention"
+):
+    """Construct through the registry, replacing only CPU transport I/O."""
+    monkeypatch.setattr(
+        AFDConnectorFactory, "_registry", AFDConnectorFactory._registry.copy()
+    )
+    AFDConnectorFactory.register_connector(
+        HCCL_P2P_CONNECTOR, __name__, class_name, replace=True
+    )
+    wire = HcclLoopbackSession()
+    monkeypatch.setattr(connector_module, "HcclEagerTransport", wire.endpoint)
+    config = hccl_vllm_config(
+        dtype=torch.bfloat16,
+        compilation_mode=CompilationMode.NONE,
+        cudagraph_mode=CUDAGraphMode.NONE,
+        role=role,
+    )
+    config.parallel_config.rank = 0
+    return adapter_module.create_npu_runtime_connector(
+        0,
+        3,
+        config,
+        AFDConfig(connector=HCCL_P2P_CONNECTOR, role=role),
+        overlap_settings=overlap_settings,
+    )
 
 
 def hccl_layer_tensors():
@@ -184,6 +318,7 @@ def make_hccl_runner(runner_type, connector, model):
     runner.hccl_v41_graph_service = None
     runner.hccl_v41_eager_session = None
     runner.hccl_v41_diagnostics = None
+    runner._hccl_configuration_logged = False
     runner.prof = None
     return runner
 
@@ -201,6 +336,7 @@ def make_hccl_worker(worker_type, runner):
     worker._ffn_shutdown_event = None
     worker._ffn_loop_error = None
     worker._hccl_stop_received = False
+    worker._hccl_configuration_logged = False
     worker._hccl_v41_transport = None
     worker._cpu_binding_attempted = True
     worker.profiler_config = None
@@ -620,7 +756,14 @@ class HcclLoopbackSession:
         local_device: int,
         timeout_seconds: int,
     ) -> HcclLoopbackTransport:
-        return HcclLoopbackTransport(self, capabilities)
+        return HcclLoopbackTransport(
+            self,
+            role,
+            capabilities,
+            init_method=init_method,
+            local_device=local_device,
+            timeout_seconds=timeout_seconds,
+        )
 
 
 class HcclEndpointRegistry:
@@ -642,18 +785,33 @@ class HcclEndpointRegistry:
         )
 
 
-class HcclLoopbackTransport:
+class HcclLoopbackTransport(HcclEagerTransport):
     def __init__(
-        self, session: HcclLoopbackSession, capabilities: HcclCapabilities
+        self,
+        session: HcclLoopbackSession,
+        role: HcclRole,
+        capabilities: HcclCapabilities,
+        *,
+        init_method: str,
+        local_device: int,
+        timeout_seconds: int,
     ) -> None:
+        # Reuse the actual transport's public rank/lifecycle metadata without
+        # allocating groups. Queue payloads below remain CPU collaborator leaves.
+        super().__init__(
+            role,
+            capabilities,
+            init_method=init_method,
+            local_device=local_device,
+            timeout_seconds=timeout_seconds,
+        )
         self.session = session
-        self.negotiated_capabilities = capabilities
 
     def initialize(self) -> None:
-        pass
+        self.initialized = True
 
     def close(self) -> None:
-        pass
+        self.closed = self.terminal = True
 
     def begin_forward(self, plan: HcclForwardPlan) -> None:
         plan.validate(self.negotiated_capabilities)
@@ -730,7 +888,14 @@ class ScriptedStagedControlPeer(HcclStagedTransport):
 
 
 def make_staged_hello_runtime(
-    monkeypatch, capabilities, peer_capabilities, *, role="attention", role_rank=0
+    monkeypatch,
+    capabilities,
+    peer_capabilities,
+    *,
+    role="attention",
+    role_rank=0,
+    peer_capabilities_by_rank=None,
+    coordinator_reply=None,
 ):
     """Real public initialize/HELLO with host PG/device construction boundaries.
 
@@ -745,7 +910,11 @@ def make_staged_hello_runtime(
                     "HELLO",
                     role="ffn" if rank < coordinator else "attention",
                     world_rank=rank,
-                    capabilities=peer_capabilities,
+                    capabilities=(
+                        peer_capabilities
+                        if peer_capabilities_by_rank is None
+                        else peer_capabilities_by_rank[rank]
+                    ),
                 )
             ]
             for rank in range(capabilities.attention_size + capabilities.ffn_size)
@@ -754,11 +923,15 @@ def make_staged_hello_runtime(
     else:
         incoming = {
             coordinator: [
-                HcclPlanMessage(
-                    "HELLO",
-                    role="attention",
-                    world_rank=coordinator,
-                    capabilities=peer_capabilities,
+                (
+                    HcclPlanMessage(
+                        "HELLO",
+                        role="attention",
+                        world_rank=coordinator,
+                        capabilities=peer_capabilities,
+                    )
+                    if coordinator_reply is None
+                    else coordinator_reply
                 )
             ]
         }
@@ -780,3 +953,50 @@ def make_staged_hello_runtime(
     return SimpleNamespace(
         peer=peer, created_groups=created, destroyed_groups=destroyed, devices=devices
     )
+
+
+def run_staged_hello_session(monkeypatch, capabilities_by_rank):
+    """Replay actual coordinator replies through every endpoint's initialize.
+
+    The coordinator receives scripted, fully framed peer HELLOs first. Its
+    actual encoded replies are then delivered to the other real state machines.
+    This proves host control propagation, not concurrent Gloo or HCCL execution.
+    Every endpoint releases only this factory's host group records afterwards.
+    """
+    coordinator = capabilities_by_rank[0].ffn_size
+    coordinator_capabilities = capabilities_by_rank[coordinator]
+    endpoints = {}
+    replies = {}
+    for world_rank in (
+        coordinator,
+        *(rank for rank in range(len(capabilities_by_rank)) if rank != coordinator),
+    ):
+        role = "ffn" if world_rank < coordinator else "attention"
+        role_rank = world_rank if role == "ffn" else world_rank - coordinator
+        with monkeypatch.context() as endpoint_patch:
+            case = make_staged_hello_runtime(
+                endpoint_patch,
+                capabilities_by_rank[world_rank],
+                coordinator_capabilities,
+                role=role,
+                role_rank=role_rank,
+                peer_capabilities_by_rank=capabilities_by_rank,
+                coordinator_reply=None
+                if world_rank == coordinator
+                else replies[world_rank],
+            )
+            case.error = None
+            try:
+                case.peer.initialize()
+            except (ValueError, RuntimeError) as error:
+                case.error = error
+            else:
+                case.peer.close()
+            endpoints[world_rank] = case
+        if world_rank == coordinator:
+            replies = {
+                destination: message
+                for direction, _, destination, message in case.peer.transcript
+                if direction == "send"
+            }
+    return SimpleNamespace(coordinator_rank=coordinator, endpoints=endpoints)

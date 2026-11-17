@@ -33,12 +33,16 @@ def apply_afd_ascend_config_patch_if_needed() -> None:
     from afd_plugin.compat.patches.npu.ascend_platform import (
         apply_afd_ascend_dbo_config_patch,
     )
+    from afd_plugin.compat.patches.npu.ubatching_config import (
+        apply_afd_dspark_ubatching_config_patch,
+    )
 
     apply_afd_ascend_config_patch()
     if not apply_afd_ascend_dbo_config_patch():
         raise RuntimeError(
             "AFD NPU DBO config patch requires vLLM-Ascend NPUPlatform",
         )
+    apply_afd_dspark_ubatching_config_patch()
 
 
 def apply_afd_async_dp_engine_patch_if_needed(vllm_config: VllmConfig) -> bool:
@@ -102,8 +106,12 @@ def apply_afd_ascend_patches_if_needed() -> None:
     from afd_plugin.compat.patches.npu.model_loader import (
         apply_afd_model_loader_patch,
     )
+    from afd_plugin.compat.patches.npu.mrv2_kv_zeroing import (
+        apply_dsv41_kv_zeroing_patch,
+    )
 
     apply_afd_model_loader_patch()
+    apply_dsv41_kv_zeroing_patch()
     _PATCHES_APPLIED = True
 
 

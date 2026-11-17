@@ -1,0 +1,124 @@
+{
+  "parent_archive": "openspec\\changes\\afd-hccl-full-parity\\evidence\\a3-text-normal-worker-20261116\\prepared-execute-005\\source.tar.gz",
+  "parent_sha256": "a8bde079dd5126e6cf0f7b6aede1c093e02489aa070f1df88d5d7478df2ece81",
+  "snapshot": ".tmp/functional-delivery-cpu-20261117/snapshot",
+  "source_count": 646,
+  "production_count": 146,
+  "unit_source_count": 227,
+  "test_support_count": 187,
+  "original_capsule_source_count": 458,
+  "original_capsule_deltas": {
+    "afd_plugin/compat/npu/feature_validation.py": {
+      "parent_sha256": "406c7c2adfd320a8fcdd6e4087f5346435b2f1889077b496ec6ac73622f73649",
+      "sha256": "ab9ea4747fca18f3bc27d0bc2ac4add9b8764043c89ceba7ff39b67c12ec71a9"
+    },
+    "afd_plugin/compat/npu/profiler.py": {
+      "parent_sha256": "4dcd664757a788f26efbdf1a3dfaf8acbf7a0a007f26bd2e53c1b6a896d1c117",
+      "sha256": "92b418c949591c5f67f75c8ddfc4225944ce95446a48bf55697e3615f1516dc0"
+    },
+    "afd_plugin/compat/npu/profiler_api.py": {
+      "parent_sha256": "d75cbba9548607feedd65f0c739f6ede827dfdb34bf3b5a1090ee4004cbd5841",
+      "sha256": "107d4458d6caf63ff79cd3a89eee55dde13db364f459f3d455ef6976c324616e"
+    },
+    "afd_plugin/compat/npu/runtime_config.py": {
+      "parent_sha256": "f9c5471728faae1102993df5205468714bb32af157139479729e8cd06966b316",
+      "sha256": "b74ba2210ed2f3a9aab7421df825f07dd1681f47d57dee20b12fecb2fc66e623"
+    },
+    "afd_plugin/compat/patches/engine_core.py": {
+      "parent_sha256": "ee5d31461487c8ca03fb08a0a725ce8f9fdb22612f0347d605f2deebf9726fad",
+      "sha256": "c84b5ec7e2be6231da409b5ab3823b9e1f67eeaba021e8d446e27f858f925d4e"
+    },
+    "afd_plugin/v1/worker/npu/ffn_worker.py": {
+      "parent_sha256": "a05670efc7318681b91367a8185ca0fa4e0b0500c551d19701e43414418e5396",
+      "sha256": "8965c3fd62663731b594c77871d5c98bf62c17c85b79c44b973d3dbd165983ac"
+    },
+    "tests/unit/compat/npu/test_feature_validation.py": {
+      "parent_sha256": "4476d82187dffff3c85f6e88469cacaca71b437da8aa97ba379422f6760b6b3f",
+      "sha256": "5f5d45bb8b1012333d79efbe9fcb15c5bc82a80b3974b64c3523b603da9e7b8f"
+    },
+    "tests/unit/compat/npu/test_profiler.py": {
+      "parent_sha256": "da48172a3a4cb03b4176e8d3d0f3e064e96be8cdd16e982e043cee3313150c51",
+      "sha256": "7b43a3b4bad9b2df741e9eacde57f73f561514e59f601dcb9c5c04de57759581"
+    },
+    "tests/unit/compat/npu/test_profiler_api.py": {
+      "parent_sha256": "0dc97c2253626d2f5f62aa646b94cbeb089ee6404ead6141a520f0106225c98a",
+      "sha256": "2f518d57d0272785211762c71745ad1f5ffcf959c1891afdbef58223a3fe3681"
+    },
+    "tests/unit/compat/npu/test_runtime_config.py": {
+      "parent_sha256": "7a66753ed917e3ef833ffcc497650ceae27e4e2aff9feac2ec445cd0f23439f7",
+      "sha256": "9b9d3ad7b550e5bc92a3f08036c4e9f72d3c626eb66240a175b1146194c14099"
+    },
+    "tests/unit/compat/patches/test_engine_core.py": {
+      "parent_sha256": "c733b238a86779a161b97361a10394518e796c433a409fc511ced9a97bb6ddfc",
+      "sha256": "e06566d13a8669a043aad20208723a3309a30ef940f34c09a5bc369e4a9cca3a"
+    },
+    "tests/unit/compat/patches/test_signatures.py": {
+      "parent_sha256": "f141374e05f0f01b07a192bff55f6d50a8d3cea254da758e59610e326fe3c459",
+      "sha256": "b9979c82d5344e8ddec93a1dc55b7f8bdedc32af2035c4f53c4bca2cc1c10e07"
+    },
+    "tests/unit/fakes/dspark_pd.py": {
+      "parent_sha256": "b3b912c3a8f0a34c30e843ed1995fe30fde275b4e128992a148193576e7ffb96",
+      "sha256": "f30153e27ea96e21c6e4512cbe0cf661f7ca9bbff77e006988d584613133ef43"
+    },
+    "tests/unit/fakes/executor.py": {
+      "parent_sha256": null,
+      "sha256": "2c0d1fb4aff7871f32ae4e28ddb0fcbb5a4a20555103e25c58d309b95073f429"
+    },
+    "tests/unit/fakes/ffn_model_runner.py": {
+      "parent_sha256": "ffc3229cd1a364915d68bf8ef07dda8e79337c2ae761852d4d56592dc484416a",
+      "sha256": "c295d36bbe80cf76e8f1372ca7189ff948d3b23ad5bd10426b6e516fc1db0de8"
+    },
+    "tests/unit/fakes/hccl.py": {
+      "parent_sha256": "bca123205699d99d5426c8ae8c1a434f6b0f0d63902eb1e02c28f48dc7d3b530",
+      "sha256": "fa103c81df47307de38d0265edafa3fe2c13d2f6d9f6e2e5a695082a97c837d8"
+    },
+    "tests/unit/fakes/kv_cache.py": {
+      "parent_sha256": "a6f960343cffcd206e85e2ce65c064e83c8fd554b693bbe3386a64aee9245534",
+      "sha256": "e9ad300a69acfd6bd914006269889c5464b4385f363ddc04536d2d585bbb3254"
+    },
+    "tests/unit/fakes/kv_layout_connector.py": {
+      "parent_sha256": "6b43c2c259a17e2217a4dad7efc16a8c5d3c0b7671d5ae6c33b895d9d516e1e6",
+      "sha256": "73452e854be8eea39fb5b194a9e9eda96d39f611c56e83a5331bd83cc199d0dc"
+    },
+    "tests/unit/fakes/profiler.py": {
+      "parent_sha256": "dd890c0eb5286a9deeac1f0ce2f6329c5f0ace41de3cb8a58ef0cf59da38e418",
+      "sha256": "6605a66885495fb592198b645f3f65392b8fa025d7efa879a588ade37575976d"
+    },
+    "tests/unit/fakes/profiler_api.py": {
+      "parent_sha256": "a276848da915d0b584d0b4c28c8762d22544b53e86f3c7ca89bb4b5f55e6000d",
+      "sha256": "21348dad635bc819ec83e04526de2f025715627970ea1c0e459013cc05da99d9"
+    },
+    "tests/unit/fakes/profiler_control.py": {
+      "parent_sha256": "ff9c354ca44cce48970e2951f7cf5326ee6ba990f3edff276d40859e2640d4b0",
+      "sha256": "dbc7379d807221d414bcaa6e5335eb6ddb9dac323cfd0db39fc0f9424eb5689a"
+    },
+    "tests/unit/fakes/vllm_config.py": {
+      "parent_sha256": "783150b778732aaf15cc5f42f1c3d171d51a20fa1bfe82c542f60fbba73c302a",
+      "sha256": "3de6eca673462ba16cc7c577027b1a4dd56d2f64219838b12aed9c02c4374fe5"
+    },
+    "tests/unit/v1/worker/npu/test_ffn_worker.py": {
+      "parent_sha256": "c095285d3094e38dba790df5e2752c3fc1f8ee6df59c766757f3ce741866a4f9",
+      "sha256": "65f0f3df13d7eff262e39379f4a10045e90c1e53512a10357cb0c0002f2d0d4e"
+    }
+  },
+  "full_source_manifest": "source-manifest.json",
+  "full_source_manifest_sha256": "48169a22db0fdec96655b81db5318d4c9a140b6c6bc3bb3161d7063c2f8f5dd9",
+  "production_and_unit_manifest": "production-and-unit-manifest.json",
+  "production_and_unit_manifest_sha256": "f3cb9570ebac487d25eb00de7e4d0a20d08fbc52c2a1e4b2be2e7a1bb476cbe1",
+  "production_and_unit_path_count": 373,
+  "test_support_manifest": "test-support-manifest.json",
+  "test_support_all_match_HEAD": true,
+  "kept_parent_mtp_fakes": [
+    "tests/unit/fakes/mtp.py",
+    "tests/unit/fakes/mtp_runtime.py"
+  ],
+  "paused_mtp_production_or_test_added": false,
+  "inherited_paused_mtp_signature_tests_removed": 11,
+  "paused_mtp_signature_pruning": "paused-mtp-signature-pruning.json",
+  "bundle_archive": ".tmp/a5-functional-bundle-final-002/runtime-source.tar.gz",
+  "bundle_archive_sha256": "87391afb4559f73a07ddf2211f17e31d8dba40b3d0e6efbaeeb7bb01f7ca51c0",
+  "bundle_lock_sha256": "1e619011caced6c53b75e4c9695b564930aa55f34e9493c49221864867b50184",
+  "bundle_146_production_exact": true,
+  "all_inputs_unchanged_after_tests": true,
+  "worktree_source_edits": false
+}

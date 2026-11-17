@@ -18,6 +18,8 @@ depends_on:
 validation_paths:
   - "tests/unit/model_executor/**"
   - "tests/npu/v41_stage_state_probe.py"
+  - "tests/npu/dsv41_moe_parity_probe.py"
+  - "tools/diagnostics/run_dsv41_a5_moe_parity.py"
   - "tests/e2e/models/**"
   - "tests/e2e/accuracy/**"
 upstream_refs:
@@ -380,6 +382,15 @@ The live connector reference currently present in forward-context metadata is
 not declared a long-term model API.
 
 ## Upstream relationship and validation requirements
+
+The single-layer DSV4.1 diagnostic additionally supports
+`--comparison native-vs-afd`: two fresh TP4 phases compare native MoE with the
+actual F-layer constructor, F weight-loading override, native postprocessing
+and F compute boundary. Fresh inputs and same-weight direct/FFN controls
+separate those seams. The carrier skips full F construction; runner, transport,
+Attention and Engram are outside this component. Its
+[A5 procedure](../../npu/DSV41_A5_AFD_MOE_PARITY_ZH.md) keeps numerical observations
+separate from model-equivalence acceptance.
 
 Changes must be compared with the matching pinned vLLM architecture and
 forward-context contract. Run model unit tests and the affected GPU/NPU model

@@ -511,6 +511,7 @@ def test_normal_runner_constructor_binds_selected_staged_adapter(
     )
     config.model_config.hf_text_config.hidden_size = 4
     config.model_config.hf_text_config.vocab_size = 32
+    config.compilation_config.static_forward_context = {}
     config.parallel_config.rank = 0
     config.parallel_config.use_ubatching = native_u2
     config.parallel_config.num_ubatches = 2 if native_u2 else 0
@@ -524,7 +525,9 @@ def test_normal_runner_constructor_binds_selected_staged_adapter(
     monkeypatch.setattr(
         attention, "fail_if_unsupported_npu_afd_features", lambda _: None
     )
-    monkeypatch.setattr(attention, "create_npu_runtime_connector", lambda *a: connector)
+    monkeypatch.setattr(
+        attention, "create_npu_runtime_connector", lambda *a, **k: connector
+    )
     monkeypatch.setattr(attention, "_resolve_world_ranks", lambda: (0, 1))
     monkeypatch.setattr(
         attention, "create_deferred_afd_npu_profiler", lambda _role, **_: None
@@ -532,6 +535,8 @@ def test_normal_runner_constructor_binds_selected_staged_adapter(
 
     def native_init(self, vllm_config, device):
         self.vllm_config, self.device, self.ubatch_runner = vllm_config, device, None
+        self.parallel_config = vllm_config.parallel_config
+        self.model_config = vllm_config.model_config
 
     monkeypatch.setattr(NPUModelRunner, "__init__", native_init)
     runner = attention.AFDNPUAttentionModelRunnerV2(

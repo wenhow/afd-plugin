@@ -20,6 +20,7 @@ from vllm import SamplingParams
 from vllm.config import CUDAGraphMode
 from vllm.utils import torch_utils
 from vllm.v1.attention.backends.utils import PAD_SLOT_ID
+from vllm.v1.executor.multiproc_executor import WorkerProc
 from vllm.v1.kv_cache_interface import (
     SlidingWindowSpec,
     UniformTypeKVCacheSpecs,
@@ -37,6 +38,8 @@ from afd_plugin.compat.npu.dspark_pd import (
     DsparkPdReadQuery,
     read_lease_from_payload,
 )
+from afd_plugin.compat.npu.runtime_config import validate_deepseek_v41_pd
+from afd_plugin.connectors.npu.hccl_overlap import HcclOverlapSettings
 from afd_plugin.model_executor.models import forward_context as context_module
 from afd_plugin.model_executor.models.npu.deepseek_v41 import (
     HCCL_V41_PARENT_FORWARD_KEY,
@@ -47,16 +50,18 @@ from tests.unit.fakes.attention_model_runner_v2 import (
     install_graph_runner_coordinator,
     make_dspark_pd_runner_case,
     make_graph_runner_case,
+    make_legacy_attention_startup_case,
     queue_graph_runner_stop,
 )
 from tests.unit.fakes.block_table import install_native_block_table_kernels_cpu
 from tests.unit.fakes.deepseek_v41 import PD_CPU_TARGET_TOKEN
-from tests.unit.fakes.dspark_pd import (
-    initialize_pd_cpu_source_pages,
-    make_dspark_pd_prefix_case,
-)
 from tests.unit.fakes.dspark_speculator import make_dspark_proposal_case
+from tests.unit.fakes.engine_core import (
+    make_native_output_engine_case,
+    make_native_worker_output_case,
+)
 from tests.unit.fakes.hccl_v41_graph_bootstrap import (
+    make_attention_eager_bootstrap_case,
     make_graph_bootstrap_case,
     set_graph_bootstrap_environment,
 )
@@ -64,6 +69,7 @@ from tests.unit.fakes.hccl_v41_graph_eager import run_graph_eager_parent
 from tests.unit.fakes.input_batch import install_native_input_preparation_cpu
 from tests.unit.fakes.kv_connector import (
     FULL_REPLAY_HISTORY_TOKENS,
+    SpeculativeLogitsBoundary,
     advance_native_dspark_sampling_case,
     complete_native_pd_handoff,
     initialize_native_pd_sampling,
@@ -73,6 +79,10 @@ from tests.unit.fakes.kv_connector import (
     make_native_full_kv_replay_case,
     make_native_full_kv_sampling_case,
     make_native_kv_runner_case,
+    make_native_pd_graph_case,
+    make_native_pd_prefill_owner_case,
+    make_native_u2_prefill_prefix_case,
+    make_scheduled_pd_runner_case,
     native_dspark_eager_reference,
     native_pd_target_step_reference,
 )
@@ -80,6 +90,11 @@ from tests.unit.fakes.kv_layout_connector import (
     DESTINATION_SENTINEL,
     make_scheduled_dspark_read_case,
 )
+from tests.unit.fakes.logging import (
+    SESSION_CONFIGURATION_PREFIX,
+    structured_log_records,
+)
+from tests.unit.fakes.logging import serving_logs as serving_logs
 from tests.unit.fakes.request_state import (
     make_native_request_admission_case,
     native_zeroed_cache_reference,
@@ -92,22 +107,10 @@ PD_REPLACEMENT_MAX_TOKENS = 3
 
 @pytest.fixture
 def scheduled_pd_zero_case(monkeypatch, request):
-    prefix = make_dspark_pd_prefix_case(
-        monkeypatch,
-        original_tokens=request.param,
-        bind=False,
-        complete_cpu_models=True,
-    )
-    transfer = make_scheduled_dspark_read_case(
-        monkeypatch,
-        prefix,
-        initialize_source_pages=initialize_pd_cpu_source_pages,
-        sampling_params=SamplingParams(temperature=0),
+    transfer, runner = make_scheduled_pd_runner_case(
+        monkeypatch, prompt_length=request.param
     )
     request.addfinalizer(transfer.close)
-    runner = make_native_kv_runner_case(
-        monkeypatch, post_kv=False, sync_load=False, pd_read_case=transfer
-    )
     return transfer, runner
 
 
@@ -117,6 +120,640 @@ def native_pd_target_case(scheduled_pd_zero_case, monkeypatch):
     resumed = complete_native_pd_handoff(runner)
     initialize_native_pd_target_execution(monkeypatch, runner, scheduler_output=resumed)
     return transfer, runner, resumed
+
+
+@pytest.fixture
+def native_pd_u2_case(monkeypatch, request):
+    transfer, runner = make_scheduled_pd_runner_case(
+        monkeypatch, prompt_length=request.param, stages=2
+    )
+    request.addfinalizer(transfer.close)
+    resumed = complete_native_pd_handoff(runner)
+    initialize_native_pd_target_execution(monkeypatch, runner, scheduler_output=resumed)
+    request.addfinalizer(runner.target_hook.remove)
+    initialize_native_pd_sampling(monkeypatch, runner)
+    return transfer, runner, resumed
+
+
+@pytest.fixture
+def native_pd_graph_case(monkeypatch, request):
+    stages, fail_replay = (
+        request.param if isinstance(request.param, tuple) else (request.param, False)
+    )
+    transfer, runner = make_native_pd_graph_case(
+        monkeypatch, stages=stages, fail_replay=fail_replay
+    )
+    request.addfinalizer(transfer.close)
+    if stages == 2:
+        request.addfinalizer(runner.target_hook.remove)
+    return transfer, runner
+
+
+@pytest.fixture
+def native_u2_prefill_case(monkeypatch):
+    case = make_native_u2_prefill_prefix_case(monkeypatch)
+    with monkeypatch.context() as execution_patch:
+        execution_patch.setattr(
+            "vllm.distributed.kv_transfer.kv_transfer_state._KV_CONNECTOR_AGENT", None
+        )
+        assert case.owner.execute_model(case.scheduler) is None
+    return case
+
+
+@pytest.mark.parametrize("boundary", ["execute", "proposal"])
+def test_pd_ready_waits_for_native_p_sampling(  # long-test: public Ready frontier
+    monkeypatch, boundary
+):
+    case = make_native_pd_prefill_owner_case(monkeypatch)
+    owner, prefix, producer = case.owner, case.prefix, case.producer
+    assert owner.vllm_config is prefix.config
+    assert owner.dspark_pd_consumer.vllm_config is owner.vllm_config
+    assert owner.dspark_pd_consumer.binding.target_model is owner.model
+    assert all(request.sampling_params.max_tokens == 1 for request in case.requests)
+    assert case.scheduler.has_sync_kv_loads is False
+    assert owner.execute_model(case.scheduler) is None
+    state = owner.execute_model_state
+    assert len(state.aux_hidden_states) == 3
+    positions = state.input_batch.positions.clone()
+    offsets = state.input_batch.query_start_loc_np.copy()
+    expected = sum(
+        (index + 1) * auxiliary.float()
+        for index, auxiliary in enumerate(state.aux_hidden_states)
+    ).to(torch.bfloat16)[:, :2]
+    if boundary == "execute":
+        assert producer.request_ready(case.query)["ok"] is False
+    case.observations.enabled = True
+    output = owner.sample_tokens(None).get_output()
+    assert output.sampled_token_ids == [[PD_CPU_TARGET_TOKEN]] * len(case.requests)
+    # Observe the public peer result while native proposal/store is executing.
+    # Equal final bytes alone would not prove leased storage was quiescent.
+    assert case.observations.replies
+    assert all(reply["ok"] is False for reply in case.observations.replies)
+    lease = read_lease_from_payload(producer.request_ready(case.query)["lease"])
+    assert lease.ready == prefix.expected_ready
+    middle = state.input_batch.req_ids.index(prefix.source.request_id)
+    for group, name in zip(prefix.draft_group_ids, prefix.draft_names, strict=True):
+        cache = prefix.caches[name]
+        for position in range(prefix.source.computed_prefix_tokens):
+            block = prefix.source.allocation_block_ids[group][
+                position // cache.shape[1]
+            ]
+            torch.testing.assert_close(
+                cache[block, position % cache.shape[1], 0],
+                expected[offsets[middle] + position],
+                rtol=0,
+                atol=0,
+            )
+    torch.testing.assert_close(state.input_batch.positions, positions, rtol=0, atol=0)
+    assert producer.complete_read(lease) == b"ACK"
+    assert producer.request_ready(case.query)["ok"] is False
+
+
+@pytest.mark.parametrize("boundary", ["execute", "shutdown"])
+def test_pending_p_sampling_preserves_native_state_before_reentry(
+    monkeypatch, boundary
+):
+    case = make_native_pd_prefill_owner_case(monkeypatch)
+    owner = case.owner
+    assert owner.execute_model(case.scheduler) is None
+    state = owner.execute_model_state
+    views = tuple(case.prefix.caches[name] for name in case.prefix.draft_names)
+    before = tuple(view.clone() for view in views)
+    with pytest.raises(RuntimeError, match="sampling|pending"):
+        if boundary == "execute":
+            owner.execute_model(case.scheduler)
+        else:
+            owner.prepare_shutdown()
+    assert owner.execute_model_state is state
+    assert case.producer.request_ready(case.query)["ok"] is False
+    for actual, unchanged in zip(views, before, strict=True):
+        torch.testing.assert_close(actual, unchanged, rtol=0, atol=0)
+
+
+def test_p_proposal_failure_retains_cause_and_rejects_ready_retry(monkeypatch, request):
+    case = make_native_pd_prefill_owner_case(monkeypatch)
+    cause = RuntimeError("controlled native P proposal failure")
+
+    def fail_proposal(module, args):
+        raise cause
+
+    draft_layer = next(iter(case.owner.speculator.model.model.layers.values()))
+    hook = draft_layer.self_attn.register_forward_pre_hook(fail_proposal)
+    request.addfinalizer(hook.remove)
+    assert case.owner.execute_model(case.scheduler) is None
+    with pytest.raises(
+        RuntimeError, match="controlled native P proposal failure"
+    ) as caught:
+        case.owner.sample_tokens(None)
+    assert caught.value is cause
+    assert case.owner.dspark_pd_consumer.terminal
+    assert case.producer.request_ready(case.query)["ok"] is False
+    with pytest.raises(RuntimeError, match="terminal"):
+        case.owner.sample_tokens(None)
+    assert case.producer.request_ready(case.query)["ok"] is False
+
+
+@pytest.mark.parametrize("stages", [1, 2])
+def test_same_p_owner_keeps_prefill_coordinates_until_ready(  # long-test: one parent
+    monkeypatch, stages
+):
+    case = make_native_pd_prefill_owner_case(monkeypatch, stages=stages)
+    owner, prefix = case.owner, case.prefix
+    config, consumer, model = owner.vllm_config, owner.dspark_pd_consumer, owner.model
+    assert config is prefix.config and consumer.vllm_config is config
+    assert consumer.binding.target_model is model
+    assert case.scheduler.has_sync_kv_loads is False
+    assert owner.execute_model(case.scheduler) is None
+    state = owner.execute_model_state
+    batch = state.input_batch
+    assert batch.query_start_loc_np.tolist() == [0, 2, 7, 13]
+    assert batch.num_scheduled_tokens.tolist() == [2, 5, 6]
+    assert batch.prefill_len_np.tolist() == [2, 5, 6]
+    assert batch.num_computed_tokens_np.tolist() == [0, 0, 0]
+    assert len(state.aux_hidden_states) == 3
+    positions, offsets = batch.positions.clone(), batch.query_start_loc_np.copy()
+    projected = sum(
+        (index + 1) * auxiliary.float()
+        for index, auxiliary in enumerate(state.aux_hidden_states)
+    ).to(torch.bfloat16)[:, :2]
+    for group in range(len(prefix.layout.groups)):
+        allocated = [
+            set(source.allocation_block_ids[group]) - {NULL_BLOCK_ID}
+            for source in case.sources
+        ]
+        assert all(
+            left.isdisjoint(right)
+            for index, left in enumerate(allocated)
+            for right in allocated[index + 1 :]
+        )
+    if stages == 2:
+        (plan,) = [
+            message.plan
+            for direction, _, _, message in case.transport.transcript
+            if direction == "send" and message.kind == "FORWARD"
+        ]
+        assert plan.mode == "target" and plan.layer_indices == (0, 1, 2)
+        assert [stage.attention_valid_tokens for stage in plan.stages] == [(6,), (7,)]
+        assert [stage.attention_padded_tokens for stage in plan.stages] == [(6,), (7,)]
+        assert [
+            message.transaction_id
+            for direction, _, _, message in case.transport.transcript
+            if direction == "recv" and message.kind == "COMPLETE"
+        ] == [plan.transaction_id]
+    assert case.producer.request_ready(case.query)["ok"] is False
+    case.observations.enabled = True
+    output = owner.sample_tokens(None).get_output()
+    assert output.sampled_token_ids == [[PD_CPU_TARGET_TOKEN]] * len(case.requests)
+    assert case.observations.replies
+    assert all(reply["ok"] is False for reply in case.observations.replies)
+    lease = read_lease_from_payload(case.producer.request_ready(case.query)["lease"])
+    assert lease.ready == prefix.expected_ready
+    sources = {source.request_id: source for source in case.sources}
+    for row, request_id in enumerate(batch.req_ids):
+        source = sources[request_id]
+        for group, name in zip(prefix.draft_group_ids, prefix.draft_names, strict=True):
+            cache = prefix.caches[name]
+            for position in range(source.computed_prefix_tokens):
+                block = source.allocation_block_ids[group][position // cache.shape[1]]
+                torch.testing.assert_close(
+                    cache[block, position % cache.shape[1], 0],
+                    projected[offsets[row] + position],
+                    rtol=0,
+                    atol=0,
+                )
+    torch.testing.assert_close(batch.positions, positions, rtol=0, atol=0)
+    assert owner.vllm_config is config and owner.dspark_pd_consumer is consumer
+    assert consumer.binding.target_model is owner.model is model
+    assert owner.execute_model_state is None and not consumer.terminal
+    assert case.producer.complete_read(lease) == b"ACK"
+    assert case.producer.request_ready(case.query)["ok"] is False
+
+
+def test_u2_prefill_keeps_parent_aux(  # long-test: three-request projection
+    native_u2_prefill_case,
+):
+    case = native_u2_prefill_case
+    owner, prefix = case.owner, case.prefix
+    state = owner.execute_model_state
+    batch = state.input_batch
+    assert batch.req_ids == case.expected_target.req_ids
+    assert batch.query_start_loc_np.tolist() == [0, 2, 7, 13]
+    assert batch.num_scheduled_tokens.tolist() == [2, 5, 6]
+    assert batch.prefill_len_np.tolist() == [2, 5, 6]
+    assert batch.num_computed_tokens_np.tolist() == [0, 0, 0]
+    assert batch.positions.tolist() == [0, 1, 0, 1, 2, 3, 4, 0, 1, 2, 3, 4, 5]
+    assert batch.input_ids.tolist() == [0, 1, 0, 1, 2, 3, 4, 20, 21, 22, 23, 24, 25]
+    (plan,) = [
+        message.plan
+        for direction, _, _, message in case.transport.transcript
+        if direction == "send" and message.kind == "FORWARD"
+    ]
+    assert plan.mode == "target" and plan.layer_indices == (0, 1, 2)
+    assert [stage.attention_valid_tokens for stage in plan.stages] == [(6,), (7,)]
+    assert [stage.attention_padded_tokens for stage in plan.stages] == [(6,), (7,)]
+    assert (
+        batch.query_start_loc_np[1]
+        < plan.stages[0].attention_valid_tokens[0]
+        < batch.query_start_loc_np[2]
+    )
+    assert [
+        message.transaction_id
+        for direction, _, _, message in case.transport.transcript
+        if direction == "recv" and message.kind == "COMPLETE"
+    ] == [plan.transaction_id]
+    torch.testing.assert_close(
+        state.hidden_states, case.expected_target.hidden_states, rtol=0, atol=0
+    )
+    for actual, expected in zip(
+        state.aux_hidden_states, case.expected_target.aux_hidden_states, strict=True
+    ):
+        torch.testing.assert_close(actual, expected, rtol=0, atol=0)
+    for actual, expected in zip(case.pages, case.expected_target.pages, strict=True):
+        torch.testing.assert_close(actual, expected, rtol=0, atol=0)
+    assert owner.vllm_config.kv_transfer_config is None
+    assert owner.parallel_config.use_ubatching
+    validate_deepseek_v41_pd(prefix.config)
+    assert not prefix.config.parallel_config.use_ubatching
+    assert prefix.consumer.binding.target_model is owner.model
+    for group in range(len(prefix.kv_config.kv_cache_groups)):
+        allocated = [
+            set(source.allocation_block_ids[group]) - {0} for source in case.sources
+        ]
+        assert all(allocated)
+        assert all(
+            left.isdisjoint(right)
+            for index, left in enumerate(allocated)
+            for right in allocated[index + 1 :]
+        )
+    ready = prefix.consumer.consume_prefill(case.scheduler, state, case.sources)
+    assert {item.source_request_id for item in ready} == set(batch.req_ids)
+    assert {item.source_generation for item in ready} == {
+        source.source_generation for source in case.sources
+    }
+    # The leaf reads prepared prefixes, not intra-chunk causal Attention.
+    # The independent oracle models child segments, without claiming U1 parity.
+    projected = sum(
+        (index + 1) * layer.float()
+        for index, layer in enumerate(case.expected_target.aux_hidden_states)
+    )
+    projected = projected.to(torch.bfloat16)[:, :2]
+    sources = {source.request_id: source for source in case.sources}
+    for row, request_id in enumerate(batch.req_ids):
+        source = sources[request_id]
+        for group, name in zip(prefix.draft_group_ids, prefix.draft_names, strict=True):
+            cache = prefix.caches[name]
+            for position in range(source.computed_prefix_tokens):
+                block = source.allocation_block_ids[group][position // cache.shape[1]]
+                torch.testing.assert_close(
+                    cache[block, position % cache.shape[1], 0],
+                    projected[batch.query_start_loc_np[row] + position],
+                    rtol=0,
+                    atol=0,
+                )
+    assert owner.execute_model_state is state and not prefix.consumer.terminal
+
+
+def test_u2_prefill_reaches_pd_sample(  # long-test: Ready/read/DONE and sample
+    native_u2_prefill_case,
+    monkeypatch,
+    request,
+):
+    source = native_u2_prefill_case
+    state = source.owner.execute_model_state
+    transfer = make_scheduled_dspark_read_case(
+        monkeypatch,
+        source.prefix,
+        producer=source.producer,
+        producer_execution=(source.scheduler, state, source.sources),
+        sampling_params=SamplingParams(temperature=0),
+    )
+    request.addfinalizer(transfer.close)
+    runner = make_native_kv_runner_case(
+        monkeypatch, post_kv=False, sync_load=False, pd_read_case=transfer
+    )
+    complete_native_pd_handoff(runner, schedule_target=False)
+    prefix_tokens = source.prefix.source.computed_prefix_tokens
+    assert transfer.request.num_computed_tokens == prefix_tokens
+    resumed = transfer.scheduler.schedule()
+    assert resumed.scheduled_new_reqs[0].num_computed_tokens == prefix_tokens
+    scheduled_width = resumed.num_scheduled_tokens[transfer.request.request_id]
+    assert transfer.request.num_computed_tokens == prefix_tokens + scheduled_width
+    initialize_native_pd_target_execution(monkeypatch, runner, scheduler_output=resumed)
+    initialize_native_pd_sampling(monkeypatch, runner)
+    assert runner.owner.execute_model(resumed) is None
+    actual = runner.owner.execute_model_state
+    torch.testing.assert_close(
+        actual.hidden_states, runner.expected_target.hidden_states, rtol=0, atol=0
+    )
+    output = runner.owner.sample_tokens(None).get_output()
+    assert output.sampled_token_ids == [[PD_CPU_TARGET_TOKEN]]
+    drafts = runner.owner.take_draft_token_ids()
+    assert drafts.req_ids == [transfer.request.request_id]
+    assert drafts.draft_token_ids == [[-1] * runner.owner.num_speculative_steps]
+    index = runner.owner.req_states.req_id_to_index[transfer.request.request_id]
+    assert runner.owner.req_states.draft_tokens[index].tolist() == list(
+        range(
+            PD_CPU_TARGET_TOKEN + 1,
+            PD_CPU_TARGET_TOKEN + 1 + runner.owner.num_speculative_steps,
+        )
+    )
+    assert transfer.request.num_computed_tokens == prefix_tokens + scheduled_width
+    assert runner.owner.model is transfer.loaded_destination.target_model
+    assert runner.owner.model is not source.owner.model
+    assert runner.owner.speculator is transfer.loaded_destination.speculator
+    assert source.owner.execute_model_state is state
+    assert not source.prefix.consumer.terminal
+    kinds = [msgspec.msgpack.decode(message)[0] for message in transfer.sent]
+    assert kinds == [
+        pd_adapter.GET_META_MSG,
+        pd_adapter.GET_DSPARK_READY_MSG,
+        pd_adapter.DONE_DSPARK_RECV_MSG,
+    ]
+
+
+@pytest.fixture
+def native_pd_output_case(scheduled_pd_zero_case, monkeypatch, fail_completion):
+    transfer, runner = scheduled_pd_zero_case
+    complete_native_pd_handoff(runner, schedule_target=False)
+    initialize_native_pd_target_execution(monkeypatch, runner)
+    initialize_native_pd_sampling(monkeypatch, runner)
+    return make_native_output_engine_case(
+        monkeypatch, runner, transfer, fail_completion=fail_completion
+    )
+
+
+@pytest.mark.parametrize("native_pd_graph_case", [1, 2], indirect=True)
+def test_native_pd_graph_handoff_enters_cached_replay(  # long-test: PD Graph parent
+    native_pd_graph_case, monkeypatch
+):
+    transfer, case = native_pd_graph_case
+    owner, destination = case.owner, transfer.destination_cache
+    # Supplied static bundle startup has not polled or consumed a PD message.
+    # Its CPU allocator label does not prove real NPU device admission/capture.
+    assert case.startup_pd_messages == ()
+    assert (
+        owner.vllm_config.compilation_config.cudagraph_mode
+        == CUDAGraphMode.FULL_DECODE_ONLY
+    )
+    assert transfer.prefix_case.config.model_config.enforce_eager
+    scheduled = complete_native_pd_handoff(case)
+    request = scheduled.scheduled_new_reqs[0]
+    width = scheduled.num_scheduled_tokens[request.req_id]
+    assert width == 3 and request.num_computed_tokens == 5
+    protocol = tuple(transfer.sent)
+    expected = native_pd_target_step_reference(
+        case,
+        scheduled,
+        input_ids=torch.tensor([5, 0, 0]),
+        computed=5,
+        block_ids=request.block_ids,
+        stages=owner.parallel_config.num_ubatches,
+    )
+    assert owner.execute_model(scheduled) is None
+    first = owner.execute_model_state
+    assert first.input_batch.input_ids.tolist() == [5, 0, 0]
+    assert first.input_batch.positions.tolist() == [5, 6, 7]
+    torch.testing.assert_close(
+        first.hidden_states, expected.hidden_states, rtol=0, atol=0
+    )
+    for actual, target in zip(destination.pages, expected.pages, strict=True):
+        torch.testing.assert_close(actual, target, rtol=0, atol=0)
+    sampled = owner.sample_tokens(None).get_output()
+    assert sampled.sampled_token_ids == [[PD_CPU_TARGET_TOKEN]]
+    transfer.scheduler.update_from_output(scheduled, sampled)
+    transfer.scheduler.update_draft_token_ids(owner.take_draft_token_ids())
+    scheduled = transfer.scheduler.schedule()
+    assert scheduled.scheduled_cached_reqs.req_ids == [request.req_id]
+    assert scheduled.num_scheduled_tokens == {request.req_id: 3}
+
+    def forbid_target_python(module, inputs):
+        raise AssertionError("inert FULL replay must not rerun target Python")
+
+    hook = owner.model.register_forward_pre_hook(forbid_target_python)
+    try:
+        assert owner.execute_model(scheduled) is None
+    finally:
+        hook.remove()
+    step = owner.execute_model_state
+    assert step.input_batch.input_ids.tolist() == [7, 8, 9]
+    assert step.input_batch.positions.tolist() == [6, 7, 8]
+    assert step.input_batch.seq_lens[:1].tolist() == [9]
+    hidden, auxiliary = case.recorded_outputs
+    torch.testing.assert_close(step.hidden_states, hidden, rtol=0, atol=0)
+    for actual, target in zip(step.aux_hidden_states, auxiliary, strict=True):
+        torch.testing.assert_close(actual, target, rtol=0, atol=0)
+    plans = [
+        message.plan
+        for direction, _, _, message in case.transport.transcript
+        if direction == "send"
+        and message.kind == "FORWARD"
+        and message.plan.mode == "target"
+        and sum(stage.attention_valid_tokens[0] for stage in message.plan.stages)
+    ]
+    assert [plan.graph_execution.phase for plan in plans] == ["eager", "replay"]
+    assert [stage.attention_valid_tokens for stage in plans[-1].stages] == (
+        [(3,)] if owner.parallel_config.num_ubatches == 1 else [(1,), (2,)]
+    )
+    monkeypatch.setattr(
+        owner.model.language_model,
+        "compute_logits",
+        SpeculativeLogitsBoundary(4, 128, ordinal_rows=True, predictions=(8, 7, 7)),
+    )
+    output = owner.sample_tokens(None).get_output()
+    assert output.sampled_token_ids == [[8, 7]]
+    index = owner.req_states.req_id_to_index[request.req_id]
+    assert owner.req_states.draft_tokens[index].tolist() == [8, 9]
+    assert owner.req_states.all_token_ids.gpu[index, :9].tolist() == [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        7,
+        8,
+        7,
+    ]
+    assert owner.req_states.num_computed_tokens.gpu[index].item() == 8
+    transfer.scheduler.update_from_output(scheduled, output)
+    assert tuple(transfer.sent) == protocol
+    assert not owner.dspark_pd_consumer.terminal
+    for actual, target in zip(
+        destination.source_pages, case.source_pages_before, strict=True
+    ):
+        torch.testing.assert_close(actual, target, rtol=0, atol=0)
+
+
+@pytest.mark.parametrize("native_pd_graph_case", [(2, True)], indirect=True, ids=["u2"])
+def test_native_pd_graph_replay_failure_retains_owner(  # long-test: failed PD replay
+    native_pd_graph_case,
+):
+    transfer, case = native_pd_graph_case
+    owner, destination = case.owner, transfer.destination_cache
+    scheduled = complete_native_pd_handoff(case)
+    assert owner.execute_model(scheduled) is None
+    output = owner.sample_tokens(None).get_output()
+    transfer.scheduler.update_from_output(scheduled, output)
+    transfer.scheduler.update_draft_token_ids(owner.take_draft_token_ids())
+    scheduled = transfer.scheduler.schedule()
+    protocol = tuple(transfer.sent)
+    model, speculator, consumer = (
+        owner.model,
+        owner.speculator,
+        owner.dspark_pd_consumer,
+    )
+    pages = tuple(destination.pages)
+    addresses = tuple(page.data_ptr() for page in pages)
+    before = len(case.transport.transcript)
+
+    with pytest.raises(
+        RuntimeError, match="controlled D PD FULL replay failure"
+    ) as error:
+        owner.execute_model(scheduled)
+
+    assert error.value is case.replay_error
+    assert consumer.terminal and case.cache.terminal and case.transport.terminal
+    assert not case.cache.is_empty and not case.cache.closed
+    assert not case.transport.closed and not case.recorded_graph.closed
+    assert owner.model is model and owner.speculator is speculator
+    assert owner.dspark_pd_consumer is consumer
+    assert tuple(transfer.sent) == protocol
+    # Native preparation may clear cache padding before the failed device
+    # boundary. Failure retains those bytes; neither retry nor shutdown may
+    # mutate them again. This does not promise transactional KV rollback.
+    values = tuple(page.clone() for page in destination.pages)
+    for actual, expected in zip(
+        destination.source_pages, case.source_pages_before, strict=True
+    ):
+        torch.testing.assert_close(actual, expected, rtol=0, atol=0)
+    messages = [
+        (direction, message)
+        for direction, _, _, message in case.transport.transcript[before:]
+    ]
+    assert [
+        message.kind
+        for direction, message in messages
+        if direction == "send" and message.kind == "FORWARD"
+    ] == ["FORWARD"]
+    assert any(
+        direction == "recv" and message.kind == "ACCEPT"
+        for direction, message in messages
+    )
+    assert not any(message.kind in ("COMPLETE", "STOP") for _, message in messages)
+    assert (
+        next(
+            message
+            for direction, message in messages
+            if direction == "send" and message.kind == "FORWARD"
+        ).plan.graph_execution.phase
+        == "replay"
+    )
+    failed_transcript = tuple(case.transport.transcript)
+    with pytest.raises(RuntimeError, match="DSpark prefix consumer is terminal"):
+        owner.execute_model(scheduled)
+    with pytest.raises(RuntimeError, match="DSpark prefix consumer is terminal"):
+        owner.prepare_shutdown()
+    assert tuple(transfer.sent) == protocol
+    assert tuple(case.transport.transcript) == failed_transcript
+    assert tuple(page.data_ptr() for page in destination.pages) == addresses
+    for actual, expected in zip(destination.pages, values, strict=True):
+        torch.testing.assert_close(actual, expected, rtol=0, atol=0)
+
+
+@pytest.mark.parametrize("scheduled_pd_zero_case", [1, 6], indirect=True)
+@pytest.mark.parametrize("engine_step", ["step", "step_with_batch_queue"])
+@pytest.mark.parametrize("fail_completion", [False, True])
+def test_pd_output_completion_precedes_scheduler_update(  # long-test: output seam
+    native_pd_output_case, engine_step, fail_completion
+):
+    case = native_pd_output_case
+    engine, transfer, owner = case.engine, case.transfer, case.runner.owner
+    step = engine.step if engine_step == "step" else engine.step_with_batch_queue
+    if fail_completion:
+        with pytest.raises(RuntimeError, match="device completion failed"):
+            step()
+        assert list(transfer.request.output_token_ids) == []
+    else:
+        outputs, executed = step()
+        assert executed
+        assert [
+            (output.request_id, output.new_token_ids)
+            for batch in outputs.values()
+            for output in batch.outputs
+        ] == [(transfer.request.request_id, [PD_CPU_TARGET_TOKEN])]
+        assert list(transfer.request.output_token_ids) == [PD_CPU_TARGET_TOKEN]
+
+    # Both native sample/proposal and KV post_forward have already completed.
+    # A delayed copy error does not rewind the worker to the scheduler frontier.
+    prompt = list(transfer.request.prompt_token_ids)
+    state = owner.req_states
+    index = state.req_id_to_index[transfer.request.request_id]
+    assert state.total_len.gpu[index].item() == len(prompt) + 1
+    assert state.num_computed_tokens.gpu[index].item() == len(prompt)
+    assert state.all_token_ids.gpu[index, : len(prompt) + 1].tolist() == (
+        prompt + [PD_CPU_TARGET_TOKEN]
+    )
+    assert state.draft_tokens[index].tolist() == list(
+        range(
+            PD_CPU_TARGET_TOKEN + 1,
+            PD_CPU_TARGET_TOKEN + 1 + owner.num_speculative_steps,
+        )
+    )
+    assert owner.execute_model_state is None
+    assert tuple(transfer.sent) == case.driver.protocol_after_sampling
+    assert [msgspec.msgpack.decode(message)[0] for message in transfer.sent] == [
+        pd_adapter.GET_META_MSG,
+        pd_adapter.GET_DSPARK_READY_MSG,
+        pd_adapter.DONE_DSPARK_RECV_MSG,
+    ]
+    for actual, expected in zip(
+        transfer.destination_cache.pages, case.driver.pages_after_sampling, strict=True
+    ):
+        torch.testing.assert_close(actual, expected, rtol=0, atol=0)
+    for actual, expected in zip(
+        transfer.destination_cache.source_pages,
+        case.runner.source_pages_before,
+        strict=True,
+    ):
+        torch.testing.assert_close(actual, expected, rtol=0, atol=0)
+
+
+@pytest.mark.parametrize("scheduled_pd_zero_case", [1, 6], indirect=True)
+@pytest.mark.parametrize("fail_completion", [False, True])
+def test_native_pd_worker_output_reports_completion_failure(
+    native_pd_output_case, fail_completion
+):
+    case = native_pd_output_case
+    scheduled = case.transfer.scheduler.schedule()
+    assert case.engine.model_executor.execute_model(scheduled) is None
+    output = case.driver.sample_tokens(None)
+    worker, responses = make_native_worker_output_case()
+
+    worker.enqueue_output(output)
+
+    status, payload = responses.get_nowait()
+    if fail_completion:
+        assert status is WorkerProc.ResponseStatus.FAILURE
+        assert payload == "device completion failed"
+    else:
+        assert status is WorkerProc.ResponseStatus.SUCCESS
+        assert payload.req_ids == [case.transfer.request.request_id]
+        assert payload.sampled_token_ids == [[PD_CPU_TARGET_TOKEN]]
+    assert responses.empty()
+    assert list(case.transfer.request.output_token_ids) == []
+    state = case.runner.owner.req_states
+    index = state.req_id_to_index[case.transfer.request.request_id]
+    assert (
+        state.total_len.gpu[index].item()
+        == len(case.transfer.request.prompt_token_ids) + 1
+    )
+    assert tuple(case.transfer.sent) == case.driver.protocol_after_sampling
+    for actual, expected in zip(
+        case.transfer.destination_cache.pages,
+        case.driver.pages_after_sampling,
+        strict=True,
+    ):
+        torch.testing.assert_close(actual, expected, rtol=0, atol=0)
 
 
 @pytest.fixture
@@ -363,6 +1000,86 @@ def test_native_pd_target_failure_retains_storage_and_rejects_retry(
 
 
 @pytest.mark.parametrize("scheduled_pd_zero_case", [1, 6], indirect=True)
+@pytest.mark.parametrize("failure_stage", ["target-head", "draft-backbone"])
+def test_pd_sampling_failure_retains_storage_and_rejects_retry(  # long-test: PD owner
+    native_pd_target_case, monkeypatch, failure_stage
+):
+    transfer, runner, resumed = native_pd_target_case
+    initialize_native_pd_sampling(monkeypatch, runner)
+    owner, destination = runner.owner, transfer.destination_cache
+    assert owner.execute_model(resumed) is None
+    protocol = tuple(transfer.sent)
+    cache_addresses = [page.data_ptr() for page in destination.pages]
+    sampling_error = RuntimeError(f"controlled PD {failure_stage} failure")
+
+    def fail_sampling(*args, **kwargs):
+        raise sampling_error
+
+    if failure_stage == "target-head":
+        monkeypatch.setattr(owner.model, "compute_logits", fail_sampling)
+        hook = None
+    else:
+        # The native compile decorator bypasses the wrapper's Module hooks;
+        # fail at its actual draft embedding call after context KV projection.
+        hook = owner.speculator.model.model.embed_tokens.register_forward_pre_hook(
+            fail_sampling
+        )
+    try:
+        with pytest.raises(RuntimeError, match=failure_stage) as raised:
+            owner.sample_tokens(None)
+        assert raised.value is sampling_error
+    finally:
+        if hook is not None:
+            hook.remove()
+
+    assert owner.dspark_pd_consumer.terminal
+    assert owner.execute_model_state is None
+    assert owner.sample_tokens(None) is None
+    state = owner.req_states
+    index = state.req_id_to_index[transfer.request.request_id]
+    prompt = resumed.scheduled_new_reqs[0].prompt_token_ids
+    # The draft failure follows native postprocess; preserve that advanced
+    # frontier rather than pretending that sampling/history were rolled back.
+    advanced = int(failure_stage == "draft-backbone")
+    assert state.total_len.gpu[index].item() == len(prompt) + advanced
+    assert state.all_token_ids.gpu[index, : len(prompt) + advanced].tolist() == (
+        prompt + [PD_CPU_TARGET_TOKEN] * advanced
+    )
+    pages_after_failure = [page.clone() for page in destination.pages]
+    with pytest.raises(RuntimeError, match="DSpark prefix consumer is terminal"):
+        owner.execute_model(resumed)
+    assert tuple(transfer.sent) == protocol
+    assert [page.data_ptr() for page in destination.pages] == cache_addresses
+    for actual, expected in zip(destination.pages, pages_after_failure, strict=True):
+        torch.testing.assert_close(actual, expected, rtol=0, atol=0)
+    for actual, expected in zip(
+        destination.source_pages, runner.source_pages_before, strict=True
+    ):
+        torch.testing.assert_close(actual, expected, rtol=0, atol=0)
+    assert owner.model is transfer.loaded_destination.target_model
+    assert owner.speculator is transfer.loaded_destination.speculator
+
+
+@pytest.mark.parametrize("scheduled_pd_zero_case", [1, 6], indirect=True)
+def test_native_pd_terminal_owner_rejects_pending_sample(
+    native_pd_target_case, monkeypatch
+):
+    transfer, runner, resumed = native_pd_target_case
+    initialize_native_pd_sampling(monkeypatch, runner)
+    owner = runner.owner
+    assert owner.execute_model(resumed) is None
+    pending = owner.execute_model_state
+    protocol = tuple(transfer.sent)
+    owner.dspark_pd_consumer.fail()
+
+    with pytest.raises(RuntimeError, match="DSpark prefix consumer is terminal"):
+        owner.sample_tokens(None)
+
+    assert owner.execute_model_state is pending
+    assert tuple(transfer.sent) == protocol
+
+
+@pytest.mark.parametrize("scheduled_pd_zero_case", [1, 6], indirect=True)
 def test_native_pd_first_sample_keeps_prompt_and_drafts(  # long-test: first D sample
     native_pd_target_case, monkeypatch
 ):
@@ -532,6 +1249,214 @@ def test_native_pd_second_sample_keeps_rejection_frontier(  # long-test: two PD 
     assert list(transfer.request.output_token_ids) == [PD_CPU_TARGET_TOKEN] * 2
     assert transfer.request.num_computed_tokens == len(prompt) + 1
     assert owner.execute_model_state is None
+    assert owner.model is transfer.loaded_destination.target_model
+    assert owner.speculator is transfer.loaded_destination.speculator
+
+
+@pytest.mark.parametrize("native_pd_u2_case", [1, 6], indirect=True)
+def test_native_pd_u2_keeps_handoff_and_rejection_frontier(  # long-test: U2 D rounds
+    native_pd_u2_case, monkeypatch
+):
+    transfer, runner, scheduled = native_pd_u2_case
+    owner, destination = runner.owner, transfer.destination_cache
+    request_id = transfer.request.request_id
+    prompt = list(transfer.request.prompt_token_ids)
+    protocol = tuple(transfer.sent)
+    assert owner.parallel_config.use_ubatching
+    assert owner.parallel_config.num_ubatches == 2
+    assert owner.vllm_config.kv_transfer_config.kv_role == "kv_consumer"
+    assert owner.num_speculative_steps == 2
+    history = list(prompt)
+    for round_index, sampled in enumerate(([7], [8, 7])):
+        computed = len(prompt) - 1 + round_index
+        # Native initial prefill has no speculative rows for original prompt1.
+        # Keep that U1 fallback; its next cached decode is the real q3 parent.
+        width = 1 if len(prompt) == 1 and not round_index else 3
+        stages = 1 if width == 1 else 2
+        expected_ids = torch.tensor(
+            [prompt[-1]] + [0] * (width - 1) if not round_index else [7, 8, 9]
+        )
+        block_ids = transfer.scheduler.kv_cache_manager.get_block_ids(request_id)
+        expected = native_pd_target_step_reference(
+            runner,
+            scheduled,
+            input_ids=expected_ids,
+            computed=computed,
+            block_ids=block_ids,
+            stages=stages,
+        )
+        if round_index:
+            # A declared CPU head supplies actual logits. Native rejection must
+            # accept draft 8, reject draft 9, then preserve only two target rows.
+            monkeypatch.setattr(
+                owner.model.language_model,
+                "compute_logits",
+                SpeculativeLogitsBoundary(
+                    4, 128, ordinal_rows=True, predictions=(8, 7, 7)
+                ),
+            )
+        assert scheduled.num_scheduled_tokens == {request_id: width}
+        assert owner.execute_model(scheduled) is None
+        step = owner.execute_model_state
+        assert step.input_batch.input_ids.tolist() == expected_ids.tolist()
+        assert step.input_batch.positions.tolist() == list(
+            range(computed, computed + width)
+        )
+        torch.testing.assert_close(
+            step.hidden_states, expected.hidden_states, rtol=0, atol=0
+        )
+        for actual, target in zip(
+            step.aux_hidden_states, expected.aux_hidden_states, strict=True
+        ):
+            torch.testing.assert_close(actual, target, rtol=0, atol=0)
+        torch.testing.assert_close(
+            owner.model.get_mtp_target_hidden_states()[:width],
+            expected.mtp_hidden_states,
+            rtol=0,
+            atol=0,
+        )
+        for actual, target in zip(destination.pages, expected.pages, strict=True):
+            torch.testing.assert_close(actual, target, rtol=0, atol=0)
+        group_id = next(
+            index
+            for index, group in enumerate(destination.config.kv_cache_groups)
+            if "model.layers.0.self_attn.swa_cache" in group.layer_names
+        )
+        block_size = destination.config.kv_cache_groups[
+            group_id
+        ].kv_cache_spec.block_size
+        segments = ((0, width),) if stages == 1 else ((0, 1), (1, width))
+        for child, (begin, end) in zip(
+            runner.target_children[-stages:], segments, strict=True
+        ):
+            # Expected coordinates derive from the original scheduler query,
+            # not from the native prepared child used by the CPU operator.
+            positions = list(range(computed + begin, computed + end))
+            if stages == 1:
+                assert child.descriptor_tokens == width
+            else:
+                assert child.stage == int(begin != 0)
+            assert child.positions.tolist() == positions
+            assert child.query_start_loc.tolist() == [0, end - begin]
+            assert child.seq_lens.tolist() == [computed + end]
+            assert child.slot_mapping.tolist() == [
+                block_ids[group_id][position // block_size] * block_size
+                + position % block_size
+                for position in positions
+            ]
+        plans = [
+            message.plan
+            for direction, _, _, message in runner.transport.transcript
+            if direction == "send" and message.kind == "FORWARD"
+        ]
+        assert len(plans) == round_index + 1
+        assert plans[-1].mode == "target" and plans[-1].layer_indices == (0, 1, 2)
+        expected_counts = [(end - begin,) for begin, end in segments]
+        assert [
+            stage.attention_valid_tokens for stage in plans[-1].stages
+        ] == expected_counts
+        assert [
+            stage.attention_padded_tokens for stage in plans[-1].stages
+        ] == expected_counts
+        assert [
+            message.transaction_id
+            for direction, _, _, message in runner.transport.transcript
+            if direction == "recv" and message.kind == "COMPLETE"
+        ] == [plan.transaction_id for plan in plans]
+
+        output = owner.sample_tokens(None).get_output()
+        assert output.req_ids == [request_id] and output.sampled_token_ids == [sampled]
+        history.extend(sampled)
+        index = owner.req_states.req_id_to_index[request_id]
+        assert owner.req_states.total_len.gpu[index].item() == len(history)
+        assert owner.req_states.num_computed_tokens.gpu[index].item() == computed + len(
+            sampled
+        )
+        assert (
+            owner.req_states.all_token_ids.gpu[index, : len(history)].tolist()
+            == history
+        )
+        assert owner.req_states.draft_tokens[index].tolist() == [8, 9]
+        combined = sum(
+            (ordinal + 1) * states.float()
+            for ordinal, states in enumerate(expected.aux_hidden_states)
+        ).to(torch.bfloat16)
+        for draft_group_id in owner.speculator.draft_kv_cache_group_ids:
+            group = destination.config.kv_cache_groups[draft_group_id]
+            for row in range(len(sampled)):
+                block, offset = divmod(computed + row, group.kv_cache_spec.block_size)
+                for name in group.layer_names:
+                    torch.testing.assert_close(
+                        destination.caches[name][
+                            block_ids[draft_group_id][block], offset, 0
+                        ],
+                        combined[row, :2],
+                        rtol=0,
+                        atol=0,
+                    )
+        for page, actual, target in zip(
+            destination.layout.pages, destination.pages, expected.pages, strict=True
+        ):
+            if not set(page.layers) & owner.speculator.draft_attn_layer_names:
+                torch.testing.assert_close(actual, target, rtol=0, atol=0)
+        for actual, target in zip(
+            destination.source_pages, runner.source_pages_before, strict=True
+        ):
+            torch.testing.assert_close(actual, target, rtol=0, atol=0)
+        assert tuple(transfer.sent) == protocol
+        assert (
+            owner.execute_model_state is None and not owner.dspark_pd_consumer.terminal
+        )
+        transfer.scheduler.update_from_output(scheduled, output)
+        assert list(transfer.request.output_token_ids) == history[len(prompt) :]
+        if not round_index:
+            drafts = owner.take_draft_token_ids()
+            assert drafts.draft_token_ids == [[-1, -1]]
+            transfer.scheduler.update_draft_token_ids(drafts)
+            scheduled = transfer.scheduler.schedule()
+    counts = owner.sampler.penalties_state.output_bin_counts[index]
+    assert counts[7].item() == 2 and counts[8].item() == 1
+    assert counts.sum().item() == 3
+    assert transfer.request.num_computed_tokens == len(prompt) + 2
+    assert owner.model is transfer.loaded_destination.target_model
+    assert owner.speculator is transfer.loaded_destination.speculator
+
+
+@pytest.mark.parametrize("native_pd_u2_case", [6], indirect=True)
+def test_native_pd_u2_proposal_failure_retains_owner(native_pd_u2_case):
+    transfer, runner, scheduled = native_pd_u2_case
+    owner, destination = runner.owner, transfer.destination_cache
+    assert owner.execute_model(scheduled) is None
+    protocol = tuple(transfer.sent)
+    hccl_protocol = tuple(runner.transport.transcript)
+    cache_addresses = [page.data_ptr() for page in destination.pages]
+    failure = RuntimeError("controlled D U2 native draft Attention failure")
+
+    def fail_draft(layer, inputs):
+        raise failure
+
+    draft_layer = next(iter(owner.speculator.model.model.layers.values()))
+    hook = draft_layer.self_attn.register_forward_pre_hook(fail_draft)
+    try:
+        with pytest.raises(RuntimeError, match="D U2 native draft Attention") as raised:
+            owner.sample_tokens(None)
+        assert raised.value is failure
+    finally:
+        hook.remove()
+    assert owner.dspark_pd_consumer.terminal
+    assert owner.execute_model_state is None and owner.sample_tokens(None) is None
+    retained = tuple(page.clone() for page in destination.pages)
+    with pytest.raises(RuntimeError, match="DSpark prefix consumer is terminal"):
+        owner.execute_model(scheduled)
+    assert tuple(transfer.sent) == protocol
+    assert tuple(runner.transport.transcript) == hccl_protocol
+    assert [page.data_ptr() for page in destination.pages] == cache_addresses
+    for actual, expected in zip(destination.pages, retained, strict=True):
+        torch.testing.assert_close(actual, expected, rtol=0, atol=0)
+    for actual, expected in zip(
+        destination.source_pages, runner.source_pages_before, strict=True
+    ):
+        torch.testing.assert_close(actual, expected, rtol=0, atol=0)
     assert owner.model is transfer.loaded_destination.target_model
     assert owner.speculator is transfer.loaded_destination.speculator
 
@@ -944,6 +1869,257 @@ def automatic_graph_factory(runner_case, monkeypatch):
 @pytest.fixture
 def automatic_graph_case(automatic_graph_factory):
     return automatic_graph_factory()
+
+
+@pytest.fixture
+def automatic_eager_factory(monkeypatch):
+    def create(**kwargs):
+        case = make_attention_eager_bootstrap_case(monkeypatch, runner_module, **kwargs)
+        monkeypatch.setattr(
+            NPUModelRunner,
+            "load_model",
+            lambda owner, *a, **k: case.native.load_model(owner, *a, **k),
+        )
+        monkeypatch.setattr(
+            NPUModelRunner,
+            "initialize_kv_cache",
+            lambda owner, *a, **k: case.native.initialize_kv_cache(owner, *a, **k),
+        )
+        return case
+
+    return create
+
+
+@pytest.mark.parametrize("graph", [False, True])
+def test_attention_startup_logs_frozen_zero_settings_and_independent_graph_family(
+    automatic_eager_factory, automatic_graph_factory, monkeypatch, serving_logs, graph
+):
+    case = (
+        automatic_graph_factory() if graph else automatic_eager_factory(enabled=False)
+    )
+    values = {name: "0" for name in HcclOverlapSettings().effective_settings()}
+    case.owner.connector.overlap_settings = HcclOverlapSettings.from_environment(
+        values, num_stages=2
+    )
+    for name in values:
+        monkeypatch.setenv(name, "1")
+    case.owner.load_model()
+    records = structured_log_records(serving_logs, SESSION_CONFIGURATION_PREFIX)
+    assert len(records) == 1
+    record = records[0]
+    assert record["event"] == "session_configuration" and record["phase"] == "startup"
+    assert record["role"] == "attention" and record["snapshot_present"] is True
+    assert record["negotiated.graph_execution_version"] == int(graph)
+    assert record["negotiated.eager_pipeline_version"] == 0
+    assert {name: record[f"configured.{name}"] for name in values} == {
+        name: False for name in values
+    }
+
+
+@pytest.mark.parametrize("enabled", [False, True])
+def test_legacy_attention_freezes_settings_before_load_and_logs_one_session(
+    monkeypatch, serving_logs, enabled
+):
+    names = HcclOverlapSettings().effective_settings()
+    for name in names:
+        monkeypatch.setenv(name, str(int(enabled)))
+    case = make_legacy_attention_startup_case(monkeypatch)
+    for name in names:
+        monkeypatch.setenv(name, "invalid-after-construction")
+
+    case.owner.load_model()
+    case.owner.load_model()
+
+    records = structured_log_records(serving_logs, SESSION_CONFIGURATION_PREFIX)
+    assert len(records) == 1
+    record = records[0]
+    assert record["protocol"] == "legacy_pair"
+    assert record["snapshot_present"] is True and record["role"] == "attention"
+    assert record["world_rank"] == 1 and record["pair_index"] == 0
+    expected = {name: enabled for name in names}
+    expected["AFD_HCCL_EAGER_U2_STREAM_OVERLAP"] = False
+    assert {name: record[f"configured.{name}"] for name in names} == expected
+    assert not any(
+        name.startswith(("actual.", "effective.", "logical.", "physical."))
+        for name in record
+    )
+
+
+@pytest.mark.parametrize("failure", ["load", "hello"])
+def test_legacy_attention_startup_failure_emits_no_configuration(
+    monkeypatch, serving_logs, failure
+):
+    case = make_legacy_attention_startup_case(monkeypatch, fail_load=failure == "load")
+    if failure == "hello":
+
+        def failed_hello():
+            raise RuntimeError("controlled legacy HELLO failure")
+
+        monkeypatch.setattr(case.owner.connector, "init_afd_connector", failed_hello)
+
+    with pytest.raises(RuntimeError, match="native load|legacy HELLO"):
+        case.owner.load_model()
+
+    assert structured_log_records(serving_logs, SESSION_CONFIGURATION_PREFIX) == []
+
+
+@pytest.mark.parametrize("other_model", [False, True])
+def test_attention_other_connector_ignores_hccl_environment(
+    monkeypatch, serving_logs, other_model
+):
+    for name in HcclOverlapSettings().effective_settings():
+        monkeypatch.setenv(name, "invalid-unused-setting")
+
+    case = make_legacy_attention_startup_case(
+        monkeypatch, other_connector=True, other_model=other_model
+    )
+    case.owner.load_model()
+
+    assert case.owner.connector.is_initialized
+    assert structured_log_records(serving_logs, SESSION_CONFIGURATION_PREFIX) == []
+
+
+def test_legacy_attention_rejects_invalid_diagnostic_settings_before_load(monkeypatch):
+    monkeypatch.setenv("AFD_HCCL_STAGE_DIAGNOSTICS", "invalid")
+
+    with pytest.raises(RuntimeError, match="AFD_HCCL_STAGE_DIAGNOSTICS must be 0 or 1"):
+        make_legacy_attention_startup_case(monkeypatch)
+
+
+def test_attention_startup_logs_missing_snapshot_without_environment_guesses(
+    automatic_eager_factory, monkeypatch, serving_logs
+):
+    case = automatic_eager_factory(enabled=False)
+    case.owner.connector.overlap_settings = None
+    monkeypatch.setenv("AFD_HCCL_EAGER_U2_STREAM_OVERLAP", "1")
+    case.owner.load_model()
+    records = structured_log_records(serving_logs, SESSION_CONFIGURATION_PREFIX)
+    assert len(records) == 1 and records[0]["snapshot_present"] is False
+    assert records[0]["negotiated.eager_pipeline_version"] == 0
+    assert not any(name.startswith("configured.") for name in records[0])
+
+
+@pytest.mark.parametrize("failure", ["load", "warmup", "hello"])
+def test_attention_failed_startup_emits_no_session_configuration(
+    automatic_eager_factory, monkeypatch, serving_logs, failure
+):
+    case = automatic_eager_factory()
+    if failure == "load":
+        case.native.fail_load = True
+    elif failure == "warmup":
+        case.host.backend.fail_warmup = True
+    else:
+        case.transport.initialized = False
+
+        def failed_hello():
+            raise RuntimeError("controlled HELLO failure")
+
+        monkeypatch.setattr(case.transport, "initialize", failed_hello)
+    with pytest.raises(RuntimeError, match="native load|warmup|HELLO"):
+        case.owner.load_model()
+    assert structured_log_records(serving_logs, SESSION_CONFIGURATION_PREFIX) == []
+
+
+@pytest.mark.parametrize("enabled", [False, True])
+@pytest.mark.parametrize("diagnostics", [False, True])
+def test_eager_loaded_family_is_bound_only_after_native_kv_and_ignores_env_changes(
+    automatic_eager_factory, monkeypatch, enabled, diagnostics
+):
+    case = automatic_eager_factory(enabled=enabled, diagnostics=diagnostics)
+    case.owner.load_model()
+    prepared = case.owner.hccl_v41_eager_bootstrap.session
+    binding = case.owner.hccl_v41_diagnostics
+    assert (prepared is not None) == enabled
+    assert (binding is not None) == diagnostics
+    assert case.owner.ubatch_runner is None
+    monkeypatch.setenv("AFD_HCCL_EAGER_U2_STREAM_OVERLAP", "invalid-after-construction")
+    case.owner.initialize_kv_cache(case.owner.kv_cache_config)
+    assert case.owner.ubatch_runner.eager_session is prepared
+    assert case.owner.ubatch_runner.diagnostic_binding is binding
+    assert case.events == ["native-load", "native-kv"]
+    assert case.transport.plan is None and not case.transport.terminal
+
+
+@pytest.mark.parametrize("failure", ["load", "warmup", "kv"])
+def test_eager_setup_failure_retains_resources_and_prevents_native_reload(
+    automatic_eager_factory, failure
+):
+    case = automatic_eager_factory()
+    if failure == "load":
+        case.native.fail_load = True
+    elif failure == "warmup":
+        case.host.backend.fail_warmup = True
+    else:
+        case.owner.load_model()
+        case.native.fail_kv = True
+    with pytest.raises(RuntimeError, match="native load|warmup|native KV"):
+        if failure == "kv":
+            case.owner.initialize_kv_cache(case.owner.kv_cache_config)
+        else:
+            case.owner.load_model()
+    if failure != "load":
+        assert case.owner.hccl_v41_eager_bootstrap.session is not None
+    assert case.transport.terminal and not case.transport.closed
+    before = list(case.events)
+    with pytest.raises(RuntimeError, match="single-use"):
+        case.owner.load_model()
+    assert case.events == before
+    assert all(message.kind != "STOP" for _, _, _, message in case.transport.transcript)
+
+
+def test_eager_second_kv_lifetime_fails_before_native_storage_changes(
+    automatic_eager_factory,
+):
+    case = automatic_eager_factory()
+    case.owner.load_model()
+    case.owner.initialize_kv_cache(case.owner.kv_cache_config)
+    first = case.owner.ubatch_runner.eager_session
+    with pytest.raises(RuntimeError, match="first prepared load"):
+        case.owner.initialize_kv_cache(case.owner.kv_cache_config)
+    assert case.events == ["native-load", "native-kv"]
+    assert case.owner.ubatch_runner.eager_session is first
+    assert case.transport.terminal and not case.transport.closed
+
+
+def test_eager_manual_snapshot_none_preserves_serial_family(
+    automatic_eager_factory, monkeypatch
+):
+    case = automatic_eager_factory(enabled=False)
+    case.owner.connector.overlap_settings = None
+    monkeypatch.setenv("AFD_HCCL_EAGER_U2_STREAM_OVERLAP", "1")
+    case.owner.load_model()
+    case.owner.initialize_kv_cache(case.owner.kv_cache_config)
+    assert case.owner.ubatch_runner.eager_session is None
+    assert case.host.runtime.allocated == []
+    assert case.transport.negotiated_capabilities.eager_pipeline_version == 0
+
+
+@pytest.mark.parametrize("fail_native", [False, True])
+def test_eager_shutdown_releases_session_only_after_native_cleanup(
+    automatic_eager_factory, monkeypatch, fail_native
+):
+    case = automatic_eager_factory()
+    case.owner.load_model()
+    case.owner.initialize_kv_cache(case.owner.kv_cache_config)
+    bootstrap = case.owner.hccl_v41_eager_bootstrap
+    queue_graph_runner_stop(case)
+
+    def native_shutdown(owner):
+        if fail_native:
+            raise RuntimeError("native cleanup failed")
+
+    monkeypatch.setattr(NPUModelRunner, "shutdown", native_shutdown)
+    if fail_native:
+        with pytest.raises(RuntimeError, match="native cleanup failed"):
+            case.owner.shutdown()
+        assert case.owner.hccl_v41_eager_bootstrap is bootstrap
+        assert case.owner.ubatch_runner.eager_session is bootstrap.session
+        assert not case.transport.closed
+    else:
+        case.owner.shutdown()
+        assert case.owner.hccl_v41_eager_bootstrap is None
+        assert case.owner.ubatch_runner is None
+        assert case.transport.closed
 
 
 def test_normal_dspark_u2_load_and_kv_retain_target_query_and_graph_session(

@@ -20,6 +20,7 @@ primary_code_paths:
   - "afd_plugin/compat/npu/kv_layout.py"
   - "afd_plugin/compat/npu/kv_layout_native.py"
   - "afd_plugin/compat/npu/kv_layout_connector.py"
+  - "afd_plugin/compat/npu/kv_zeroing.py"
   - "afd_plugin/compat/patches/**/*.py"
 related_code_paths:
   - "afd_plugin/__init__.py"
@@ -34,6 +35,13 @@ validation_paths:
   - "tests/unit/v1/worker/test_model_runner_v2.py"
   - "tests/unit/v1/worker/test_npu_runtime.py"
   - "tests/npu/pd_kv_layout_probe.py"
+  - "tests/npu/hccl_profiler_control_probe.py"
+  - "tests/npu/hccl_profiler_multiproc_probe.py"
+  - "tests/npu/hccl_kv_zeroing_probe.py"
+  - "tests/npu/dsv41_dspark_projection_ops_probe.py"
+  - "tests/npu/dsv41_dspark_projection_model_probe.py"
+  - "tests/npu/dsv41_dspark_speculator_probe.py"
+  - "tests/npu/dsv41_dspark_proposal_probe.py"
   - "tools/diagnostics/run_a3_pd_layout.py"
 upstream_refs:
   - "vLLM vllm.v1.engine.core.EngineCore and EngineCoreProc"
@@ -54,6 +62,16 @@ last_reviewed: 2026-10-13
 
 # Compatibility and patches
 
+The NPU-only [`ubatching configuration patch`](../../../afd_plugin/compat/patches/npu/ubatching_config.py)
+copies the pinned native DBO exclusion method. It admits only the plugin-owned
+V4.1 HCCL U2 text path with no speculation or optional fixed/eager DSpark,
+while retaining other native exclusions
+and production-model guards. Its public installer runs before configuration
+validation; the mirrored compatibility unit tests exercise that installation
+and the actual native method. This adds host metadata checks, no device or RPC
+work. Remove it when native configuration supports the same owner contract;
+configuration admission alone does not qualify native U2 or Graph execution.
+
 The loaded DSpark PD prefix consumer in
 [`dspark_pd.py`](../../../afd_plugin/compat/npu/dspark_pd.py) binds actual draft
 models and registered cache views. It projects native auxiliary feature rows
@@ -62,7 +80,9 @@ report agreement. Request-ready records bind original prompt identity, source
 generation, all-group block maps and schema; the Mooncake connector owns read
 leases and allocator completion. Target execution, Engram and sampling remain
 native. Projection adds feature concatenation, draft prompt compute, a stream
-fence and one host report exchange per P execution. Read failures without a
+fence and one host report exchange after native P sample/proposal/post. Ready
+is published only after those writes and the final projection; a pending P
+parent rejects buffer reuse and shutdown. Read failures without a
 proven drain retain both cache owners for worker supervision. Connector shutdown
 checks the same leases before native Worker can release KV storage. Eager/U1 component
 tests do not qualify PD, device transfer or full-model DSpark. The first slice
@@ -83,13 +103,32 @@ the pinned native `EndpointPlugin` protocol. Its independent
 allowlisting alongside the existing `afd` general entry. The native loader
 attaches its `/afd/profiler` routes after core routers; initialization binds
 the actual app's EngineClient and NPU AFD configuration and rejects disabled
-role-env or conflicting native profiler configuration before HTTP startup.
+role-env, connectors other than `P2pHcclAFDConnector`, or conflicting native
+profiler configuration before HTTP startup.
+An explicit `VLLM_PLUGINS` allowlist must also retain the `afd` general plugin;
+the endpoint alone cannot install the worker/core adapter in another process.
+Unset allowlists preserve native default discovery. This admission check does
+not prove successful plugin registration or verify installed source identity.
 GET forwards the fixed status RPC and preserves each worker snapshot; POST
 strictly validates desired state and acknowledges the fixed profile RPC.
 Neither operation starts/stops a profiler backend on the HTTP thread. Requests
 use a bounded timeout, with pending/applied state and NPU trace acceptance
 remaining execution-owned. Each app keeps an independent binding; no new
-global registry, native patch, general RPC route or HCCL packet is added.
+global registry, general RPC route or HCCL packet is added.
+Execution-owned profiler sessions retain backend failures, including interrupts,
+and reject further backend operations and management starts. Cleanup during an
+existing serving failure preserves that original failure even when export or
+best-effort logging also fails. A failed session retains its backend for process
+cleanup; these host lifecycle contracts do not establish device trace export.
+The EngineCore `collective_rpc` patch retires a failed NPU HCCL multiprocess
+profiler channel before another management or execution RPC can consume an
+untagged late reply. It marks the native executor failed and delivers its
+registered failure callback; native process cleanup owns termination. The
+FFN daemon also retains its terminal-channel flag so cleanup sends no STOP
+collective over that channel. UniProc, other connectors and unrelated utility
+methods retain the copied native delegation. The HTTP adapter maps the final
+client exception to an error response; the native utility transport wraps
+worker timeouts as ordinary exceptions, which normally reach HTTP 502.
 [`test_profiler_api.py`](../../../tests/unit/compat/npu/test_profiler_api.py)
 owns actual ASGI request/validation and native loader seams. These CPU tests
 do not establish a deployed server or hardware timeline.
@@ -108,6 +147,16 @@ socket and EngineCore-loop CPU seams live in
 [`test_profiler_control.py`](../../../tests/unit/compat/npu/test_profiler_control.py)
 and [`test_engine_core.py`](../../../tests/unit/compat/patches/test_engine_core.py).
 They do not establish full-model runtime reachability or device traces.
+
+HCCL service polling returns `False` after both peer STOP and serving-owner
+exit. STOP_ACK alone does not finish synchronous profiler export; polling stays
+responsive and reports running until that owner exits. A second retained-error
+check after thread exit preserves failures that arrive during the status query.
+Direct stop retains its five-second join protection. The
+[STOP/export evidence](../../../openspec/changes/afd-hccl-full-parity/evidence/profiler-stop-poll-review-20261113.md)
+records deterministic CPU failure/success boundaries and a real EngineCore/MP
+component whose final export took about seven seconds before successful stop.
+That observation is separate from the explicit native process-exit grace.
 
 The independent V4.1 KV layout diagnostic in
 [`kv_layout_native.py`](../../../afd_plugin/compat/npu/kv_layout_native.py)
@@ -134,7 +183,7 @@ binds it to the ordered native address/stride arrays and validates each complete
 request after native window-tail projection before its batched read. The
 registration and peer resources have one fixed lifetime; partial initialization
 cannot be retried in the same native engine. Scheduler and sending-thread
-behavior remain native. Optional consumer retirement closes whole-batch
+behavior remain native. Registered consumer shutdown closes whole-batch
 admission, waits through native DONE acknowledgements and joins the input
 thread. This is consistency between cooperating
 peers, not remote authentication. The mirrored connector CPU seams replace
@@ -165,6 +214,29 @@ bounded only by the probe's process supervisor. Failure retains the receiver,
 engine, cache storage and single-use registration state. No sender loop,
 registration reset or engine-unregistration behavior is added. Remove these
 retirement seams when the pinned native worker owns cooperative retirement.
+
+The outer connector applies that existing retirement to registered target-only
+consumers as well as DSpark consumers. An untouched pre-registration consumer
+keeps native shutdown behavior; a partial failed registration cannot report
+successful retirement. DSpark producer lease closure and target-only producer
+behavior remain unchanged. A3 native-planner/allocator transfer-004 completed
+real page reads and DONE/ACK, retired the D receiver/executor and exited both
+workers with code zero. It does not establish model execution or complete
+engine/sender cleanup. The preceding transfer-003 completed bytes but aborted
+on D exit and remains a failed run. See the [transfer scope and evidence](../../../openspec/changes/afd-hccl-full-parity/evidence/native-pd-transfer-design-20261114.md).
+
+The native per-peer receiver loop logs task failures and proceeds with its
+existing queue. The plugin checks its sticky failure flag at task entry under
+the existing retirement lock, before acquiring a DSpark lease, issuing a read
+or publishing completion. Thus an already queued successor cannot start after
+an earlier read or DONE acknowledgement failed. Normal admission closure still
+drains accepted tasks. Requests that already crossed this boundary on another
+peer are not cancelled; failed storage and leases remain supervised and retained.
+This adds one host flag read, no device synchronization or cleanup. The copied
+method keeps the exact pinned signature and removal condition above. Its
+[red/green CPU review](../../../openspec/changes/afd-hccl-full-parity/evidence/pd-retained-failure-review-20261113.md)
+covers actual native peer dispatch over CPU transport leaves, without claiming
+native DMA or device failure recovery.
 
 The NPU V4.1 loader hook in
 [`model_loader.py`](../../../afd_plugin/compat/patches/npu/model_loader.py)
@@ -332,10 +404,12 @@ not the package dependency policy.
 
 | Patch and upstream symbols | AFD delta and non-AFD path | Application, guard, and idempotence | Validation | Removal or upstream plan |
 | --- | --- | --- | --- | --- |
+| [`npu/dspark_pd_scheduler.py`](../../../afd_plugin/compat/patches/npu/dspark_pd_scheduler.py): native `Scheduler._connector_finished` | Copies the locked native function and defers only final out-of-window SWA eviction for the exact attested DSpark P source. Native computed-token export, strict source equality, delay-free and worker completion remain owners. Other schedulers follow the copied native body. | Installed by the exact external connector's scheduler-role DSpark producer constructor; assignment is idempotent without a mutable flag. Pinned Ascend replaces the public Scheduler alias with BalanceScheduler, so installation targets the original defining base retained by that module. Extra expired P-chunk pages remain allocated until the existing DONE/cancel completion. | Existing [`test_kv_layout_connector.py`](../../../tests/unit/compat/npu/test_kv_layout_connector.py) owns actual native Scheduler lifecycle and public KV usage; the existing single signature table compares the saved native callable. CPU seams do not establish device lease safety. | Remove when native retirement consults connector-owned page leases before SWA eviction. |
+| [`npu/mrv2_kv_zeroing.py`](../../../afd_plugin/compat/patches/npu/mrv2_kv_zeroing.py): inherited `GPUModelRunner._init_kv_zero_meta` on the NPU subclass | Copies the native initializer and selects physical-tile metadata for plugin-owned V4.1 AFD or exact attested PD configurations. Native list/tuple carriers remain intact; aligned allocation offsets and ratio-128 two-byte scales are covered by whole global block tiles. | AFD runtime installation and the validated PD WORKER constructor install only the NPU subclass method. Metadata views and native address tables are constructed once; each step uses the unchanged native zeroing kernel. Other configurations keep the copied native body. No new mutable global flag. | [`test_kv_zeroing.py`](../../../tests/unit/compat/npu/test_kv_zeroing.py) verifies CPU alias/bounds and configuration scope; the single signature table owns alignment. [`hccl_kv_zeroing_probe.py`](../../../tests/npu/hccl_kv_zeroing_probe.py) compares native skip and actual NPU zeroing with full-storage byte oracles. See [design review](../../../openspec/changes/afd-hccl-full-parity/evidence/native-kv-zeroing-design-review-20261114.md). | Remove when native MRV2 handles V4.1 physical tiles and list carriers while preserving the same memory-boundary evidence. |
 | [`async_dp_engine.py`](../../../afd_plugin/compat/patches/async_dp_engine.py): `EngineCoreProc.run_engine_core`, `vllm.v1.engine.utils.launch_core_engines` and its imported client alias, `DPAsyncMPClient.add_request_async` | Async-DP Attention selects regular `EngineCoreProc`; the copied launch gates the DP coordinator's `enable_wave_coordination` to `is_moe and not is_afd_async_dp` so AFD async Attention keeps independent request-count publication while coordinator stats remain; `add_request_async` skips the DP-wave `FIRST_REQ` wakeup for AFD async-DP; other configs run the copied upstream branches. | Imported by `register_afd`; the installer keeps the target/dev guard. Its plugin-owned process target reapplies the engine-core loop in spawn children, and the Ascend late re-apply is scoped to AFD async Attention so vLLM-Ascend's own `run_engine_core` wrap is overridden only there. | [`test_async_dp_engine.py`](../../../tests/unit/compat/patches/test_async_dp_engine.py) covers coordinator-patch removal, async-DP Attention process selection, non-AFD MoE DP preservation, wave-coordination gating, target-version isolation, `FIRST_REQ` skip/preserve, backend-override rebinding, and reload idempotence. | Remove when vLLM exposes role-selectable async-DP engine scheduling, wave policy, and wakeup hooks. |
 | [`async_dp_forward_context.py`](../../../afd_plugin/compat/patches/async_dp_forward_context.py): `vllm.forward_context.set_forward_context` plus already-imported worker aliases | Skips native `DPMetadata` construction/coordination only for AFD async-DP; otherwise uses the copied upstream flow. | Imported by `register_afd`; same target/dev/unknown guard. Rebinds known already-imported aliases so callers do not retain the old function. | [`test_async_dp_forward_context.py`](../../../tests/unit/compat/patches/test_async_dp_forward_context.py) covers async skip and non-async coordination. | Remove when vLLM supports a per-engine-role opt-out from native MoE DP metadata coordination. |
 | [`config_validation.py`](../../../afd_plugin/compat/patches/config_validation.py): `EngineArgs.create_engine_config`, `VllmConfig.__post_init__` | For AFD-owned ubatching with a non-DeepEP backend, temporarily presents `deepep_low_latency` during upstream validation and restores the configured backend. After upstream platform normalization, maps an initial `worker_cls="auto"` to the role-specific CUDA or standard Ascend AFD worker. Native hybrid/multimodal DBO rejection remains intact, including Qwen3.5/3.6 GDN models. | Imported by `register_afd`; accepts the target version, development versions, or missing version metadata. Saves originals on upstream modules under AFD-specific attributes before installing wrappers. Explicit worker paths and non-AFD configs are not remapped. | [`test_config_validation.py`](../../../tests/unit/compat/patches/test_config_validation.py) covers backend relaxation, four role/platform mappings, explicit and non-AFD preservation, repeated validation, unsupported platforms, and dev versions. | Remove the backend branch when upstream validation distinguishes plugin-owned ubatching; remove worker mapping when vLLM offers plugin-owned role-aware worker selection. |
-| [`engine_core.py`](../../../afd_plugin/compat/patches/engine_core.py): `EngineCore.__init__`, `_initialize_kv_caches`, `shutdown`; `EngineCoreProc.run_busy_loop`; `DPEngineCoreProc.run_busy_loop` | AFD FFN becomes a connector daemon: construct executor, skip scheduler/KV setup, return an empty KV-shaped result on late paths, start/monitor/stop the FFN worker loop, and use FFN-safe shutdown. Non-FFN branches copy pinned upstream behavior. | Imported by `register_afd`; Installs under the target/dev compatibility check (also permitting missing version metadata); no saved-original sentinel. Direct class assignment remains tied to the pinned upstream implementation. | [`test_engine_core.py`](../../../tests/unit/compat/patches/test_engine_core.py) covers FFN initialization, non-FFN behavior, and daemon start/stop; role runtime tests cover error propagation. | Remove when vLLM offers a headless connector-daemon engine lifecycle or an executor mode that does not require scheduler/KV ownership. |
+| [`engine_core.py`](../../../afd_plugin/compat/patches/engine_core.py): `EngineCore.__init__`, `_initialize_kv_caches`, `collective_rpc`, `shutdown`; `EngineCoreProc.run_busy_loop`; `DPEngineCoreProc.run_busy_loop` | AFD FFN becomes a connector daemon: construct executor, skip scheduler/KV setup, return an empty KV-shaped result on late paths, start/monitor/stop the FFN worker loop, and use FFN-safe shutdown. A failed fixed profiler RPC on an NPU HCCL MultiprocExecutor marks the native channel failed before notifying the native fatal callback; FFN cleanup sends no subsequent STOP collective. Other paths copy pinned upstream behavior. | Imported by `register_afd`; installs under the target/dev compatibility check (also permitting missing version metadata); no saved-original sentinel. Direct class assignment remains tied to the pinned upstream implementation. | [`test_engine_core.py`](../../../tests/unit/compat/patches/test_engine_core.py) covers FFN initialization, non-FFN behavior, daemon start/stop, late-reply refusal, original-error preservation and fatal notification. The single signature table owns native signature alignment; role runtime tests cover error propagation. | Remove daemon changes when vLLM offers a headless lifecycle without scheduler/KV ownership; remove profiler failure handling when native RPC correlation, draining or terminalization prevents late-reply reuse. |
 | [`npu/ascend_platform.py`](../../../afd_plugin/compat/patches/npu/ascend_platform.py): `NPUPlatform.check_and_update_config` | Snapshots AFD DBO state, runs upstream normalization, and restores configured `enable_dbo`, `ubatch_size`, and `all2all_backend` in `finally`; non-AFD behavior is unchanged. | Installed through the config facade during AFD NPU normalization and verified again by the worker runtime facade; no version guard. Saves the original on the class and uses a class sentinel. The runtime facade caches success only after the wrapper is installed, so an early missing vLLM-Ascend import remains retryable. | [`test_runtime.py`](../../../tests/unit/compat/test_runtime.py) and [`test_npu_runtime.py`](../../../tests/unit/v1/worker/test_npu_runtime.py). | Remove when vLLM-Ascend recognizes plugin-owned DBO workers or no longer clears these fields. |
 | [`npu/ascend_config.py`](../../../afd_plugin/compat/patches/npu/ascend_config.py): `vllm_ascend.ascend_config.init_ascend_config`, loaded factory aliases, and the AFD DP child entry point | Excludes the AFD namespace from native constructor arguments; preserves config identity, validation, singleton publication, and cache refresh. DP children install the factory before native Ascend initialization. | Installed by the NPU config facade; rebinds already-loaded aliases. The DP entry point is selected only for AFD synchronous Attention or FFN. | [`test_ascend_config_lifecycle.py`](../../../tests/unit/compat/npu/test_ascend_config_lifecycle.py), [`test_ascend_engine_core_binding.py`](../../../tests/unit/compat/npu/test_ascend_engine_core_binding.py). | Remove when Ascend accepts plugin namespaces and loads general plugins before config validation in every DP child. |
 | [`npu/mla_graph.py`](../../../afd_plugin/compat/patches/npu/mla_graph.py): `vllm_ascend.attention.mla_v1.get_graph_params` | Resolves an AFD ubatch-owned `GraphParams` registry from the active forward context and otherwise delegates to the saved upstream process-global resolver. | Called through `apply_afd_ascend_patches_if_needed` during NPU worker startup; no version guard. Saves the original on the upstream module and uses a module sentinel. | [`test_runtime.py`](../../../tests/unit/compat/test_runtime.py) covers AFD-context resolution, upstream fallback, and idempotence; [`test_npu_mla_graph.py`](../../../tests/unit/v1/worker/test_npu_mla_graph.py) covers the owning graph lifecycle. | Remove when vLLM-Ascend accepts a forward-context-local MLA graph registry or exposes an equivalent resolver hook. |

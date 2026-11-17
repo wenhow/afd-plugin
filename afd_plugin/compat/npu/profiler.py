@@ -8,7 +8,7 @@ import logging
 import os
 import threading
 from collections.abc import Callable, Iterator
-from contextlib import contextmanager
+from contextlib import contextmanager, suppress
 from dataclasses import dataclass
 from functools import partial
 from typing import Final, Literal, Protocol
@@ -163,7 +163,7 @@ class AFDNPUProfilerSession:
         self._applied_id: int | None = None
         self._running = False
         self._closed = False
-        self._error: Exception | None = None
+        self._error: BaseException | None = None
         self._profiler: AFDNPUProfiler | None = None
         self._steps = 0
 
@@ -224,7 +224,7 @@ class AFDNPUProfilerSession:
                     "AFD profiler session failed; retain owner resources"
                 ) from self._error
 
-    def _fail(self, error: Exception) -> None:
+    def _fail(self, error: BaseException) -> None:
         with self._lock:
             self._error = error
 
@@ -250,7 +250,7 @@ class AFDNPUProfilerSession:
                 self._profiler.stop()
                 self._profiler = None
                 running = False
-        except Exception as error:
+        except BaseException as error:
             self._fail(error)
             raise
         with self._lock:
@@ -263,7 +263,7 @@ class AFDNPUProfilerSession:
         if self._profiler is not None:
             try:
                 self._profiler.step()
-            except Exception as error:
+            except BaseException as error:
                 self._fail(error)
                 raise
             with self._lock:
@@ -285,7 +285,7 @@ class AFDNPUProfilerSession:
         try:
             if self._profiler is not None:
                 self._profiler.stop()
-        except Exception as error:
+        except BaseException as error:
             self._fail(error)
             raise
         self._profiler = None
@@ -333,8 +333,11 @@ def afd_npu_profiler_owner(
         if isinstance(profiler, AFDNPUProfilerSession):
             try:
                 profiler.finish()
-            except Exception:
-                logger.exception("AFD profiler cleanup failed after serving failure")
+            except BaseException:
+                with suppress(BaseException):
+                    logger.exception(
+                        "AFD profiler cleanup failed after serving failure"
+                    )
         raise
     else:
         if isinstance(profiler, AFDNPUProfilerSession):
@@ -364,8 +367,9 @@ def afd_npu_profiler_execute(
         # A failed profiler retains its backend for process-level supervision.
         try:
             profiler.finish()
-        except Exception:
-            logger.exception("AFD profiler cleanup failed after Attention execute")
+        except BaseException:
+            with suppress(BaseException):
+                logger.exception("AFD profiler cleanup failed after Attention execute")
         raise
 
 

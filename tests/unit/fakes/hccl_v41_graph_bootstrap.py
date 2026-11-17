@@ -2,11 +2,13 @@
 # SPDX-FileCopyrightText: Copyright contributors to the AFD plugin project
 """Reuse loaded CPU models at native load/KV/thread construction boundaries."""
 
+import os
 from types import SimpleNamespace
 
 from afd_plugin.connectors.npu.hccl_overlap import HcclOverlapSettings
 from tests.unit.fakes.attention_model_runner_v2 import make_graph_runner_case
 from tests.unit.fakes.hccl import HcclCpuDeviceRuntime, make_hccl_worker
+from tests.unit.fakes.hccl_v41_eager_bootstrap import make_eager_bootstrap_case
 from tests.unit.fakes.hccl_v41_graph_coordinator import make_coordinator_case
 from tests.unit.fakes.hccl_v41_graph_service import make_graph_service_case
 
@@ -43,7 +45,50 @@ class BootstrapNativeLifecycle:
 
 def make_graph_bootstrap_case(*, stages=1, target_query_len=1):
     case = make_graph_runner_case(stages=stages, target_query_len=target_query_len)
+    case.owner.connector.overlap_settings = HcclOverlapSettings.from_environment(
+        dict(os.environ), num_stages=stages
+    )
     case.native = BootstrapNativeLifecycle(case)
+    return case
+
+
+class EagerBootstrapNativeLifecycle(BootstrapNativeLifecycle):
+    """Native allocation leaf publishing a real adapter over host resources."""
+
+    def initialize_kv_cache(self, owner, config, allocation_context=None):
+        self.case.events.append("native-kv")
+        self.case.runner._pending_finish = None
+        owner.ubatch_runner = self.case.runner
+        if self.fail_kv:
+            raise RuntimeError("native KV allocation failed")
+
+
+def make_attention_eager_bootstrap_case(
+    monkeypatch, runner_module, *, enabled=True, diagnostics=False
+):
+    case = make_graph_runner_case(stages=2)
+    host = make_eager_bootstrap_case(
+        monkeypatch, enabled=enabled, diagnostics=diagnostics
+    )
+    owner = case.owner
+    owner.vllm_config, owner.parallel_config = host.config, host.config.parallel_config
+    owner.device = host.runtime.parent.device
+    owner.hccl_v41_transport = case.transport = host.transport
+    owner.connector.transport, owner.connector.overlap_settings = (
+        host.transport,
+        host.settings,
+    )
+    case.runner.transport, case.runner.graph_owner = host.transport, None
+    case.runner.eager_session = case.runner.diagnostic_binding = None
+    case.native = EagerBootstrapNativeLifecycle(case)
+    case.host = host
+
+    def close_groups():
+        case.events.append("groups-close")
+        host.transport.closed = True
+
+    host.transport.close = close_groups
+    monkeypatch.setattr(runner_module.torch, "npu", host.runtime)
     return case
 
 

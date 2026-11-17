@@ -14,12 +14,15 @@ pytest.importorskip("vllm")
 pytest.importorskip("torch_npu")
 pytest.importorskip("vllm_ascend")
 
+import torch
+from vllm.distributed.kv_transfer import kv_transfer_state
 from vllm_ascend.worker import worker as native_worker
 from vllm_ascend.worker.v2.model_runner import NPUModelRunner
 from vllm_ascend.worker.worker import NPUWorker
 
 from afd_plugin.v1.worker.npu.attention_worker import AFDNPUAttentionWorker
 from tests.unit.fakes.attention_model_runner_v2 import queue_graph_runner_stop
+from tests.unit.fakes.kv_connector import make_native_pd_shutdown_case
 from tests.unit.fakes.profiler import (
     PROFILER_TEST_TIMEOUT_SECONDS,
     make_profiled_attention_case,
@@ -29,6 +32,97 @@ from tests.unit.fakes.profiler import (
 @pytest.fixture
 def attention_case():
     return make_profiled_attention_case(AFDNPUAttentionWorker)
+
+
+@pytest.fixture
+def native_pd_shutdown_case(monkeypatch, request):
+    stages, failed = request.param
+    case = make_native_pd_shutdown_case(
+        monkeypatch, stages=stages, fail_sampling=failed
+    )
+    request.addfinalizer(case.close)
+    return case
+
+
+@pytest.mark.parametrize(
+    "native_pd_shutdown_case", [(1, True), (2, True)], indirect=True
+)
+def test_failed_pd_sampling_rejects_shutdown_before_native_release(
+    native_pd_shutdown_case,
+):
+    case = native_pd_shutdown_case
+    assert case.owner.prof is None and case.owner.dspark_pd_consumer.terminal
+    assert str(case.cause) == "controlled native D shutdown proposal failure"
+    assert not case.receiver.retired and case.receiver.is_alive()
+    connector = kv_transfer_state._KV_CONNECTOR_AGENT
+    protocol = tuple(case.transfer.sent)
+
+    with pytest.raises(RuntimeError, match="DSpark.*terminal|failed.*DSpark"):
+        case.worker.shutdown()
+
+    assert kv_transfer_state._KV_CONNECTOR_AGENT is connector is case.transfer.connector
+    assert not case.receiver.retired and case.receiver.is_alive()
+    assert not case.transport.closed
+    assert not any(
+        message.kind in ("STOP", "STOP_ACK")
+        for _, _, _, message in case.transport.transcript
+    )
+    assert case.release_observation is None
+    assert tuple(case.transfer.sent) == protocol
+    assert case.owner.model is case.target
+    assert case.owner.speculator.model is case.draft
+    for layer, views in zip(
+        case.target.language_model.model.layers, case.target_views, strict=True
+    ):
+        assert layer.self_attn.dsa_attn.swa_cache_layer.kv_cache is views
+    for layer, views in zip(
+        case.draft.model.layers.values(), case.draft_views, strict=True
+    ):
+        assert layer.self_attn.dsa_attn.swa_cache_layer.kv_cache is views
+    for actual, expected in zip(
+        case.transfer.destination_cache.pages, case.pages, strict=True
+    ):
+        torch.testing.assert_close(actual, expected, rtol=0, atol=0)
+
+
+@pytest.mark.parametrize(
+    "native_pd_shutdown_case", [(1, False), (2, False)], indirect=True
+)
+def test_successful_pd_shutdown_drains_before_native_release(native_pd_shutdown_case):
+    case = native_pd_shutdown_case
+    assert case.owner.prof is None and not case.owner.dspark_pd_consumer.terminal
+    assert case.output.sampled_token_ids == [[7]]
+    assert kv_transfer_state._KV_CONNECTOR_AGENT is case.transfer.connector
+
+    case.worker.shutdown()
+
+    assert kv_transfer_state._KV_CONNECTOR_AGENT is None
+    assert case.receiver.retired and not case.receiver.is_alive()
+    assert case.transport.closed
+    assert case.release_observation == {
+        "kv_owner_cleared": True,
+        "receiver_retired": True,
+        "receiver_alive": False,
+        "stop_acknowledged": True,
+    }
+    assert case.owner.kv_caches == []
+    for layer in case.target.language_model.model.layers:
+        assert layer.self_attn.dsa_attn.swa_cache_layer.kv_cache == []
+    for layer in case.draft.model.layers.values():
+        assert layer.self_attn.dsa_attn.swa_cache_layer.kv_cache == []
+
+
+@pytest.mark.parametrize("runner_present", [False, True])
+def test_partial_native_shutdown_without_pd_preserves_native_cleanup(
+    monkeypatch, runner_present
+):
+    worker = AFDNPUAttentionWorker.__new__(AFDNPUAttentionWorker)
+    worker.profiler = worker.weight_transfer_engine = None
+    if runner_present:
+        worker.model_runner = None
+    monkeypatch.setattr(kv_transfer_state, "_KV_CONNECTOR_AGENT", None)
+    worker.shutdown()
+    assert kv_transfer_state._KV_CONNECTOR_AGENT is None
 
 
 @pytest.mark.parametrize("result", [None, "native-result"])

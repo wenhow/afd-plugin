@@ -26,7 +26,10 @@ from afd_plugin.compat.npu import ascend_forward_context
 from afd_plugin.config import HCCL_P2P_CONNECTOR, parse_afd_config
 from afd_plugin.connectors.metadata import AFDForwardContextMetadata
 from afd_plugin.connectors.npu.hccl_config import DEEPSEEK_V41_ARCHITECTURES
-from afd_plugin.connectors.npu.hccl_diagnostics import HcclStageDiagnostics
+from afd_plugin.connectors.npu.hccl_diagnostics import (
+    HcclGraphParentDiagnostics,
+    HcclStageDiagnostics,
+)
 from afd_plugin.connectors.npu.hccl_graph_cache import HcclGraphCache, HcclReplayGraph
 from afd_plugin.connectors.npu.hccl_graph_pipeline import (
     HcclGraphComputePipeline,
@@ -91,6 +94,18 @@ class HcclV41GraphService:
         self._pipeline_policy = pipeline_policy
         self._overlap_settings = overlap_settings
         self._diagnostic_sink = diagnostic_sink
+        self._parent_diagnostics = (
+            HcclGraphParentDiagnostics(
+                overlap_settings,
+                "ffn",
+                transport.world_rank,
+                transport.role_rank,
+                transport.local_device,
+                diagnostic_sink,
+            )
+            if overlap_settings is not None and overlap_settings.stage_diagnostics
+            else None
+        )
         self.graph_factory = graph_factory or torch.npu.NPUGraph
         self.graph_capture = graph_capture or (
             lambda graph: torch.npu.graph(graph, pool=runner.graph_pool)
@@ -453,6 +468,7 @@ class HcclV41GraphService:
         accepted capture phase still retires its host parent after publication;
         later replay performs device work. No device failure retries as eager.
         """
+        decision = None
         try:
             self._validate_binding()
             with set_current_vllm_config(self.runner.vllm_config):
@@ -460,6 +476,10 @@ class HcclV41GraphService:
                 if decision is None:
                     self._acknowledged_stop = True
                     return False
+                if self._parent_diagnostics is not None:
+                    self._parent_diagnostics.record(
+                        decision, "graph_parent_reserved", "graph_reservation"
+                    )
                 plan = self.transport.receive_forward()
                 if plan is None:
                     raise RuntimeError(
@@ -483,6 +503,12 @@ class HcclV41GraphService:
                         execute_hccl_v41_parent(
                             self.runner, self.transport, diagnostics=diagnostics
                         )
+                    if self._parent_diagnostics is not None:
+                        self._parent_diagnostics.record(
+                            decision,
+                            "graph_parent_scope_returned",
+                            "execute_hccl_v41_parent",
+                        )
                     return True
                 generation = self._reserved_generation
                 if generation is None or generation != self._generation():
@@ -496,7 +522,15 @@ class HcclV41GraphService:
                         )
                     self._validate_resources(entry.resources)
                     entry.resources.bank.update_counts(plan)
+                    if self._parent_diagnostics is not None:
+                        self._parent_diagnostics.record(
+                            decision, "graph_parent_replay_begin", "graph.replay"
+                        )
                     entry.graph.replay()
+                    if self._parent_diagnostics is not None:
+                        self._parent_diagnostics.record(
+                            decision, "graph_parent_replay_returned", "graph.replay"
+                        )
                 else:
                     resources = self._prepare_resources(plan)
                     if generation != self._generation():
@@ -516,12 +550,26 @@ class HcclV41GraphService:
                         self.cache.publish_capture(decision.key, generation)
                 if generation != self._generation():
                     raise ValueError("FFN graph storage changed during graph phase")
+                if self._parent_diagnostics is not None:
+                    self._parent_diagnostics.record(
+                        decision, "graph_parent_finish_begin", "complete_graph_forward"
+                    )
                 self.transport.complete_graph_forward(decision.key)
                 self._active_bank = self._active_resources = self._active_graph = None
                 self._active_contexts = []
+                if self._parent_diagnostics is not None:
+                    self._parent_diagnostics.record(
+                        decision,
+                        "graph_parent_finish_returned",
+                        "complete_graph_forward",
+                    )
                 return True
-        except BaseException:
+        except BaseException as error:
             self._failed = True
             self.transport.terminal = True
             self.cache.fail()
+            if decision is not None and self._parent_diagnostics is not None:
+                self._parent_diagnostics.record(
+                    decision, "graph_parent_failed", "graph_owner", error=error
+                )
             raise

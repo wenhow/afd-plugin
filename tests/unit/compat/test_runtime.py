@@ -183,10 +183,18 @@ def isolate_ascend_config_installer(monkeypatch):
     config_patch = ModuleType(module_name)
     config_patch.__dict__["apply_afd_ascend_config_patch"] = lambda: None
     monkeypatch.setitem(sys.modules, module_name, config_patch)
+    ubatching_name = "afd_plugin.compat.patches.npu.ubatching_config"
+    ubatching_patch = ModuleType(ubatching_name)
+    ubatching_patch.__dict__["apply_afd_dspark_ubatching_config_patch"] = lambda: None
+    monkeypatch.setitem(sys.modules, ubatching_name, ubatching_patch)
     loader_name = "afd_plugin.compat.patches.npu.model_loader"
     loader_patch = ModuleType(loader_name)
     loader_patch.__dict__["apply_afd_model_loader_patch"] = lambda: None
     monkeypatch.setitem(sys.modules, loader_name, loader_patch)
+    zeroing_name = "afd_plugin.compat.patches.npu.mrv2_kv_zeroing"
+    zeroing_patch = ModuleType(zeroing_name)
+    zeroing_patch.__dict__["apply_dsv41_kv_zeroing_patch"] = lambda: None
+    monkeypatch.setitem(sys.modules, zeroing_name, zeroing_patch)
 
 
 @pytest.mark.usefixtures("isolate_ascend_config_installer")

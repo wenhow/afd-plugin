@@ -4,6 +4,8 @@
 
 from __future__ import annotations
 
+import os
+from contextlib import nullcontext
 from typing import TYPE_CHECKING, Any, cast
 
 import torch
@@ -27,7 +29,8 @@ from afd_plugin.compat.npu.runtime_config import (
     is_deepseek_v41_model,
     resolve_deepseek_v41_target_shape,
 )
-from afd_plugin.config import AFDConfig, parse_afd_config
+from afd_plugin.compat.npu.stream import use_npu_current_stream
+from afd_plugin.config import HCCL_P2P_CONNECTOR, AFDConfig, parse_afd_config
 from afd_plugin.connectors import (
     AFDControlPayload,
     AFDDPMetadata,
@@ -35,7 +38,10 @@ from afd_plugin.connectors import (
     AFDForwardContextMetadata,
     AFDTransferContext,
 )
-from afd_plugin.connectors.npu.hccl_config import validate_staged_hccl_binding
+from afd_plugin.connectors.npu.hccl_config import (
+    validate_staged_hccl_binding,
+)
+from afd_plugin.connectors.npu.hccl_overlap import HcclOverlapSettings
 from afd_plugin.connectors.npu.hccl_protocol import HcclForwardPlan
 from afd_plugin.connectors.npu.hccl_staged import (
     HcclStagedAFDConnector,
@@ -52,6 +58,7 @@ from afd_plugin.v1.worker.cuda_graph import (
 from afd_plugin.v1.worker.ffn_metadata import _set_moe_layer_index
 from afd_plugin.v1.worker.npu.hccl_v41_diagnostics import HcclV41DiagnosticBinding
 from afd_plugin.v1.worker.npu.hccl_v41_eager import HcclV41EagerSession
+from afd_plugin.v1.worker.npu.hccl_v41_eager_bootstrap import HcclV41EagerBootstrap
 from afd_plugin.v1.worker.npu.hccl_v41_ffn_eager import execute_hccl_v41_eager_parent
 from afd_plugin.v1.worker.npu.hccl_v41_ffn_runner import execute_hccl_v41_parent
 from afd_plugin.validation import validate_npu_model_runner_v2_config
@@ -78,6 +85,8 @@ class AFDNPUFFNModelRunner:
 
     afd_expected_role = "ffn"
     _hccl_graph_load_started = False
+    _hccl_eager_load_started = False
+    hccl_v41_eager_bootstrap: HcclV41EagerBootstrap | None = None
 
     # Plugin-only target_shape retains the original validated target's N+1
     # width after FFN config isolation. None derives the local/default shape;
@@ -112,6 +121,7 @@ class AFDNPUFFNModelRunner:
         self.target_shape = local_shape if target_shape is None else target_shape
         self.model: torch.nn.Module | None = None
         self._hccl_graph_load_started = False
+        self._hccl_eager_load_started = False
         self.model_memory_usage = 0
         self.afd_config = afd_config
         fail_if_unsupported_npu_afd_features(
@@ -120,12 +130,22 @@ class AFDNPUFFNModelRunner:
         )
         if connector is None:
             rank, _ = _resolve_world_ranks()
+            overlap_settings = (
+                HcclOverlapSettings.from_environment(
+                    dict(os.environ),
+                    num_stages=2 if vllm_config.parallel_config.use_ubatching else 1,
+                )
+                if is_deepseek_v41_model(vllm_config)
+                and afd_config.connector == HCCL_P2P_CONNECTOR
+                else None
+            )
             connector = create_npu_runtime_connector(
                 rank,
                 int(device.index),
                 vllm_config,
                 afd_config,
                 target_shape=self.target_shape,
+                overlap_settings=overlap_settings,
             )
         self.connector = connector
         self.num_layers = int(self.model_config.hf_text_config.num_hidden_layers)
@@ -141,6 +161,7 @@ class AFDNPUFFNModelRunner:
         self.hccl_v41_graph_service: HcclV41GraphService | None = None
         self.hccl_v41_eager_session: HcclV41EagerSession | None = None
         self.hccl_v41_diagnostics: HcclV41DiagnosticBinding | None = None
+        self.hccl_v41_eager_bootstrap = None
 
     @staticmethod
     def parse_config(vllm_config: VllmConfig) -> AFDConfig:
@@ -150,15 +171,6 @@ class AFDNPUFFNModelRunner:
         # Load inside the initialized worker. The native loader owns weight
         # materialization and quantization postprocessing; FFN does not need
         # Attention request, sampler, KV or compilation-runner state.
-        from vllm.model_executor.model_loader import get_model_loader
-        from vllm.utils.mem_utils import DeviceMemoryProfiler
-        from vllm_ascend.ascend_forward_context import (
-            set_mc2_mask,
-            set_mc2_tokens_capacity,
-        )
-
-        if self.model is not None:
-            raise RuntimeError("NPU FFN weights are already loaded")
         transport = (
             self.connector.transport
             if isinstance(self.connector, HcclStagedAFDConnector)
@@ -168,6 +180,12 @@ class AFDNPUFFNModelRunner:
             transport is not None
             and transport.negotiated_capabilities.graph_execution_version == 1
         )
+        if self.model is not None:
+            if transport is not None and not graph:
+                transport.terminal = True
+                if self.hccl_v41_eager_bootstrap is not None:
+                    self.hccl_v41_eager_bootstrap.fail()
+            raise RuntimeError("NPU FFN weights are already loaded")
         if graph:
             if self._hccl_graph_load_started:
                 raise RuntimeError("native FFN Graph model loading is single-use")
@@ -175,7 +193,19 @@ class AFDNPUFFNModelRunner:
                 self.vllm_config, transport, self.device, target_shape=self.target_shape
             )
             self._hccl_graph_load_started = True
+        elif transport is not None:
+            if self._hccl_eager_load_started:
+                transport.terminal = True
+                raise RuntimeError("native FFN eager model loading is single-use")
+            self._hccl_eager_load_started = True
         try:
+            from vllm.model_executor.model_loader import get_model_loader
+            from vllm.utils.mem_utils import DeviceMemoryProfiler
+            from vllm_ascend.ascend_forward_context import (
+                set_mc2_mask,
+                set_mc2_tokens_capacity,
+            )
+
             speculative_config = self.vllm_config.speculative_config
             if self.target_shape is not None:
                 decode_query_len = self.target_shape.target_query_len
@@ -200,8 +230,10 @@ class AFDNPUFFNModelRunner:
                 )
             self.model_memory_usage = profiler.consumed_memory
         except BaseException:
-            if graph:
+            if transport is not None:
                 transport.terminal = True
+                if self.hccl_v41_eager_bootstrap is not None:
+                    self.hccl_v41_eager_bootstrap.fail()
             raise
 
     def get_model(self) -> torch.nn.Module:
@@ -286,29 +318,39 @@ class AFDNPUFFNModelRunner:
             session = self.hccl_v41_eager_session
             if session is not None and session.transport is not transport:
                 raise ValueError("FFN eager execution requires its bound session")
-            if transport.receive_forward() is None:
-                return False
-            accepted_plan = transport.plan
-            pipeline = None if session is None else session.open_parent()
-            progress = (
-                None
-                if diagnostics is None
-                else diagnostics.bind_parent(
-                    eager_pipeline=pipeline,
-                    compute_stream=None if pipeline is None else session.compute_stream,
+            # The daemon has its own native and vLLM TLS current streams.
+            # Match the warmed management-thread parent before any receive or
+            # ticket operation; the context restores both on STOP and failure.
+            with (
+                nullcontext()
+                if session is None
+                else use_npu_current_stream(session.parent_stream)
+            ):
+                if transport.receive_forward() is None:
+                    return False
+                accepted_plan = transport.plan
+                pipeline = None if session is None else session.open_parent()
+                progress = (
+                    None
+                    if diagnostics is None
+                    else diagnostics.bind_parent(
+                        eager_pipeline=pipeline,
+                        compute_stream=None
+                        if pipeline is None
+                        else session.compute_stream,
+                    )
                 )
-            )
-            diagnostic_args = {"progress": progress} if progress is not None else {}
-            if pipeline is None:
-                execute_hccl_v41_parent(self, transport, **diagnostic_args)
-            else:
-                execute_hccl_v41_eager_parent(
-                    self,
-                    transport,
-                    pipeline,
-                    compute_stream=session.compute_stream,
-                    **diagnostic_args,
-                )
+                diagnostic_args = {"progress": progress} if progress is not None else {}
+                if pipeline is None:
+                    execute_hccl_v41_parent(self, transport, **diagnostic_args)
+                else:
+                    execute_hccl_v41_eager_parent(
+                        self,
+                        transport,
+                        pipeline,
+                        compute_stream=session.compute_stream,
+                        **diagnostic_args,
+                    )
             return True
         except BaseException:
             if (
@@ -745,6 +787,9 @@ class AFDNPUFFNModelRunner:
         self.graph_pool = None
         free_before_shutdown(self.vllm_config)
         self.model = None
+        self.hccl_v41_eager_bootstrap = None
+        self.hccl_v41_eager_session = None
+        self.hccl_v41_diagnostics = None
         self._is_shutdown = True
 
 

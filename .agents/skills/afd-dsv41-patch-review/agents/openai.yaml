@@ -1,0 +1,6 @@
+interface:
+  display_name: "DSV4.1 Patch Review"
+  short_description: "Review AFD patches against locked RFC sources"
+  default_prompt: "Use $afd-dsv41-patch-review for the current DSV4.1 HCCL adaptation task."
+policy:
+  allow_implicit_invocation: true

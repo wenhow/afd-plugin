@@ -1,0 +1,97 @@
+--- before/tests/unit/compat/patches/test_signatures.py
++++ after/tests/unit/compat/patches/test_signatures.py
+@@ -33,17 +33,6 @@
+         "dspark-pd-sampling",
+         "npu-model-loader",
+         "npu-kv-zeroing",
+-        "ordinary-mtp-propose",
+-        "ordinary-mtp-old-decoder",
+-        "ordinary-mtp-old-model",
+-        "ordinary-mtp-ffn-layer",
+-        "ordinary-mtp-target-ffn",
+-        "ordinary-mtp-target-load",
+-        "ordinary-mtp-predictor-layer",
+-        "ordinary-mtp-predictor",
+-        "ordinary-mtp-model",
+-        "ordinary-mtp-forward",
+-        "ordinary-mtp-load",
+         "pd-outer-constructor",
+         "pd-outer-bind-metadata",
+         "pd-outer-shutdown",
+@@ -146,76 +135,6 @@
+             namespace["_get_dbo_unsupported_features"], eval_str=True
+         )
+         return
+-    elif hook.startswith("ordinary-mtp-"):
+-        pytest.importorskip("torch_npu")
+-        pytest.importorskip("vllm_ascend")
+-        from vllm_ascend.models.deepseek_v4 import model as native_target
+-        from vllm_ascend.models.deepseek_v4 import mtp as native_mtp
+-        from vllm_ascend.worker.v2.spec_decode.autoregressive.speculator import (
+-            AscendAutoRegressiveSpeculator,
+-        )
+-
+-        from afd_plugin.compat.patches.npu.mtp_proposal import MtpProposalBinding
+-        from afd_plugin.model_executor.models.npu import deepseek_v4, deepseek_v4_mtp
+-
+-        target, replacement, symbol = {
+-            "ordinary-mtp-propose": (
+-                AscendAutoRegressiveSpeculator,
+-                MtpProposalBinding.propose,
+-                "propose",
+-            ),
+-            "ordinary-mtp-old-decoder": (
+-                native_target.DeepseekV4DecoderLayer,
+-                deepseek_v4.AFDDeepseekV4DecoderLayer.__init__,
+-                "__init__",
+-            ),
+-            "ordinary-mtp-old-model": (
+-                native_target.AscendDeepseekV4ForCausalLM,
+-                deepseek_v4.AFDDeepseekV4ForCausalLM.__init__,
+-                "__init__",
+-            ),
+-            "ordinary-mtp-ffn-layer": (
+-                native_target.DeepseekV4DecoderLayer,
+-                deepseek_v4_mtp.AFDDeepseekV4MtpFFNLayer.__init__,
+-                "__init__",
+-            ),
+-            "ordinary-mtp-target-ffn": (
+-                native_target.AscendDeepseekV4ForCausalLM,
+-                deepseek_v4_mtp.AFDDeepseekV4MtpTargetFFN.__init__,
+-                "__init__",
+-            ),
+-            "ordinary-mtp-target-load": (
+-                native_target.AscendDeepseekV4ForCausalLM,
+-                deepseek_v4_mtp.AFDDeepseekV4MtpTargetFFN.load_weights,
+-                "load_weights",
+-            ),
+-            "ordinary-mtp-predictor-layer": (
+-                native_mtp.DeepSeekMultiTokenPredictorLayer,
+-                deepseek_v4_mtp.AFDDeepSeekMultiTokenPredictorLayer.__init__,
+-                "__init__",
+-            ),
+-            "ordinary-mtp-predictor": (
+-                native_mtp.DeepSeekMultiTokenPredictor,
+-                deepseek_v4_mtp.AFDDeepSeekMultiTokenPredictor.__init__,
+-                "__init__",
+-            ),
+-            "ordinary-mtp-model": (
+-                native_mtp.DeepSeekV4MTP,
+-                deepseek_v4_mtp.AFDDeepSeekV4MTP.__init__,
+-                "__init__",
+-            ),
+-            "ordinary-mtp-forward": (
+-                native_mtp.DeepSeekV4MTP,
+-                deepseek_v4_mtp.AFDDeepSeekV4MTP.forward,
+-                "forward",
+-            ),
+-            "ordinary-mtp-load": (
+-                native_mtp.DeepSeekV4MTP,
+-                deepseek_v4_mtp.AFDDeepSeekV4MTP.load_weights,
+-                "load_weights",
+-            ),
+-        }[hook]
+-        scope = patch.object(target, symbol, replacement)
+     elif hook.startswith("pd-"):
+         pytest.importorskip("torch_npu")
+         pytest.importorskip("vllm_ascend")

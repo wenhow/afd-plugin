@@ -40,6 +40,8 @@ validation_paths:
   - "tests/unit/test_async_cam_startup_wiring.py"
   - "tests/unit/connectors/test_async_cam_startup.py"
   - "tests/npu/async_cam_runtime.py"
+  - "tests/npu/hccl_native_attention_pd_dspark_graph_ffn_probe.py"
+  - "tests/npu/hccl_native_attention_pd_dspark_eager_ffn_probe.py"
   - "tests/e2e/models/deepseek_v4_flash/ffn_graph.py"
   - "tests/unit/compat/patches/test_engine_core.py"
   - "tests/e2e/models/deepseek_v2_lite/test_deepseek_v2_lite.py"
@@ -107,8 +109,10 @@ receiver is blocked; only acknowledged idle STOP permits normal close.
 Normal NPU construction selects this adapter for a V4.1 HCCL target configured
 for U2; the FFN worker binds its unique transport during device initialization.
 Both roles must use the same U2 configuration. Default U1 and DSpark/U1 retain
-v2; unsupported DSpark/U2 is rejected before the FFN role erases its draft
-identity. Binding leaves native TP ownership and model admission unchanged.
+v2. HCCL DSpark/U2 validates the target checkpoint, fixed verification and
+effective stage count before the FFN role isolates its draft and PD config.
+Non-HCCL connectors retain their existing DSpark/U1 restriction. Binding leaves
+native TP ownership and model admission unchanged.
 Full-checkpoint qualification remains pending.
 
 The explicit `HcclV41GraphService` consumes phase reservations before parent
@@ -117,7 +121,8 @@ model body and graph for each key and storage generation. Warmup never
 publishes readiness; capture publishes only after device synchronization, and
 replay refreshes valid counts outside the graph. Its eager branch uses the
 existing staged executor. This service requires paired native TP and an
-isolated FFN configuration; production construction does not select it yet.
+isolated FFN configuration. Normal Graph construction assembles this service
+under the separate, closed model qualification guard.
 The caller closes its graph cache after acknowledged STOP and before groups.
 Failed captures retain their dependencies for external supervision.
 The synchronous runner's explicit `bind_hccl_v41_graph_service` attaches that
@@ -419,6 +424,10 @@ lacks its connector metadata/work item.
 The daemon catches failures, stores the original exception, logs it, and makes
 the error visible through `raise_ffn_loop_error_if_any()`. Re-entering startup
 or completing shutdown therefore surfaces an earlier background failure.
+This includes thread-local interrupts during profiler export after peer STOP.
+HCCL polling and shutdown surface the saved cause before connector/native cleanup;
+STOP_ACK alone cannot turn an export interruption into successful cleanup. The
+legacy CAM event-shutdown exemption still applies only to ordinary exceptions.
 
 Shutdown ordering is:
 

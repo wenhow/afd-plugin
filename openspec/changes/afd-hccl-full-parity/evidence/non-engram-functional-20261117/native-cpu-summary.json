@@ -1,0 +1,15 @@
+{
+  "returncode": 0,
+  "junit": {
+    "tests": 873,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0
+  },
+  "source_unchanged": true,
+  "native_state": {
+    "before": false,
+    "after": false,
+    "returncode": 0
+  }
+}

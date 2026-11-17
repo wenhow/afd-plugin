@@ -10,6 +10,7 @@ from types import SimpleNamespace
 
 import pytest
 
+import afd_plugin.compat.npu.profiler as profiler_module
 from afd_plugin.compat.npu.profiler import (
     afd_npu_profiler_config,
     afd_npu_profiler_execute,
@@ -251,19 +252,26 @@ def test_profiler_backend_rejects_a_foreign_execution_thread(operation):
     assert [event[0] for event in case.events] == ["create", "start", "stop"]
 
 
-@pytest.mark.parametrize("failure", ["start", "step", "stop"])
-def test_profiler_failure_remains_visible_and_cannot_restart(failure):
-    case = make_profiler_session_case(failure=failure)
+@pytest.mark.parametrize("failure", ["create", "start", "step", "stop"])
+@pytest.mark.parametrize("error_type", [ValueError, KeyboardInterrupt, SystemExit])
+def test_profiler_failure_remains_visible_and_cannot_restart(failure, error_type):
+    original = error_type(f"controlled profiler {failure} failure")
+    case = make_profiler_session_case(failure=failure, failure_error=original)
     with (
-        pytest.raises(ValueError, match=f"controlled profiler {failure}"),
+        pytest.raises(error_type, match=f"controlled profiler {failure}") as observed,
         afd_npu_profiler_owner(case.session),
     ):
         case.session.step()
+    assert observed.value is original
     status = case.session.status()
     assert status["failed"] and not status["closed"]
     assert status["error"] == f"controlled profiler {failure} failure"
-    with pytest.raises(RuntimeError, match="session failed"):
+    with pytest.raises(RuntimeError, match="session failed") as refused:
         case.session.request(True)
+    assert refused.value.__cause__ is original
+    with pytest.raises(RuntimeError, match="session failed") as retained:
+        case.session.finish()
+    assert retained.value.__cause__ is original
 
 
 def test_serving_failure_is_preserved_when_profiler_export_also_fails():
@@ -275,6 +283,33 @@ def test_serving_failure_is_preserved_when_profiler_export_also_fails():
         case.session.before_step()
         raise ValueError("original serving failure")
     assert case.session.status()["error"] == "controlled profiler stop failure"
+
+
+@pytest.mark.parametrize("owner", [afd_npu_profiler_owner, afd_npu_profiler_execute])
+@pytest.mark.parametrize("error_type", [ValueError, KeyboardInterrupt, SystemExit])
+@pytest.mark.parametrize("logging_failure", [False, True])
+def test_serving_error_survives_export_and_logging_failures(
+    monkeypatch, owner, error_type, logging_failure
+):
+    cleanup_error = error_type("controlled export failure")
+    case = make_profiler_session_case(failure="stop", failure_error=cleanup_error)
+    if logging_failure:
+
+        def fail_log(*args, **kwargs):
+            raise error_type("controlled logging failure")
+
+        monkeypatch.setattr(
+            profiler_module, "logger", SimpleNamespace(exception=fail_log)
+        )
+    original = ValueError("original serving failure")
+    # Capture interrupts too so a regression is a failed assertion rather than
+    # an interruption of the pytest runner itself.
+    with pytest.raises(BaseException) as observed, owner(case.session):
+        case.session.before_step()
+        raise original
+    assert observed.value is original
+    assert case.session.status()["failed"]
+    assert not case.session.status()["closed"]
 
 
 def test_exited_profiler_owner_cannot_accept_a_new_start():

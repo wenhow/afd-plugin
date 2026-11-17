@@ -4,6 +4,7 @@
 
 from __future__ import annotations
 
+import os
 from argparse import Namespace
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Literal, cast
@@ -14,7 +15,7 @@ from pydantic import BaseModel, ConfigDict, StrictBool, StrictStr
 from starlette.datastructures import State
 
 from afd_plugin.compat.npu.profiler import afd_npu_profiler_config
-from afd_plugin.config import AFDRole, parse_afd_config
+from afd_plugin.config import HCCL_P2P_CONNECTOR, AFDRole, parse_afd_config
 
 if TYPE_CHECKING:
     from vllm.engine.protocol import EngineClient
@@ -48,7 +49,10 @@ async def _collective_rpc(
         )
     except TimeoutError as error:
         # A timed-out request may still be applied by the execution owner.
-        # A later status read, rather than an HTTP success, resolves its state.
+        # NPU HCCL multiprocess RPC failure retires the executor at its core
+        # owner; retrying status cannot recover its untagged reply channel.
+        # Native utility transport can wrap this error as a plain Exception,
+        # which reaches the 502 branch below rather than preserving its type.
         raise HTTPException(
             status_code=504, detail="AFD profiler RPC timed out"
         ) from error
@@ -118,6 +122,11 @@ class AFDNPUProfilerEndpointPlugin:
         if config.device_config.device_type != "npu":
             raise ValueError("AFD profiler endpoint requires an NPU AFD configuration")
         afd_config = parse_afd_config(config)
+        if afd_config.connector != HCCL_P2P_CONNECTOR:
+            raise ValueError("AFD profiler endpoint requires NPU HCCL")
+        plugins = os.environ.get("VLLM_PLUGINS")
+        if plugins is not None and "afd" not in plugins.split(","):
+            raise ValueError("AFD profiler endpoint requires the afd general plugin")
         profiler_config = afd_npu_profiler_config(afd_config.role)
         if not profiler_config.enabled:
             raise ValueError(

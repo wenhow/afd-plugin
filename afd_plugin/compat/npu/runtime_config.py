@@ -68,7 +68,7 @@ def resolve_deepseek_v41_target_shape(
 def validate_deepseek_v41_graph_speculation(
     vllm_config: VllmConfig,
 ) -> DeepseekV41TargetShape | None:
-    """Limit explicit target Graph components to fixed DSpark with eager draft.
+    """Limit target Graph components to Q1 or fixed DSpark with eager draft.
 
     This validates scheduling shape without enabling production model admission.
     Native draft capture/proposal and acceptance remain Attention-local.
@@ -82,8 +82,10 @@ def validate_deepseek_v41_graph_speculation(
             raise ValueError("V4.1 target Graph requires an eager DSpark draft")
         if speculative.enable_adaptive_verification:
             raise ValueError("V4.1 target Graph requires adaptive verification off")
-        if vllm_config.kv_transfer_config is not None:
-            raise ValueError("V4.1 DSpark Graph does not support KV transfer/PD")
+    if vllm_config.kv_transfer_config is not None:
+        # PD owns the complete cache/topology contract. This is deliberately
+        # one-way: PD validates ordinary speculation, never Graph speculation.
+        validate_deepseek_v41_pd(vllm_config)
     return shape
 
 
@@ -189,7 +191,52 @@ def validate_deepseek_v41_pd(vllm_config: VllmConfig) -> None:
         not vllm_config.model_config.enforce_eager
         or vllm_config.compilation_config.cudagraph_mode.name != "NONE"
     ):
-        raise ValueError("V4.1 HCCL PD requires eager execution without Graph")
+        # Only D target Graph is composed with the attested prefix protocol.
+        # Native pre_forward/finish_forward stay outside run_fullgraph; parent
+        # sampling/proposal/post_forward retain their original ownership. P
+        # remains eager. Validate the original F view before role isolation too.
+        compilation = vllm_config.compilation_config
+        parallel = vllm_config.parallel_config
+        afd_config = parse_afd_config(vllm_config)
+        stages = parallel.num_ubatches
+        native_u1 = (
+            not parallel.use_ubatching
+            and not parallel.enable_dbo
+            and type(stages) is int
+            and stages in (0, 1)
+        )
+        native_u2 = parallel.use_ubatching and type(stages) is int and stages == 2
+        exchange_order = afd_config.connector_extra_config.get(
+            "graph_exchange_order", "stage_serial"
+        )
+        target_graph = (
+            is_deepseek_v41_model(vllm_config)
+            and transfer.kv_connector_module_path == HCCL_ATTESTED_PD_MODULE
+            and (
+                vllm_config.speculative_config is None
+                or uses_deepseek_v41_dspark_pd(vllm_config)
+            )
+            and transfer.kv_role == "kv_consumer"
+            and afd_config.connector == HCCL_P2P_CONNECTOR
+            and vllm_config.model_config.enforce_eager is False
+            and compilation.cudagraph_mode.name == "FULL_DECODE_ONLY"
+            and compilation.mode.name == "NONE"
+            and not compilation.use_inductor_graph_partition
+            # U1 keeps its existing serial tensor contract. U2 can use the
+            # paired static wavefront; each role's pipeline policy is still
+            # checked by capture preflight before any tensor work is posted.
+            and (
+                exchange_order == "stage_serial"
+                or (native_u2 and exchange_order == "cross_layer_v1")
+            )
+            and (native_u1 or native_u2)
+        )
+        if not target_graph:
+            raise ValueError(
+                "V4.1 HCCL KV transfer/PD requires eager execution without Graph, "
+                "except exact "
+                "attested HCCL consumer FULL_DECODE_ONLY target Graph"
+            )
     if vllm_config.speculative_config is not None:
         if not uses_deepseek_v41_dspark_pd(vllm_config):
             # Native Mooncake has no request-bound draft readiness/lease.
@@ -206,11 +253,25 @@ def validate_deepseek_v41_pd(vllm_config: VllmConfig) -> None:
             raise ValueError(
                 "V4.1 DSpark PD requires eager draft and fixed verification"
             )
-        if (
-            vllm_config.parallel_config.use_ubatching
-            or vllm_config.parallel_config.enable_dbo
-        ):
-            raise ValueError("V4.1 DSpark PD requires U1 without DBO")
+        parallel = vllm_config.parallel_config
+        if parallel.use_ubatching or parallel.enable_dbo:
+            # P projects the original parent after native sample/proposal/post;
+            # native child execution does not own the published prefix. D keeps
+            # native KV admission/pre_forward and global parent sampling around
+            # its target children. Read the effective native stage count: DBO
+            # resolves it to two regardless of the raw ubatch_size. Model/device
+            # qualification remains separately closed.
+            hccl_u2 = (
+                parallel.use_ubatching
+                and type(parallel.num_ubatches) is int
+                and parallel.num_ubatches == 2
+                and parse_afd_config(vllm_config).connector == HCCL_P2P_CONNECTOR
+            )
+            if not hccl_u2:
+                raise ValueError(
+                    "V4.1 DSpark PD requires U1 without DBO except exact "
+                    "HCCL U2 producer or consumer"
+                )
     if vllm_config.cache_config.enable_prefix_caching:
         raise ValueError("V4.1 HCCL PD requires local prefix caching disabled")
     if vllm_config.model_config.enable_sleep_mode:

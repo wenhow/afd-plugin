@@ -3,7 +3,10 @@
 
 """One table owns upstream signature checks for scoped runtime patches."""
 
+import ast
+import importlib
 import inspect
+import textwrap
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -14,6 +17,8 @@ import pytest
     "hook",
     [
         "capture-inputs",
+        "engine-core-collective-rpc",
+        "npu-dspark-ubatching-config",
         "camp2p-dispatch",
         "hccl-native-prepare",
         "hccl-graph-gather",
@@ -22,12 +27,14 @@ import pytest
         "hccl-graph-capture",
         "hccl-graph-replay",
         "hccl-u1-prepare",
-        "ffn-service-monitor",
         "ffn-profile",
         "attention-profile",
         "attention-shutdown",
+        "dspark-pd-sampling",
         "npu-model-loader",
+        "npu-kv-zeroing",
         "pd-outer-constructor",
+        "pd-outer-bind-metadata",
         "pd-outer-shutdown",
         "pd-worker-constructor",
         "pd-register",
@@ -43,6 +50,7 @@ import pytest
         "pd-scheduler-after-alloc",
         "pd-scheduler-metadata",
         "pd-scheduler-finished",
+        "pd-native-source-retirement",
         "pd-sender-finished",
         "pd-sender-no-transfer",
         "pd-sender-delayed",
@@ -57,9 +65,80 @@ import pytest
 def test_scoped_patch_preserves_upstream_signature(hook):  # long-test: shared table
     pytest.importorskip("torch")
     pytest.importorskip("vllm")
-    if hook.startswith("pd-"):
+    if hook == "engine-core-collective-rpc":
+        from vllm.v1.engine import core as native_core
+
+        from afd_plugin.compat.patches import engine_core as adapter
+
+        # CPU core tests reload this module against a temporary fake namespace.
+        # Restore its native core/_R bindings before checking the real contract.
+        importlib.reload(adapter)
+        # Importing the adapter installs this exact method on the native class.
+        # Inspect only the installed upstream declaration, with an empty body,
+        # so alignment never compares the replacement with itself. No plugin
+        # source is read or extracted and no upstream method body is executed.
+        declaration = next(
+            node
+            for node in ast.parse(
+                textwrap.dedent(inspect.getsource(native_core.EngineCore))
+            )
+            .body[0]
+            .body
+            if isinstance(node, ast.FunctionDef) and node.name == "collective_rpc"
+        )
+        declaration.body = [ast.Pass()]
+        namespace = dict(vars(native_core))
+        exec(
+            compile(
+                ast.fix_missing_locations(ast.Module([declaration], [])),
+                native_core.__file__,
+                "exec",
+            ),
+            namespace,
+        )
+        assert inspect.signature(
+            adapter.collective_rpc, eval_str=True
+        ) == inspect.signature(namespace["collective_rpc"], eval_str=True)
+        return
+    elif hook == "npu-dspark-ubatching-config":
+        from vllm.config import vllm as native_config
+
+        from afd_plugin.compat.patches.npu.ubatching_config import (
+            get_dbo_unsupported_features,
+        )
+
+        # Read the installed native declaration: the public runtime facade may
+        # already have replaced the class attribute during preceding tests.
+        declaration = next(
+            node
+            for node in ast.parse(
+                textwrap.dedent(inspect.getsource(native_config.VllmConfig))
+            )
+            .body[0]
+            .body
+            if isinstance(node, ast.FunctionDef)
+            and node.name == "_get_dbo_unsupported_features"
+        )
+        declaration.body = [ast.Pass()]
+        namespace = dict(vars(native_config))
+        exec(
+            compile(
+                ast.fix_missing_locations(ast.Module([declaration], [])),
+                native_config.__file__,
+                "exec",
+            ),
+            namespace,
+        )
+        assert inspect.signature(
+            get_dbo_unsupported_features, eval_str=True
+        ) == inspect.signature(
+            namespace["_get_dbo_unsupported_features"], eval_str=True
+        )
+        return
+    elif hook.startswith("pd-"):
         pytest.importorskip("torch_npu")
         pytest.importorskip("vllm_ascend")
+        from vllm.distributed.kv_transfer.kv_connector.v1.base import KVConnectorBase_V1
         from vllm.v1.core.kv_cache_manager import KVCacheBlocks  # noqa: F401
         from vllm.v1.request import Request  # noqa: F401
         from vllm_ascend.distributed.kv_transfer.kv_p2p import (
@@ -98,6 +177,14 @@ def test_scoped_patch_preserves_upstream_signature(hook):  # long-test: shared t
                 adapter.AFDMooncakeRecvingThread._transfer_kv_cache_all_groups,
                 "_transfer_kv_cache_all_groups",
             )
+        elif hook == "pd-native-source-retirement":
+            from afd_plugin.compat.patches.npu import dspark_pd_scheduler
+
+            target = SimpleNamespace(
+                _connector_finished=dspark_pd_scheduler.NATIVE_CONNECTOR_FINISHED
+            )
+            replacement = dspark_pd_scheduler._connector_finished
+            symbol = "_connector_finished"
         else:
             target, replacement, symbol = {
                 "pd-scheduler-constructor": (
@@ -150,6 +237,11 @@ def test_scoped_patch_preserves_upstream_signature(hook):  # long-test: shared t
                     adapter.MooncakeHybridConnector.shutdown,
                     "shutdown",
                 ),
+                "pd-outer-bind-metadata": (
+                    KVConnectorBase_V1,
+                    adapter.MooncakeHybridConnector.bind_connector_metadata,
+                    "bind_connector_metadata",
+                ),
                 "pd-receiver-run": (
                     native.KVCacheRecvingThread,
                     adapter.AFDMooncakeRecvingThread.run,
@@ -177,13 +269,6 @@ def test_scoped_patch_preserves_upstream_signature(hook):  # long-test: shared t
                 ),
             }[hook]
         scope = patch.object(target, symbol, replacement)
-    elif hook == "ffn-service-monitor":
-        from vllm.v1.engine.core_client import MPClient as target  # noqa: N813
-
-        from afd_plugin.entrypoints.npu_ffn import AFDFFNClient
-
-        symbol = "start_engine_core_monitor"
-        scope = patch.object(target, symbol, AFDFFNClient.start_engine_core_monitor)
     elif hook == "capture-inputs":
         from vllm.v1.worker.gpu import cudagraph_utils as target
         from vllm.v1.worker.gpu.pcp_manager import PCPManager  # noqa: F401
@@ -317,6 +402,31 @@ def test_scoped_patch_preserves_upstream_signature(hook):  # long-test: shared t
             else AFDNPUAttentionWorker.profile
         )
         scope = patch.object(target, symbol, profile)
+    elif hook == "npu-kv-zeroing":
+        pytest.importorskip("torch_npu")
+        pytest.importorskip("vllm_ascend")
+        from vllm.v1.worker.gpu.model_runner import GPUModelRunner
+
+        from afd_plugin.compat.patches.npu.mrv2_kv_zeroing import init_kv_zero_meta
+
+        target, replacement, symbol = (
+            GPUModelRunner,
+            init_kv_zero_meta,
+            "_init_kv_zero_meta",
+        )
+        scope = patch.object(target, symbol, replacement)
+    elif hook == "dspark-pd-sampling":
+        pytest.importorskip("torch_npu")
+        pytest.importorskip("vllm_ascend")
+        from vllm_ascend.worker.v2.model_runner import NPUModelRunner
+
+        from afd_plugin.v1.worker.npu.attention_model_runner_v2 import (
+            AFDNPUAttentionModelRunnerV2,
+        )
+
+        target = NPUModelRunner
+        symbol = "sample_tokens"
+        scope = patch.object(target, symbol, AFDNPUAttentionModelRunnerV2.sample_tokens)
     elif hook == "ds-mxfp8":
         pytest.importorskip("torch_npu")
         pytest.importorskip("vllm_ascend")

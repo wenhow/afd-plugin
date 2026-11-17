@@ -202,6 +202,76 @@ def v41_eager_qualification_config(
     return config
 
 
+def v41_dummy_qualification_config(
+    *,
+    dtype,
+    compilation_mode,
+    cudagraph_mode,
+    role="attention",
+    num_ubatches=0,
+    tensor_parallel_size=1,
+    uses_c2=False,
+):
+    """Small normal-Worker BF16 candidate; metadata only, without device work."""
+    config = hccl_vllm_config(
+        dtype=dtype,
+        compilation_mode=compilation_mode,
+        cudagraph_mode=cudagraph_mode,
+        role=role,
+        num_ubatches=num_ubatches,
+        tensor_parallel_size=tensor_parallel_size,
+    )
+    config.device_config = SimpleNamespace(device_type="npu")
+    config.parallel_config.rank = 0
+    model = config.model_config
+    model.quantization = None
+    model.max_model_len = 128
+    vars(model.hf_text_config).update(
+        hidden_size=512,
+        hc_mult=4,
+        num_attention_heads=64,
+        num_key_value_heads=1,
+        head_dim=512,
+        qk_rope_head_dim=64,
+        q_lora_rank=64,
+        kv_lora_rank=512,
+        o_lora_rank=64,
+        o_groups=1,
+        num_hidden_layers=3 if uses_c2 else 2,
+        compress_ratios=[0, 0, 2] if uses_c2 else [0, 0],
+        sliding_window=128,
+        index_topk=512,
+        index_n_heads=64,
+        index_head_dim=128,
+        vocab_size=4096,
+        intermediate_size=512,
+        moe_intermediate_size=512,
+        n_routed_experts=8,
+        num_experts_per_tok=2,
+        n_shared_experts=1,
+        n_group=1,
+        topk_group=1,
+        num_hash_layers=0,
+        expert_dtype="bf16",
+        quantization_config=None,
+        engram_layer_ids=[],
+    )
+    if uses_c2:
+        vars(model.hf_text_config).update(
+            kv_source_layer_ids=[2],
+            index_source_layer_ids=[2],
+            candidate_source_layer_id=20,
+        )
+    config.quant_config = None
+    config.load_config = SimpleNamespace(load_format="dummy")
+    config.scheduler_config.max_num_seqs = 1
+    config.scheduler_config.async_scheduling = False
+    config.scheduler_config.enable_chunked_prefill = True
+    config.cache_config.block_size = 128
+    config.cache_config.cache_dtype = "auto"
+    return config
+
+
 def pd_kv_transfer_config(*, tp_size=1, connector="MooncakeHybridConnector"):
     """Native KVTransferConfig fields only; no transfer engine or remote proof."""
     return SimpleNamespace(
@@ -215,6 +285,63 @@ def pd_kv_transfer_config(*, tp_size=1, connector="MooncakeHybridConnector"):
     )
 
 
+def v41_functional_qualification_config(
+    *,
+    dtype,
+    compilation_mode,
+    cudagraph_mode,
+    role="attention",
+    u2=False,
+    graph=False,
+    dspark=False,
+    pd_role=None,
+):
+    """Bounded non-Engram combination metadata, without worker/device objects."""
+    config = v41_dummy_qualification_config(
+        dtype=dtype,
+        compilation_mode=compilation_mode,
+        cudagraph_mode=cudagraph_mode,
+        role=role,
+        num_ubatches=2 if u2 else 0,
+        uses_c2=True,
+    )
+    config.parallel_config.enable_dbo = False
+    config.parallel_config.use_ubatching = u2
+    config.model_config.enforce_eager = not graph
+    config.model_config.model = "bounded-v41-functional-model"
+    config.scheduler_config.max_num_seqs = 2
+    if dspark:
+        text = config.model_config.hf_text_config
+        vars(text).update(
+            num_nextn_predict_layers=1,
+            dspark_block_size=2,
+            dspark_target_layer_ids=[1, 2, 3],
+            dspark_n_routed_experts=8,
+            dspark_num_experts_per_tok=2,
+        )
+        draft_text = deepcopy(text)
+        draft_text.n_mtp_layers = text.num_nextn_predict_layers
+        draft_text.architectures = ["DeepseekV41DSparkModel"]
+        config.speculative_config = DSparkSpeculativeConfig(
+            method="dspark",
+            num_speculative_tokens=2,
+            draft_model_config=SimpleNamespace(
+                model=config.model_config.model,
+                hf_config=draft_text,
+                hf_text_config=draft_text,
+                architectures=draft_text.architectures,
+            ),
+            draft_parallel_config=SimpleNamespace(tensor_parallel_size=1),
+        )
+    if pd_role is not None:
+        config.kv_transfer_config = pd_kv_transfer_config()
+        config.kv_transfer_config.kv_role = pd_role
+        config.kv_transfer_config.kv_connector_module_path = (
+            "afd_plugin.compat.npu.kv_layout_connector"
+        )
+    return config
+
+
 @dataclass
 class DSparkSpeculativeConfig:
     method: str
@@ -224,6 +351,8 @@ class DSparkSpeculativeConfig:
     rejection_sample_method: str = "standard"
     enable_adaptive_verification: bool = False
     enforce_eager: bool = True
+    quantization: str | None = None
+    kv_cache_dtype: str | None = "auto"
 
     def use_dspark(self):
         return self.method == "dspark"
@@ -280,6 +409,155 @@ def v41_dspark_pd_config(*, role="attention", tensor_parallel_size=1):
         "afd_plugin.compat.npu.kv_layout_connector"
     )
     return config
+
+
+def v41_dspark_pd_graph_config(
+    *,
+    dtype,
+    compilation_mode,
+    cudagraph_mode,
+    role="attention",
+    tensor_parallel_size=1,
+    num_ubatches=1,
+):
+    """Complete original D target configuration; never constructs device owners."""
+    config = hccl_vllm_config(
+        dtype=dtype,
+        compilation_mode=compilation_mode,
+        cudagraph_mode=cudagraph_mode,
+        role=role,
+        tensor_parallel_size=tensor_parallel_size,
+        dspark=True,
+        num_ubatches=num_ubatches,
+    )
+    config.model_config.enforce_eager = False
+    config.parallel_config.rank = 0
+    config.speculative_config.num_speculative_tokens = 2
+    config.kv_transfer_config = pd_kv_transfer_config(tp_size=tensor_parallel_size)
+    config.kv_transfer_config.kv_connector_module_path = (
+        "afd_plugin.compat.npu.kv_layout_connector"
+    )
+    return config
+
+
+def native_v41_dbo_config(
+    *, role="attention", target_graph=False, dspark=True, boundary=None
+):
+    """Real native config methods over host-only declared fields.
+
+    Bypass constructors only to isolate configuration validation; this fixture
+    does not establish EngineArgs construction or any model/device behavior.
+    The actual ParallelConfig properties determine the effective stage count.
+    """
+    # Deferred imports keep the shared fake module CPU-importable without vLLM.
+    import torch
+    from vllm.config import ParallelConfig, VllmConfig
+    from vllm.config.compilation import CompilationMode, CUDAGraphMode
+
+    source = v41_dspark_pd_graph_config(
+        dtype=torch.bfloat16,
+        compilation_mode=CompilationMode.NONE,
+        cudagraph_mode=(
+            CUDAGraphMode.FULL_DECODE_ONLY if target_graph else CUDAGraphMode.NONE
+        ),
+        role=role,
+        num_ubatches=2,
+    )
+    source.model_config.enforce_eager = not target_graph
+    source.model_config.is_multimodal_model = True
+    source.model_config.is_hybrid = False
+    source.model_config.multimodal_config = SimpleNamespace(
+        language_model_only=True, mm_encoder_only=False
+    )
+    source.model_config.hf_text_config.engram_layer_ids = []
+    if not dspark:
+        source.speculative_config = None
+    parallel = object.__new__(ParallelConfig)
+    parallel.__dict__.update(
+        {
+            name: value
+            for name, value in vars(source.parallel_config).items()
+            if name not in {"num_ubatches", "use_ubatching"}
+        }
+    )
+    config = object.__new__(VllmConfig)
+    config.__dict__.update(vars(source))
+    # use_v2_model_runner is a real native property, selected by the test env.
+    config.__dict__.pop("use_v2_model_runner")
+    config.parallel_config = parallel
+    if boundary is not None:
+        _configure_native_dbo_boundary(config, boundary)
+    return config
+
+
+def _configure_native_dbo_boundary(config, boundary):
+    # Deferred with the real-config builder above; no runtime/device objects.
+    from vllm.config.compilation import CompilationMode, CUDAGraphMode
+
+    if boundary == "no_afd":
+        config.additional_config = {}
+    elif boundary == "cuda":
+        # The test changes the public platform metadata dependency separately.
+        pass
+    elif boundary in {"cam_p2p", "cam_async"}:
+        config.additional_config["afd"]["connector"] = (
+            "CAMP2pAFDConnector" if boundary == "cam_p2p" else "CAMAsyncAFDConnector"
+        )
+    elif boundary == "old_v4":
+        config.model_config.hf_config.model_type = "deepseek_v4"
+        config.model_config.hf_config.architectures = ["DeepseekV4ForCausalLM"]
+    elif boundary in {"u1", "u3", "float_stages"}:
+        config.parallel_config.enable_dbo = False
+        config.parallel_config.ubatch_size = {"u1": 1, "u3": 3, "float_stages": 2.0}[
+            boundary
+        ]
+    elif boundary == "other_method":
+        config.speculative_config.method = "mtp"
+    elif boundary == "no_speculation":
+        config.speculative_config = None
+    elif boundary == "adaptive":
+        config.speculative_config.enable_adaptive_verification = True
+    elif boundary == "draft_graph":
+        config.speculative_config.enforce_eager = False
+    elif boundary == "engram_config":
+        config.engram_config = SimpleNamespace(cpu_offload=True)
+    elif boundary == "engram_layers":
+        config.model_config.hf_text_config.engram_layer_ids = [1]
+    elif boundary == "vision":
+        config.model_config.multimodal_config.language_model_only = False
+    elif boundary == "no_mm_config":
+        config.model_config.multimodal_config = None
+    elif boundary == "compile":
+        config.compilation_config.mode = CompilationMode.VLLM_COMPILE
+    elif boundary == "graph_partition":
+        config.compilation_config.use_inductor_graph_partition = True
+    elif boundary == "inconsistent_target_graph":
+        config.model_config.enforce_eager = False
+    elif boundary == "lora":
+        config.lora_config = SimpleNamespace(enabled=True)
+    elif boundary == "pp":
+        config.parallel_config.pipeline_parallel_size = 2
+    elif boundary == "dcp":
+        config.parallel_config.decode_context_parallel_size = 2
+    elif boundary == "pcp":
+        config.parallel_config.prefill_context_parallel_size = 2
+    elif boundary == "encoder_decoder":
+        config.model_config.is_encoder_decoder = True
+    elif boundary == "hybrid":
+        config.model_config.is_hybrid = True
+    elif boundary == "piecewise":
+        config.compilation_config.cudagraph_mode = CUDAGraphMode.PIECEWISE
+    elif boundary == "encoder_only":
+        config.model_config.multimodal_config.mm_encoder_only = True
+    else:
+        raise ValueError(f"Unknown native DBO config boundary: {boundary}")
+
+
+def native_dbo_config_snapshot(config):
+    """Compare declared inputs without native dataclass repr/default fields."""
+    snapshot = deepcopy(vars(config))
+    snapshot["parallel_config"] = deepcopy(vars(config.parallel_config))
+    return snapshot
 
 
 def async_moe_config(

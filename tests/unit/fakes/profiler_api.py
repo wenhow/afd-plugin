@@ -12,6 +12,7 @@ import httpx
 from fastapi import FastAPI
 
 from afd_plugin.compat.npu.profiler_api import AFDNPUProfilerEndpointPlugin
+from afd_plugin.config import AFD_ASYNC_CONNECTOR, HCCL_P2P_CONNECTOR
 from tests.unit.fakes.profiler import make_profiler_session_case
 from tests.unit.fakes.vllm_config import npu_vllm_config
 
@@ -55,9 +56,17 @@ class ProfilerEndpointEntryPoint:
 
 
 def make_profiler_api_case(
-    *, role="attention", initialize=True, selected=(True, False)
+    *,
+    role="attention",
+    connector=HCCL_P2P_CONNECTOR,
+    initialize=True,
+    selected=(True, False),
 ):
-    config = npu_vllm_config(role=role)
+    config = npu_vllm_config(
+        role=role,
+        connector=connector,
+        async_dp=connector == AFD_ASYNC_CONNECTOR,
+    )
     config.device_config = SimpleNamespace(device_type="npu")
     config.profiler_config = None
     profiles = tuple(

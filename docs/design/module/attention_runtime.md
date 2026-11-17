@@ -14,6 +14,7 @@ primary_code_paths:
   - "afd_plugin/v1/worker/npu/hccl_v41_ubatch_runner.py"
   - "afd_plugin/v1/worker/npu/hccl_v41_execution.py"
   - "afd_plugin/v1/worker/npu/hccl_v41_eager.py"
+  - "afd_plugin/v1/worker/npu/hccl_v41_eager_bootstrap.py"
   - "afd_plugin/v1/worker/npu/hccl_v41_diagnostics.py"
   - "afd_plugin/v1/worker/npu/hccl_v41_graph.py"
   - "afd_plugin/v1/worker/npu/hccl_v41_graph_control.py"
@@ -41,6 +42,7 @@ validation_paths:
   - "tests/unit/v1/worker/npu/test_hccl_v41_ubatch_runner.py"
   - "tests/unit/v1/worker/npu/test_hccl_v41_execution.py"
   - "tests/unit/v1/worker/npu/test_hccl_v41_eager.py"
+  - "tests/unit/v1/worker/npu/test_hccl_v41_eager_bootstrap.py"
   - "tests/unit/v1/worker/npu/test_hccl_v41_diagnostics.py"
   - "tests/unit/v1/worker/npu/test_hccl_v41_graph.py"
   - "tests/unit/v1/worker/npu/test_hccl_v41_graph_control.py"
@@ -54,8 +56,40 @@ validation_paths:
   - "tests/unit/model_executor/test_async_cam_dbo.py"
   - "tests/npu/test_mrv2_dbo.py"
   - "tests/npu/v41_ubatch_constructor_probe.py"
+  - "tests/npu/dsv41_pd_report_probe.py"
   - "tests/npu/dsv41_dspark_a5_validation.py"
   - "tests/npu/dsv41_dspark_a5_runtime.py"
+    - "tests/npu/dsv41_functional_worker_probe.py"
+    - "tests/npu/dsv41_a5_functional_validation.py"
+  - "tests/npu/dsv41_normal_worker_probe.py"
+  - "tests/npu/dsv41_normal_model_probe.py"
+  - "tests/npu/dsv41_normal_c2_probe.py"
+  - "tests/npu/dsv41_normal_execute_probe.py"
+  - "tests/npu/dsv41_normal_native_probe.py"
+  - "tests/npu/hccl_native_attention_probe.py"
+  - "tests/npu/hccl_native_attention_lifecycle_probe.py"
+  - "tests/npu/hccl_native_attention_profile_probe.py"
+  - "tests/npu/hccl_native_attention_pd_probe.py"
+  - "tests/npu/hccl_native_attention_pd_scheduler_probe.py"
+  - "tests/npu/hccl_native_attention_pd_model_probe.py"
+  - "tests/npu/hccl_native_attention_pd_reuse_probe.py"
+  - "tests/npu/hccl_native_attention_pd_graph_probe.py"
+  - "tests/npu/hccl_native_attention_pd_engine_args_probe.py"
+  - "tests/npu/hccl_native_attention_pd_graph_lifecycle_probe.py"
+  - "tests/npu/hccl_native_attention_pd_producer_probe.py"
+  - "tests/npu/hccl_native_attention_pd_aux_probe.py"
+  - "tests/npu/hccl_native_attention_pd_dspark_probe.py"
+  - "tests/npu/hccl_native_attention_pd_dspark_owner_probe.py"
+  - "tests/npu/hccl_native_attention_pd_dspark_run_probe.py"
+  - "tests/npu/hccl_native_attention_pd_dspark_ready_probe.py"
+  - "tests/npu/hccl_native_attention_pd_dspark_decode_probe.py"
+  - "tests/npu/hccl_native_attention_pd_dspark_graph_probe.py"
+  - "tests/npu/hccl_native_attention_pd_dspark_u2_probe.py"
+  - "tests/npu/hccl_native_attention_pd_dspark_lifecycle_probe.py"
+  - "tests/npu/hccl_native_attention_pd_dspark_overlap_probe.py"
+  - "tests/npu/hccl_native_attention_pd_dspark_cross_layer_probe.py"
+  - "tests/npu/hccl_native_attention_pd_dspark_eager_probe.py"
+  - "tests/npu/hccl_native_attention_pd_dspark_failure_probe.py"
   - "tests/e2e/models/deepseek_v2_lite/test_deepseek_v2_lite.py"
   - "tests/e2e/accuracy/**"
   - "tests/e2e/models/deepseek_v2_lite/test_async_cam_npu.py"
@@ -80,6 +114,42 @@ last_reviewed: 2026-10-13
 
 # Attention runtime
 
+The opt-in native Attention graph component constructs the actual Ascend
+ModelState, request/input/block storage, V4.1 metadata builders and
+ModelAclGraphManager. Its coordinator invokes the native capture factory and
+NPUGraph replay, using controlled NPU Attention/HC leaves and constructor-free
+AFD model/runner carriers. The frozen A3 run covers four U1/U2 graphs and twelve
+same-key replays with changed IDs/positions and then changed contents at the
+same KV address. A separate standard-library oracle recomputes request/KV
+coordinates, BF16 outputs and KV digests. Public native execute/sampling, the
+KV allocator, SparseFA, checkpoint equivalence and normal serving admission
+remain separate. See the [component evidence](../../../openspec/changes/afd-hccl-full-parity/evidence/native-attention-graph-design-20261114.md).
+
+The additional explicit lifecycle mode uses the same captured owner for real
+native execute/sample and AsyncOutput, including request retirement, prefill
+eager execution, cached FULL replay and cancellation followed by replacement.
+The controlled native LMHead produces a unique greedy token; the native Sampler
+and history updates execute normally. Its A3 component verifies six additional
+parents and request-slot reuse with a different KV block. The KV arithmetic
+remains read-only and does not qualify native SparseFA writes or full serving.
+See the [lifecycle evidence](../../../openspec/changes/afd-hccl-full-parity/evidence/native-attention-lifecycle-design-20261114.md).
+
+Its additional A profiler mode records the actual six public executes and four
+native sampling/head operations using the production deferred session. The A3
+trace and kernel CSV match four MatMul and 32 HCCL tasks by full task identity
+and time. A seventh active interval retains the last sample; normal STOP
+precedes explicit export on the execution owner. F profiling is independent in
+this run, so these results do not establish a combined timeline or overlap.
+See the [profile evidence](../../../openspec/changes/afd-hccl-full-parity/evidence/native-attention-profile-design-20261114.md).
+
+The optional original-Attention-error case retains the actual native owner after
+25 completed parents and an accepted 26th parent. Public execute retry and
+runner shutdown reject before further control traffic or resource release.
+Both-direction codec observations contain no failed COMPLETE or STOP; the peer
+requires supervised termination. A separate process with identical source then
+finishes all 27 parents normally. This verifies a component boundary, not failed
+owner recovery or Worker shutdown. See the [failure and recovery evidence](../../../openspec/changes/afd-hccl-full-parity/evidence/native-attention-failure-design-20261114.md).
+
 The V4.1 staged HCCL path supports explicit binding before `load_model`.
 The binding checks model dimensions, layers, capacity, native TP rank and NPU
 device before initializing its v3 session. Native execution submits actual
@@ -101,6 +171,24 @@ come from one immutable environment snapshot per role; diagnostics default to
 off. This automatic assembly retains the closed model qualification guard.
 One load and one KV allocation own generation zero; reload, KV reinitialization,
 sleep and weight-transfer modes do not enter this fixed storage lifetime.
+
+The exact plugin DSpark PD consumer can now declare a target-only
+`FULL_DECODE_ONLY` HCCL session with an eager fixed-width draft and
+`stage_serial` exchange. Producer execution stays eager; all existing
+cache, topology, sleep, weight-update and offload restrictions still apply.
+The [PD Graph CPU evidence](../../../openspec/changes/afd-hccl-full-parity/evidence/pd-consumer-graph-design-20261114.md)
+checks native handoff, first eager target, later cached FULL parent sampling
+and terminal replay ownership for U1/U2. Its prerecorded outputs and inert
+graph handle do not establish startup capture or new-input device arithmetic.
+
+U2 metadata now forwards native `full_graph_mode` independently from
+`for_cudagraph_capture`, matching the pinned Ascend ModelState contract.
+Actual native compressed-cache builders preserve their FULL lower bound
+during both capture and live replay, while eager metadata retains its native
+zero bound for short sequences. The
+[metadata RED/GREEN evidence](../../../openspec/changes/afd-hccl-full-parity/evidence/u2-full-metadata-design-20261114.md)
+qualifies that CPU metadata behavior; NPU computation and full-model
+qualification remain separate.
 
 ## Purpose and boundary
 
@@ -498,6 +586,33 @@ execution. The parent Engram producer, final MTP/collapse and native retirement
 remain outside the stage loans. Graph owners use a separate session family.
 CPU seams and the controlled eager ticket probe establish their recorded
 boundaries; ordinary model admission and full-checkpoint acceptance stay gated.
+
+Normal staged construction now freezes the connector's overlap settings before
+HELLO. `HcclV41EagerBootstrap` prepares matched streams after model loading and
+before serial memory profiling, then binds that same session after native KV
+initialization has fully returned. The first KV guard runs before native writes;
+failed preparation/allocation/binding retains terminal resources for supervision.
+Explicit zero keeps serial execution without allocating stream resources, while
+diagnostics remain independent. Graph keeps its separate owner and consumes the
+same constructor snapshot. Manual legacy bindings retain their explicit APIs.
+The FFN receive/execute/STOP scope selects and restores both native and vLLM TLS
+parent streams, including a receiver created on another thread. Source review,
+CPU native lifecycle seams, and real connector/bootstrap/ticket components are
+recorded separately in the C7 evidence; they do not establish checkpoint parity.
+
+After successful staged HELLO and preparation/binding, A load and F service
+start each emit the connector's frozen session configuration through their
+existing native INFO logger, including all eight explicit false settings when
+both diagnostic switches are disabled. The record precedes native A KV
+allocation and F thread creation; it proves the prepared session's identity
+and configured values, not model readiness or execution on particular streams.
+Failed HELLO/preparation emits no configuration record. Missing manual
+snapshots remain unknown, and later environment changes do not alter the
+record. Per-parent diagnostics separately describe actual execution.
+An explicit v3 transport bound through the retained legacy connector API does
+not initialize that legacy pair. A load therefore skips its configuration
+record rather than asking that unrelated unstarted pair to attest the live
+staged transport. Normal legacy and staged connector records are unchanged.
 
 Current shared limits are the supported vLLM release and registered role-aware
 model integrations. Ascend V1 native ubatching accepts exactly two ubatches. V2

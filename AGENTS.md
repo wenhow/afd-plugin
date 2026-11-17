@@ -222,3 +222,38 @@ def route_request(self, request: Request, priority: int = 0) -> RouteResult:
 
 UpstreamClass.route_request = route_request
 ```
+
+## DSV4.1-Flash v0.30 adaptation workspace
+
+This checkout starts from release/v0.30.0rc2 at 39017a137d7809bd0ab7cda4a86697e2a6b7a522.
+For this adaptation, read [the roadmap](openspec/ROADMAP_ZH.md) and
+[the source lock](.agents/dsv41/sources.lock.json); resume from
+[the session pointer](.agents/dsv41/session.json).
+
+- Modify this afd-plugin checkout only. vLLM, vLLM-Ascend and the donor checkout
+  remain read-only; inspect their locked Git objects without switching them.
+- First milestone: ModelRunner V2, text, eager, U1, P2pHcclAFDConnector,
+  FFN-side gate, DSpark off. U1 does not prescribe device count.
+- Final delivery migrates the donor HCCL capabilities: U2/DBO, eager streams,
+  FULL_DECODE_ONLY capture/replay/fallback, Graph/U2 pipelines, peer topologies,
+  DSpark/PD combinations and diagnostics. See [the capability matrix](openspec/HCCL_CAPABILITY_MIGRATION_ZH.md).
+  Eager/U1 acceptance is not full migration completion.
+- Follow the current user request: a plan-review turn changes plans and workflow
+  metadata only; implementation authorization in earlier turns does not turn a
+  new analysis request into permission to edit runtime code or run experiments.
+- Keep native V4.1 HC/pre_mix, Engram ModelState and shared-cache ownership.
+  Review router FP32 precision and role construction before claiming equivalence.
+- Follow the [2026-11-12 priority order](openspec/ROADMAP_ZH.md#engram-priority):
+  finish other DSV4.1 functions before starting medium-priority Engram adaptation.
+  Preserve existing native Engram and A/F isolation; dependent full-model checks
+  stay pending. Ordinary old-V4 MTP follow-up remains paused.
+- Each change's tasks.md is the sole progress list. The session JSON stores
+  the active phase/change only. Distinguish static checks, NPU acceptance and delivery.
+- Run the local harness for planning consistency and upstream preservation;
+  it does not prove runtime support or official OpenSpec validation.
+
+Project skills:
+[workflow](.agents/skills/afd-dsv41-v030-workflow/SKILL.md),
+[patch review](.agents/skills/afd-dsv41-patch-review/SKILL.md),
+[evidence](.agents/skills/afd-dsv41-evidence/SKILL.md).
+Existing guidelines above still apply; explicit user constraints take precedence.

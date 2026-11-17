@@ -22,6 +22,7 @@ from tests.unit.fakes.vllm_config import (
     pd_kv_transfer_config,
     v41_dspark_config,
     v41_dspark_pd_config,
+    v41_dspark_pd_graph_config,
 )
 
 
@@ -502,6 +503,64 @@ def test_exact_dspark_pd_keeps_prefix_ownership_on_attention(tp_size):
     assert isolated.parallel_config is source.parallel_config
 
 
+@pytest.mark.parametrize("tp_size", [1, 4])
+@pytest.mark.parametrize("dbo,ubatch_size", [(False, 2), (True, 1), (True, 3)])
+@pytest.mark.parametrize("kv_role", ["kv_producer", "kv_consumer"])
+def test_u2_pd_preserves_target_config_across_ffn_isolation(
+    tp_size, dbo, ubatch_size, kv_role
+):
+    source = v41_dspark_pd_config(role="ffn", tensor_parallel_size=tp_size)
+    source.kv_transfer_config.kv_role = kv_role
+    parallel = source.parallel_config
+    parallel.use_ubatching, parallel.enable_dbo = True, dbo
+    parallel.num_ubatches, parallel.ubatch_size = 2, ubatch_size
+    before = deepcopy(source)
+
+    validate_deepseek_v41_pd(source)
+    isolated = get_npu_ffn_config(source)
+
+    assert source == before
+    assert isolated.kv_transfer_config is None
+    assert isolated.speculative_config is isolated.engram_config is None
+    assert isolated.parallel_config is source.parallel_config
+    assert isolated.parallel_config.num_ubatches == 2
+
+
+@pytest.mark.parametrize("kv_role", ["kv_producer", "kv_consumer"])
+@pytest.mark.parametrize("stages", [True, 0, 1, 3, 2.0])
+def test_dspark_pd_rejects_invalid_u2_stages(kv_role, stages):
+    source = v41_dspark_pd_config()
+    source.kv_transfer_config.kv_role = kv_role
+    source.parallel_config.use_ubatching = True
+    source.parallel_config.num_ubatches = stages
+    before = deepcopy(source)
+
+    with pytest.raises(ValueError, match="requires U1"):
+        validate_deepseek_v41_pd(source)
+
+    assert source == before
+
+
+@pytest.mark.parametrize(
+    "connector,use_ubatching",
+    [("CAMP2pAFDConnector", True), ("P2pHcclAFDConnector", False)],
+)
+@pytest.mark.parametrize("kv_role", ["kv_producer", "kv_consumer"])
+def test_dspark_pd_requires_hccl_u2_schedule(connector, use_ubatching, kv_role):
+    source = v41_dspark_pd_config()
+    source.kv_transfer_config.kv_role = kv_role
+    source.additional_config["afd"]["connector"] = connector
+    source.parallel_config.use_ubatching = use_ubatching
+    source.parallel_config.enable_dbo = True
+    source.parallel_config.num_ubatches = 2
+    before = deepcopy(source)
+
+    with pytest.raises(ValueError, match="requires U1"):
+        validate_deepseek_v41_pd(source)
+
+    assert source == before
+
+
 @pytest.mark.parametrize(
     "boundary, reason",
     [
@@ -549,5 +608,240 @@ def test_pd_does_not_admit_unqualified_native_cache_modes(feature):
 
     with pytest.raises(ValueError, match="without Graph|sparse KV offload disabled"):
         get_npu_ffn_config(source)
+
+    assert source == before
+
+
+@pytest.fixture
+def pd_target_graph_config():
+    """Original D target declaration, before any role/storage binding."""
+    return v41_dspark_pd_graph_config(
+        dtype=None,
+        compilation_mode=SimpleNamespace(name="NONE"),
+        cudagraph_mode=SimpleNamespace(name="FULL_DECODE_ONLY"),
+    )
+
+
+@pytest.mark.parametrize("role", ["attention", "ffn"])
+@pytest.mark.parametrize(
+    "stages,use_ubatching,enable_dbo",
+    [(0, False, False), (1, False, False), (2, True, False), (2, True, True)],
+)
+@pytest.mark.parametrize("explicit_order", [False, True])
+@pytest.mark.parametrize("has_dspark", [False, True])
+def test_pd_target_graph_preserves_the_original_d_declaration_before_isolation(
+    pd_target_graph_config,
+    role,
+    stages,
+    use_ubatching,
+    enable_dbo,
+    explicit_order,
+    has_dspark,
+):
+    source = pd_target_graph_config
+    if not has_dspark:
+        source.speculative_config = None
+    source.additional_config["afd"]["role"] = role
+    if explicit_order:
+        source.additional_config["afd"]["connector_extra_config"] = {
+            "graph_exchange_order": "stage_serial"
+        }
+    parallel = source.parallel_config
+    parallel.num_ubatches = stages
+    parallel.use_ubatching, parallel.enable_dbo = use_ubatching, enable_dbo
+    before = deepcopy(source)
+
+    validate_deepseek_v41_pd(source)
+    assert validate_deepseek_v41_graph_speculation(source) == DeepseekV41TargetShape(
+        3 if has_dspark else 1
+    )
+    if role == "ffn":
+        isolated = get_npu_ffn_config(source)
+        assert isolated.kv_transfer_config is None
+        assert isolated.speculative_config is isolated.engram_config is None
+        assert isolated.parallel_config is source.parallel_config
+        assert isolated.compilation_config is source.compilation_config
+    assert source == before
+
+
+@pytest.mark.parametrize("role", ["attention", "ffn"])
+@pytest.mark.parametrize("has_dspark", [False, True])
+@pytest.mark.parametrize("enable_dbo", [False, True])
+def test_pd_cross_layer_graph_preserves_exact_u2_consumer_before_isolation(
+    pd_target_graph_config, role, has_dspark, enable_dbo
+):
+    source = pd_target_graph_config
+    if not has_dspark:
+        source.speculative_config = None
+    source.additional_config["afd"]["role"] = role
+    source.additional_config["afd"]["connector_extra_config"][
+        "graph_exchange_order"
+    ] = "cross_layer_v1"
+    parallel = source.parallel_config
+    parallel.use_ubatching = True
+    parallel.num_ubatches = 2
+    parallel.enable_dbo = enable_dbo
+    before = deepcopy(source)
+
+    validate_deepseek_v41_pd(source)
+    assert validate_deepseek_v41_graph_speculation(source) == DeepseekV41TargetShape(
+        3 if has_dspark else 1
+    )
+    if role == "ffn":
+        isolated = get_npu_ffn_config(source)
+        assert isolated.kv_transfer_config is None
+        assert isolated.speculative_config is isolated.engram_config is None
+        assert isolated.parallel_config is source.parallel_config
+        assert isolated.compilation_config is source.compilation_config
+    assert source == before
+
+
+@pytest.mark.parametrize("has_dspark", [False, True])
+@pytest.mark.parametrize(
+    "stages,use_ubatching,enable_dbo,exchange_order",
+    [
+        (0, False, False, "cross_layer_v1"),
+        (1, False, False, "cross_layer_v1"),
+        (2, False, False, "cross_layer_v1"),
+        (True, True, True, "cross_layer_v1"),
+        (2.0, True, False, "cross_layer_v1"),
+        (3, True, False, "cross_layer_v1"),
+        (2, True, False, "bulk_v1"),
+    ],
+)
+def test_pd_cross_layer_graph_rejects_non_u2_and_bulk_modes(
+    pd_target_graph_config,
+    has_dspark,
+    stages,
+    use_ubatching,
+    enable_dbo,
+    exchange_order,
+):
+    source = pd_target_graph_config
+    if not has_dspark:
+        source.speculative_config = None
+    source.additional_config["afd"]["connector_extra_config"][
+        "graph_exchange_order"
+    ] = exchange_order
+    parallel = source.parallel_config
+    parallel.num_ubatches = stages
+    parallel.use_ubatching, parallel.enable_dbo = use_ubatching, enable_dbo
+    before = deepcopy(source)
+
+    with pytest.raises(ValueError):
+        validate_deepseek_v41_pd(source)
+    with pytest.raises(ValueError):
+        validate_deepseek_v41_graph_speculation(source)
+    assert source == before
+
+
+@pytest.mark.parametrize(
+    "section,field,value",
+    [
+        ("transfer", "kv_role", "kv_producer"),
+        ("transfer", "kv_role", "kv_both"),
+        ("transfer", "kv_connector_module_path", None),
+        ("transfer", "kv_connector", "OtherConnector"),
+        ("afd", "connector", "CAMP2pAFDConnector"),
+        ("model", "enforce_eager", True),
+        ("graph_mode", "name", "FULL"),
+        ("graph_mode", "name", "PIECEWISE"),
+        ("compile_mode", "name", "VLLM_COMPILE"),
+        ("compilation", "use_inductor_graph_partition", True),
+        ("extra", "graph_exchange_order", "bulk_v1"),
+        ("extra", "graph_exchange_order", "cross_layer_v1"),
+        ("parallel", "num_ubatches", True),
+        ("parallel", "num_ubatches", 2.0),
+        ("parallel", "num_ubatches", 2),
+        ("parallel", "num_ubatches", 3),
+        ("parallel", "use_ubatching", True),
+        ("parallel", "enable_dbo", True),
+        ("draft", "enforce_eager", False),
+        ("draft", "enable_adaptive_verification", True),
+        ("cache", "enable_prefix_caching", True),
+        ("model", "enable_sleep_mode", True),
+        ("source", "weight_transfer_config", SimpleNamespace()),
+        ("additional", "sparse_kv_offload_config", {"enabled": True}),
+        ("parallel", "data_parallel_size", 2),
+        ("parallel", "pipeline_parallel_size", 2),
+        ("parallel", "prefill_context_parallel_size", 2),
+        ("parallel", "decode_context_parallel_size", 2),
+        ("decode_placement", "tp_size", 2),
+        ("draft_model", "model", "foreign-checkpoint"),
+    ],
+)
+def test_pd_target_graph_rejects_unqualified_original_target_modes(
+    pd_target_graph_config, section, field, value
+):
+    source = pd_target_graph_config
+    sections = {
+        "source": source,
+        "model": source.model_config,
+        "compilation": source.compilation_config,
+        "compile_mode": source.compilation_config.mode,
+        "graph_mode": source.compilation_config.cudagraph_mode,
+        "parallel": source.parallel_config,
+        "transfer": source.kv_transfer_config,
+        "draft": source.speculative_config,
+        "draft_model": source.speculative_config.draft_model_config,
+        "cache": source.cache_config,
+        "additional": source.additional_config,
+        "afd": source.additional_config["afd"],
+        "extra": source.additional_config["afd"]["connector_extra_config"],
+        "decode_placement": source.kv_transfer_config.kv_connector_extra_config[
+            "decode"
+        ],
+    }
+    target = sections[section]
+    if isinstance(target, dict):
+        target[field] = value
+    else:
+        setattr(target, field, value)
+    before = deepcopy(source)
+
+    with pytest.raises(ValueError):
+        validate_deepseek_v41_pd(source)
+    with pytest.raises(ValueError):
+        validate_deepseek_v41_graph_speculation(source)
+
+    assert source == before
+
+
+@pytest.mark.parametrize(
+    "section,field,value",
+    [
+        ("transfer", "kv_connector_module_path", None),
+        ("transfer", "kv_role", "kv_producer"),
+        ("graph", "name", "FULL"),
+        ("extra", "graph_exchange_order", "cross_layer_v1"),
+        ("parallel", "num_ubatches", True),
+        ("cache", "enable_prefix_caching", True),
+        ("decode", "tp_size", 2),
+    ],
+)
+def test_pd_target_only_graph_rejects_unsafe_consumer_modes(
+    pd_target_graph_config, section, field, value
+):
+    source = pd_target_graph_config
+    source.speculative_config = None
+    sections = {
+        "transfer": source.kv_transfer_config,
+        "graph": source.compilation_config.cudagraph_mode,
+        "extra": source.additional_config["afd"]["connector_extra_config"],
+        "parallel": source.parallel_config,
+        "cache": source.cache_config,
+        "decode": source.kv_transfer_config.kv_connector_extra_config["decode"],
+    }
+    target = sections[section]
+    if isinstance(target, dict):
+        target[field] = value
+    else:
+        setattr(target, field, value)
+    before = deepcopy(source)
+
+    with pytest.raises(ValueError):
+        validate_deepseek_v41_pd(source)
+    with pytest.raises(ValueError):
+        validate_deepseek_v41_graph_speculation(source)
 
     assert source == before

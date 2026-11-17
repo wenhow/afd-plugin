@@ -1,0 +1,76 @@
+{
+  "accepted": true,
+  "scope": "CPU-only full unit suite for the explicit frozen-base delivery snapshot",
+  "python": "3.14.3",
+  "dependencies_available": {
+    "torch": false,
+    "vllm": false,
+    "numpy": false,
+    "fastapi": false,
+    "pytest": true
+  },
+  "full_unit_command": [
+    "D:\\openSource\\afd-plugin-dsv41-flash-v030\\.venv\\Scripts\\python.exe",
+    "-X",
+    "utf8",
+    "-B",
+    "-m",
+    "pytest",
+    "tests/unit",
+    "-q",
+    "-rs",
+    "-p",
+    "no:cacheprovider",
+    "--junitxml=D:\\openSource\\afd-plugin-dsv41-flash-v030\\.tmp\\functional-delivery-cpu-20261117\\unit-004.xml"
+  ],
+  "cwd": "D:\\openSource\\afd-plugin-dsv41-flash-v030\\.tmp\\functional-delivery-cpu-20261117\\snapshot",
+  "environment": {
+    "PYTHONPATH": "D:\\openSource\\afd-plugin-dsv41-flash-v030\\.tmp\\functional-delivery-cpu-20261117\\snapshot",
+    "PYTEST_DISABLE_PLUGIN_AUTOLOAD": "1"
+  },
+  "full_unit_exit_code": 0,
+  "full_unit_junit_counts": {
+    "tests": 2503,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 698,
+    "passed": 1805
+  },
+  "skips_counted_as_passed": false,
+  "ruff_incremental_passed": true,
+  "ruff_format_incremental_passed": true,
+  "initial_runs_preserved": {
+    "unit-001": "Four collection errors: targeted device capsule lacked CPU diagnostic harness support files",
+    "unit-002": "Stopped on parent EngineCore KeyboardInterrupt contract mismatch; GBK default source reads also failed",
+    "baseline-fakes-interrupt": "The same original parent fake closure independently reproduced KeyboardInterrupt exit 2"
+  },
+  "final_146_production_matches_actual_bundle": true,
+  "source_input_files_unchanged": true,
+  "prior_snapshot_native_cpu_accepted": false,
+  "prior_snapshot_native_cpu_failure_reason": "Root actual installed-native CPU run found 11 ordinary-MTP signature failures; local no-Torch run skipped these checks. Their production modules were deliberately not shipped. The corrected snapshot removes only the 11 table items and their branch.",
+  "corrected_native_cpu_recheck_pending": true,
+  "npu_or_ssh_executed": false,
+  "native_or_hardware_acceptance": false,
+  "artifacts": {
+    "unit-001.log": "0e15ec41fa2101b27b06620ac7bf8de0eebcd263aabffa628c28090c0980d794",
+    "unit-001.xml": "ae8c8f751f4dc5e2f9f1e12f8ee73d2d8f6a3beb68f28caf6c7eba9ff46019cb",
+    "unit-002.log": "083ee576adb9a910f11345fce832844a210df0510f2a12e604642fcb87510a0e",
+    "unit-002.xml": "431d878950a201b8c603ba3ae1d8dbc12e81464d3a7598860adb8814fb34381a",
+    "baseline-fakes-interrupt.log": "0c42e295a853e4edd1051433783d55cf0dc5dd7dbfd04cda3d266d0bd72ff03a",
+    "baseline-fakes-interrupt.xml": "8b0a523e3b3c4b92d68b6dc897db19cae9642eb5ee0fdde68dbf820951360ef3",
+    "unit-003.log": "45d803deeb53fde03e3308cb193b8984945951674d52c9456f8ec533ffd8dd61",
+    "unit-003.xml": "6e9a7884f49fc0b0b5b1de49ace65517f1ac449796a1c7829edf460912a19e19",
+    "unit-004.log": "63d7b3c6f88f261db8c5e44fc861a3f35e8dac3692137c318b45aa0157daa164",
+    "unit-004.xml": "0434c6849f5b5dd31ac463a27d6c4bc5741335e4b0fe5804e9dde8f779040b7f",
+    "ruff-002.log": "af352a86840ad0af3d37ea0d9197f868363a6dac6b1c2ef5d2722f6b41d2d9af",
+    "ruff-format-001.log": "77fe7ff3a59a6ade6f39cc0811142cc6ec56e15dcc6dcaaeba24a2c7ffd679ef",
+    "ruff-signatures-003.log": "af352a86840ad0af3d37ea0d9197f868363a6dac6b1c2ef5d2722f6b41d2d9af",
+    "ruff-format-signatures-002.log": "3f995abf7569b1e556471e7aee144e03d32b2c7c8b1f30c5fbde8d22fdee2088",
+    "paused-mtp-signature-pruning.json": "24cb80f93e2da77400e4168374edf4caba1d70e5452f6fc57aff2e106f1ff46f",
+    "paused-mtp-signatures.patch": "94cf8a63247d08f53c457ef79cc545c2ded4f48ea576bb0680e9b7d7101a86e2",
+    "final-snapshot-manifest.json": "7887322e11745c5cf35976440b628569aeb92a637e84cae59f9c51aa722cc7af",
+    "source-manifest.json": "48169a22db0fdec96655b81db5318d4c9a140b6c6bc3bb3161d7063c2f8f5dd9",
+    "production-and-unit-manifest.json": "f3cb9570ebac487d25eb00de7e4d0a20d08fbc52c2a1e4b2be2e7a1bb476cbe1",
+    "test-support-manifest.json": "ca6dcfed8f2351491da1aed7292702f2b2bd29c026e8cc077ad199ca27650006"
+  }
+}

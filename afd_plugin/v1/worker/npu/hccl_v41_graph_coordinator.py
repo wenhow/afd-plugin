@@ -46,7 +46,10 @@ from afd_plugin.compat.patches.npu.hccl_graph_replay import use_hccl_graph_repla
 from afd_plugin.compat.patches.npu.hccl_v41_u1_graph import (
     use_hccl_v41_u1_preparation,
 )
-from afd_plugin.connectors.npu.hccl_diagnostics import HcclStageDiagnostics
+from afd_plugin.connectors.npu.hccl_diagnostics import (
+    HcclGraphParentDiagnostics,
+    HcclStageDiagnostics,
+)
 from afd_plugin.connectors.npu.hccl_graph_cache import (
     HcclGraphCacheEntry,
     HcclReplayGraph,
@@ -63,6 +66,7 @@ from afd_plugin.connectors.npu.hccl_overlap import (
 )
 from afd_plugin.distributed.hccl_graph import (
     HcclGraphCandidate,
+    HcclGraphDecision,
     HcclGraphReport,
     graph_capture_sequence_digest,
 )
@@ -226,6 +230,19 @@ class HcclV41GraphCoordinator:
         self._pipeline_policy = pipeline_policy
         self._overlap_settings = overlap_settings
         self._diagnostic_sink = diagnostic_sink
+        self._parent_diagnostics = (
+            HcclGraphParentDiagnostics(
+                overlap_settings,
+                "attention",
+                transport.world_rank,
+                transport.role_rank,
+                transport.local_device,
+                diagnostic_sink,
+            )
+            if overlap_settings is not None and overlap_settings.stage_diagnostics
+            else None
+        )
+        self._diagnostic_parent: HcclGraphDecision | None = None
         self._eager_diagnostics = (
             None
             if overlap_settings is None
@@ -312,6 +329,21 @@ class HcclV41GraphCoordinator:
 
     def _transaction_id(self) -> str | None:
         return self.next_transaction_id() if self.transport.is_coordinator else None
+
+    def _observe_parent(self, decision: HcclGraphDecision) -> None:
+        if self._parent_diagnostics is not None:
+            self._diagnostic_parent = decision
+            self._parent_diagnostics.record(
+                decision, "graph_parent_reserved", "graph_reservation"
+            )
+
+    def _record_parent(
+        self, event: str, boundary_api: str, *, error: BaseException | None = None
+    ) -> None:
+        if self._parent_diagnostics is not None and self._diagnostic_parent is not None:
+            self._parent_diagnostics.record(
+                self._diagnostic_parent, event, boundary_api, error=error
+            )
 
     def fail(self) -> None:
         self.session.fail()
@@ -404,6 +436,7 @@ class HcclV41GraphCoordinator:
                 raise ValueError(
                     "capture eligibility must agree an empty eager fallback"
                 )
+            self._observe_parent(decision)
             plan = self.transport.submit_forward(
                 HcclLocalForward("warmup", (0,), (0,)),
                 transaction_id=decision.transaction_id
@@ -418,12 +451,16 @@ class HcclV41GraphCoordinator:
                 )
             if self._eager_diagnostics is not None:
                 self._eager_diagnostics.bind_parent()
+            self._record_parent("graph_parent_finish_begin", "finish_forward")
             self.transport.finish_forward()
+            self._record_parent("graph_parent_finish_returned", "finish_forward")
+            self._diagnostic_parent = None
             self._preflight_done = True
             self._capture_enabled = bool(keys) and decision.reason == "cache_miss"
             return self._capture_enabled
-        except BaseException:
+        except BaseException as error:
             self.fail()
+            self._record_parent("graph_parent_failed", "graph_owner", error=error)
             raise
 
     def resolve_u1_owner(self) -> HcclV41GraphExecution | None:
@@ -516,11 +553,14 @@ class HcclV41GraphCoordinator:
                 cast(HcclReplayGraph, graph),
                 self._retain(execution),
             )
+        self._record_parent("graph_parent_finish_begin", "complete_graph_forward")
         self.transport.complete_graph_forward(key)
         if reservation.decision.phase == "capture":
             self.control.cache.publish_capture(key, reservation.generation)
         self.session.clear()
         self.current_execution, self._u1_context = None, None
+        self._record_parent("graph_parent_finish_returned", "complete_graph_forward")
+        self._diagnostic_parent = None
 
     def _before_factory(
         self, descriptor: BatchExecutionDescriptor, warmup: bool
@@ -544,6 +584,7 @@ class HcclV41GraphCoordinator:
             raise RuntimeError(
                 "native graph session stopped before capture preparation"
             )
+        self._observe_parent(reservation.decision)
         assert reservation.decision.key is not None
         bank = HcclGraphStageBank.allocate(
             self.transport, reservation.decision.key, device=self.owner.device
@@ -619,8 +660,9 @@ class HcclV41GraphCoordinator:
                 use_afd_metadata_provider(self.install_context),
             ):
                 yield
-        except BaseException:
+        except BaseException as error:
             self.fail()
+            self._record_parent("graph_parent_failed", "graph_owner", error=error)
             raise
 
     def capture_native(self, *, profile_only: bool = False) -> int:
@@ -668,7 +710,9 @@ class HcclV41GraphCoordinator:
             0
         ].attn_metadata
         try:
+            self._record_parent("graph_parent_replay_begin", "run_fullgraph")
             yield
+            self._record_parent("graph_parent_replay_returned", "run_fullgraph")
         finally:
             self.model_state.attn_metadata = previous
 
@@ -808,6 +852,7 @@ class HcclV41GraphCoordinator:
                 )
             if reservation is None:
                 raise RuntimeError("native graph session stopped before preparation")
+            self._observe_parent(reservation.decision)
             if reservation.decision.phase == "eager":
                 # In particular do not enter this scope before graph selection:
                 # it establishes NONE mode and installs an eager-only provider.
@@ -879,6 +924,7 @@ class HcclV41GraphCoordinator:
                         raise RuntimeError(
                             "native graph session stopped before empty parent"
                         )
+                    self._observe_parent(reservation.decision)
                 if reservation.geometry.descriptor.num_tokens == 0:
                     plan = self.transport.submit_forward(
                         HcclLocalForward(mode, (0,), (0,)),
@@ -892,7 +938,12 @@ class HcclV41GraphCoordinator:
                         )
                     if self._eager_diagnostics is not None:
                         self._eager_diagnostics.bind_parent()
+                    self._record_parent("graph_parent_finish_begin", "finish_forward")
                     self.transport.finish_forward()
+                    self._record_parent(
+                        "graph_parent_finish_returned", "finish_forward"
+                    )
+                    self._diagnostic_parent = None
                 if (
                     self.current_execution is not None
                     or self.transport.plan is not None
@@ -901,8 +952,12 @@ class HcclV41GraphCoordinator:
                     raise RuntimeError(
                         "native execution did not complete its accepted parent"
                     )
-        except BaseException:
+            if reservation.decision.phase == "eager":
+                self._record_parent("graph_parent_scope_returned", "native_eager_scope")
+                self._diagnostic_parent = None
+        except BaseException as error:
             self.fail()
+            self._record_parent("graph_parent_failed", "graph_owner", error=error)
             raise
         finally:
             self._runtime_active = False

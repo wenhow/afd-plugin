@@ -65,8 +65,11 @@ def make_coordinator_case(
     exchange_order="stage_serial",
     target_query_len=1,
     engram=False,
+    capture_tokens=None,
 ):
     tokens = 4 if target_query_len == 1 else 3 * target_query_len
+    if capture_tokens is not None:
+        tokens = capture_tokens
     descriptor = BatchExecutionDescriptor(
         CUDAGraphMode.FULL,
         tokens,

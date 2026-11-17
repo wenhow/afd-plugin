@@ -24,7 +24,9 @@ from tests.unit.fakes.vllm_config import (
 )
 from tests.unit.fakes.vllm_config import (
     v41_dspark_config,
+    v41_dummy_qualification_config,
     v41_eager_qualification_config,
+    v41_functional_qualification_config,
 )
 
 TWO_UBATCH_DBO = dict(
@@ -36,6 +38,8 @@ ASYNC_CAM = dict(connector="CAMAsyncAFDConnector", async_dp=True)
 @pytest.fixture(autouse=True)
 def clear_v41_qualification_environment(monkeypatch):
     monkeypatch.delenv("AFD_DSV41_EAGER_QUALIFICATION", raising=False)
+    monkeypatch.delenv("AFD_DSV41_DUMMY_QUALIFICATION", raising=False)
+    monkeypatch.delenv("AFD_DSV41_FUNCTIONAL_QUALIFICATION", raising=False)
 
 
 @pytest.mark.parametrize(
@@ -299,6 +303,466 @@ def test_v41_eager_qualification_rejects_unqualified_runtime_flags(
     config.additional_config.update(additional_config)
     monkeypatch.setenv("AFD_DSV41_EAGER_QUALIFICATION", "1")
     monkeypatch.setenv("AFD_ASYNC_CAM_LAYERED_GMM", "1" if layered_gmm else "0")
+    with pytest.raises(ValueError, match=message):
+        fail_if_unsupported_npu_afd_features(config)
+
+
+@pytest.fixture
+def v41_dummy_candidate():
+    torch = pytest.importorskip("torch")
+    pytest.importorskip("vllm")
+    from vllm.config import CompilationMode
+    from vllm.config.compilation import CUDAGraphMode
+
+    def build(
+        *, role="attention", num_ubatches=0, tensor_parallel_size=1, uses_c2=False
+    ):
+        return v41_dummy_qualification_config(
+            dtype=torch.bfloat16,
+            compilation_mode=CompilationMode.NONE,
+            cudagraph_mode=CUDAGraphMode.NONE,
+            role=role,
+            num_ubatches=num_ubatches,
+            tensor_parallel_size=tensor_parallel_size,
+            uses_c2=uses_c2,
+        )
+
+    return build
+
+
+@pytest.mark.parametrize("flag", ["", "true", "01", "2"])
+def test_v41_dummy_qualification_requires_an_exact_flag(monkeypatch, flag):
+    config = v41_dspark_config()
+    before = deepcopy(config)
+    monkeypatch.setenv("AFD_DSV41_DUMMY_QUALIFICATION", flag)
+
+    with pytest.raises(
+        ValueError, match="AFD_DSV41_DUMMY_QUALIFICATION must be 0 or 1"
+    ):
+        fail_if_unsupported_npu_afd_features(config)
+
+    assert config == before
+
+
+@pytest.fixture
+def v41_functional_candidate():
+    torch = pytest.importorskip("torch")
+    pytest.importorskip("vllm")
+    from vllm.config import CompilationMode
+    from vllm.config.compilation import CUDAGraphMode
+
+    def build(**settings):
+        return v41_functional_qualification_config(
+            dtype=torch.bfloat16,
+            compilation_mode=CompilationMode.NONE,
+            cudagraph_mode=(
+                CUDAGraphMode.FULL_DECODE_ONLY
+                if settings.get("graph", False)
+                else CUDAGraphMode.NONE
+            ),
+            **settings,
+        )
+
+    return build
+
+
+@pytest.mark.parametrize("role", ["attention", "ffn"])
+@pytest.mark.parametrize(
+    "u2,graph", [(False, False), (True, False), (False, True), (True, True)]
+)
+@pytest.mark.parametrize(
+    "dspark,pd_role",
+    [
+        (False, None),
+        (True, None),
+        (False, "kv_consumer"),
+        (True, "kv_consumer"),
+        (True, "kv_producer"),
+    ],
+)
+def test_v41_functional_qualification_preserves_supported_combinations(
+    monkeypatch, v41_functional_candidate, role, u2, graph, dspark, pd_role
+):
+    source = v41_functional_candidate(
+        role=role, u2=u2, graph=graph, dspark=dspark, pd_role=pd_role
+    )
+    original = deepcopy(source)
+    monkeypatch.setenv("AFD_DSV41_FUNCTIONAL_QUALIFICATION", "1")
+
+    if graph and pd_role == "kv_producer":
+        with pytest.raises(ValueError, match="PD requires eager"):
+            if role == "ffn":
+                get_npu_ffn_config(source)
+            else:
+                fail_if_unsupported_npu_afd_features(source)
+    else:
+        config = get_npu_ffn_config(source) if role == "ffn" else source
+        before = deepcopy(config)
+        assert fail_if_unsupported_npu_afd_features(config) is None
+        assert config == before
+
+    assert source == original
+
+
+@pytest.mark.parametrize("flag", ["", "true", "01", "2"])
+def test_v41_functional_qualification_requires_exact_opt_in(monkeypatch, flag):
+    monkeypatch.setenv("AFD_DSV41_FUNCTIONAL_QUALIFICATION", flag)
+
+    with pytest.raises(
+        ValueError, match="AFD_DSV41_FUNCTIONAL_QUALIFICATION must be 0 or 1"
+    ):
+        fail_if_unsupported_npu_afd_features(v41_dspark_config())
+
+
+@pytest.mark.parametrize(
+    "container,field,value,message",
+    [
+        ("config", "engram_config", True, "Engram off"),
+        ("target", "engram_layer_ids", [0], "Engram off"),
+        ("draft", "engram_layer_ids", [0], "draft Engram off"),
+        ("draft", "hidden_size", 1024, "matching draft hidden_size"),
+        ("target", "dspark_block_size", 4, "native checkpoint draft metadata"),
+        ("target", "num_nextn_predict_layers", 2, "native checkpoint draft metadata"),
+        ("speculative", "num_speculative_tokens", 3, "one or two speculative"),
+        ("speculative", "num_speculative_tokens", True, "integer speculative steps"),
+        ("speculative", "enforce_eager", False, "eager DSpark draft"),
+        ("speculative", "enable_adaptive_verification", True, "adaptive verification"),
+        ("speculative", "rejection_sample_method", "synthetic", "real acceptance"),
+        ("speculative", "quantization", "fp8", "unquantized BF16 draft/KV"),
+        ("speculative", "kv_cache_dtype", "fp8", "unquantized BF16 draft/KV"),
+        ("scheduler", "max_num_seqs", 3, "one or two sequences"),
+        ("scheduler", "max_num_seqs", True, "one or two sequences"),
+        ("parallel", "num_ubatches", 3, "native U1 or U2"),
+        ("parallel", "num_ubatches", True, "native U1 or U2"),
+        ("parallel", "use_ubatching", False, "native U1 or U2"),
+        ("parallel", "enable_dbo", 1, "native U1 or U2"),
+        ("model", "quantization", "fp8", "unquantized BF16"),
+        ("load", "load_format", "auto", "dummy loading"),
+        ("transfer", "kv_connector_module_path", None, "attested PD connector"),
+    ],
+)
+def test_v41_functional_qualification_rejects_out_of_scope_candidates(
+    monkeypatch, v41_functional_candidate, container, field, value, message
+):
+    config = v41_functional_candidate(
+        u2=True, graph=True, dspark=True, pd_role="kv_consumer"
+    )
+    containers = {
+        "config": config,
+        "model": config.model_config,
+        "target": config.model_config.hf_text_config,
+        "draft": config.speculative_config.draft_model_config.hf_text_config,
+        "speculative": config.speculative_config,
+        "scheduler": config.scheduler_config,
+        "parallel": config.parallel_config,
+        "load": config.load_config,
+        "transfer": config.kv_transfer_config,
+    }
+    setattr(containers[container], field, value)
+    original = deepcopy(config)
+    monkeypatch.setenv("AFD_DSV41_FUNCTIONAL_QUALIFICATION", "1")
+
+    with pytest.raises(ValueError, match=message):
+        fail_if_unsupported_npu_afd_features(config)
+
+    assert config == original
+
+
+@pytest.mark.parametrize("other", ["EAGER", "DUMMY"])
+def test_v41_functional_qualification_cannot_mix_candidates(monkeypatch, other):
+    monkeypatch.setenv("AFD_DSV41_FUNCTIONAL_QUALIFICATION", "1")
+    monkeypatch.setenv(f"AFD_DSV41_{other}_QUALIFICATION", "1")
+
+    with pytest.raises(
+        ValueError, match="qualification candidates are mutually exclusive"
+    ):
+        fail_if_unsupported_npu_afd_features(v41_dspark_config())
+
+
+def test_v41_qualification_candidates_are_mutually_exclusive(monkeypatch):
+    monkeypatch.setenv("AFD_DSV41_DUMMY_QUALIFICATION", "1")
+    monkeypatch.setenv("AFD_DSV41_EAGER_QUALIFICATION", "1")
+
+    with pytest.raises(
+        ValueError, match="qualification candidates are mutually exclusive"
+    ):
+        fail_if_unsupported_npu_afd_features(v41_dspark_config())
+
+
+@pytest.mark.parametrize("flag", [None, "0"])
+def test_v41_dummy_candidate_remains_rejected_by_default(monkeypatch, flag):
+    if flag is not None:
+        monkeypatch.setenv("AFD_DSV41_DUMMY_QUALIFICATION", flag)
+
+    with pytest.raises(RuntimeError, match="DeepSeek V4.1 NPU AFD is not available"):
+        fail_if_unsupported_npu_afd_features(v41_dspark_config())
+
+
+@pytest.mark.parametrize("role", ["attention", "ffn"])
+@pytest.mark.parametrize("num_ubatches", [0, 1])
+@pytest.mark.parametrize(
+    "architecture", ["DeepseekV41ForCausalLM", "AFDDeepseekV41ForCausalLM"]
+)
+def test_v41_dummy_qualification_preserves_normal_worker_config(
+    monkeypatch, v41_dummy_candidate, role, num_ubatches, architecture
+):
+    source = v41_dummy_candidate(role=role, num_ubatches=num_ubatches)
+    source.model_config.hf_config.architectures = [architecture]
+    config = get_npu_ffn_config(source) if role == "ffn" else source
+    before = deepcopy(config)
+    original = deepcopy(source)
+    monkeypatch.setenv("AFD_DSV41_DUMMY_QUALIFICATION", "1")
+
+    assert fail_if_unsupported_npu_afd_features(config) is None
+
+    assert config == before
+    assert source == original
+    assert config.model_config is source.model_config
+
+
+@pytest.mark.parametrize("role", ["attention", "ffn"])
+@pytest.mark.parametrize("num_ubatches", [0, 1])
+def test_v41_dummy_qualification_accepts_first_c2_without_mutation(
+    monkeypatch, v41_dummy_candidate, role, num_ubatches
+):
+    source = v41_dummy_candidate(role=role, num_ubatches=num_ubatches, uses_c2=True)
+    config = get_npu_ffn_config(source) if role == "ffn" else source
+    before = deepcopy(config)
+    original = deepcopy(source)
+    monkeypatch.setenv("AFD_DSV41_DUMMY_QUALIFICATION", "1")
+
+    assert fail_if_unsupported_npu_afd_features(config) is None
+    assert config == before and source == original
+
+
+@pytest.mark.parametrize(
+    "layers,ratios",
+    [
+        (3, [0, 0]),
+        (2, [0, 0, 2]),
+        (3, [0, 0, 0]),
+        (3, [2, 0, 0]),
+        (3, [0, 0, 1]),
+        (3, [0, 0, True]),
+        (4, [0, 0, 2, 2]),
+    ],
+)
+def test_v41_dummy_qualification_rejects_other_compressed_geometry(
+    monkeypatch, v41_dummy_candidate, layers, ratios
+):
+    config = v41_dummy_candidate(uses_c2=True)
+    config.model_config.hf_text_config.num_hidden_layers = layers
+    config.model_config.hf_text_config.compress_ratios = ratios
+    before = deepcopy(config)
+    monkeypatch.setenv("AFD_DSV41_DUMMY_QUALIFICATION", "1")
+
+    with pytest.raises(ValueError, match="num_hidden_layers|compress_ratios"):
+        fail_if_unsupported_npu_afd_features(config)
+    assert config == before
+
+
+@pytest.mark.parametrize(
+    "field,value",
+    [
+        ("kv_source_layer_ids", [0]),
+        ("kv_source_layer_ids", [2.0]),
+        ("kv_source_layer_ids", [2, 6]),
+        ("index_source_layer_ids", [0]),
+        ("index_source_layer_ids", [2.0]),
+        ("candidate_source_layer_id", 2),
+        ("candidate_source_layer_id", 20.0),
+    ],
+)
+def test_v41_dummy_c2_qualification_keeps_native_source_ownership(
+    monkeypatch, v41_dummy_candidate, field, value
+):
+    config = v41_dummy_candidate(uses_c2=True)
+    setattr(config.model_config.hf_text_config, field, value)
+    before = deepcopy(config)
+    monkeypatch.setenv("AFD_DSV41_DUMMY_QUALIFICATION", "1")
+
+    with pytest.raises(ValueError, match=field):
+        fail_if_unsupported_npu_afd_features(config)
+    assert config == before
+
+
+@pytest.mark.parametrize(
+    "field,value",
+    [
+        ("hidden_size", 1024),
+        ("hidden_size", 512.0),
+        ("hc_mult", 1),
+        ("num_attention_heads", 1),
+        ("num_key_value_heads", 2),
+        ("head_dim", 128),
+        ("qk_rope_head_dim", 128),
+        ("q_lora_rank", 128),
+        ("kv_lora_rank", 128),
+        ("o_lora_rank", 128),
+        ("o_groups", 2),
+        ("num_hidden_layers", 3),
+        ("sliding_window", 64),
+        ("index_topk", 16),
+        ("index_n_heads", 1),
+        ("index_head_dim", 64),
+        ("vocab_size", 8192),
+        ("intermediate_size", 1024),
+        ("moe_intermediate_size", 1024),
+        ("n_routed_experts", 16),
+        ("num_experts_per_tok", 4),
+        ("n_shared_experts", 2),
+        ("n_group", 2),
+        ("topk_group", 2),
+        ("num_hash_layers", 1),
+        ("compress_ratios", [2, 2]),
+        ("compress_ratios", [False, False]),
+    ],
+)
+def test_v41_dummy_qualification_rejects_other_model_geometry(
+    monkeypatch, v41_dummy_candidate, field, value
+):
+    config = v41_dummy_candidate()
+    setattr(config.model_config.hf_text_config, field, value)
+    before = deepcopy(config)
+    monkeypatch.setenv("AFD_DSV41_DUMMY_QUALIFICATION", "1")
+
+    with pytest.raises(ValueError, match=field):
+        fail_if_unsupported_npu_afd_features(config)
+
+    assert config == before
+
+
+@pytest.mark.parametrize(
+    "container,field,value,message",
+    [
+        ("device_config", "device_type", "cuda", "NPU"),
+        (None, "use_v2_model_runner", False, "ModelRunner V2"),
+        ("parallel_config", "rank", 1, "role_rank"),
+        ("parallel_config", "data_parallel_size", 2, "data_parallel_size"),
+        ("parallel_config", "pipeline_parallel_size", 2, "pipeline_parallel_size"),
+        ("parallel_config", "prefill_context_parallel_size", 2, "context_parallel"),
+        ("parallel_config", "decode_context_parallel_size", 2, "context_parallel"),
+        ("parallel_config", "enable_expert_parallel", True, "expert parallelism"),
+        ("parallel_config", "use_sequence_parallel_moe", True, "sequence parallelism"),
+        ("parallel_config", "enable_dbo", True, "eager U1"),
+        ("parallel_config", "use_ubatching", True, "eager U1"),
+        ("parallel_config", "num_ubatches", 2, "eager U1"),
+        ("parallel_config", "num_ubatches", True, "eager U1"),
+        ("model_config", "enforce_eager", False, "eager U1"),
+        ("model_config", "enable_sleep_mode", True, "sleep/weight updates"),
+        ("model_config", "quantization", "fp8", "unquantized BF16"),
+        ("model_config", "max_model_len", 256, "max_model_len=128"),
+        ("scheduler_config", "max_num_seqs", 2, "one sequence"),
+        ("scheduler_config", "max_num_seqs", True, "one sequence"),
+        ("scheduler_config", "max_num_batched_tokens", 32, "batch capacity=16"),
+        ("scheduler_config", "async_scheduling", True, "sync scheduling"),
+        ("scheduler_config", "async_scheduling", None, "sync scheduling"),
+        ("scheduler_config", "enable_chunked_prefill", False, "chunked prefill"),
+        ("cache_config", "block_size", 64, "block_size=128"),
+        ("cache_config", "enable_prefix_caching", True, "prefix caching off"),
+        ("cache_config", "cache_dtype", "fp8", "BF16 KV cache"),
+        ("load_config", "load_format", "auto", "dummy loading"),
+        (None, "quant_config", SimpleNamespace(), "unquantized BF16"),
+        (None, "speculative_config", SimpleNamespace(), "speculation off"),
+        (None, "kv_transfer_config", SimpleNamespace(), "KV transfer/PD off"),
+        (None, "engram_config", SimpleNamespace(), "Engram off"),
+        (None, "weight_transfer_config", SimpleNamespace(), "sleep/weight updates"),
+        (None, "lora_config", SimpleNamespace(), "LoRA"),
+        ("model_config", "is_encoder_decoder", True, "decoder-only text"),
+        ("model_config", "is_multimodal_model", True, "decoder-only text"),
+        ("compilation_config", "mode", "other", "compilation and graph modes NONE"),
+        (
+            "compilation_config",
+            "cudagraph_mode",
+            "other",
+            "compilation and graph modes NONE",
+        ),
+    ],
+)
+def test_v41_dummy_qualification_rejects_other_runtime_configuration(
+    monkeypatch, v41_dummy_candidate, container, field, value, message
+):
+    config = v41_dummy_candidate()
+    owner = config if container is None else vars(config)[container]
+    setattr(owner, field, value)
+    before = deepcopy(config)
+    monkeypatch.setenv("AFD_DSV41_DUMMY_QUALIFICATION", "1")
+
+    with pytest.raises(ValueError, match=message):
+        fail_if_unsupported_npu_afd_features(config)
+
+    assert config == before
+
+
+def test_v41_dummy_qualification_rejects_other_valid_native_topology(
+    monkeypatch, v41_dummy_candidate
+):
+    config = v41_dummy_candidate(tensor_parallel_size=2)
+    monkeypatch.setenv("AFD_DSV41_DUMMY_QUALIFICATION", "1")
+
+    with pytest.raises(ValueError, match="A1/F1 with native TP1"):
+        fail_if_unsupported_npu_afd_features(config)
+
+
+@pytest.mark.parametrize("cache_dtype", ["auto", "bfloat16"])
+def test_v41_dummy_qualification_accepts_only_bf16_cache_storage(
+    monkeypatch, v41_dummy_candidate, cache_dtype
+):
+    config = v41_dummy_candidate()
+    config.cache_config.cache_dtype = cache_dtype
+    monkeypatch.setenv("AFD_DSV41_DUMMY_QUALIFICATION", "1")
+
+    assert fail_if_unsupported_npu_afd_features(config) is None
+
+
+@pytest.mark.parametrize(
+    "field,value,message",
+    [
+        ("expert_dtype", "fp8", "unquantized BF16"),
+        ("quantization_config", {"quant_method": "fp8"}, "unquantized BF16"),
+        ("engram_layer_ids", [0], "Engram off"),
+    ],
+)
+def test_v41_dummy_qualification_rejects_checkpoint_only_features(
+    monkeypatch, v41_dummy_candidate, field, value, message
+):
+    config = v41_dummy_candidate()
+    setattr(config.model_config.hf_text_config, field, value)
+    before = deepcopy(config)
+    monkeypatch.setenv("AFD_DSV41_DUMMY_QUALIFICATION", "1")
+
+    with pytest.raises(ValueError, match=message):
+        fail_if_unsupported_npu_afd_features(config)
+
+    assert config == before
+
+
+@pytest.mark.parametrize(
+    "additional_config,layered_gmm,message",
+    [
+        ({"afd": {"async": True}}, False, "async"),
+        ({"sparse_kv_offload_config": {"enabled": True}}, False, "sparse KV offload"),
+        ({"enable_shared_expert_dp": True}, False, "uniform native TP"),
+        (
+            {"finegrained_tp_config": {"mlp_tensor_parallel_size": 2}},
+            False,
+            "uniform native TP",
+        ),
+        ({}, True, "Async CAM layered GMM off"),
+    ],
+)
+def test_v41_dummy_qualification_rejects_unqualified_runtime_flags(
+    monkeypatch, v41_dummy_candidate, additional_config, layered_gmm, message
+):
+    config = v41_dummy_candidate()
+    for key, value in additional_config.items():
+        if key == "afd":
+            config.additional_config[key].update(value)
+        else:
+            config.additional_config[key] = value
+    monkeypatch.setenv("AFD_DSV41_DUMMY_QUALIFICATION", "1")
+    monkeypatch.setenv("AFD_ASYNC_CAM_LAYERED_GMM", "1" if layered_gmm else "0")
+
     with pytest.raises(ValueError, match=message):
         fail_if_unsupported_npu_afd_features(config)
 

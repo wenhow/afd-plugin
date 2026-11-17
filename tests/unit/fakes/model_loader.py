@@ -9,8 +9,11 @@ import torch
 from torch import nn
 from transformers import PretrainedConfig
 from vllm.config import CompilationConfig, CompilationMode
+from vllm.config.compilation import CUDAGraphMode
 from vllm.config.device import DeviceConfig
 from vllm.config.load import LoadConfig
+
+from tests.unit.fakes.mtp import ordinary_mtp_config
 
 
 class NativeModel(nn.Module):
@@ -26,6 +29,10 @@ class FFNModel(NativeModel):
 
 
 class AttentionModel(NativeModel):
+    pass
+
+
+class MTPModel(NativeModel):
     pass
 
 
@@ -47,6 +54,7 @@ def loader_config(*, model_type="deepseek_v41", device="npu", role="ffn"):
         load_config=LoadConfig(load_format="dummy", device="cpu"),
         device_config=DeviceConfig(device=device),
         quant_config=None,
+        speculative_config=None,
         additional_config={},
     )
     if role is not None:
@@ -65,3 +73,26 @@ def dspark_draft_model_config(target_model_config):
     draft.hf_config.model_type = "deepseek_v41"
     draft.hf_text_config = draft.hf_config
     return draft
+
+
+def mtp_loader_config(*, steps=2, role="attention"):
+    native = loader_config(model_type="deepseek_v4", role=role)
+    config = ordinary_mtp_config(steps=steps, role=role)
+    for field, value in vars(config.model_config).items():
+        if field not in ("hf_config", "hf_text_config"):
+            setattr(native.model_config, field, value)
+    for field, value in vars(config.model_config.hf_config).items():
+        setattr(native.model_config.hf_config, field, value)
+    config.model_config = native.model_config
+    config.compilation_config = native.compilation_config
+    config.compilation_config.cudagraph_mode = CUDAGraphMode.NONE
+    config.load_config = native.load_config
+    config.device_config = native.device_config
+    draft = copy(native.model_config)
+    draft.hf_config = PretrainedConfig(
+        **vars(config.speculative_config.draft_model_config.hf_config)
+    )
+    draft.hf_config.model_type = "deepseek_mtp"
+    draft.hf_text_config = draft.hf_config
+    config.speculative_config.draft_model_config = draft
+    return config

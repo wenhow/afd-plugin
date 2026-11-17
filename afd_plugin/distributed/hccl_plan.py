@@ -104,6 +104,8 @@ class HcclPlanCapabilities:
     graph_execution_version: int = 0
     graph_exchange_order: str = "stage_serial"
     target_query_len: int = 1
+    # Select a session family; this is not a downgradeable support flag.
+    eager_pipeline_version: int = 0
 
     def validate(self) -> None:
         _integer("hidden_size", self.hidden_size, minimum=1)
@@ -125,6 +127,17 @@ class HcclPlanCapabilities:
         _integer("max_stages", self.max_stages, minimum=1, maximum=MAX_HCCL_STAGES)
         _integer("local_counts_version", self.local_counts_version, maximum=1)
         _integer("graph_execution_version", self.graph_execution_version, maximum=1)
+        _integer("eager_pipeline_version", self.eager_pipeline_version, maximum=1)
+        if self.eager_pipeline_version == 1 and not (
+            self.graph_execution_version == 0
+            and self.max_stages == MAX_HCCL_STAGES
+            and self.attention_size == self.ffn_size == self.native_tp_size
+            and self.native_tp_size in (1, 2)
+        ):
+            raise ValueError(
+                "eager_pipeline_version=1 requires Graph v0, U2 "
+                "and paired native TP1/TP2"
+            )
         if self.target_query_len > 1 and not (
             self.local_counts_version == self.graph_execution_version == 1
             and self.attention_size == self.ffn_size == self.native_tp_size
@@ -189,6 +202,11 @@ class HcclPlanCapabilities:
                 peer.graph_exchange_order,
             ),
             ("target_query_len", self.target_query_len, peer.target_query_len),
+            (
+                "eager_pipeline_version",
+                self.eager_pipeline_version,
+                peer.eager_pipeline_version,
+            ),
         ):
             if local != remote:
                 raise ValueError(f"HCCL peer {name} does not match")
@@ -205,6 +223,7 @@ class HcclPlanCapabilities:
             self.graph_execution_version,
             self.graph_exchange_order,
             self.target_query_len,
+            self.eager_pipeline_version,
         )
 
 
@@ -520,6 +539,8 @@ def encode_hccl_plan_message(message: HcclPlanMessage) -> bytes:
             capability_payload["graph_exchange_order"] = cap.graph_exchange_order
         if cap.target_query_len != 1:
             capability_payload["target_query_len"] = cap.target_query_len
+        if cap.eager_pipeline_version:
+            capability_payload["eager_pipeline_version"] = cap.eager_pipeline_version
         payload["capabilities"] = capability_payload
     if message.plan is not None:
         payload["plan"] = _plan_payload(message.plan)
@@ -579,6 +600,7 @@ def _decode_capabilities(value: JsonValue) -> HcclPlanCapabilities:
             "graph_execution_version",
             "graph_exchange_order",
             "target_query_len",
+            "eager_pipeline_version",
         },
     )
     result = HcclPlanCapabilities(
@@ -604,6 +626,9 @@ def _decode_capabilities(value: JsonValue) -> HcclPlanCapabilities:
             len("cross_layer_v1"),
         ),
         _integer("target_query_len", cap.get("target_query_len", 1), minimum=1),
+        _integer(
+            "eager_pipeline_version", cap.get("eager_pipeline_version", 0), maximum=1
+        ),
     )
     result.validate()
     return result

@@ -604,6 +604,7 @@ def test_native_capture_reports_configured_and_actual_rank_schedule(
     )
     assert case.coordinator.preflight_capture()
     case.coordinator.capture_native()
+    records = [record for record in records if record["event"] == "configuration"]
     assert [record["phase"] for record in records] == [
         "eager",
         "graph_warmup",
@@ -947,6 +948,96 @@ def test_runtime_full_uses_current_child_metadata_and_completes_native_replay(
     assert not case.transport.terminal
 
 
+@pytest.mark.parametrize("fail_replay", [False, True])
+def test_native_graph_host_records_keep_replay_and_retirement_outside_body(
+    pipeline_capture_case, fail_replay
+):
+    records = []
+    case = pipeline_capture_case(
+        overlap_settings=HcclOverlapSettings(stage_diagnostics=True),
+        diagnostic_sink=records.append,
+    )
+    assert case.coordinator.preflight_capture()
+    case.coordinator.capture_native()
+    completed = [r for r in records if r["event"] == "graph_parent_finish_returned"]
+    assert [r["phase"] for r in completed] == ["eager", "warmup", "capture"]
+    assert completed[0]["boundary_api"] == "finish_forward"
+    records.clear()
+    case.transport.states[0] = "ready"
+    install_runtime_replay_boundary(case, fail=fail_replay)
+    with (
+        pytest.raises(RuntimeError, match="native replay failed")
+        if fail_replay
+        else nullcontext(),
+        case.coordinator.execution_scope(
+            mode="target", valid_tokens=4, dummy_run=False
+        ),
+    ):
+        descriptor = dispatch_runtime(case)
+        prepare_runtime_full(case, descriptor)
+        case.manager.run_fullgraph(descriptor)
+    host = [r for r in records if r["event"].startswith("graph_parent_")]
+    expected = ["graph_parent_reserved", "graph_parent_replay_begin"]
+    expected += (
+        ["graph_parent_failed"]
+        if fail_replay
+        else [
+            "graph_parent_replay_returned",
+            "graph_parent_finish_begin",
+            "graph_parent_finish_returned",
+        ]
+    )
+    assert [r["event"] for r in host] == expected
+    decision = sent(case, "GRAPH_DECISION")[-1].graph_decision
+    assert all(r["decision_digest"] == decision.digest for r in host)
+    assert all(r["boundary"] == "host_control" and r["phase"] == "replay" for r in host)
+    assert case.transport.terminal is fail_replay
+
+
+@pytest.mark.parametrize(
+    "failed_event", ["graph_parent_reserved", "graph_parent_replay_begin"]
+)
+def test_graph_host_sink_failure_preserves_error_and_retained_cache(
+    pipeline_capture_case, failed_event
+):
+    records = []
+    failure = RuntimeError("attention graph host sink failed")
+
+    def emit(record):
+        records.append(record)
+        if record["phase"] == "replay" and record["event"] == failed_event:
+            raise failure
+
+    case = pipeline_capture_case(
+        overlap_settings=HcclOverlapSettings(stage_diagnostics=True),
+        diagnostic_sink=emit,
+    )
+    assert case.coordinator.preflight_capture()
+    case.coordinator.capture_native()
+    records.clear()
+    case.transport.states[0] = "ready"
+    install_runtime_replay_boundary(case)
+    with (
+        pytest.raises(RuntimeError, match="attention graph host sink failed") as raised,
+        case.coordinator.execution_scope(
+            mode="target", valid_tokens=4, dummy_run=False
+        ),
+    ):
+        descriptor = dispatch_runtime(case)
+        prepare_runtime_full(case, descriptor)
+        case.manager.run_fullgraph(descriptor)
+    host = [r for r in records if r["event"].startswith("graph_parent_")]
+    expected = ["graph_parent_reserved"]
+    if failed_event == "graph_parent_replay_begin":
+        expected.append("graph_parent_replay_begin")
+    assert [r["event"] for r in host] == [*expected, "graph_parent_failed"]
+    assert raised.value is failure
+    assert host[-1]["error_type"] == "RuntimeError"
+    assert not any(r["event"].endswith("_returned") for r in host)
+    assert case.transport.terminal and case.cache.terminal
+    assert not case.cache.is_empty and not case.cache.closed
+
+
 @pytest.mark.parametrize("stages", [1, 2])
 def test_replay_failure_restores_metadata_and_retains_the_active_plan(
     capture_case, stages
@@ -1223,6 +1314,7 @@ def test_zero_graph_fallback_records_accepted_rank_configuration(
             assert dispatch_runtime(case).cg_mode == CUDAGraphMode.NONE
 
     plan = sent(case, "FORWARD")[-1].plan
+    records = [record for record in records if record["event"] == "configuration"]
     assert len(records) == 1 and records[0]["event"] == "configuration"
     assert records[0]["transaction_id"] == plan.transaction_id
     assert records[0]["world_rank"] == case.transport.world_rank

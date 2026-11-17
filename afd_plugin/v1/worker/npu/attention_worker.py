@@ -128,22 +128,27 @@ class AFDNPUAttentionWorker(NPUWorker):
     # Upstream: NPUWorker.shutdown, vllm_ascend/worker/worker.py:365,
     # 7e37e29a7803d6897a7113088e2b771f83205bc0. Exact native signature.
     # Reason: native Worker releases its KV/weight-transfer owners before
-    # runner.shutdown, which is too early if role-env export fails.
-    # Functionality: deferred A sessions first complete the runner's idempotent
-    # STOP/cache/export preparation, then preserve all native cleanup through
-    # delegation. Disabled role-env keeps the original native order unchanged.
+    # runner.shutdown, which is too early for failed DSpark owners or role-env
+    # export. Functionality: PD owners and deferred A profiler sessions first
+    # complete the runner's idempotent STOP/cache/export preparation. Failed PD
+    # owners are rejected before native connector retirement or model release.
+    # Delegated native cleanup stays intact; non-PD with role profiling disabled
+    # retains the native order. Cost: constant checks at shutdown; no new sync.
     # Delegation exception/removal: replace with a native pre-release callback
     # when Worker exposes one; no native KV or weight cleanup is copied here.
     def shutdown(self) -> None:
-        # ### PATCH START: export before native resource release
+        # ### PATCH START: check owned state before native release
         # Native worker_main also shuts down partially constructed workers.
         if (
             "model_runner" in self.__dict__
             and self.model_runner is not None
-            and isinstance(self.model_runner.prof, AFDNPUProfilerSession)
+            and (
+                isinstance(self.model_runner.prof, AFDNPUProfilerSession)
+                or self.model_runner.dspark_pd_consumer is not None
+            )
         ):
             self.model_runner.prepare_shutdown()
-        # ### PATCH END: export before native resource release
+        # ### PATCH END: check owned state before native release
         super().shutdown()
 
 

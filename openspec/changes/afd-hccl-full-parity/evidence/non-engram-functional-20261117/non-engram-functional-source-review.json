@@ -1,0 +1,138 @@
+{
+  "review": "source-contract-only",
+  "source_blockers": [],
+  "runtime_acceptance_claimed": false,
+  "ssh_or_device_run": false,
+  "preemption_resume_required_by_current_slice": false,
+  "explicit_scope_reference": "openspec/changes/afd-hccl-full-parity/tasks.md:606",
+  "native_pins": {
+    "vllm": "ced6857afa0ea7b2e3f0846a62e1394e90f15607",
+    "vllm_ascend": "7e37e29a7803d6897a7113088e2b771f83205bc0",
+    "donor": "4ddd69a391dfb5b3e362c7601399e538a31de702"
+  },
+  "production_overlay_paths": [
+    "afd_plugin/compat/npu/feature_validation.py",
+    "afd_plugin/compat/npu/runtime_config.py",
+    "afd_plugin/v1/worker/npu/ffn_worker.py"
+  ],
+  "sources": {
+    "afd_plugin/compat/npu/feature_validation.py": "ab9ea4747fca18f3bc27d0bc2ac4add9b8764043c89ceba7ff39b67c12ec71a9",
+    "afd_plugin/compat/npu/runtime_config.py": "b74ba2210ed2f3a9aab7421df825f07dd1681f47d57dee20b12fecb2fc66e623",
+    "afd_plugin/v1/worker/npu/ffn_worker.py": "8965c3fd62663731b594c77871d5c98bf62c17c85b79c44b973d3dbd165983ac",
+    "tests/unit/compat/npu/test_feature_validation.py": "5f5d45bb8b1012333d79efbe9fcb15c5bc82a80b3974b64c3523b603da9e7b8f",
+    "tests/unit/fakes/vllm_config.py": "3de6eca673462ba16cc7c577027b1a4dd56d2f64219838b12aed9c02c4374fe5"
+  },
+  "cpu_original_read": ".tmp\\functional-gate-cpu-20261117-green003\\results.tar.gz",
+  "cpu_summary": {
+    "returncode": 0,
+    "junit": {
+      "tests": 342,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "source_unchanged": true,
+    "native_state": {
+      "before": false,
+      "after": false,
+      "returncode": 0
+    },
+    "config_runs": [
+      {
+        "role": "native",
+        "mode": "eager-u1",
+        "returncode": 0,
+        "success": true,
+        "accepted": true,
+        "npu_after": false,
+        "error": null
+      },
+      {
+        "role": "attention",
+        "mode": "eager-u1",
+        "returncode": 0,
+        "success": true,
+        "accepted": true,
+        "npu_after": false,
+        "error": null
+      },
+      {
+        "role": "attention",
+        "mode": "eager-u2",
+        "returncode": 0,
+        "success": true,
+        "accepted": true,
+        "npu_after": false,
+        "error": null
+      },
+      {
+        "role": "attention",
+        "mode": "graph-u1",
+        "returncode": 0,
+        "success": true,
+        "accepted": true,
+        "npu_after": false,
+        "error": null
+      },
+      {
+        "role": "attention",
+        "mode": "graph-u2",
+        "returncode": 0,
+        "success": true,
+        "accepted": true,
+        "npu_after": false,
+        "error": null
+      },
+      {
+        "role": "ffn",
+        "mode": "eager-u1",
+        "returncode": 0,
+        "success": true,
+        "accepted": true,
+        "npu_after": false,
+        "error": null
+      },
+      {
+        "role": "ffn",
+        "mode": "eager-u2",
+        "returncode": 0,
+        "success": true,
+        "accepted": true,
+        "npu_after": false,
+        "error": null
+      },
+      {
+        "role": "ffn",
+        "mode": "graph-u1",
+        "returncode": 0,
+        "success": true,
+        "accepted": true,
+        "npu_after": false,
+        "error": null
+      },
+      {
+        "role": "ffn",
+        "mode": "graph-u2",
+        "returncode": 0,
+        "success": true,
+        "accepted": true,
+        "npu_after": false,
+        "error": null
+      }
+    ]
+  },
+  "cpu_current_identity": {
+    "feature_cpu_ast_equal": true,
+    "test_cpu_bytes_equal": true,
+    "fake_cpu_bytes_equal": true
+  },
+  "feature_cpu_source_sha256": "0c97235b7081529d6a26be3b1f24e7d94e8a92c352b36e2c1b31e1285fa75477",
+  "feature_current_bytes_differ_only_formatting": true,
+  "resolved_candidate_boundary": "Independent draft KV dtype is bounded; speculative quantization is a declaration restriction, not an established native execution defect.",
+  "limitations": [
+    "P preemption remains terminal; no lease-aware resume implementation.",
+    "CPU summary and initial EngineArgs checks do not establish A5 NPU execution.",
+    "No full-checkpoint, quantized model, Engram, same-process failure recovery, or arbitrary geometry admission."
+  ],
+  "review_markdown_sha256": "fdaedf42a61ceb6545ccf1cf2e37547f156f87fdd4a876005bcc91610b3681dc"
+}

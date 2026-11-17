@@ -5,6 +5,7 @@
 
 import json
 from dataclasses import replace
+from types import SimpleNamespace
 
 import pytest
 
@@ -15,17 +16,23 @@ pytest.importorskip("vllm_ascend")
 msgspec = pytest.importorskip("msgspec")
 
 from vllm.distributed.kv_transfer.kv_connector.factory import KVConnectorFactory
+from vllm.forward_context import get_forward_context, set_forward_context
+from vllm.sampling_params import SamplingParams
 from vllm.v1.outputs import KVConnectorOutput, ModelRunnerOutput
 from vllm.v1.request import RequestStatus
+from vllm.v1.worker.gpu import kv_connector as native_kv_connector
 
 from afd_plugin.compat.npu import kv_layout_connector as adapter
 from afd_plugin.compat.npu.dspark_pd import (
+    prompt_digest,
     read_lease_from_payload,
+    read_query_from_payload,
     source_request_payload,
 )
 from afd_plugin.compat.npu.kv_layout import layout_from_json
 from afd_plugin.compat.npu.kv_layout_native import collect_deepseek_v41_kv_layout
 from tests.unit.fakes.dspark_pd import make_dspark_pd_prefix_case
+from tests.unit.fakes.kv_cache import make_native_kv_cache_case
 from tests.unit.fakes.kv_layout_connector import (
     DESTINATION_SENTINEL,
     REMOTE_BASE_ADDRESS,
@@ -40,26 +47,48 @@ from tests.unit.fakes.kv_layout_connector import (
     make_dspark_read_case,
     make_dspark_registration_case,
     make_dspark_scheduler_case,
+    make_queued_dspark_read_case,
     make_receiver_case,
     make_registration_case,
     make_retiring_dspark_read_case,
     make_retiring_receiver_case,
+    make_scheduled_dspark_read_case,
     peer_is_published,
     publish_dspark_prefix,
     request_map,
+    reuse_scheduled_remote_prefix,
     sender_request,
 )
-from tests.unit.fakes.scheduler import make_native_pd_scheduler_case
+from tests.unit.fakes.platform import stub_platform_forward_context
+from tests.unit.fakes.scheduler import (
+    SCHEDULER_MAX_BATCHED_TOKENS,
+    make_native_pd_scheduler_case,
+)
 
 RETIREMENT_TEST_DEADLINE = 0.01
 BYTE_VALUE_COUNT = 256
 SCHEDULER_CPU_BLOCKS = 64
+REMOTE_PREFILL_CALLER_MAX_TOKENS = 5
+NATIVE_EVICTION_PROMPT_TOKENS = 10
 
 
 @pytest.fixture
 def dspark_case(monkeypatch):
     prefix = make_dspark_pd_prefix_case(monkeypatch, bind=False)
     return make_dspark_registration_case(monkeypatch, prefix)
+
+
+@pytest.fixture
+def deferred_dspark_producer(monkeypatch):
+    stub_platform_forward_context(monkeypatch)
+    prefix = make_dspark_pd_prefix_case(monkeypatch, bind=False)
+    case = make_dspark_registration_case(monkeypatch, prefix, bind=False)
+    case.connector.bind_dspark_model(prefix.consumer)
+    monkeypatch.setattr(
+        native_kv_connector, "get_kv_transfer_group", lambda: case.connector
+    )
+    case.active = native_kv_connector.ActiveKVConnector(prefix.config, prefix.caches)
+    return case
 
 
 @pytest.fixture
@@ -101,6 +130,96 @@ def native_pd_scheduler_case(monkeypatch, request):
         return prefix, case
 
     return create
+
+
+@pytest.fixture
+def native_prefill_scheduler_case(monkeypatch, request):
+    def create(
+        prompt_length,
+        *,
+        use_dspark=True,
+        remote_decode=True,
+        max_tokens=REMOTE_PREFILL_CALLER_MAX_TOKENS,
+    ):
+        prefix = make_dspark_pd_prefix_case(
+            monkeypatch,
+            original_tokens=prompt_length,
+            num_blocks=SCHEDULER_CPU_BLOCKS,
+            bind=False,
+        )
+        kv_cache_config = prefix.kv_config
+        if not use_dspark:
+            prefix.config.speculative_config = None
+            kv_cache_config = make_native_kv_cache_case(
+                num_blocks=SCHEDULER_CPU_BLOCKS
+            ).config
+        case = make_native_pd_scheduler_case(
+            monkeypatch,
+            config=prefix.config,
+            kv_cache_config=kv_cache_config,
+            request_id=prefix.source.request_id,
+            prompt_token_ids=list(range(prompt_length)),
+            kv_transfer_params={"do_remote_decode": True} if remote_decode else {},
+            sampling_params=SamplingParams(max_tokens=max_tokens, temperature=0),
+            role="kv_producer",
+            engine_id=prefix.source.source_engine_id,
+        )
+        request.addfinalizer(case.close)
+        return prefix, case
+
+    return create
+
+
+@pytest.fixture
+def reused_remote_pd_case(monkeypatch, request):
+    # ActiveKVConnector keeps its native context manager. This CPU contract
+    # excludes Ascend's TP/MC2 device augmentation, as the runner seams do.
+    stub_platform_forward_context(monkeypatch)
+    prefix = make_dspark_pd_prefix_case(monkeypatch, bind=False, num_blocks=32)
+    case = make_scheduled_dspark_read_case(monkeypatch, prefix, scheduler_source=True)
+    try:
+        active = case.create_active_connector()
+        first = case.scheduler.schedule()
+        first_destination = first.kv_connector_metadata.dspark_destinations[
+            case.request.request_id
+        ]
+        case.scheduler.update_from_output(first, active.no_forward(first))
+        case.process_next_queued_request()
+        pending = case.scheduler.schedule()
+        completed = active.no_forward(pending)
+        assert completed.kv_connector_output.finished_recving == {
+            case.request.request_id
+        }
+        case.scheduler.update_from_output(pending, completed)
+        assert case.scheduler.schedule().scheduled_new_reqs
+        first_frames = [msgspec.msgpack.decode(frame) for frame in case.sent]
+        assert (
+            case.producer.worker.kv_send_thread.get_and_clear_finished_requests()
+            == {prefix.source.request_id}
+        )
+        old_source_pages = tuple(
+            page.clone() for page in case.destination_cache.source_pages
+        )
+        case.scheduler.finish_requests(case.request.request_id, request.param)
+        replacement, source = reuse_scheduled_remote_prefix(case, list(range(100, 106)))
+        scheduled = case.scheduler.schedule()
+        destination = scheduled.kv_connector_metadata.dspark_destinations[
+            replacement.request_id
+        ]
+        yield SimpleNamespace(
+            transfer=case,
+            active=active,
+            retired_status=request.param,
+            first_destination=first_destination,
+            first_frames=first_frames,
+            old_source_pages=old_source_pages,
+            replacement=replacement,
+            source=source,
+            scheduled=scheduled,
+            destination=destination,
+        )
+    finally:
+        case.close()
 
 
 def test_external_factory_selects_only_the_configured_attesting_connector():
@@ -575,6 +694,135 @@ def test_request_ready_wire_requires_complete_native_draft_projection(
         torch.testing.assert_close(actual, expected, rtol=0, atol=0)
 
 
+@pytest.mark.parametrize("complete_read", [False, True])
+def test_native_parent_publishes_before_deferred_kv_load(
+    deferred_dspark_producer, complete_read
+):
+    case, prefix = deferred_dspark_producer, deferred_dspark_producer.prefix_case
+    scheduled, state = prefix.make_step(0, prefix.source.computed_prefix_tokens)
+    scheduled.kv_connector_metadata = case.metadata
+    assert scheduled.has_sync_kv_loads is False
+    case.active.pre_forward(scheduled)
+    case.active.finish_forward()
+    sources = case.connector.get_dspark_prefill_sources(case.metadata)
+    case.connector.publish_dspark_ready(
+        prefix.consumer.consume_prefill(scheduled, state, sources)
+    )
+    lease = read_lease_from_payload(case.request_ready(dspark_query(prefix))["lease"])
+    assert lease.ready == prefix.expected_ready
+    if complete_read:
+        assert case.complete_read(lease) == b"ACK"
+    completed = case.active.post_forward(set())
+    assert completed.finished_sending == (
+        {prefix.source.request_id} if complete_read else None
+    )
+
+
+def test_cancelled_parent_keeps_deferred_load_idempotent(deferred_dspark_producer):
+    case, prefix = deferred_dspark_producer, deferred_dspark_producer.prefix_case
+    scheduled, _ = prefix.make_step(0, prefix.source.computed_prefix_tokens)
+    scheduled.kv_connector_metadata = case.metadata
+    case.metadata.dspark_cancelled = (
+        (prefix.source.request_id, prefix.source.source_generation),
+    )
+    assert scheduled.has_sync_kv_loads is False
+    case.active.pre_forward(scheduled)
+    case.active.finish_forward()
+    assert case.connector.get_dspark_prefill_sources(case.metadata) == ()
+    assert case.request_ready(dspark_query(prefix))["ok"] is False
+    completed = case.active.post_forward(set())
+    assert completed.finished_sending == {prefix.source.request_id}
+    assert case.request_ready(dspark_query(prefix))["ok"] is False
+
+
+@pytest.mark.parametrize("changed", ["sources", "cancellations"])
+def test_bound_source_metadata_cannot_change_before_deferred_load(
+    deferred_dspark_producer, changed
+):
+    case, prefix = deferred_dspark_producer, deferred_dspark_producer.prefix_case
+    scheduled, _ = prefix.make_step(0, prefix.source.computed_prefix_tokens)
+    scheduled.kv_connector_metadata = case.metadata
+    case.active.pre_forward(scheduled)
+    case.active.finish_forward()
+    if changed == "sources":
+        case.metadata.dspark_sources = (
+            replace(prefix.source, source_generation="changed-source-generation"),
+        )
+    else:
+        case.metadata.dspark_cancelled = (
+            (prefix.source.request_id, prefix.source.source_generation),
+        )
+    with pytest.raises(RuntimeError, match="DSpark bound source metadata changed"):
+        case.active.post_forward(set())
+    assert case.request_ready(dspark_query(prefix))["ok"] is False
+
+
+@pytest.mark.parametrize(
+    "invalid,error,message",
+    [
+        ("type", ValueError, "typed allocation metadata"),
+        ("generation", RuntimeError, "previous DSpark source generation is retained"),
+    ],
+)
+def test_failed_source_bind_keeps_previous_native_batch(
+    deferred_dspark_producer, invalid, error, message
+):
+    case, prefix = deferred_dspark_producer, deferred_dspark_producer.prefix_case
+    scheduled, state = prefix.make_step(0, prefix.source.computed_prefix_tokens)
+    scheduled.kv_connector_metadata = case.metadata
+    case.active.pre_forward(scheduled)
+    rejected = adapter.MooncakeConnectorMetadata()
+    if invalid == "generation":
+        rejected = adapter.DsparkMooncakeConnectorMetadata()
+        rejected.dspark_sources = (
+            replace(prefix.source, source_generation="rejected-source-generation"),
+        )
+    with pytest.raises(error, match=message):
+        case.connector.bind_connector_metadata(rejected)
+    case.active.finish_forward()
+    case.connector.publish_dspark_ready(
+        prefix.consumer.consume_prefill(scheduled, state, (prefix.source,))
+    )
+    lease = read_lease_from_payload(case.request_ready(dspark_query(prefix))["lease"])
+    assert lease.ready == prefix.expected_ready
+    assert case.complete_read(lease) == b"ACK"
+    assert case.active.post_forward(set()).finished_sending == {
+        prefix.source.request_id
+    }
+
+
+@pytest.mark.parametrize("retirement", ["done", "cancelled"])
+def test_same_source_batch_cannot_bind_after_shutdown(dspark_case, retirement):
+    case, prefix = dspark_case, dspark_case.prefix_case
+    if retirement == "done":
+        lease = publish_dspark_prefix(case)
+        assert case.complete_read(lease) == b"ACK"
+    else:
+        case.metadata.dspark_cancelled = (
+            (prefix.source.request_id, prefix.source.source_generation),
+        )
+        case.connector.bind_connector_metadata(case.metadata)
+    case.connector.shutdown()
+    with pytest.raises(RuntimeError, match="registry admission is closed"):
+        case.connector.bind_connector_metadata(case.metadata)
+    assert case.request_ready(dspark_query(prefix))["ok"] is False
+
+
+def test_target_only_receiver_binding_keeps_native_batch_protocol(
+    monkeypatch, retiring_receiver_case
+):
+    stub_platform_forward_context(monkeypatch)
+    case = attach_consumer_worker(retiring_receiver_case)
+    case.receiver.vllm_config.compilation_config.static_forward_context = {}
+    case.allow_ack.set()
+    case.connector.bind_connector_metadata(case.batch)
+    with set_forward_context(None, case.receiver.vllm_config):
+        case.connector.start_load_kv(get_forward_context())
+    case.worker.retire_receiver(timeout=THREAD_TEST_TIMEOUT)
+    assert case.receiver.get_and_clear_finished_requests() == {"first", "second"}
+    assert case.engine.reads == []
+
+
 @pytest.mark.parametrize("invalid", ["prompt", "generation", "layout", "rank"])
 def test_changed_ready_contract_is_rejected_without_poisoning_valid_query(
     dspark_case, invalid
@@ -716,6 +964,61 @@ def test_destination_completion_requires_a_drained_read_and_typed_done(
         case.close()
 
 
+@pytest.mark.parametrize("first_failure", [None, "negative-read", "done-nack"])
+def test_retained_failure_blocks_an_already_queued_dspark_read(  # long-test: peer queue
+    monkeypatch, first_failure
+):
+    prefix = make_dspark_pd_prefix_case(
+        monkeypatch, bind=False, num_blocks=SCHEDULER_CPU_BLOCKS
+    )
+    case = make_queued_dspark_read_case(
+        monkeypatch, prefix, first_failure=first_failure
+    )
+    try:
+        case.process_queued()
+        frames = [msgspec.msgpack.decode(frame) for frame in case.sent]
+        queries = [
+            read_query_from_payload(payload)
+            for kind, payload in frames
+            if kind == adapter.GET_DSPARK_READY_MSG
+        ]
+        completed = case.receiver.get_and_clear_finished_requests()
+        if first_failure is None:
+            assert completed == {
+                case.request["request_id"],
+                case.queued_request["request_id"],
+            }
+            assert [query.expected_ready.source_request_id for query in queries] == [
+                prefix.source.request_id,
+                case.queued_source.request_id,
+            ]
+            assert (
+                case.producer.worker.kv_send_thread.get_and_clear_finished_requests()
+                == {prefix.source.request_id, case.queued_source.request_id}
+            )
+            for actual, expected in case.queued_spans:
+                torch.testing.assert_close(actual, expected, rtol=0, atol=0)
+        else:
+            assert completed == set()
+            assert [query.expected_ready.source_request_id for query in queries] == [
+                prefix.source.request_id
+            ]
+            assert (
+                case.producer.worker.kv_send_thread.get_and_clear_finished_requests()
+                == set()
+            )
+            assert case.producer.request_ready(queries[0])["ok"] is True
+            for actual, _ in case.queued_spans:
+                assert torch.all(actual == DESTINATION_SENTINEL)
+            with (
+                pytest.raises(RuntimeError, match="admission is closed"),
+                case.receiver.admission_scope(),
+            ):
+                pass
+    finally:
+        case.close()
+
+
 @pytest.mark.parametrize(
     "destination_blocks,destination_offset,reverse_destination",
     [(4, 0, False), (8, 2, True)],
@@ -813,6 +1116,201 @@ def test_invalid_destination_contract_is_rejected_before_read_lease(
         )
     finally:
         case.close()
+
+
+def test_single_token_source_caps_prefill_without_changing_prompt(monkeypatch):
+    prefix = make_dspark_pd_prefix_case(
+        monkeypatch, original_tokens=1, num_blocks=SCHEDULER_CPU_BLOCKS, bind=False
+    )
+    case = make_dspark_scheduler_case(
+        monkeypatch,
+        prefix,
+        sampling_params=SamplingParams(
+            max_tokens=REMOTE_PREFILL_CALLER_MAX_TOKENS, temperature=0
+        ),
+    )
+    request = case.request
+    assert request.max_tokens == 1
+    assert request.prompt_token_ids == [0]
+    assert request.num_prompt_tokens == 1
+    blocks = case.manager.allocate_slots(request, request.num_prompt_tokens)
+    assert blocks is not None
+    case.scheduler.update_state_after_alloc(request, blocks, 0)
+    scheduled, _ = prefix.make_step(0, request.num_prompt_tokens)
+    source = case.scheduler.build_connector_meta(scheduled).dspark_sources[0]
+    assert (source.original_prompt_tokens, source.computed_prefix_tokens) == (1, 1)
+    assert source.prompt_digest == prompt_digest((0,))
+
+
+@pytest.mark.parametrize(
+    "role,use_dspark,remote_flag",
+    [
+        ("kv_consumer", True, "do_remote_prefill"),
+        ("kv_producer", False, "do_remote_decode"),
+        ("kv_producer", True, None),
+    ],
+)
+def test_non_source_requests_keep_caller_output_limit(
+    monkeypatch, role, use_dspark, remote_flag
+):
+    prefix = make_dspark_pd_prefix_case(
+        monkeypatch, original_tokens=1, num_blocks=SCHEDULER_CPU_BLOCKS, bind=False
+    )
+    if not use_dspark:
+        prefix.config.speculative_config = None
+    case = make_dspark_scheduler_case(
+        monkeypatch,
+        prefix,
+        role=role,
+        sampling_params=SamplingParams(
+            max_tokens=REMOTE_PREFILL_CALLER_MAX_TOKENS, temperature=0
+        ),
+    )
+    params = {} if remote_flag is None else {remote_flag: True}
+    if remote_flag == "do_remote_prefill":
+        params.update(
+            remote_request_id=prefix.source.request_id,
+            remote_engine_id=prefix.source.source_engine_id,
+            remote_block_ids=prefix.source.transfer_block_ids,
+        )
+        params[adapter.DSPARK_SOURCE_PARAM] = source_request_payload(prefix.source)
+    request = case.new_request([0], params=params, request_id="uncapped-request")
+    assert request.max_tokens == REMOTE_PREFILL_CALLER_MAX_TOKENS
+    assert request.prompt_token_ids == [0]
+    assert request.num_prompt_tokens == 1
+
+
+@pytest.mark.parametrize("prompt_length", [1, 6])
+def test_prefill_stops_compute_but_holds_storage_until_worker_done(
+    native_prefill_scheduler_case, prompt_length
+):
+    _, case = native_prefill_scheduler_case(prompt_length)
+    baseline_usage = case.scheduler.get_kv_cache_usage()
+    scheduled = case.scheduler.schedule()
+    expected_prefix = max(1, prompt_length - 1)
+    assert scheduled.num_scheduled_tokens == {case.request.request_id: expected_prefix}
+    source = scheduled.kv_connector_metadata.dspark_sources[0]
+    assert (source.original_prompt_tokens, source.computed_prefix_tokens) == (
+        prompt_length,
+        expected_prefix,
+    )
+    held_usage = case.scheduler.get_kv_cache_usage()
+    assert held_usage > baseline_usage
+
+    # Explicit worker-output input: this scheduler seam does not execute a
+    # target, sample a token, write a KV page, or perform a remote transfer.
+    case.scheduler.update_from_output(
+        scheduled,
+        ModelRunnerOutput(
+            req_ids=[case.request.request_id],
+            req_id_to_index={case.request.request_id: 0},
+            sampled_token_ids=[[19]],
+        ),
+    )
+    assert case.request.status == RequestStatus.FINISHED_LENGTH_CAPPED
+    assert list(case.request.output_token_ids) == [19]
+    assert case.scheduler.get_request_counts() == (0, 0)
+    pending = case.scheduler.schedule()
+    assert pending.total_num_scheduled_tokens == 0
+    assert case.scheduler.get_kv_cache_usage() == held_usage
+
+    # The actual worker's typed DONE/ACK path has separate protocol coverage;
+    # this explicit completion input checks the native scheduler's release.
+    completed = KVConnectorOutput(finished_sending={case.request.request_id})
+    case.scheduler.update_from_output(
+        pending, ModelRunnerOutput.with_kv_conn_output_only(completed)
+    )
+    assert case.scheduler.get_kv_cache_usage() == baseline_usage
+
+
+def test_aborted_prefill_keeps_computed_chunk_until_worker_done(
+    native_prefill_scheduler_case,
+):
+    _, case = native_prefill_scheduler_case(SCHEDULER_MAX_BATCHED_TOKENS + 2)
+    baseline_usage = case.scheduler.get_kv_cache_usage()
+    scheduled = case.scheduler.schedule()
+    chunk_tokens = scheduled.num_scheduled_tokens[case.request.request_id]
+    assert 0 < chunk_tokens < case.request.num_prompt_tokens
+    source = scheduled.kv_connector_metadata.dspark_sources[0]
+    held_usage = case.scheduler.get_kv_cache_usage()
+    assert held_usage > baseline_usage
+    # A real incomplete prefill chunk has no sampled token. Its explicit
+    # worker result drains the native in-flight frontier before the abort.
+    case.scheduler.update_from_output(
+        scheduled,
+        ModelRunnerOutput(
+            req_ids=[case.request.request_id],
+            req_id_to_index={case.request.request_id: 0},
+            sampled_token_ids=[[]],
+        ),
+    )
+    assert case.request.status == RequestStatus.RUNNING
+    assert case.request.num_computed_tokens == chunk_tokens
+    assert case.request.num_in_flight_tokens == 0
+    case.scheduler.finish_requests(
+        case.request.request_id, RequestStatus.FINISHED_ABORTED
+    )
+    assert case.request.status == RequestStatus.FINISHED_ABORTED
+    assert case.scheduler.get_request_counts() == (0, 0)
+    pending = case.scheduler.schedule()
+    assert pending.total_num_scheduled_tokens == 0
+    assert pending.kv_connector_metadata.dspark_cancelled == (
+        (case.request.request_id, source.source_generation),
+    )
+    assert case.scheduler.get_kv_cache_usage() == held_usage
+    completed = KVConnectorOutput(finished_sending={case.request.request_id})
+    case.scheduler.update_from_output(
+        pending, ModelRunnerOutput.with_kv_conn_output_only(completed)
+    )
+    assert case.scheduler.get_kv_cache_usage() == baseline_usage
+
+
+@pytest.mark.parametrize("use_dspark,remote_decode", [(False, True), (True, False)])
+def test_other_prefill_paths_keep_native_final_eviction(
+    native_prefill_scheduler_case, use_dspark, remote_decode
+):
+    _, case = native_prefill_scheduler_case(
+        NATIVE_EVICTION_PROMPT_TOKENS,
+        use_dspark=use_dspark,
+        remote_decode=remote_decode,
+        max_tokens=1,
+    )
+    baseline_usage = case.scheduler.get_kv_cache_usage()
+    scheduled = case.scheduler.schedule()
+    assert scheduled.num_scheduled_tokens == {
+        case.request.request_id: case.request.num_prompt_tokens
+    }
+    held_usage = case.scheduler.get_kv_cache_usage()
+    if use_dspark:
+        assert scheduled.kv_connector_metadata.dspark_sources == ()
+    else:
+        assert (
+            type(scheduled.kv_connector_metadata) is adapter.MooncakeConnectorMetadata
+        )
+    outputs = case.scheduler.update_from_output(
+        scheduled,
+        ModelRunnerOutput(
+            req_ids=[case.request.request_id],
+            req_id_to_index={case.request.request_id: 0},
+            sampled_token_ids=[[19]],
+        ),
+    )
+    assert case.request.status == RequestStatus.FINISHED_LENGTH_CAPPED
+    assert case.scheduler.get_request_counts() == (0, 0)
+    (output,) = outputs[case.request.client_index].outputs
+    after_usage = case.scheduler.get_kv_cache_usage()
+    if remote_decode:
+        assert baseline_usage < after_usage < held_usage
+        assert adapter.DSPARK_SOURCE_PARAM not in output.kv_transfer_params
+        pending = case.scheduler.schedule()
+        completed = KVConnectorOutput(finished_sending={case.request.request_id})
+        case.scheduler.update_from_output(
+            pending, ModelRunnerOutput.with_kv_conn_output_only(completed)
+        )
+    else:
+        assert output.kv_transfer_params is None
+    assert case.scheduler.get_kv_cache_usage() == baseline_usage
+    assert case.scheduler.schedule().total_num_scheduled_tokens == 0
 
 
 def test_running_chunks_snapshot_swa_nulls(monkeypatch):  # long-test: native KV
@@ -1014,6 +1512,84 @@ def test_aborted_native_pd_request_keeps_storage_until_receive_completes(
     )
     assert case.scheduler.get_kv_cache_usage() == baseline_usage
     assert case.scheduler.schedule().scheduled_new_reqs == []
+
+
+@pytest.mark.parametrize(
+    "reused_remote_pd_case",
+    [RequestStatus.FINISHED_LENGTH_CAPPED, RequestStatus.FINISHED_ABORTED],
+    indirect=True,
+)
+def test_reused_native_request_reads_a_new_remote_prefix(  # long-test: two handoffs
+    reused_remote_pd_case,
+):
+    reused = reused_remote_pd_case
+    case = reused.transfer
+    prefix, active = case.prefix_case, reused.active
+    scheduled, destination = reused.scheduled, reused.destination
+    source, replacement = reused.source, reused.replacement
+    first_destination, first_frames = reused.first_destination, reused.first_frames
+    old_query = read_query_from_payload(first_frames[-2][1])
+    old_lease = read_lease_from_payload(first_frames[-1][1])
+    assert case.request.status == reused.retired_status
+    assert source.source_generation != first_destination.source.source_generation
+    assert source.prompt_digest != first_destination.source.prompt_digest
+    assert destination.generation != first_destination.generation
+    assert case.producer.request_ready(old_query)["ok"] is False
+    assert case.producer.complete_read(old_lease) == b"ACK"
+    assert (
+        case.producer.worker.kv_send_thread.get_and_clear_finished_requests() == set()
+    )
+    before = tuple(page.clone() for page in case.destination_cache.source_pages)
+    assert any(
+        not torch.equal(old, new)
+        for old, new in zip(reused.old_source_pages, before, strict=True)
+    )
+    expected = [page.clone() for page in case.destination_cache.pages]
+    for page_index, page in enumerate(prefix.layout.pages):
+        stride = page.block_stride_bytes
+        for group_index, group in enumerate(prefix.layout.groups):
+            if not set(page.layers) & set(group.layer_names):
+                continue
+            local_ids = destination.block_ids[group_index]
+            remote_ids = (
+                source.transfer_block_ids[group_index][-len(local_ids) :]
+                if local_ids
+                else ()
+            )
+            for remote_id, local_id in zip(remote_ids, local_ids, strict=True):
+                expected[page_index][local_id * stride : (local_id + 1) * stride] = (
+                    before[page_index][remote_id * stride : (remote_id + 1) * stride]
+                )
+    case.scheduler.update_from_output(scheduled, active.no_forward(scheduled))
+    case.process_next_queued_request()
+    for actual, target in zip(case.destination_cache.pages, expected, strict=True):
+        torch.testing.assert_close(actual, target, rtol=0, atol=0)
+    for actual, unchanged in zip(
+        case.destination_cache.source_pages, before, strict=True
+    ):
+        torch.testing.assert_close(actual, unchanged, rtol=0, atol=0)
+    pending = case.scheduler.schedule()
+    completed = active.no_forward(pending)
+    assert completed.kv_connector_output.finished_recving == {replacement.request_id}
+    case.scheduler.update_from_output(pending, completed)
+    resumed = case.scheduler.schedule().scheduled_new_reqs[0]
+    assert resumed.req_id == case.request.request_id
+    assert resumed.prompt_token_ids == replacement.prompt_token_ids
+    assert resumed.num_computed_tokens == len(replacement.prompt_token_ids) - 1
+    new_frames = [
+        msgspec.msgpack.decode(frame) for frame in case.sent[len(first_frames) :]
+    ]
+    assert [kind for kind, _ in new_frames] == [
+        adapter.GET_DSPARK_READY_MSG,
+        adapter.DONE_DSPARK_RECV_MSG,
+    ]
+    new_lease = read_lease_from_payload(new_frames[-1][1])
+    assert new_lease.ready.source_generation == source.source_generation
+    assert new_lease.destination_generation == destination.generation
+    assert new_lease.lease_id != old_lease.lease_id
+    assert case.producer.worker.kv_send_thread.get_and_clear_finished_requests() == {
+        source.request_id
+    }
 
 
 @pytest.mark.parametrize("role", ["kv_producer", "kv_consumer"])

@@ -26,6 +26,10 @@ validation_paths:
   - "tests/unit/distributed/**"
   - "tests/gpu/**"
   - "tests/npu/**"
+  - "tools/diagnostics/plan_dsv41_hccl_recipe.py"
+  - "tools/diagnostics/prepare_dsv41_hccl_recipe.py"
+  - "tools/diagnostics/summarize_dsv41_hccl_run.py"
+  - "tests/e2e/diagnostics/test_dsv41_hccl_run.py"
 upstream_refs:
   - "vLLM vllm.forward_context.DPMetadata"
   - "vLLM vllm.distributed.parallel_state"
@@ -44,6 +48,26 @@ last_reviewed: 2026-10-29
 ---
 
 # Connector contracts
+
+The opt-in `hccl_graph_manager_probe.py --native-ffn-service` component uses
+the actual connector factory, worker HELLO/service binding, serving daemon,
+runner and Graph service with the default NPUGraph factory/global pool. The
+[A3 service evidence](../../../openspec/changes/afd-hccl-full-parity/evidence/graph-ffn-service-review-20261113.md)
+covers all-off/all-on U1/U2 capture, replay, layout fallback and acknowledged
+STOP before cache/group retirement. Worker/runner carriers skip their heavy
+constructors; MoE is controlled arithmetic and A uses a base manager fixture.
+This establishes a device component seam, with full model/KV/Engram execution
+and physical overlap still requiring their own evidence.
+
+The same service probe now also validates original native DSpark metadata
+before preserving target query3 across F role isolation. Its
+[query3 device evidence](../../../openspec/changes/afd-hccl-full-parity/evidence/graph-ffn-q3-service-design-20261114.md)
+covers all-off/all-on U1/U2 NPUGraph capture, short same-key replay, request
+layout fallback and normal STOP, plus a query1 regression. The controlled
+two-layer metadata is declared independently from the real checkpoint;
+no drafter, auxiliary states, native MoE or PD cache reads execute in this
+component. All-on U2 entries allocate the computation pipeline, which alone
+does not measure physical overlap.
 
 The opt-in Graph exchange order `cross_layer_v1` uses the immutable
 [`hccl_graph_schedule.py`](../../../afd_plugin/connectors/npu/hccl_graph_schedule.py)
@@ -199,6 +223,149 @@ changing scheduling requires a fresh session/cache/manager. The standalone
 and two diagnostics, including U1 eager gating and cross-layer/receive-stream
 validation. Its diagnostic export records parsed values; parsing alone does
 not select a schedule or establish device support for every setting.
+
+The staged runtime connector accepts an optional immutable `overlap_settings`
+snapshot. Eager U2 with that snapshot enabled declares
+`eager_pipeline_version=1` before transport construction; all peers must agree
+before any HCCL data group or stream warmup. Version 1 requires paired native
+TP1/TP2. Explicit zero selects serial execution; omitted snapshots preserve
+the manual family0 API and previous v3 wire bytes. Graph selects its own
+execution family. Diagnostics remain rank-local and do not change this wire
+agreement. Semantic HELLO errors are broadcast after draining complete peer
+messages; malformed framing and disconnected peers remain supervision cases.
+
+While the staged session is idle and live, `configuration_record()` exports
+its negotiated role/rank/device/geometry and all eight `configured.*` values
+from the immutable snapshot. Explicit false values remain present. A missing
+manual snapshot reports `snapshot_present=false` without guessing values from
+the environment. This startup record describes configured values, not selected
+streams or observed overlap; per-parent execution diagnostics retain those
+responsibilities. Normal A/F integration logs it through the existing native
+INFO channel after HELLO and session preparation, independently of the two
+diagnostic switches. It precedes A native KV allocation and F thread startup,
+so it is not a model-ready marker. Each A runner/F worker emits at most one
+record for its prepared session, including an already initialized legacy F
+connector. A later native KV or thread-start failure does not erase that record.
+
+Normal DSV4.1 HCCL A/F construction also freezes the eight values for legacy
+P2p U1; the U1 parser retains eager overlap as false. The factory still uses
+the connector registry and binds a non-null snapshot only to the resulting
+`P2pHcclAFDConnector`, once before initialization. Other models/connectors and
+explicit F connector injection do not parse this environment. A manually
+constructed connector may leave its snapshot unknown. Legacy idle-live records
+use `protocol=legacy_pair`, protocol version 2, and the real two-peer world
+(`world_size=2`, F0/A1); `pair_index` identifies the separate native TP coordinate.
+Configured values do not activate streams or change the legacy wire protocol.
+
+The CPU-only [recipe planner](../../../tools/diagnostics/plan_dsv41_hccl_recipe.py)
+accepts `--request request.json --output plan.json` and an optional
+`--environment environment.json` containing the eight HCCL settings. Requests
+specify `mode` (`eager` or `full-decode-only`), `num_stages` (1 or 2),
+`max_num_seqs`, `max_num_batched_tokens`, `native_tp_size`, and the integer
+lists `attention_devices`/`ffn_devices`. Optional capture sizes and maxima,
+speculative-token counts, DBO thresholds, and host identities preserve explicit
+values. `--model` records the raw V4.1 wrapper/text config identity; it does not
+validate checkpoint tensors or construct the native runtime configuration.
+
+An example `request.json` for an A4/F4 plan is:
+
+```json
+{
+  "mode": "full-decode-only",
+  "num_stages": 2,
+  "max_num_seqs": 8,
+  "max_num_batched_tokens": 64,
+  "num_speculative_tokens": 3,
+  "native_tp_size": 4,
+  "attention_devices": [0, 1, 2, 3],
+  "ffn_devices": [4, 5, 6, 7]
+}
+```
+
+Run `python -B tools/diagnostics/plan_dsv41_hccl_recipe.py --request request.json
+--output plan.json`. The optional environment file is a JSON object such as
+`{"AFD_HCCL_GRAPH_U2_COMPUTE_OVERLAP": "0"}`; omitted keys retain the component
+defaults. Without that file the tool snapshots only the eight HCCL variables
+from its process. Host identities default to the same `local` node; identical
+identities require disjoint A/F device lists. Distinct identities describe
+placement only and perform no DNS, NIC or network-connectivity validation.
+
+The planner reuses `build_hccl_rank_mapping` for prepared coordinates, retaining
+the distinction from public topology admission. It exports all eight raw and
+configured switches and conditional role/phase gates; it observes no device
+streams or rank logs. For fixed-width decode, its capture prediction follows
+the locked Ascend `NPUModelRunner` query length (`num_speculative_tokens + 1`)
+and `ModelAclGraphManager` inheritance into native `CudaGraphManager`.
+Raw buckets are deduplicated and clipped to the token budget before native max
+consistency checks; V2 then rounds to query length, clips to max/sequence
+limits and deduplicates descriptors. U2 twins require tokens at least equal to
+the decode threshold and use the native floor token split. Default recipe
+buckets follow the donor's powers-of-two plus whole-parent policy and are
+explicit inputs, distinct from vLLM's platform-dependent defaults.
+
+For example, eight sequences with three speculative tokens require a 32-token
+whole-parent bucket before U2 splits. A plan with max/buckets only up to 16
+fails full-coverage preflight; runtime graph miss/fallback behavior is unchanged.
+An overlap value `"0"` remains disabled. Exit 0 establishes plan consistency:
+`runtime_admission_checked`, `actual_effective_values_observed`, and
+`npu_execution_performed` remain false. Launch recipes, actual per-rank
+effective values, and device acceptance remain separate work.
+
+The companion [manifest tool](../../../tools/diagnostics/prepare_dsv41_hccl_recipe.py)
+projects the planner request onto the actual A serve and standalone F argv
+arrays, with target cwd/device/rank mapping, explicit copies of the same eight
+normalized settings, source/input hashes and port collision checks. It retains
+raw capture buckets and the native normalized maximum; turning overlap off
+does not turn Graph/U2 into eager/U1. Its standalone projection is narrower
+than the planner: same-host DP1, one native TP world per role, DSpark/PD off.
+Unsupported layouts fail before a successful role manifest is produced.
+
+The manifest explicitly disables the qualification opt-in and ambient
+FlashComm1 override. It executes neither role and does not validate the model,
+operators, capacity, network or runtime admission. Other native defaults and
+vendor environments are not a reproduction of the old A5 recipe. The
+[recipe guide](../../../recipe/npu/P2pHcclAFDConnector/deepseek_v41/README.md)
+provides sample inputs and records the separate CPU/native-parser evidence.
+Actual rank configuration and parent execution observations remain separate
+from these prepared values, including legacy eager U1's unstaged path.
+
+The stdlib-only [run summarizer](../../../tools/diagnostics/summarize_dsv41_hccl_run.py)
+compares a prepared recipe with one separate, SHA256-bound record file per
+expected rank. JSON arrays and the native startup/stage INFO prefixes are
+accepted. Exactly one startup record must precede the events and match all
+eight frozen booleans, negotiated geometry and role/rank identity. Legacy U1
+uses its actual two-peer coordinates and TP pair index. `role_visible` devices
+are logical indices within each role's visible list; explicitly declared
+`all_visible` captures use a separate visible-device map. The recipe's physical
+selection is not itself an observation of physical device identity.
+
+Supplying `expected_transactions` checks each eager parent in the configured
+U2 session for paired TP1/TP2. Each item declares its actual `num_stages` as
+one or two, retaining exact transaction inventory/order. U2 checks active and
+empty stages, first/last-layer tickets, begin/returned pairs and the causal
+post/loan/compute/reuse order before the recorded parent finish. U1 fallback
+checks the actual serial parent-stream body and the receive/compute/send
+ordering; explicit FFN compute synchronization is checked when enabled.
+Serial body records contain no parent-finish observation: their summary keeps
+`parent_finish_observed` and `parent_completion_verified` false. This does not
+enable the inventory for a legacy U1 session or change runtime admission.
+Graph's separate
+`expected_graph_transactions` inventory checks the outer host-control records:
+reservation, actual replay API return, and the real finish API or native eager
+scope return. Each item binds transaction/phase/mode/reason, key/decision
+digests, stage count and each role's `finish_api`. Exact rank/parent order,
+configured booleans and begin/returned sequences must match; missing records,
+failed outcomes or old capture-body logs cannot satisfy that inventory.
+The eager and Graph inventories are mutually exclusive. Without an inventory,
+only startup configuration is verified. Graph host records do not establish
+device replay, tensor arithmetic or device completion; replay does not rerun
+the captured Python body.
+The report always leaves runtime admission, NPU execution, physical overlap,
+full-model qualification and performance false. Runtime records contain no
+session/PID/source binding: caller-supplied run attribution and file hashes
+cannot detect identical records reused from another run. Payload/STOP/device
+checks remain separate component evidence, described in the
+[observation review](../../../openspec/changes/afd-hccl-full-parity/evidence/hccl-observations-review-20261113.md).
 
 ## Factory and construction
 

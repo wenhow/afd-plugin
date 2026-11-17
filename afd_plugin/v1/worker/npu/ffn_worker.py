@@ -4,7 +4,6 @@
 
 from __future__ import annotations
 
-import os
 import threading
 from functools import partial
 from typing import TYPE_CHECKING, cast
@@ -46,6 +45,7 @@ from afd_plugin.connectors.npu.p2p_hccl import P2pHcclAFDConnector
 from afd_plugin.model_executor.models.model_utils import get_afd_model_config
 from afd_plugin.v1.worker.npu.async_ffn_model_runner import AsyncNPUFFNModelRunner
 from afd_plugin.v1.worker.npu.ffn_model_runner import AFDNPUFFNModelRunner
+from afd_plugin.v1.worker.npu.hccl_v41_eager_bootstrap import HcclV41EagerBootstrap
 from afd_plugin.v1.worker.npu.hccl_v41_graph_bootstrap import (
     create_hccl_v41_ffn_graph_service,
 )
@@ -103,6 +103,8 @@ class AFDNPUFFNWorker(NPUWorker):
 
     afd_expected_role = "ffn"
 
+    _hccl_configuration_logged = False
+
     # Upstream: vllm_ascend/worker/worker.py, NPUWorker.__init__,
     # 7e37e29a7803d6897a7113088e2b771f83205bc0.
     # Reason: native Ascend derives Engram settings before binding worker config.
@@ -140,6 +142,9 @@ class AFDNPUFFNWorker(NPUWorker):
         self._ffn_loop_error: BaseException | None = None
         self._hccl_stop_received = False
         self._hccl_v41_transport: HcclStagedTransport | None = None
+        # ### PATCH START: HCCL configuration record lifetime
+        self._hccl_configuration_logged = False
+        # ### PATCH END: HCCL configuration record lifetime
         self._cpu_binding_attempted = False
 
     def init_device(self) -> None:
@@ -277,6 +282,15 @@ class AFDNPUFFNWorker(NPUWorker):
                 raise RuntimeError("cannot restart a terminal staged HCCL service")
             if not staged.initialized:
                 staged.initialize()
+            settings = (
+                connector.overlap_settings
+                if isinstance(connector, HcclStagedAFDConnector)
+                else None
+            )
+            if settings is None:
+                # Legacy explicit bindings do not select a new stream family
+                # from environment changes after their HELLO agreement.
+                settings = HcclOverlapSettings(eager_u2_stream_overlap=False)
             if (
                 staged.negotiated_capabilities.graph_execution_version == 1
                 and self.model_runner.hccl_v41_graph_service is None
@@ -286,12 +300,7 @@ class AFDNPUFFNWorker(NPUWorker):
                         self.model_runner,
                         staged,
                         synchronize=partial(torch.npu.synchronize, self.device),
-                        overlap_settings=HcclOverlapSettings.from_environment(
-                            dict(os.environ),
-                            num_stages=2
-                            if self.vllm_config.parallel_config.use_ubatching
-                            else 1,
-                        ),
+                        overlap_settings=settings,
                     )
                     self.model_runner.bind_hccl_v41_graph_service(service)
                 except BaseException:
@@ -299,19 +308,59 @@ class AFDNPUFFNWorker(NPUWorker):
                     # failure; loaded model/transport remain supervisor-owned.
                     staged.terminal = True
                     raise
+            elif (
+                staged.negotiated_capabilities.graph_execution_version == 0
+                and isinstance(connector, HcclStagedAFDConnector)
+                and self.model_runner.hccl_v41_eager_bootstrap is None
+                and self.model_runner.hccl_v41_eager_session is None
+            ):
+                try:
+                    self.model_runner.get_model()
+                    self.model_runner.hccl_v41_eager_bootstrap = HcclV41EagerBootstrap(
+                        self.vllm_config,
+                        staged,
+                        synchronize=partial(torch.npu.synchronize, self.device),
+                        overlap_settings=settings,
+                    )
+                    bootstrap = self.model_runner.hccl_v41_eager_bootstrap
+                    bootstrap.prepare(torch.npu.current_stream(self.device))
+                    if bootstrap.diagnostics is not None:
+                        self.bind_hccl_v41_diagnostics(bootstrap.diagnostics)
+                    if bootstrap.session is not None:
+                        self.bind_hccl_v41_eager_session(bootstrap.session)
+                except BaseException:
+                    staged.terminal = True
+                    if self.model_runner.hccl_v41_eager_bootstrap is not None:
+                        self.model_runner.hccl_v41_eager_bootstrap.fail()
+                    raise
         elif not connector.is_initialized:
             self.model_runner.initialize_afd_connector()
+        if (
+            isinstance(connector, (P2pHcclAFDConnector, HcclStagedAFDConnector))
+            and not self._hccl_configuration_logged
+        ):
+            logger.info(
+                "AFD HCCL session configuration: %s",
+                connector.configuration_record(),
+            )
+            self._hccl_configuration_logged = True
 
         self._bind_cpus_once()
         self._ffn_shutdown_event = threading.Event()
         self._ffn_loop_error = None
         self._hccl_stop_received = False
 
+        # Daemon body/export interrupts cannot reach the management caller.
+        # Preserve their original cause for public poll/shutdown before cleanup;
+        # ordinary CAM event shutdown still suppresses only Exception. This adds
+        # no device work or synchronization. Remove when the shared native daemon
+        # owner reports BaseException failures to its management boundary.
         def ffn_worker_loop() -> None:
             try:
                 with afd_npu_profiler_owner(self.model_runner.prof):
                     self._run_ffn_server_loop()
-            except Exception as exc:
+            # ### PATCH START: FFN daemon interrupt ownership
+            except BaseException as exc:
                 shutdown_event = self._ffn_shutdown_event
                 profiler = self.model_runner.prof
                 profiler_failed = (
@@ -319,7 +368,8 @@ class AFDNPUFFNWorker(NPUWorker):
                     and profiler.status()["failed"]
                 )
                 if (
-                    not self._uses_hccl_service()
+                    isinstance(exc, Exception)
+                    and not self._uses_hccl_service()
                     and not self._requires_async_drain()
                     and not profiler_failed
                     and shutdown_event is not None
@@ -332,6 +382,7 @@ class AFDNPUFFNWorker(NPUWorker):
                     return
                 self._ffn_loop_error = exc
                 logger.exception("AFD NPU FFN worker loop failed")
+            # ### PATCH END: FFN daemon interrupt ownership
             else:
                 if self._requires_async_drain():
                     assert isinstance(self.model_runner, AsyncNPUFFNModelRunner)
@@ -409,6 +460,10 @@ class AFDNPUFFNWorker(NPUWorker):
                 exc,
             )
 
+    # Inference mode is thread-local: model loading's management-thread context
+    # does not reach this daemon. Every FFN family may update inference buffers
+    # in its native forward context, including eager and Graph service paths.
+    @torch.inference_mode()
     def _run_ffn_server_loop(self) -> None:
         event = self._ffn_shutdown_event
         if event is None:
@@ -481,18 +536,23 @@ class AFDNPUFFNWorker(NPUWorker):
             raise RuntimeError("AFD NPU FFN worker loop failed") from error
 
     def poll_hccl_ffn_service(self) -> bool:
-        """RPC status: False only after peer STOP; failures remain terminal."""
+        """Return False after peer STOP and owner exit; failures stay terminal."""
         if not self._uses_hccl_service():
             raise TypeError("HCCL service polling requires P2pHcclAFDConnector")
         self.raise_ffn_loop_error_if_any()
+        thread = self._ffn_thread
+        if thread is not None and thread.is_alive():
+            # STOP_ACK precedes the owner's synchronous profiler finish/export.
+            # Keep management responsive until that owner has actually exited.
+            return True
+        # The owner may have failed between the first check and is_alive().
+        # Recheck after exit before reporting STOP or an unexpected dead thread.
+        self.raise_ffn_loop_error_if_any()
         if self._hccl_stop_received:
             return False
-        thread = self._ffn_thread
         if thread is None:
             raise RuntimeError("HCCL FFN service has not been started")
-        if not thread.is_alive():
-            raise RuntimeError("HCCL FFN service exited without peer STOP")
-        return True
+        raise RuntimeError("HCCL FFN service exited without peer STOP")
 
     def stop_ffn_server_loop(self) -> None:
         event = self._ffn_shutdown_event

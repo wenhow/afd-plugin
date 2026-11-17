@@ -15,7 +15,77 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Literal
 
 if TYPE_CHECKING:
-    from afd_plugin.connectors.npu.hccl_overlap import HcclOverlapSelection
+    from afd_plugin.connectors.npu.hccl_overlap import (
+        HcclOverlapSelection,
+        HcclOverlapSettings,
+    )
+    from afd_plugin.distributed.hccl_graph import HcclGraphDecision
+
+
+@dataclass(frozen=True, slots=True)
+class HcclGraphParentDiagnostics:
+    """Observe host APIs outside captured bodies, without device-completion claims.
+
+    Remove when native parent telemetry exposes the same accepted decision and
+    replay/retirement boundaries. No protocol or execution state is owned here.
+    """
+
+    settings: HcclOverlapSettings
+    role: Literal["attention", "ffn"]
+    world_rank: int
+    role_rank: int
+    local_device: int
+    emit: Callable[[dict[str, str | int | bool]], None] | None = None
+
+    def record(
+        self,
+        decision: HcclGraphDecision,
+        event: str,
+        boundary_api: str,
+        *,
+        error: BaseException | None = None,
+    ) -> None:
+        """Record a real host return; failure observation preserves the cause."""
+        if not self.settings.stage_diagnostics:
+            return
+        try:
+            record = {
+                "event": event,
+                "boundary": "host_control",
+                "boundary_api": boundary_api,
+                "outcome": "raised"
+                if error is not None
+                else "begin"
+                if event.endswith("_begin")
+                else "returned",
+                "role": self.role,
+                "world_rank": self.world_rank,
+                "role_rank": self.role_rank,
+                "local_device": self.local_device,
+                "transaction_id": decision.transaction_id,
+                "phase": decision.phase,
+                "mode": decision.mode,
+                "reason": decision.reason,
+                "key_present": decision.key is not None,
+                "key_digest": "" if decision.key is None else decision.key.digest,
+                "decision_digest": decision.digest,
+                "num_stages": len(decision.padded_tokens),
+                **{
+                    f"configured.{name}": value
+                    for name, value in self.settings.effective_settings().items()
+                },
+            }
+            if error is not None:
+                record["error_type"] = type(error).__name__
+            if self.emit is None:
+                logging.getLogger(__name__).warning(
+                    "AFD HCCL stage diagnostic: %s", record
+                )
+            else:
+                self.emit(record)
+        except BaseException:
+            if error is None:
+                raise
 
 
 @dataclass(frozen=True, slots=True)

@@ -10,6 +10,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from afd_plugin.distributed.hccl_graph import HcclGraphDecision
 from tests.unit.fakes.hccl_diagnostics import make_diagnostics_case
 
 
@@ -37,6 +38,62 @@ def case(api):
         num_stages=1,
     )
     return make_diagnostics_case(api, selection, world_rank=3, role_rank=1)
+
+
+@pytest.mark.parametrize("enabled", [False, True])
+def test_graph_parent_host_records_preserve_keyless_decision_and_explicit_zero(
+    api, enabled
+):
+    records = []
+    settings = api.HcclOverlapSettings(
+        eager_u2_stream_overlap=False,
+        stage_diagnostics=enabled,
+        ffn_compute_sync_diagnostics=True,
+    )
+    diagnostic = api.HcclGraphParentDiagnostics(
+        settings, "ffn", 3, 1, 2, records.append
+    )
+    decision = HcclGraphDecision(
+        "fallback", "eager", "target", None, (2, 2), "cache_miss"
+    )
+    diagnostic.record(
+        decision, "graph_parent_scope_returned", "execute_hccl_v41_parent"
+    )
+    if not enabled:
+        assert not records
+        return
+    (record,) = records
+    assert record["transaction_id"] == "fallback" and record["reason"] == "cache_miss"
+    assert record["key_present"] is False and record["key_digest"] == ""
+    assert record["decision_digest"] == decision.digest
+    assert record["boundary"] == "host_control" and record["outcome"] == "returned"
+    assert record["local_device"] == 2 and record["num_stages"] == 2
+    assert record["configured.AFD_HCCL_EAGER_U2_STREAM_OVERLAP"] is False
+
+
+def test_failed_graph_parent_record_does_not_replace_execution_error(api):
+    def broken_sink(record):
+        raise RuntimeError("diagnostic sink failed")
+
+    diagnostic = api.HcclGraphParentDiagnostics(
+        api.HcclOverlapSettings(stage_diagnostics=True),
+        "attention",
+        1,
+        0,
+        0,
+        broken_sink,
+    )
+    decision = HcclGraphDecision("failed", "eager", "target", None, (0,), "requested")
+    original = ValueError("original execution failed")
+    with pytest.raises(ValueError) as raised:
+        try:
+            raise original
+        except BaseException as error:
+            diagnostic.record(
+                decision, "graph_parent_failed", "graph_owner", error=error
+            )
+            raise
+    assert raised.value is original
 
 
 def test_default_diagnostics_emit_no_configuration_progress_or_sync(api):

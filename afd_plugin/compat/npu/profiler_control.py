@@ -52,6 +52,10 @@ class _Connection:
     sent: int = 0
 
 
+class FfnProfilerControlError(RuntimeError):
+    """The ordered executor reply channel cannot safely serve another RPC."""
+
+
 class FfnProfilerControl:
     """One owner-thread listener; one request and reply per connection."""
 
@@ -68,6 +72,7 @@ class FfnProfilerControl:
         self._clients: list[_Connection] = []
         self._identity: tuple[int, int] | None = None
         self._closed = False
+        self._rpc_failure: BaseException | None = None
         self._listener = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         try:
             # bind refuses existing files, sockets and dangling symlinks. Never
@@ -119,10 +124,15 @@ class FfnProfilerControl:
             workers = self.executor.collective_rpc(
                 method, timeout=RPC_TIMEOUT_SECONDS, kwargs=kwargs
             )
-        except TimeoutError:
+        except TimeoutError as error:
+            self._rpc_failure = error
             self._reply(client, {"ok": False, "error": "rpc_timeout"})
-        except Exception:
+        except Exception as error:
+            self._rpc_failure = error
             self._reply(client, {"ok": False, "error": "rpc_failed"})
+        except BaseException as error:
+            self._rpc_failure = error
+            raise
         else:
             self._reply(
                 client,
@@ -131,14 +141,33 @@ class FfnProfilerControl:
                 else {"ok": True, "role": "ffn", "accepted": True},
             )
 
+    @property
+    def rpc_failed(self) -> bool:
+        """A failed native collective must not be followed by another RPC."""
+        return self._rpc_failure is not None
+
+    def _raise_rpc_failure(self) -> None:
+        if self._rpc_failure is not None:
+            if not isinstance(self._rpc_failure, Exception):
+                raise self._rpc_failure
+            # Pinned MultiprocExecutor replies have no request ID. A timeout
+            # or partial collective failure can leave a late/remaining reply
+            # queued for the next RPC; closing this endpoint cannot drain it.
+            raise FfnProfilerControlError(
+                "FFN profiler executor RPC channel is terminal"
+            ) from self._rpc_failure
+
     def poll(self) -> None:
         """Poll bounded client IO; a fixed executor RPC has its own timeout.
 
         The idle deadline bounds incomplete client IO, not the synchronous
         executor call. Worker inference remains on its existing daemon thread.
+        A failed collective sends its error reply best effort, then raises;
+        the owner must use process cleanup without another collective RPC.
         """
         if self._closed:
             return
+        self._raise_rpc_failure()
         for _ in range(MAX_CONTROL_CLIENTS - len(self._clients)):
             try:
                 connection, _ = self._listener.accept()
@@ -180,6 +209,11 @@ class FfnProfilerControl:
                 continue
             except (ConnectionError, OSError):
                 self._drop(client)
+            finally:
+                # Try the bounded error reply once, then stop management even
+                # after a partial/blocked write or disconnected client. In
+                # particular no later client or FFN status/STOP RPC may run.
+                self._raise_rpc_failure()
 
     def _drop(self, client: _Connection) -> None:
         self._clients.remove(client)

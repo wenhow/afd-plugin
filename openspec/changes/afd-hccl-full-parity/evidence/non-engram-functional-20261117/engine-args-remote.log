@@ -1,0 +1,10 @@
+{"returncode": 0, "junit": {"tests": 342, "failures": 0, "errors": 0, "skipped": 0}, "source_unchanged": true, "native_state": {"before": false, "after": false, "returncode": 0}, "config_runs": [{"role": "native", "mode": "eager-u1", "returncode": 0, "success": true, "accepted": true, "npu_after": false, "error": null}, {"role": "attention", "mode": "eager-u1", "returncode": 0, "success": true, "accepted": true, "npu_after": false, "error": null}, {"role": "attention", "mode": "eager-u2", "returncode": 0, "success": true, "accepted": true, "npu_after": false, "error": null}, {"role": "attention", "mode": "graph-u1", "returncode": 0, "success": true, "accepted": true, "npu_after": false, "error": null}, {"role": "attention", "mode": "graph-u2", "returncode": 0, "success": true, "accepted": true, "npu_after": false, "error": null}, {"role": "ffn", "mode": "eager-u1", "returncode": 0, "success": true, "accepted": true, "npu_after": false, "error": null}, {"role": "ffn", "mode": "eager-u2", "returncode": 0, "success": true, "accepted": true, "npu_after": false, "error": null}, {"role": "ffn", "mode": "graph-u1", "returncode": 0, "success": true, "accepted": true, "npu_after": false, "error": null}, {"role": "ffn", "mode": "graph-u2", "returncode": 0, "success": true, "accepted": true, "npu_after": false, "error": null}]}
+........................................................................ [ 21%]
+........................................................................ [ 42%]
+........................................................................ [ 63%]
+........................................................................ [ 84%]
+......................................................                   [100%]
+- generated xml file: /mnt/workspace/tmp/afd-c0-20261104.hVgsIf/nonengram-functional-cpu-95l5kvqd/results/junit.xml -
+342 passed in 0.65s
+
+Warning: Permanently added '[127.0.0.1]:43078' (ED25519) to the list of known hosts.

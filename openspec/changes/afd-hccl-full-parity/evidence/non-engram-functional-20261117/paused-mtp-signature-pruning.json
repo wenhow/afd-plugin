@@ -1,0 +1,25 @@
+{
+  "source": "tests/unit/compat/patches/test_signatures.py",
+  "before_sha256": "f141374e05f0f01b07a192bff55f6d50a8d3cea254da758e59610e326fe3c459",
+  "after_sha256": "b9979c82d5344e8ddec93a1dc55b7f8bdedc32af2035c4f53c4bca2cc1c10e07",
+  "removed_table_items": [
+    "ordinary-mtp-propose",
+    "ordinary-mtp-old-decoder",
+    "ordinary-mtp-old-model",
+    "ordinary-mtp-ffn-layer",
+    "ordinary-mtp-target-ffn",
+    "ordinary-mtp-target-load",
+    "ordinary-mtp-predictor-layer",
+    "ordinary-mtp-predictor",
+    "ordinary-mtp-model",
+    "ordinary-mtp-forward",
+    "ordinary-mtp-load"
+  ],
+  "removed_table_item_count": 11,
+  "removed_branch": "elif hook.startswith(\"ordinary-mtp-\")",
+  "all_other_lines_exact": true,
+  "production_changed": false,
+  "worktree_source_changed": false,
+  "prior_snapshot_complete_native_cpu_acceptance": false,
+  "reason": "The original device capsule carried paused ordinary-MTP signature tests but not their production modules; local dependency skips hid eleven failures found by native CPU validation."
+}

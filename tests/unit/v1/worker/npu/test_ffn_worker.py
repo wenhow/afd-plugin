@@ -4,7 +4,6 @@
 
 from __future__ import annotations
 
-import logging
 from dataclasses import replace
 from types import SimpleNamespace
 
@@ -14,9 +13,12 @@ pytest.importorskip("torch")
 pytest.importorskip("vllm")
 pytest.importorskip("vllm_ascend")
 
+from vllm.v1.worker.gpu import shutdown as native_shutdown_module
+
 from afd_plugin.compat.npu.runtime_config import DeepseekV41TargetShape
 from afd_plugin.config import parse_afd_config
 from afd_plugin.connectors.metadata import AFDTransferContext, AFDTransferMetadata
+from afd_plugin.connectors.npu.hccl_overlap import HcclOverlapSettings
 from afd_plugin.connectors.npu.hccl_protocol import HcclForwardPlan
 from afd_plugin.connectors.npu.hccl_staged import HcclStagedAFDConnector
 from afd_plugin.distributed.hccl import HcclStageLayout
@@ -24,8 +26,15 @@ from afd_plugin.distributed.hccl_plan import HcclParentPlan
 from afd_plugin.v1.worker.npu import ffn_model_runner as runner_module
 from afd_plugin.v1.worker.npu import ffn_worker as worker_module
 from afd_plugin.v1.worker.npu import hccl_v41_graph_service as service_module
-from tests.unit.fakes.ffn_model_runner import make_ffn_capacity_case
+from tests.unit.fakes.ffn_model_runner import (
+    make_ffn_capacity_case,
+    make_ffn_eager_bootstrap_service,
+    make_ffn_inference_tensor_case,
+    make_ffn_shutdown_interrupt_case,
+    make_legacy_ffn_startup_case,
+)
 from tests.unit.fakes.hccl import (
+    WORKER_JOIN_TIMEOUT_SECONDS,
     ExitedHcclWorkerThread,
     HcclCpuDeviceRuntime,
     HcclCpuForwardContext,
@@ -40,6 +49,11 @@ from tests.unit.fakes.hccl import (
 )
 from tests.unit.fakes.hccl_v41_graph_bootstrap import make_ffn_graph_bootstrap_case
 from tests.unit.fakes.hccl_v41_graph_service import make_graph_service_case
+from tests.unit.fakes.logging import (
+    SESSION_CONFIGURATION_PREFIX,
+    structured_log_records,
+)
+from tests.unit.fakes.logging import serving_logs as serving_logs
 from tests.unit.fakes.profiler import (
     PROFILER_TEST_TIMEOUT_SECONDS,
     make_profiled_restart_case,
@@ -47,6 +61,31 @@ from tests.unit.fakes.profiler import (
     make_profiled_worker_case,
     make_profiler_session_case,
 )
+
+
+@pytest.mark.parametrize("staged", [False, True], ids=["legacy-u1", "staged-u2"])
+def test_ffn_daemon_updates_inference_tensor_and_completes_parent(monkeypatch, staged):
+    case = make_ffn_inference_tensor_case(
+        monkeypatch, worker_module, runner_module, staged=staged
+    )
+
+    case.worker.start_ffn_server_loop()
+    join_hccl_worker(case.worker)
+    case.worker.raise_ffn_loop_error_if_any()
+
+    assert case.mask.tolist() == [True, True, True, False]
+    outputs = case.output_pairs()
+    assert len(outputs) == (2 if staged else 1)
+    assert all(
+        runner_module.torch.equal(output, expected) for output, expected in outputs
+    )
+    if staged:
+        assert case.peer.messages[-2:] == [
+            ("COMPLETE", "inference-tensor-staged"),
+            ("STOP_ACK",),
+        ]
+    assert case.worker.poll_hccl_ffn_service() is False
+    case.worker.stop_ffn_server_loop()
 
 
 @pytest.mark.parametrize("steps", [None, 2, 5])
@@ -175,6 +214,233 @@ def test_headless_graph_start_rejects_unloaded_weights_and_retains_the_session(
     assert case.transport.transcript == []
     with pytest.raises(RuntimeError, match="terminal staged"):
         case.worker.start_ffn_server_loop()
+
+
+@pytest.mark.parametrize("enabled", [False, True])
+@pytest.mark.parametrize("diagnostics", [False, True])
+def test_normal_eager_factory_freezes_family_before_daemon_stop(
+    monkeypatch, enabled, diagnostics
+):
+    case = make_ffn_eager_bootstrap_service(
+        monkeypatch,
+        worker_module,
+        runner_module,
+        enabled=enabled,
+        diagnostics=diagnostics,
+    )
+    assert case.factory_capabilities.eager_pipeline_version == int(enabled)
+    monkeypatch.setenv("AFD_HCCL_EAGER_U2_STREAM_OVERLAP", "invalid-after-construction")
+    case.worker.start_ffn_server_loop()
+    join_hccl_worker(case.worker)
+    assert case.worker.poll_hccl_ffn_service() is False
+    assert (case.runner.hccl_v41_eager_session is not None) == enabled
+    assert (case.runner.hccl_v41_diagnostics is not None) == diagnostics
+    assert [
+        message.kind
+        for direction, _, _, message in case.transport.transcript
+        if direction == "send"
+    ] == ["STOP_ACK"]
+    case.worker.stop_ffn_server_loop()
+    assert case.transport.closed
+
+
+def test_ffn_startup_logs_frozen_explicit_zero_settings_once(monkeypatch, serving_logs):
+    case = make_ffn_eager_bootstrap_service(
+        monkeypatch, worker_module, runner_module, enabled=False
+    )
+    values = {name: "0" for name in HcclOverlapSettings().effective_settings()}
+    case.runner.connector.overlap_settings = HcclOverlapSettings.from_environment(
+        values, num_stages=2
+    )
+    for name in values:
+        monkeypatch.setenv(name, "1")
+    case.worker.start_ffn_server_loop()
+    join_hccl_worker(case.worker)
+    with pytest.raises(RuntimeError, match="acknowledged staged HCCL STOP"):
+        case.worker.start_ffn_server_loop()
+    case.worker.stop_ffn_server_loop()
+    records = structured_log_records(serving_logs, SESSION_CONFIGURATION_PREFIX)
+    assert len(records) == 1
+    record = records[0]
+    assert record["event"] == "session_configuration" and record["phase"] == "startup"
+    assert record["role"] == "ffn" and record["snapshot_present"] is True
+    assert record["negotiated.graph_execution_version"] == 0
+    assert record["negotiated.eager_pipeline_version"] == 0
+    assert {name: record[f"configured.{name}"] for name in values} == {
+        name: False for name in values
+    }
+
+
+def test_ffn_startup_logs_missing_snapshot_without_environment_guesses(
+    monkeypatch, serving_logs
+):
+    case = make_ffn_eager_bootstrap_service(
+        monkeypatch, worker_module, runner_module, enabled=False
+    )
+    case.runner.connector.overlap_settings = None
+    monkeypatch.setenv("AFD_HCCL_EAGER_U2_STREAM_OVERLAP", "1")
+    case.worker.start_ffn_server_loop()
+    join_hccl_worker(case.worker)
+    case.worker.stop_ffn_server_loop()
+    records = structured_log_records(serving_logs, SESSION_CONFIGURATION_PREFIX)
+    assert len(records) == 1 and records[0]["snapshot_present"] is False
+    assert records[0]["negotiated.eager_pipeline_version"] == 0
+    assert not any(name.startswith("configured.") for name in records[0])
+
+
+@pytest.mark.parametrize("enabled", [False, True])
+@pytest.mark.parametrize("preinitialized", [False, True])
+def test_legacy_ffn_logs_one_frozen_session_across_successful_start_repeats(
+    monkeypatch, serving_logs, enabled, preinitialized
+):
+    names = HcclOverlapSettings().effective_settings()
+    for name in names:
+        monkeypatch.setenv(name, str(int(enabled)))
+    case = make_legacy_ffn_startup_case(monkeypatch, worker_module, runner_module)
+    if preinitialized:
+        case.runner.initialize_afd_connector()
+    for name in names:
+        monkeypatch.setenv(name, "invalid-after-construction")
+    case.worker.start_ffn_server_loop()
+    try:
+        assert case.entered.wait(timeout=WORKER_JOIN_TIMEOUT_SECONDS)
+        case.worker.start_ffn_server_loop()
+    finally:
+        case.release.set()
+        join_hccl_worker(case.worker)
+    assert case.worker.poll_hccl_ffn_service() is False
+    case.worker.stop_ffn_server_loop()
+
+    records = structured_log_records(serving_logs, SESSION_CONFIGURATION_PREFIX)
+    assert len(records) == 1
+    record = records[0]
+    assert record["protocol"] == "legacy_pair" and record["role"] == "ffn"
+    assert record["snapshot_present"] is True
+    assert record["world_rank"] == 0 and record["pair_index"] == 0
+    expected = {name: enabled for name in names}
+    expected["AFD_HCCL_EAGER_U2_STREAM_OVERLAP"] = False
+    assert {name: record[f"configured.{name}"] for name in names} == expected
+
+
+def test_legacy_ffn_kv_initialization_keeps_the_successful_session_record(
+    monkeypatch, serving_logs
+):
+    case = make_legacy_ffn_startup_case(monkeypatch, worker_module, runner_module)
+    case.worker.initialize_from_config(SimpleNamespace(num_blocks=1))
+    try:
+        assert case.entered.wait(timeout=WORKER_JOIN_TIMEOUT_SECONDS)
+    finally:
+        case.release.set()
+        join_hccl_worker(case.worker)
+    case.worker.stop_ffn_server_loop()
+
+    records = structured_log_records(serving_logs, SESSION_CONFIGURATION_PREFIX)
+    assert len(records) == 1 and records[0]["snapshot_present"] is True
+
+
+def test_legacy_ffn_injected_connector_keeps_unknown_settings(
+    monkeypatch, serving_logs
+):
+    for name in HcclOverlapSettings().effective_settings():
+        monkeypatch.setenv(name, "invalid-unused-setting")
+    case = make_legacy_ffn_startup_case(
+        monkeypatch, worker_module, runner_module, manual=True
+    )
+    case.worker.start_ffn_server_loop()
+    try:
+        assert case.entered.wait(timeout=WORKER_JOIN_TIMEOUT_SECONDS)
+    finally:
+        case.release.set()
+        join_hccl_worker(case.worker)
+    case.worker.stop_ffn_server_loop()
+
+    records = structured_log_records(serving_logs, SESSION_CONFIGURATION_PREFIX)
+    assert len(records) == 1 and records[0]["snapshot_present"] is False
+    assert not any(name.startswith("configured.") for name in records[0])
+
+
+def test_legacy_ffn_hello_failure_emits_no_configuration(monkeypatch, serving_logs):
+    case = make_legacy_ffn_startup_case(monkeypatch, worker_module, runner_module)
+
+    def failed_hello():
+        raise RuntimeError("controlled legacy HELLO failure")
+
+    monkeypatch.setattr(case.runner.connector, "init_afd_connector", failed_hello)
+
+    with pytest.raises(RuntimeError, match="legacy HELLO"):
+        case.worker.start_ffn_server_loop()
+
+    assert structured_log_records(serving_logs, SESSION_CONFIGURATION_PREFIX) == []
+
+
+@pytest.mark.parametrize("failure", ["weights", "warmup", "hello"])
+def test_ffn_failed_startup_emits_no_session_configuration(
+    monkeypatch, serving_logs, failure
+):
+    case = make_ffn_eager_bootstrap_service(monkeypatch, worker_module, runner_module)
+    if failure == "weights":
+        case.runner.model = None
+    elif failure == "warmup":
+        case.backend.fail_warmup = True
+    else:
+        case.transport.initialized = False
+
+        def failed_hello():
+            raise RuntimeError("controlled HELLO failure")
+
+        monkeypatch.setattr(case.transport, "initialize", failed_hello)
+    with pytest.raises(RuntimeError, match="not been loaded|warmup|HELLO"):
+        case.worker.start_ffn_server_loop()
+    assert structured_log_records(serving_logs, SESSION_CONFIGURATION_PREFIX) == []
+
+
+@pytest.mark.parametrize("failure", ["weights", "warmup"])
+def test_eager_start_failure_retains_prethread_resources_without_stop(
+    monkeypatch, failure
+):
+    case = make_ffn_eager_bootstrap_service(monkeypatch, worker_module, runner_module)
+    if failure == "weights":
+        case.runner.model = None
+    else:
+        case.backend.fail_warmup = True
+    with pytest.raises(RuntimeError, match="not been loaded|matched warmup"):
+        case.worker.start_ffn_server_loop()
+    assert case.transport.terminal and not case.transport.closed
+    assert case.transport.transcript == []
+    if failure == "warmup":
+        assert case.runner.hccl_v41_eager_bootstrap.session is not None
+    with pytest.raises(RuntimeError, match="terminal staged"):
+        case.worker.start_ffn_server_loop()
+
+
+@pytest.mark.parametrize("fail_native", [False, True])
+def test_eager_worker_cleanup_releases_session_only_after_native_success(
+    monkeypatch, fail_native
+):
+    case = make_ffn_eager_bootstrap_service(monkeypatch, worker_module, runner_module)
+    case.worker.start_ffn_server_loop()
+    join_hccl_worker(case.worker)
+    bootstrap = case.runner.hccl_v41_eager_bootstrap
+    model = case.runner.get_model()
+
+    def native_free(config):
+        if fail_native:
+            raise RuntimeError("native cleanup failed")
+
+    monkeypatch.setattr(native_shutdown_module, "free_before_shutdown", native_free)
+    if fail_native:
+        with pytest.raises(RuntimeError, match="native cleanup failed"):
+            case.worker.shutdown()
+        assert case.runner.hccl_v41_eager_bootstrap is bootstrap
+        assert case.runner.hccl_v41_eager_session is bootstrap.session
+        assert case.runner.get_model() is model
+    else:
+        case.worker.shutdown()
+        assert case.runner.hccl_v41_eager_bootstrap is None
+        assert case.runner.hccl_v41_eager_session is None
+        with pytest.raises(RuntimeError, match="not been loaded"):
+            case.runner.get_model()
+    assert case.transport.closed
 
 
 @pytest.fixture
@@ -350,22 +616,6 @@ def test_worker_acknowledges_peer_stop_before_releasing_connector(lifecycle):
     assert worker.stop_ffn_server_loop() is None
 
 
-@pytest.fixture
-def serving_logs(caplog):
-    # Native serving config emits INFO under vllm; the unrelated root/plugin
-    # loggers keep WARNING. Do not promote the logger under test to INFO.
-    serving_logger = logging.getLogger("vllm")
-    serving_logger.addHandler(caplog.handler)
-    try:
-        with caplog.at_level(logging.WARNING):
-            # Capture all emitted records; leave the emitting logger's level
-            # untouched. Root WARNING must still discard an unconfigured INFO.
-            caplog.handler.setLevel(logging.NOTSET)
-            yield caplog
-    finally:
-        serving_logger.removeHandler(caplog.handler)
-
-
 @pytest.mark.parametrize("rank", [0, 3])
 @pytest.mark.parametrize("native_failure", [False, True])
 def test_hccl_worker_cleanup_log_requires_successful_native_shutdown(
@@ -513,6 +763,46 @@ def test_hccl_profiler_steps_one_parent_and_finalizes_on_its_execution_owner(
     assert {event[1] for event in case.profile.events} == {status["owner_thread_id"]}
 
 
+@pytest.mark.parametrize("export_failure", [None, "stop"])
+def test_hccl_poll_waits_for_stop_export_and_preserves_its_result(
+    profiled_service, export_failure
+):
+    case = profiled_service
+    case.profile = make_profiler_session_case(failure=export_failure)
+    case.runner.prof = case.profile.session
+    case.worker.start_ffn_server_loop()
+    assert case.gate.entered[0].wait(PROFILER_TEST_TIMEOUT_SECONDS)
+    backend = case.profile.profilers[0]
+    backend.stop_release.clear()
+    for release in case.gate.release:
+        release.set()
+    try:
+        assert backend.stop_entered.wait(PROFILER_TEST_TIMEOUT_SECONDS)
+        assert case.peer.messages[-1] == ("STOP_ACK",)
+        assert case.worker.poll_hccl_ffn_service() is True
+        assert not case.peer.closed
+    finally:
+        backend.stop_release.set()
+        join_hccl_worker(case.worker)
+
+    if export_failure is None:
+        assert case.worker.poll_hccl_ffn_service() is False
+        assert case.worker.stop_ffn_server_loop() is None
+        assert case.worker.poll_hccl_ffn_service() is False
+        assert case.worker.afd_profiler_status()["closed"]
+    else:
+        for action in (
+            case.worker.poll_hccl_ffn_service,
+            case.worker.stop_ffn_server_loop,
+            case.worker.poll_hccl_ffn_service,
+        ):
+            with pytest.raises(RuntimeError, match="worker loop failed") as failure:
+                action()
+            assert isinstance(failure.value.__cause__, ValueError)
+            assert str(failure.value.__cause__) == "controlled profiler stop failure"
+        assert not case.peer.closed
+
+
 def test_role_and_native_profilers_cannot_start_together(profiled_service):
     case = profiled_service
     case.worker.profiler_config = SimpleNamespace(profiler="torch")
@@ -559,6 +849,47 @@ def test_profiler_export_failure_remains_terminal_and_preserves_hccl_resources(
     status = case.worker.afd_profiler_status()
     assert status["failed"] and not status["closed"]
     assert not case.peer.closed
+
+
+@pytest.mark.parametrize("error_type", [KeyboardInterrupt, SystemExit])
+def test_interrupted_stop_export_preserves_original_failure_and_owner_resources(
+    profiled_service, serving_logs, error_type
+):
+    case = profiled_service
+    original = error_type("interrupted owner export")
+    case.profile = make_profiler_session_case(failure="stop", failure_error=original)
+    case.runner.prof = case.profile.session
+    for release in case.gate.release:
+        release.set()
+    case.worker.start_ffn_server_loop()
+    join_hccl_worker(case.worker)
+    assert case.peer.messages[-1] == ("STOP_ACK",)
+    for action in (case.worker.poll_hccl_ffn_service, case.worker.shutdown):
+        with pytest.raises(RuntimeError, match="worker loop failed") as failure:
+            action()
+        assert failure.value.__cause__ is original
+    assert case.worker.afd_profiler_status()["failed"]
+    assert not case.peer.closed
+    assert not any(
+        "AFD HCCL FFN worker cleanup complete" in record.getMessage()
+        for record in serving_logs.records
+    )
+
+
+@pytest.mark.parametrize("error_type", [ValueError, KeyboardInterrupt, SystemExit])
+def test_legacy_shutdown_only_suppresses_ordinary_loop_errors(monkeypatch, error_type):
+    original = error_type("host loop interrupted during shutdown")
+    case = make_ffn_shutdown_interrupt_case(
+        worker_module, runner_module, monkeypatch, original
+    )
+    case.worker.start_ffn_server_loop()
+    join_hccl_worker(case.worker)
+    if isinstance(original, Exception):
+        assert case.worker.stop_ffn_server_loop() is None
+    else:
+        with pytest.raises(RuntimeError, match="worker loop failed") as failure:
+            case.worker.stop_ffn_server_loop()
+        assert failure.value.__cause__ is original
 
 
 def test_legacy_shutdown_does_not_hide_a_profiler_export_failure(monkeypatch):

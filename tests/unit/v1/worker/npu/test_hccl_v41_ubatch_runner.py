@@ -35,8 +35,11 @@ from tests.unit.fakes.deepseek_v41 import (  # noqa: E402
 from tests.unit.fakes.device_metadata import make_cpu_target_metadata  # noqa: E402
 from tests.unit.fakes.hccl import StagedModelPeer  # noqa: E402
 from tests.unit.fakes.hccl_v41_ubatch import (  # noqa: E402
+    COMPRESSED_METADATA_QUERY_LEN,
+    COMPRESSED_METADATA_RATIO,
     GraphParentModel,
     GraphUBatchOwner,
+    make_native_compressed_metadata_case,
 )
 from tests.unit.fakes.input_batch import (  # noqa: E402
     make_ascend_batch,
@@ -530,6 +533,36 @@ def test_full_prepare_preserves_native_child_modes_and_parent_producer_choice(
     assert case.runner.model_state.prepare_inputs(case.batch, None) == {
         "producer_mode": CUDAGraphMode.NONE
     }
+
+
+@pytest.mark.parametrize("cache_kind", ["index_k", "long_kv"])
+@pytest.mark.parametrize(
+    "mode,for_capture,expected_maximum",
+    [
+        pytest.param(CUDAGraphMode.FULL, True, 1, id="capture"),
+        pytest.param(CUDAGraphMode.FULL, False, 1, id="live-full"),
+        pytest.param(CUDAGraphMode.NONE, False, 0, id="eager"),
+    ],
+)
+def test_u2_compressed_metadata_keeps_native_full_graph_bounds(
+    runner_factory, cache_kind, mode, for_capture, expected_maximum
+):
+    # runner_factory scopes the existing CPU RoPE/platform leaves only. This
+    # factory retains native U2 slicing and real V4.1 metadata builders.
+    case = make_native_compressed_metadata_case(
+        module.HcclV41UBatchRunner, cache_kind=cache_kind
+    )
+    prepared = case.runner.prepare(
+        case.batch, case.block_tables, case.slots, mode, for_capture
+    )
+    assert len(prepared.forward_contexts) == 2
+    for context in prepared.forward_contexts:
+        metadata = context.attn_metadata[case.layer]
+        assert metadata.cache_kind == cache_kind
+        assert metadata.compress_ratio == COMPRESSED_METADATA_RATIO
+        assert metadata.max_query_len == COMPRESSED_METADATA_QUERY_LEN
+        assert metadata.seq_lens.tolist() == [COMPRESSED_METADATA_QUERY_LEN]
+        assert metadata.max_cache_seq_len == expected_maximum
 
 
 @pytest.mark.parametrize(

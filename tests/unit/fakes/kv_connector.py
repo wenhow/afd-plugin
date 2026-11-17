@@ -9,17 +9,26 @@ and an inert graph device boundary. This does not run PD or Graph device work.
 """
 
 from contextlib import contextmanager, nullcontext
+from copy import deepcopy
 from functools import partial
+from itertools import count
 from types import MethodType, SimpleNamespace
 
 import numpy as np
 import torch
-from vllm.config import CUDAGraphMode
+from vllm import SamplingParams
+from vllm.config import (
+    CompilationMode,
+    CUDAGraphMode,
+    ObservabilityConfig,
+    SchedulerConfig,
+)
 from vllm.distributed.kv_transfer import kv_transfer_state
 from vllm.distributed.kv_transfer.kv_connector.v1.base import (
     KVConnectorMetadata,
     KVConnectorTransferResults,
 )
+from vllm.forward_context import get_forward_context
 from vllm.utils import torch_utils
 from vllm.v1.core.sched.output import CachedRequestData, SchedulerOutput
 from vllm.v1.worker.gpu import cudagraph_utils as native_cudagraph
@@ -32,7 +41,7 @@ from vllm.v1.worker.gpu.async_utils import (
 from vllm.v1.worker.gpu.cudagraph_utils import CudaGraphManager
 from vllm.v1.worker.gpu.ec_connector import ECConnector
 from vllm.v1.worker.gpu.eplb_utils import EPLBController
-from vllm.v1.worker.gpu.kv_connector import ActiveKVConnector
+from vllm.v1.worker.gpu.kv_connector import ActiveKVConnector, KVConnector
 from vllm.v1.worker.gpu.sample import sampler as sampler_module
 from vllm.v1.worker.gpu.sample.output import SamplerOutput
 from vllm.v1.worker.gpu.sample.prompt_logprob import PromptLogprobsWorker
@@ -40,8 +49,10 @@ from vllm.v1.worker.gpu.spec_decode import rejection_sampler as rejection_module
 from vllm.v1.worker.gpu.spec_decode.dflash.cudagraph import DFlashCudaGraphManager
 from vllm.v1.worker.gpu.spec_decode.rejection_sampler import RejectionSampler
 from vllm.v1.worker.gpu.spec_decode.utils import DraftTokensHandler
+from vllm.v1.worker.utils import clear_layer_kv_caches
 from vllm_ascend.ascend_config import SparseKVOffloadConfig
 from vllm_ascend.attention.sfa_v1 import AscendSFABackend, AscendSFAImpl
+from vllm_ascend.compilation import acl_graph as native_acl_graph
 from vllm_ascend.models.deepseek_v41.engram.model_state import EngramModelState
 from vllm_ascend.models.deepseek_v41.model import AscendDeepseekV41LLMForCausalLM
 from vllm_ascend.ops.triton import engram_lookback
@@ -50,44 +61,73 @@ from vllm_ascend.worker.v2.aclgraph_utils import ModelAclGraphManager
 from vllm_ascend.worker.v2.input_batch import AscendInputBatch, AscendInputBuffers
 from vllm_ascend.worker.v2.model_states import default as ascend_model_state
 
+from afd_plugin.compat.npu.runtime_config import (
+    validate_deepseek_v41_pd,
+    validate_deepseek_v41_speculation,
+)
 from afd_plugin.connectors.npu import hccl_graph_pipeline as pipeline_module
+from afd_plugin.connectors.npu.hccl_config import validate_staged_hccl_runtime
+from afd_plugin.connectors.npu.hccl_graph_cache import HcclGraphCache
 from afd_plugin.connectors.npu.hccl_graph_stage import HcclGraphStageBank
 from afd_plugin.connectors.npu.hccl_overlap import HcclOverlapSettings
+from afd_plugin.connectors.npu.hccl_staged import HcclStagedAFDConnector
 from afd_plugin.distributed.hccl_plan import HcclLocalForward
 from afd_plugin.model_executor.models.npu.deepseek_v41_graph import (
     DeepseekV41GraphParent,
     DeepseekV41GraphStages,
 )
+from afd_plugin.v1.worker.npu import attention_model_runner_v2 as attention_module
 from afd_plugin.v1.worker.npu import hccl_v41_graph_coordinator as coordinator_module
+from afd_plugin.v1.worker.npu import ubatch_runner as ubatch_module
 from afd_plugin.v1.worker.npu.attention_model_runner_v2 import (
     AFDNPUAttentionModelRunnerV2,
 )
+from afd_plugin.v1.worker.npu.attention_worker import AFDNPUAttentionWorker
+from afd_plugin.v1.worker.npu.hccl_v41_graph_control import HcclV41GraphControl
 from afd_plugin.v1.worker.npu.hccl_v41_graph_coordinator import HcclV41GraphResources
 from afd_plugin.v1.worker.npu.hccl_v41_graph_eager import HcclV41GraphEager
 from afd_plugin.v1.worker.npu.hccl_v41_graph_execution import HcclV41GraphExecution
+from afd_plugin.v1.worker.npu.hccl_v41_graph_session import HcclV41GraphSession
+from afd_plugin.v1.worker.npu.hccl_v41_ubatch_runner import HcclV41UBatchRunner
 from tests.unit.fakes.attention_model_runner_v2 import (
     install_graph_runner_coordinator,
     make_graph_runner_case,
+    queue_graph_runner_stop,
 )
 from tests.unit.fakes.block_table import install_native_block_table_kernels_cpu
+from tests.unit.fakes.connector import FakeRoutedConnector
 from tests.unit.fakes.deepseek_v41 import native_pd_target_reference
 from tests.unit.fakes.deepseek_v41_graph import GraphParentNorm, GraphStreamAttention
 from tests.unit.fakes.device_metadata import (
     install_native_target_metadata_cpu,
     make_cpu_target_metadata,
 )
+from tests.unit.fakes.dspark_pd import (
+    PD_U2_PREFILL_LENGTHS,
+    PD_U2_SOURCE_BLOCKS,
+    initialize_pd_cpu_source_pages,
+    make_dspark_pd_prefill_bundle,
+    make_dspark_pd_prefix_case,
+)
 from tests.unit.fakes.dspark_speculator import initialize_existing_dspark_proposal
 from tests.unit.fakes.graph_cache import DeviceCompletion, ReplayGraph
 from tests.unit.fakes.hccl_graph_pipeline import attach_pipeline
+from tests.unit.fakes.hccl_graph_stage import make_graph_stage_bank
+from tests.unit.fakes.hccl_v41_graph_control import (
+    NativeGraphGeneration,
+    NativeGraphMetadata,
+)
 from tests.unit.fakes.hccl_v41_graph_coordinator import (
     cpu_allocate_bank,
     cpu_retained_capture,
     install_runtime_eager_tensor_boundary,
     reference_runtime_eager_output,
 )
+from tests.unit.fakes.hccl_v41_graph_eager import PreKVAttentionPeer
 from tests.unit.fakes.input_batch import (
     install_native_input_preparation_cpu,
     make_ascend_decode_batch,
+    make_hccl_ubatch_seam,
     snapshot_ascend_child,
 )
 from tests.unit.fakes.npu_stream import HostStreamRecorder
@@ -104,9 +144,21 @@ from tests.unit.fakes.request_state import (
     make_native_request_admission_case,
     native_zeroed_cache_reference,
 )
+from tests.unit.fakes.scheduler import (
+    SCHEDULER_MAX_MODEL_LEN,
+    SchedulerSpeculativeConfig,
+    SchedulerVllmConfig,
+)
+from tests.unit.fakes.vllm_config import (
+    hccl_vllm_config,
+    v41_dspark_pd_config,
+    v41_dspark_pd_graph_config,
+)
 
 FULL_REPLAY_ROWS = 4
 FULL_REPLAY_HISTORY_TOKENS = 12
+PREFILL_CPU_NUM_STAGES = 2
+PREFILL_CPU_DRAFT_STEPS = 2
 
 
 class TransferMetadata(KVConnectorMetadata):
@@ -251,8 +303,12 @@ def make_native_kv_runner_case(
     if pd_read_case is None:
         case = make_graph_runner_case(target_query_len=target_query_len, stages=stages)
     else:
-        if post_kv or fail_load or stages != 1:
-            raise ValueError("external PD zero-work case requires eager/U1 polling")
+        if post_kv or fail_load:
+            raise ValueError("external PD zero-work case requires eager polling")
+        parallel = pd_read_case.config.parallel_config
+        configured_stages = parallel.num_ubatches if parallel.use_ubatching else 1
+        if stages != configured_stages:
+            raise ValueError("PD poll stages must match the already constructed owner")
         # Construct this native owner from the complete D bundle before any
         # model/state/KV binding. No Graph-capable transport or model execution
         # is constructed and no old Graph configuration is replaced in place.
@@ -263,6 +319,7 @@ def make_native_kv_runner_case(
         owner.model = pd_read_case.loaded_destination.target_model
         owner.speculator = pd_read_case.loaded_destination.speculator
         owner.dspark_pd_consumer = pd_read_case.loaded_destination.consumer
+        owner._dspark_pd_pending_scheduler = None
         owner.model_state = SimpleNamespace(model=owner.model)
         owner.block_tables = SimpleNamespace()
         owner.device = torch.device("cpu")
@@ -355,18 +412,113 @@ def make_native_kv_runner_case(
     return case
 
 
-def complete_native_pd_handoff(case):
-    """Run actual zero-work polling until the same scheduler admits D work."""
+def make_scheduled_pd_runner_case(
+    monkeypatch,
+    *,
+    prompt_length,
+    stages=1,
+    started_receiver=False,
+    complete_hccl=False,
+    target_graph=False,
+):
+    """Freeze P/D metadata before construction, then retain the real handoff.
+
+    U2 changes the target execution component, not the receiver or sampler.
+    Source projection, typed Ready/read/DONE and native scheduling remain the
+    existing CPU contract. Checkpoint, TE and device constructors stay leaves.
+    """
+    if type(stages) is not int or stages not in (1, PREFILL_CPU_NUM_STAGES):
+        raise ValueError("CPU PD component requires U1 or U2")
+    config = v41_dspark_pd_config()
+    if stages == PREFILL_CPU_NUM_STAGES or complete_hccl:
+        eager = hccl_vllm_config(
+            dtype=torch.bfloat16,
+            compilation_mode=CompilationMode.NONE,
+            cudagraph_mode=CUDAGraphMode.NONE,
+            num_ubatches=stages,
+        )
+        config.parallel_config = eager.parallel_config
+        config.compilation_config = eager.compilation_config
+        config.parallel_config.rank = 0
+        config.parallel_config.dbo_prefill_token_threshold = stages
+        config.parallel_config.dbo_decode_token_threshold = stages
+        config.model_config.is_encoder_decoder = eager.model_config.is_encoder_decoder
+        config.model_config.is_multimodal_model = eager.model_config.is_multimodal_model
+        config.model_config.multimodal_config = eager.model_config.multimodal_config
+        config.lora_config = None
+    prefix = make_dspark_pd_prefix_case(
+        monkeypatch,
+        config=config,
+        original_tokens=prompt_length,
+        bind=False,
+        complete_cpu_models=True,
+        num_speculative_tokens=PREFILL_CPU_DRAFT_STEPS
+        if stages == 2 or target_graph
+        else None,
+    )
+    destination_config = None
+    if target_graph:
+        destination_config = v41_dspark_pd_graph_config(
+            dtype=torch.bfloat16,
+            compilation_mode=CompilationMode.NONE,
+            cudagraph_mode=CUDAGraphMode.FULL_DECODE_ONLY,
+            num_ubatches=stages,
+        )
+        # The existing eager P supplies the actual three-layer CPU checkpoint
+        # metadata. Freeze the independent D config before its native scheduler,
+        # model and consumer exist; never copy P's compilation/static contexts.
+        destination_config.model_config = deepcopy(prefix.config.model_config)
+        destination_config.model_config.enforce_eager = False
+        # The normal registration builder completes this native checkpoint
+        # flag on P before copying its D config. This independent D config is
+        # frozen earlier and must declare the same MLA metadata itself.
+        destination_config.model_config.is_deepseek_mla = True
+        destination_config.speculative_config = deepcopy(
+            prefix.config.speculative_config
+        )
+        destination_config.compilation_config.cudagraph_capture_sizes = [
+            PREFILL_CPU_DRAFT_STEPS + 1
+        ]
+        destination_config.compilation_config.max_cudagraph_capture_size = (
+            PREFILL_CPU_DRAFT_STEPS + 1
+        )
+        destination_config.parallel_config.dbo_prefill_token_threshold = stages
+        destination_config.parallel_config.dbo_decode_token_threshold = stages
+    # Circular: the protocol factory consumes this module's native D helpers.
+    from tests.unit.fakes.kv_layout_connector import make_scheduled_dspark_read_case
+
+    transfer = make_scheduled_dspark_read_case(
+        monkeypatch,
+        prefix,
+        initialize_source_pages=initialize_pd_cpu_source_pages,
+        sampling_params=SamplingParams(temperature=0),
+        started_receiver=started_receiver,
+        destination_config=destination_config,
+    )
+    runner = make_native_kv_runner_case(
+        monkeypatch,
+        post_kv=False,
+        sync_load=False,
+        stages=stages,
+        pd_read_case=transfer,
+    )
+    return transfer, runner
+
+
+def complete_native_pd_handoff(case, *, schedule_target=True):
+    """Run zero-work polling; optionally leave target admission to EngineCore."""
     transfer, owner = case.pd_read_case, case.owner
     first = transfer.scheduler.schedule()
     transfer.scheduler.update_from_output(first, owner.execute_model(first))
     transfer.process_next_queued_request()
     pending = transfer.scheduler.schedule()
     transfer.scheduler.update_from_output(pending, owner.execute_model(pending))
-    return transfer.scheduler.schedule()
+    return transfer.scheduler.schedule() if schedule_target else None
 
 
-def initialize_native_pd_target_execution(monkeypatch, case, *, scheduler_output):
+def initialize_native_pd_target_execution(
+    monkeypatch, case, *, scheduler_output=None, graph_target=False
+):
     """Complete the existing registered D owner for native eager CPU execute.
 
     The bound target/draft/config/cache and ActiveKVConnector stay identical.
@@ -378,16 +530,99 @@ def initialize_native_pd_target_execution(monkeypatch, case, *, scheduler_output
     owner, transfer = case.owner, case.pd_read_case
     if not transfer.prefix_case.complete_cpu_models:
         raise ValueError("native target requires models completed before PD binding")
+    case.target_metadata = initialize_loaded_cpu_target(
+        monkeypatch,
+        owner,
+        transfer.loaded_destination.model_bundle,
+        case.kv_views,
+        create_graph_manager=not graph_target,
+    )
+    if owner.parallel_config.use_ubatching and not graph_target:
+        case.transport = install_native_u2_cpu_runner(
+            monkeypatch,
+            owner,
+            kv_cache_config=transfer.destination_cache.config,
+            model_bundle=transfer.loaded_destination.model_bundle,
+            graph=graph_target,
+        )
+        observe_native_pd_target_children(case)
+    destination = transfer.destination_cache
+    case.source_pages_before = tuple(page.clone() for page in destination.source_pages)
+    if scheduler_output is None:
+        # EngineCore contract cases schedule the first real target themselves;
+        # they do not need this fixture's independent target-arithmetic oracle.
+        return
+    request = scheduler_output.scheduled_new_reqs[0]
+    width = scheduler_output.num_scheduled_tokens[request.req_id]
+    computed = request.num_computed_tokens
+    case.expected_input_ids = torch.tensor(
+        [request.prompt_token_ids[-1]] + [0] * (width - 1)
+    )
+    case.expected_positions = torch.arange(computed, computed + width)
+    case.expected_target = native_pd_target_step_reference(
+        case,
+        scheduler_output,
+        input_ids=case.expected_input_ids,
+        computed=computed,
+        block_ids=request.block_ids,
+        stages=owner.parallel_config.num_ubatches
+        if owner.parallel_config.use_ubatching
+        and width >= owner.parallel_config.num_ubatches
+        else 1,
+    )
+
+
+def observe_native_pd_target_children(case):
+    """Observe actual CPU Attention operands after native child preparation."""
+    case.target_children = []
+
+    def observe_target_attention(layer, inputs):
+        context = get_forward_context()
+        cache_name = layer.dsa_attn.swa_cache_layer.prefix
+        metadata = context.attn_metadata[cache_name.replace(".swa_cache", ".v41_attn")]
+        case.target_children.append(
+            SimpleNamespace(
+                stage=context.additional_kwargs.get("ubatch_idx"),
+                descriptor_tokens=context.batch_descriptor.num_tokens
+                if context.batch_descriptor is not None
+                else None,
+                positions=inputs[0].clone(),
+                query_start_loc=metadata.query_start_loc.clone(),
+                seq_lens=metadata.seq_lens[: metadata.num_reqs].clone(),
+                slot_mapping=context.slot_mapping[cache_name].clone(),
+            )
+        )
+
+    case.target_hook = case.owner.model.language_model.model.layers[
+        0
+    ].self_attn.register_forward_pre_hook(observe_target_attention)
+
+
+def initialize_loaded_cpu_target(
+    monkeypatch,
+    owner,
+    model_bundle,
+    kv_views,
+    *,
+    preserve_connector=False,
+    create_graph_manager=True,
+):
+    """Attach real request/input/ModelState owners to prebound CPU models.
+
+    Both the existing legal U1/PD D owner and the independent no-PD P owner
+    reuse this assembly. It neither constructs a prefix consumer nor changes
+    any bound parallel/transfer configuration or target/draft model identity.
+    """
     ascend_config = SimpleNamespace(sparse_kv_offload_config=SparseKVOffloadConfig())
     monkeypatch.setattr(ascend_model_state, "get_ascend_config", lambda: ascend_config)
     owner.model_state = EngramModelState(
         owner.vllm_config, owner.model, None, owner.device
     )
     owner.model_state.kv_cache_config = owner.kv_cache_config
-    case.target_metadata = install_native_target_metadata_cpu(
-        monkeypatch, owner.model_state, transfer.loaded_destination.model_bundle
+    metadata = install_native_target_metadata_cpu(
+        monkeypatch, owner.model_state, model_bundle
     )
-    make_native_request_admission_case(monkeypatch, owner, kv_cache_views=case.kv_views)
+    make_native_request_admission_case(monkeypatch, owner, kv_cache_views=kv_views)
     install_native_input_preparation_cpu(monkeypatch, owner)
     install_native_block_table_kernels_cpu(monkeypatch, owner.block_tables)
     owner.observability_config = owner.vllm_config.observability_config
@@ -404,33 +639,454 @@ def initialize_native_pd_target_execution(monkeypatch, case, *, scheduler_output
     # The CPU model executes local FFN arithmetic, without an A/F transport.
     # Keep the real eager metadata provider and its normal constructor state.
     owner._afd_transaction_counter = 0
-    owner.connector = SimpleNamespace(control_plane=None)
-    # Eager's actual NONE manager still reads the resolved capture-size list.
-    owner.vllm_config.compilation_config.cudagraph_capture_sizes = []
+    if not preserve_connector:
+        owner.connector = SimpleNamespace(control_plane=None)
     pp = SimpleNamespace(is_first_rank=True, is_last_rank=True)
     monkeypatch.setattr(native_cudagraph, "get_pp_group", lambda: pp)
-    owner.cudagraph_manager = ModelAclGraphManager(
-        owner.vllm_config,
-        owner.device,
-        CUDAGraphMode.NONE,
-        owner.decode_query_len,
+    if create_graph_manager:
+        # Eager's actual NONE manager reads the resolved capture-size list.
+        owner.vllm_config.compilation_config.cudagraph_capture_sizes = []
+        owner.cudagraph_manager = ModelAclGraphManager(
+            owner.vllm_config,
+            owner.device,
+            CUDAGraphMode.NONE,
+            owner.decode_query_len,
+            owner,
+        )
+    return metadata
+
+
+def install_native_u2_cpu_runner(
+    monkeypatch, owner, *, kv_cache_config, model_bundle, graph=False, transport=None
+):
+    """Install the existing constructor-free U2/transport allocation leaf.
+
+    Configuration validation, the control codec, native child preparation and
+    the HCCL runner's execution stay real. Device runner construction, native
+    HCCL/NPU binding and automatic stream bootstrap are outside this CPU seam.
+    """
+    config = owner.vllm_config
+    # Eager negotiates Graph's default key width one independently of native
+    # DSpark's N+1 target decode width; child row counts remain actual payloads.
+    caps = validate_staged_hccl_runtime(config, owner.afd_config, 0, graph=graph)
+    if transport is None:
+        transport = PreKVAttentionPeer(caps)
+    elif transport.negotiated_capabilities != caps:
+        raise ValueError("native U2 runner must retain this session's capabilities")
+    runner = make_hccl_ubatch_seam(
+        HcclV41UBatchRunner,
+        model_state=owner.model_state,
+        max_num_reqs=owner.max_num_reqs,
+    )
+    runner.vllm_config, runner.parallel_config = config, config.parallel_config
+    runner.kv_cache_config = kv_cache_config
+    runner.transport = transport
+    runner._stage_block_tables = [None] * PREFILL_CPU_NUM_STAGES
+    runner._stage_rope_buffers = [{} for _ in range(PREFILL_CPU_NUM_STAGES)]
+    # Keep actual Hccl -> NPU -> native UBatchRunner preparation and slicing.
+    # Only its backend metadata builder consumes the CPU cache operands.
+    del runner._prepare_attn
+
+    def build_cpu_metadata(**kwargs):
+        names = (
+            "num_reqs",
+            "query_start_loc_gpu",
+            "positions",
+            "seq_lens",
+            "is_prefilling",
+            "block_tables",
+        )
+        return model_bundle.prepare_target_attention(
+            **{name: kwargs[name] for name in names}
+        )
+
+    monkeypatch.setattr(ubatch_module, "build_attn_metadata", build_cpu_metadata)
+    owner.ubatch_runner, owner.hccl_v41_transport = runner, transport
+    return transport
+
+
+def make_native_pd_prefill_owner_case(
+    monkeypatch,
+    *,
+    stages=1,
+    tp_size=1,
+    tp_rank=0,
+    tp_group=None,
+    share_scheduler=None,
+):
+    """One immutable P owner through actual load/KV/execute/sample frontiers.
+
+    Native load and allocation have explicit CPU leaves. The AFD public entry
+    methods, loaded consumer construction, real connector registration,
+    ActiveKVConnector, native target execution and native proposal stay real.
+    This does not create a second P owner or pre-admit a source. The observer
+    queries the actual Ready protocol at declared CPU cache-write boundaries;
+    it does not replace projection/proposal or simulate NPU concurrency.
+    U2 uses the existing constructor-free runner allocation leaf and the real
+    PD validator; it cannot pass a closed production configuration guard.
+    """
+    if type(stages) is not int or stages not in (1, PREFILL_CPU_NUM_STAGES):
+        raise ValueError("CPU P component requires U1 or U2")
+    if (
+        type(tp_size) is not int
+        or type(tp_rank) is not int
+        or not 0 <= tp_rank < tp_size
+    ):
+        raise ValueError("CPU P component requires a valid TP rank and size")
+    if tp_group is None and (tp_size, tp_rank) != (1, 0):
+        raise ValueError("multi-rank CPU P component requires its actual TP group")
+    if tp_group is not None and (tp_group.world_size, tp_group.rank_in_group) != (
+        tp_size,
+        tp_rank,
+    ):
+        raise ValueError("CPU P component TP group differs from its frozen config")
+    config = v41_dspark_pd_config(tensor_parallel_size=tp_size)
+    config.kv_transfer_config.kv_role = "kv_producer"
+    config.kv_transfer_config.engine_id = "source-engine"
+    eager = hccl_vllm_config(
+        dtype=torch.bfloat16,
+        compilation_mode=CompilationMode.NONE,
+        cudagraph_mode=CUDAGraphMode.NONE,
+        num_ubatches=stages,
+        tensor_parallel_size=tp_size,
+    )
+    config.parallel_config = eager.parallel_config
+    config.compilation_config = eager.compilation_config
+    config.parallel_config.rank = tp_rank
+    if stages == PREFILL_CPU_NUM_STAGES:
+        config.parallel_config.dbo_prefill_token_threshold = PREFILL_CPU_NUM_STAGES
+        config.parallel_config.dbo_decode_token_threshold = PREFILL_CPU_NUM_STAGES
+    config.model_config.is_encoder_decoder = eager.model_config.is_encoder_decoder
+    config.model_config.is_multimodal_model = eager.model_config.is_multimodal_model
+    config.model_config.multimodal_config = eager.model_config.multimodal_config
+    config.model_config.max_model_len = SCHEDULER_MAX_MODEL_LEN
+    config.lora_config = None
+    config.scheduler_config = SchedulerConfig(
+        max_model_len=SCHEDULER_MAX_MODEL_LEN,
+        is_encoder_decoder=False,
+        max_num_seqs=len(PD_U2_PREFILL_LENGTHS),
+        max_num_batched_tokens=config.scheduler_config.max_num_batched_tokens,
+        enable_chunked_prefill=True,
+        disable_hybrid_kv_cache_manager=False,
+        async_scheduling=False,
+    )
+    config.observability_config = ObservabilityConfig()
+    observations = SimpleNamespace(enabled=False, replies=[])
+
+    def observe_store():
+        if observations.enabled:
+            observations.replies.append(bundle.producer.request_ready(bundle.query))
+
+    prefix = make_dspark_pd_prefix_case(
+        monkeypatch,
+        config=config,
+        tp_size=tp_size,
+        tp_rank=tp_rank,
+        bind=False,
+        create_consumer=False,
+        complete_cpu_models=True,
+        num_blocks=PD_U2_SOURCE_BLOCKS,
+        num_speculative_tokens=PREFILL_CPU_DRAFT_STEPS,
+        before_draft_store=observe_store,
+    )
+    # Match the native scheduler's actual reservation for proposal writes,
+    # rather than allocating only the target's shortened P prompt. Reuse its
+    # pinned sizing property over the same already selected DSpark metadata.
+    sizing = SchedulerVllmConfig(
+        speculative_config=SchedulerSpeculativeConfig(**vars(config.speculative_config))
+    )
+    bundle = make_dspark_pd_prefill_bundle(
+        monkeypatch,
+        prefix=prefix,
+        bind=False,
+        sampling_params=SamplingParams(max_tokens=1, temperature=0),
+        num_lookahead_tokens=sizing.num_lookahead_tokens,
+        share_scheduler=share_scheduler,
+    )
+    owner = AFDNPUAttentionModelRunnerV2.__new__(AFDNPUAttentionModelRunnerV2)
+    owner.vllm_config, owner.parallel_config = config, config.parallel_config
+    owner.afd_config = owner.parse_config(config)
+    owner.device = torch.device("cpu")
+    owner.model = owner.speculator = owner.dspark_pd_consumer = None
+    owner.hccl_v41_transport = owner.hccl_v41_diagnostics = None
+    owner.hccl_v41_graph_eager = owner.hccl_v41_graph_session = None
+    owner.hccl_v41_graph_coordinator = owner.hccl_v41_graph_bootstrap = None
+    owner.hccl_v41_eager_bootstrap = None
+    owner._dspark_pd_load_started = False
+    owner._dspark_pd_pending_scheduler = None
+    owner._hccl_configuration_logged = False
+    owner.connector = FakeRoutedConnector()
+    owner.connector.control_plane = None
+    owner.prof = owner.cudagraph_manager = owner.ubatch_runner = None
+    owner.execute_model_state = None
+    owner.pooling_runner = owner.encoder_cache = owner.pp_handler = None
+    owner._afd_pending_metadata = None
+    owner._afd_suppress_metadata_send = False
+    owner._is_warmup = owner._afd_is_graph_capturing = False
+    owner._afd_is_graph_replaying = owner._afd_is_profile = False
+    owner.ec_connector = ECConnector()
+    owner.kvpp = IdleAuxiliaryDeviceBoundary([])
+    owner.ascend_config = SimpleNamespace(
+        scheduler_config=SimpleNamespace(
+            profiling_chunk_config=SimpleNamespace(need_timing=False)
+        )
+    )
+    monkeypatch.setattr(
+        kv_transfer_state, "_KV_CONNECTOR_AGENT", bundle.producer.connector
+    )
+    monkeypatch.setattr(
+        attention_module,
+        "get_tp_group",
+        lambda: (
+            SimpleNamespace(world_size=1, rank_in_group=0)
+            if tp_group is None
+            else tp_group
+        ),
+    )
+    monkeypatch.setattr(
+        native_runner, "should_skip_allreduce_across_dp_group", lambda _: False
+    )
+    stub_platform_forward_context(monkeypatch)
+
+    def load_cpu(self, load_dummy_weights=False, *args, **kwargs):
+        self.model, self.speculator = prefix.target_model, prefix.speculator
+
+    def allocate_cpu(self, kv_cache_config, kv_cache_allocation_context=None):
+        self.kv_cache_config = kv_cache_config
+        initialize_loaded_cpu_target(
+            monkeypatch,
+            self,
+            prefix.model_bundle,
+            prefix.caches,
+            preserve_connector=True,
+        )
+        self.kv_connector = ActiveKVConnector(config, prefix.caches)
+        self.kv_caches = list(prefix.caches.values())
+        if stages == PREFILL_CPU_NUM_STAGES:
+            bundle.transport = install_native_u2_cpu_runner(
+                monkeypatch,
+                self,
+                kv_cache_config=prefix.kv_config,
+                model_bundle=prefix.model_bundle,
+            )
+
+    monkeypatch.setattr(native_runner.NPUModelRunner, "load_model", load_cpu)
+    monkeypatch.setattr(
+        native_runner.NPUModelRunner, "initialize_kv_cache", allocate_cpu
+    )
+    owner.load_model()
+    prefix.consumer = owner.dspark_pd_consumer
+    owner.initialize_kv_cache(prefix.kv_config)
+    initialize_native_pd_sampling(monkeypatch, SimpleNamespace(owner=owner))
+    bundle.scheduler.kv_connector_metadata = bundle.producer.metadata
+    # Circular: this protocol factory already consumes the loaded prefix helper.
+    from tests.unit.fakes.kv_layout_connector import dspark_query
+
+    bundle.query = dspark_query(prefix)
+    bundle.owner, bundle.observations = owner, observations
+    return bundle
+
+
+def make_native_u2_prefill_prefix_case(monkeypatch):
+    """Actual no-PD P-prefill U2 execute -> independent legal U1/PD consumer.
+
+    One target instance has one active native ModelState owner. The consumer
+    binds that producing target as identity only and owns its separate legal
+    U1/PD config/speculator. No guard is patched and no ExecuteModelState or
+    auxiliary tensor is manufactured. CPU kernels/cache arithmetic/remote FFN
+    leaves validate coordinates and ownership, not device/model equivalence.
+    """
+    bundle = make_dspark_pd_prefill_bundle(monkeypatch)
+    prefix = bundle.prefix
+    config = deepcopy(prefix.config)
+    eager = hccl_vllm_config(
+        dtype=config.model_config.dtype,
+        compilation_mode=CompilationMode.NONE,
+        cudagraph_mode=CUDAGraphMode.NONE,
+        num_ubatches=PREFILL_CPU_NUM_STAGES,
+    )
+    config.parallel_config = eager.parallel_config
+    config.compilation_config = eager.compilation_config
+    config.model_config.is_encoder_decoder = eager.model_config.is_encoder_decoder
+    config.model_config.is_multimodal_model = eager.model_config.is_multimodal_model
+    config.model_config.multimodal_config = eager.model_config.multimodal_config
+    config.lora_config = None
+    # Freeze both independent configs before target/state/transport binding.
+    # The loaded cache-layer identities are shared intentionally; deepcopy of
+    # the config must not create a second target writer or registered storage.
+    config.compilation_config.static_forward_context = dict(
+        prefix.config.compilation_config.static_forward_context
+    )
+    config.kv_transfer_config = None
+    config.parallel_config.use_ubatching = True
+    config.parallel_config.enable_dbo = True
+    config.parallel_config.num_ubatches = PREFILL_CPU_NUM_STAGES
+    config.parallel_config.ubatch_size = PREFILL_CPU_NUM_STAGES
+    config.parallel_config.dbo_prefill_token_threshold = PREFILL_CPU_NUM_STAGES
+    config.parallel_config.dbo_decode_token_threshold = PREFILL_CPU_NUM_STAGES
+    config.parallel_config.rank = 0
+    # Native ModelState/request pools consume the same finite CPU context
+    # budget as the independently prepared D scheduler/owner.
+    config.model_config.max_model_len = SCHEDULER_MAX_MODEL_LEN
+    config.scheduler_config = SchedulerConfig(
+        max_model_len=SCHEDULER_MAX_MODEL_LEN,
+        is_encoder_decoder=False,
+        max_num_seqs=len(bundle.requests),
+        max_num_batched_tokens=config.scheduler_config.max_num_batched_tokens,
+        enable_chunked_prefill=True,
+        disable_hybrid_kv_cache_manager=False,
+        async_scheduling=False,
+    )
+    config.observability_config = ObservabilityConfig()
+    config.compilation_config.cudagraph_mode = CUDAGraphMode.NONE
+    config.compilation_config.cudagraph_capture_sizes = []
+    validate_deepseek_v41_pd(config)
+    validate_deepseek_v41_speculation(config)
+    validate_deepseek_v41_pd(prefix.config)
+
+    owner = AFDNPUAttentionModelRunnerV2.__new__(AFDNPUAttentionModelRunnerV2)
+    owner.vllm_config, owner.parallel_config = config, config.parallel_config
+    owner.afd_config = owner.parse_config(config)
+    owner.model, owner.speculator = prefix.target_model, None
+    owner.dspark_pd_consumer = None
+    owner.device = torch.device("cpu")
+    owner.prof = owner.cudagraph_manager = owner.ubatch_runner = None
+    owner.hccl_v41_transport = None
+    owner.hccl_v41_graph_eager = owner.hccl_v41_graph_session = None
+    owner.hccl_v41_graph_coordinator = owner.hccl_v41_graph_bootstrap = None
+    owner.hccl_v41_diagnostics = None
+    owner._afd_pending_metadata = None
+    owner._afd_suppress_metadata_send = False
+    owner._is_warmup = owner._afd_is_graph_capturing = False
+    owner._afd_is_graph_replaying = owner._afd_is_profile = False
+    owner.pooling_runner = owner.encoder_cache = owner.pp_handler = None
+    owner.kv_cache_config = prefix.kv_config
+    owner.kv_caches = list(prefix.caches.values())
+    owner.kv_connector = KVConnector()
+    owner.ec_connector = ECConnector()
+    owner.kvpp = IdleAuxiliaryDeviceBoundary([])
+    owner.ascend_config = SimpleNamespace(
+        scheduler_config=SimpleNamespace(
+            profiling_chunk_config=SimpleNamespace(need_timing=False)
+        )
+    )
+    owner.execute_model_state = None
+    stub_platform_forward_context(monkeypatch)
+    monkeypatch.setattr(
+        native_runner, "should_skip_allreduce_across_dp_group", lambda _: False
+    )
+    metadata = initialize_loaded_cpu_target(
+        monkeypatch, owner, prefix.model_bundle, prefix.caches
+    )
+    transport = install_native_u2_cpu_runner(
+        monkeypatch,
         owner,
+        kv_cache_config=prefix.kv_config,
+        model_bundle=prefix.model_bundle,
     )
-    destination = transfer.destination_cache
-    request = scheduler_output.scheduled_new_reqs[0]
-    width = scheduler_output.num_scheduled_tokens[request.req_id]
-    computed = request.num_computed_tokens
-    case.expected_input_ids = torch.tensor(
-        [request.prompt_token_ids[-1]] + [0] * (width - 1)
+    pages = tuple(
+        torch.empty(0, dtype=torch.uint8).set_(
+            prefix.caches[page.layers[0]].untyped_storage(),
+            0,
+            (page.size_bytes,),
+            (1,),
+        )
+        if isinstance(prefix.caches[page.layers[0]], torch.Tensor)
+        else torch.empty(0, dtype=torch.uint8).set_(
+            prefix.caches[page.layers[0]][0].untyped_storage(),
+            0,
+            (page.size_bytes,),
+            (1,),
+        )
+        for page in prefix.layout.pages
     )
-    case.expected_positions = torch.arange(computed, computed + width)
-    case.source_pages_before = tuple(page.clone() for page in destination.source_pages)
-    case.expected_target = native_pd_target_step_reference(
-        case,
-        scheduler_output,
-        input_ids=case.expected_input_ids,
-        computed=computed,
-        block_ids=request.block_ids,
+    initialize_pd_cpu_source_pages(pages, prefix.layout)
+    expected = native_u2_prefill_reference(
+        bundle.scheduler, prefix, pages, decode_query_len=owner.decode_query_len
+    )
+    return SimpleNamespace(
+        owner=owner,
+        prefix=prefix,
+        producer=bundle.producer,
+        scheduler=bundle.scheduler,
+        sources=bundle.sources,
+        requests=bundle.requests,
+        transport=transport,
+        source_scheduler=bundle.source_scheduler,
+        target_metadata=metadata,
+        pages=pages,
+        expected_target=expected,
+    )
+
+
+def native_u2_prefill_reference(scheduler, prefix, pages, *, decode_query_len):
+    """Independent split-coordinate oracle for the declared CPU Attention leaf.
+
+    That leaf reads only the prepared prefix, not intra-chunk causal context.
+    A request crossing U2 sees the first child's writes in its second segment.
+    This oracle models that explicit CPU contract, not U1 mathematical parity
+    or device Attention. It never consumes executed tensors or child metadata.
+    Only SWA is read/written by this leaf; distinct target SWA pages make the
+    request/chunk-major arithmetic commute with the actual layer-major order.
+    Existing long/index/compressor aliases in layer zero's page are preserved.
+    """
+    width = scheduler.total_num_scheduled_tokens
+    split = width // PREFILL_CPU_NUM_STAGES
+    expected_pages = tuple(page.clone() for page in pages)
+    target_swa_names = {
+        f"model.layers.{index}.self_attn.swa_cache"
+        for index in range(prefix.config.model_config.hf_text_config.num_hidden_layers)
+    }
+    target_swa_aliases = {
+        view.storage_alias
+        for view in prefix.layout.views
+        if view.layer_name in target_swa_names and view.tensor_index == 0
+    }
+    if len(target_swa_aliases) != len(target_swa_names):
+        raise ValueError(
+            "chunk reference requires distinct registered target SWA pages"
+        )
+    outputs, auxiliary = [], [[], [], []]
+    start = 0
+    # Derive the pinned native sort from original scheduler declarations, not
+    # the executed InputBatch. All requests here are actual P prefills.
+    requests = sorted(
+        scheduler.scheduled_new_reqs,
+        key=lambda request: (
+            not scheduler.scheduled_spec_decode_tokens.get(request.req_id),
+            scheduler.num_scheduled_tokens[request.req_id] != decode_query_len,
+            scheduler.num_scheduled_tokens[request.req_id],
+        ),
+    )
+    for request in requests:
+        count = scheduler.num_scheduled_tokens[request.req_id]
+        chunks = [count]
+        if start < split < start + count:
+            chunks = [split - start, start + count - split]
+        offset = 0
+        for chunk in chunks:
+            reference = native_pd_target_reference(
+                torch.tensor(request.prefill_token_ids[offset : offset + chunk]),
+                torch.arange(offset, offset + chunk),
+                computed=offset,
+                block_ids=tuple(tuple(group) for group in request.block_ids),
+                layout=prefix.layout,
+                pages=expected_pages,
+                caches=prefix.caches,
+            )
+            expected_pages = reference.pages
+            outputs.append(reference.hidden_states)
+            for actual, expected in zip(
+                auxiliary, reference.aux_hidden_states, strict=True
+            ):
+                actual.append(expected)
+            offset += chunk
+        start += count
+    return SimpleNamespace(
+        req_ids=[request.req_id for request in requests],
+        hidden_states=torch.cat(outputs),
+        aux_hidden_states=tuple(torch.cat(layer) for layer in auxiliary),
+        pages=expected_pages,
     )
 
 
@@ -441,6 +1097,7 @@ def native_pd_target_step_reference(
     input_ids: torch.Tensor,
     computed: int,
     block_ids: tuple[list[int], ...],
+    stages: int = 1,
 ) -> SimpleNamespace:
     """Snapshot D's current pages before one actual scheduled target step.
 
@@ -457,14 +1114,61 @@ def native_pd_target_step_reference(
         pages=destination.pages,
         block_ids=scheduler_output.new_block_ids_to_zero,
     )
-    return native_pd_target_reference(
-        input_ids,
-        torch.arange(computed, computed + input_ids.numel()),
-        computed=computed,
-        block_ids=tuple(tuple(group) for group in block_ids),
-        layout=destination.layout,
-        pages=zeroed,
-        caches=destination.caches,
+    if stages == 1:
+        return native_pd_target_reference(
+            input_ids,
+            torch.arange(computed, computed + input_ids.numel()),
+            computed=computed,
+            block_ids=tuple(tuple(group) for group in block_ids),
+            layout=destination.layout,
+            pages=zeroed,
+            caches=destination.caches,
+        )
+    if stages != PREFILL_CPU_NUM_STAGES or input_ids.numel() < stages:
+        raise ValueError("CPU target reference requires a nonempty U1/U2 step")
+    # The declared Attention leaf reads the prepared child prefix. The next
+    # child sees earlier-child writes, unlike this leaf's U1 full-query read.
+    # Derive this split from the declared scheduler width, never actual child
+    # metadata. Separate target SWA pages make chunk/layer order commute.
+    target_swa_names = {
+        f"model.layers.{index}.self_attn.swa_cache"
+        for index in range(
+            case.owner.vllm_config.model_config.hf_text_config.num_hidden_layers
+        )
+    }
+    if len(
+        {
+            view.storage_alias
+            for view in destination.layout.views
+            if view.layer_name in target_swa_names and view.tensor_index == 0
+        }
+    ) != len(target_swa_names):
+        raise ValueError("U2 reference requires distinct target SWA pages")
+    split = input_ids.numel() // stages
+    references = []
+    pages = zeroed
+    for begin, end in ((0, split), (split, input_ids.numel())):
+        reference = native_pd_target_reference(
+            input_ids[begin:end],
+            torch.arange(computed + begin, computed + end),
+            computed=computed + begin,
+            block_ids=tuple(tuple(group) for group in block_ids),
+            layout=destination.layout,
+            pages=pages,
+            caches=destination.caches,
+        )
+        references.append(reference)
+        pages = reference.pages
+    return SimpleNamespace(
+        hidden_states=torch.cat([reference.hidden_states for reference in references]),
+        aux_hidden_states=tuple(
+            torch.cat([reference.aux_hidden_states[index] for reference in references])
+            for index in range(len(references[0].aux_hidden_states))
+        ),
+        mtp_hidden_states=torch.cat(
+            [reference.mtp_hidden_states for reference in references]
+        ),
+        pages=pages,
     )
 
 
@@ -504,6 +1208,118 @@ def initialize_native_pd_sampling(monkeypatch, case):
         max_num_tokens=owner.max_num_tokens,
         max_model_len=owner.max_model_len,
     )
+
+
+def make_native_pd_shutdown_case(monkeypatch, *, stages=1, fail_sampling=False):
+    """Actual D handoff/sample and Worker shutdown with one CPU release leaf.
+
+    Native Worker.shutdown and ensure_kv_transfer_shutdown stay intact, as do
+    the receiver's real thread, typed DONE, retirement and executor join. Only
+    the final NPU runner release is a CPU leaf using native cache detachment.
+    Its observations describe that release boundary, not device cleanup.
+    """
+    transfer, runner = make_scheduled_pd_runner_case(
+        monkeypatch,
+        prompt_length=6,
+        stages=stages,
+        started_receiver=True,
+        complete_hccl=True,
+    )
+    try:
+        scheduled = complete_native_pd_handoff(runner)
+        initialize_native_pd_target_execution(
+            monkeypatch, runner, scheduler_output=scheduled
+        )
+        initialize_native_pd_sampling(monkeypatch, runner)
+        owner = runner.owner
+        if stages == 1:
+            runner.transport = PreKVAttentionPeer(
+                validate_staged_hccl_runtime(owner.vllm_config, owner.afd_config, 0)
+            )
+            owner.hccl_v41_transport = runner.transport
+        else:
+            owner.ubatch_runner._pending_finish = None
+        connector = HcclStagedAFDConnector.__new__(HcclStagedAFDConnector)
+        connector.transport = runner.transport
+        connector.overlap_settings = None
+        connector._pending_context = connector._pending_tensor_spec = None
+        owner.connector = connector
+        owner._afd_shutdown_prepared = owner._afd_staged_stop_completed = False
+        owner.hccl_v41_eager_bootstrap = None
+        assert owner.execute_model(scheduled) is None
+        cause = RuntimeError("controlled native D shutdown proposal failure")
+
+        def fail_draft(layer, inputs):
+            raise cause
+
+        hook = None
+        if fail_sampling:
+            draft_layer = next(iter(owner.speculator.model.model.layers.values()))
+            hook = draft_layer.self_attn.register_forward_pre_hook(fail_draft)
+        try:
+            output = owner.sample_tokens(None).get_output()
+        except RuntimeError as error:
+            if not fail_sampling or error is not cause:
+                raise
+            output = None
+        finally:
+            if hook is not None:
+                hook.remove()
+            if stages == 2:
+                runner.target_hook.remove()
+        if fail_sampling and output is not None:
+            raise AssertionError(
+                "native proposal did not reach the failing CPU Attention"
+            )
+        case = SimpleNamespace(
+            transfer=transfer,
+            runner=runner,
+            worker=AFDNPUAttentionWorker.__new__(AFDNPUAttentionWorker),
+            owner=owner,
+            receiver=transfer.worker.kv_recv_thread,
+            transport=runner.transport,
+            target=owner.model,
+            draft=owner.speculator.model,
+            target_views=tuple(
+                layer.self_attn.dsa_attn.swa_cache_layer.kv_cache
+                for layer in owner.model.language_model.model.layers
+            ),
+            draft_views=tuple(
+                layer.self_attn.dsa_attn.swa_cache_layer.kv_cache
+                for layer in owner.speculator.model.model.layers.values()
+            ),
+            pages=tuple(page.clone() for page in transfer.destination_cache.pages),
+            cause=cause if fail_sampling else None,
+            output=output,
+            release_observation=None,
+            close=transfer.close,
+        )
+        case.worker.model_runner = owner
+        case.worker.profiler = case.worker.profiler_config = None
+        case.worker.weight_transfer_engine = None
+        queue_graph_runner_stop(case)
+
+        def release_cpu_storage(native_owner):
+            case.release_observation = {
+                "kv_owner_cleared": kv_transfer_state._KV_CONNECTOR_AGENT is None,
+                "receiver_retired": case.receiver.retired,
+                "receiver_alive": case.receiver.is_alive(),
+                "stop_acknowledged": any(
+                    direction == "recv" and message.kind == "STOP_ACK"
+                    for direction, _, _, message in case.transport.transcript
+                ),
+            }
+            clear_layer_kv_caches(case.target.modules())
+            clear_layer_kv_caches(case.draft.modules())
+            native_owner.kv_caches.clear()
+
+        monkeypatch.setattr(
+            native_runner.NPUModelRunner, "shutdown", release_cpu_storage
+        )
+        return case
+    except BaseException:
+        transfer.close()
+        raise
 
 
 class ReplayDeviceMetadata(AuxiliaryDeviceBoundary):
@@ -711,7 +1527,180 @@ class ReplayBlockTables:
         return self.slot_mappings[:, :num_tokens]
 
 
-def _publish_cpu_replay_fixture(case, coordinator):
+class CPUGraphAllocationDevice(str):
+    """CPU allocation string with explicit NPU-labelled constructor metadata.
+
+    Torch parses the immutable value ``cpu``. Only the component's graph-owner
+    metadata reads the NPU label/index; neither that admission nor actual NPU
+    device binding is validated by this facade. All retained tensors stay CPU.
+    """
+
+    def __new__(cls):
+        return super().__new__(cls, "cpu")
+
+    @property
+    def type(self):
+        return "npu"
+
+    @property
+    def index(self):
+        return 0
+
+
+def make_native_pd_graph_case(monkeypatch, *, stages=1, fail_replay=False):
+    """Same D owner receives PD, executes eager, then consumes a static bundle.
+
+    Native preparation, ActiveKV, graph selection, FULL manager host lifecycle
+    and global-parent sampling stay real. A supplied inert handle/output is an
+    input fixture, not a capture result or new-input Graph arithmetic. The CPU
+    allocation facade does not establish the real device-binding guard. P is
+    independently eager and both role configurations precede model construction.
+    """
+    # Native graph-parameter allocation is a process/device leaf here. Retain
+    # pytest's original binding for restoration and isolate each CPU case; do
+    # not claim these host parameters represent a live NPU graph pool.
+    monkeypatch.setattr(native_acl_graph, "_graph_params", None)
+    transfer, case = make_scheduled_pd_runner_case(
+        monkeypatch,
+        prompt_length=6,
+        stages=stages,
+        complete_hccl=True,
+        target_graph=True,
+    )
+    owner = case.owner
+    owner.compilation_config = owner.vllm_config.compilation_config
+    initialize_native_pd_target_execution(monkeypatch, case, graph_target=True)
+    initialize_native_pd_sampling(monkeypatch, case)
+    # The constructor-free CPU owner declares the native model-state default.
+    # U2 prepares child metadata and leaves its parent at this initial None.
+    owner.model_state.attn_metadata = None
+    caps = validate_staged_hccl_runtime(
+        owner.vllm_config, owner.afd_config, 0, graph=True
+    )
+    case.transport = PreKVAttentionPeer(caps)
+    owner.hccl_v41_transport = case.transport
+    case.session = HcclV41GraphSession(case.transport)
+    # The native sampler/request/input constructors above keep an actual CPU
+    # device. Later tensor allocations parse this facade as CPU as well.
+    owner.device = CPUGraphAllocationDevice()
+    owner.pcp_manager = None
+    owner.intermediate_tensors = None
+    case.cache = HcclGraphCache(DeviceCompletion().synchronize)
+    case.generation, case.metadata = NativeGraphGeneration(), NativeGraphMetadata()
+    ids = count()
+    case.next_transaction_id = lambda: f"pd-graph-{next(ids)}"
+    control = HcclV41GraphControl(
+        case.transport,
+        None,
+        case.cache,
+        case.generation,
+        metadata_shapes=case.metadata,
+    )
+    eager = HcclV41GraphEager(
+        owner, control, next_transaction_id=case.next_transaction_id
+    )
+    owner.bind_hccl_v41_graph_eager(eager, case.session)
+    if owner.parallel_config.use_ubatching:
+        install_native_u2_cpu_runner(
+            monkeypatch,
+            owner,
+            kv_cache_config=transfer.destination_cache.config,
+            model_bundle=transfer.loaded_destination.model_bundle,
+            graph=True,
+            transport=case.transport,
+        )
+        owner.ubatch_runner.graph_owner = case.session
+        observe_native_pd_target_children(case)
+    owner.update_stream = SimpleNamespace(label="cpu-inert-replay")
+    manager = ModelAclGraphManager(
+        owner.vllm_config,
+        owner.device,
+        CUDAGraphMode.FULL_DECODE_ONLY,
+        owner.decode_query_len,
+        owner,
+        ubatch_runner=owner.ubatch_runner,
+    )
+    owner.cudagraph_manager, control.manager = manager, manager
+    manager.hidden_states, manager.aux_hidden_states = None, []
+    manager.intermediate_tensors = None
+    monkeypatch.setattr(
+        AscendSFABackend, "get_impl_cls", staticmethod(lambda: AscendSFAImpl)
+    )
+    # Native metadata sees a backend with no device-producer tasks. Its actual
+    # TargetDeviceMetadata/run_build/finish state machine remains unchanged.
+    owner.attn_groups = [
+        [SimpleNamespace(backend=AscendSFABackend, get_metadata_builder=lambda _: None)]
+    ]
+    if owner.ubatch_runner is not None:
+        owner.ubatch_runner.attn_groups = owner.attn_groups
+    coordinator = coordinator_module.HcclV41GraphCoordinator(
+        owner,
+        control,
+        case.session,
+        next_transaction_id=case.next_transaction_id,
+    )
+    owner.bind_hccl_v41_graph_coordinator(coordinator)
+    case.manager, case.control = manager, control
+    descriptor = next(
+        descriptor
+        for descriptor in manager._capture_descs[CUDAGraphMode.FULL]
+        if descriptor.num_ubatches == stages
+    )
+    manager.host_descriptors = (descriptor,)
+    geometry = next(
+        geometry
+        for geometry in coordinator.coverage.geometries
+        if geometry.descriptor == descriptor
+    )
+    rows = tuple(stage.token_stop - stage.token_start for stage in geometry.stages)
+    original = make_graph_stage_bank(
+        rows=rows,
+        layers=case.transport.negotiated_capabilities.layer_indices,
+        target_query_len=owner.decode_query_len,
+    )
+    case.model_case = SimpleNamespace(
+        bank=original,
+        contexts=tuple(
+            SimpleNamespace(cudagraph_runtime_mode=CUDAGraphMode.FULL, ubatch_idx=index)
+            for index in range(stages)
+        ),
+    )
+    case.transport.data_groups = [
+        exchange.endpoint.group for exchange in original.exchanges
+    ]
+    # These independent declared values have three auxiliary layers, matching
+    # the real PD consumer/model schema. Replay must return these exact tensors.
+    hidden = torch.arange(descriptor.num_tokens * 4, dtype=torch.bfloat16).reshape(
+        -1, 4
+    )
+    auxiliary = tuple(hidden + ordinal for ordinal in (2, 4, 6))
+    _publish_cpu_replay_fixture(case, coordinator, outputs=(hidden, auxiliary))
+    # This is part of the supplied recorded-manager state, not a completed
+    # capture assertion. Native dispatch must still select its own descriptor.
+    manager._graphs_captured = True
+    case.replay_error = (
+        RuntimeError("controlled D PD FULL replay failure") if fail_replay else None
+    )
+    case.replayed = []
+
+    def replay_device(manager, backend, descriptor, num_tokens, attn_metadata):
+        if owner.model_state.attn_metadata is not attn_metadata:
+            raise AssertionError(
+                "FULL replay must retain this parent's prepared metadata"
+            )
+        case.replayed.append((descriptor, num_tokens))
+        if case.replay_error is not None:
+            raise case.replay_error
+        manager.graphs[descriptor].replay()
+        return manager.hidden_states, manager.aux_hidden_states
+
+    manager._graph_relay = MethodType(replay_device, manager)
+    case.recorded_outputs = hidden, auxiliary
+    case.startup_pd_messages = tuple(transfer.sent)
+    return transfer, case
+
+
+def _publish_cpu_replay_fixture(case, coordinator, *, outputs=None):
     """Publish a pre-recorded CPU bundle as input, without claiming capture.
 
     The real control/cache/resource types enforce its ownership. No native
@@ -753,14 +1742,18 @@ def _publish_cpu_replay_fixture(case, coordinator):
     )
     graph = ReplayGraph()
     manager.graphs[descriptor] = graph
-    manager.hidden_states = torch.arange(
-        descriptor.num_tokens * bank.capabilities.hidden_size, dtype=torch.float32
-    ).reshape(descriptor.num_tokens, bank.capabilities.hidden_size)
-    manager.aux_hidden_states = (
-        [manager.hidden_states + 2, manager.hidden_states + 6]
-        if owner.use_aux_hidden_state_outputs
-        else []
-    )
+    if outputs is None:
+        manager.hidden_states = torch.arange(
+            descriptor.num_tokens * bank.capabilities.hidden_size, dtype=torch.float32
+        ).reshape(descriptor.num_tokens, bank.capabilities.hidden_size)
+        manager.aux_hidden_states = (
+            [manager.hidden_states + 2, manager.hidden_states + 6]
+            if owner.use_aux_hidden_state_outputs
+            else []
+        )
+    else:
+        manager.hidden_states, auxiliary = outputs
+        manager.aux_hidden_states = list(auxiliary)
     resources = HcclV41GraphResources(
         bank=bank,
         execution=execution,
@@ -1115,12 +2108,16 @@ def make_native_full_kv_sampling_case(monkeypatch, *, fail_sample=False):
 class SpeculativeLogitsBoundary:
     """CPU head whose actual logits independently drive three rejection cases."""
 
-    def __init__(self, hidden_size, vocab_size, *, ordinal_rows=False):
+    def __init__(
+        self, hidden_size, vocab_size, *, ordinal_rows=False, predictions=None
+    ):
         self.hidden_size, self.vocab_size = hidden_size, vocab_size
         self.ordinal_rows = ordinal_rows
         # Request 0: both drafts match; request 1: first draft mismatches;
         # request 2: first matches and second mismatches. Final rows are bonus.
-        self.predictions = torch.tensor([11, 12, 13, 29, 22, 23, 31, 39, 33])
+        self.predictions = torch.tensor(
+            [11, 12, 13, 29, 22, 23, 31, 39, 33] if predictions is None else predictions
+        )
 
     def __call__(self, hidden_states):
         rows = (

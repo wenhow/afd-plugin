@@ -248,6 +248,8 @@ def test_ffn_configuration_is_reported_before_capture_and_preserved_on_replay(
     records, capture_states = [], []
 
     def emit(record):
+        if record["event"].startswith("graph_parent_"):
+            return
         records.append(record)
         capture_states.append(case.api.capturing)
 
@@ -277,6 +279,121 @@ def test_ffn_configuration_is_reported_before_capture_and_preserved_on_replay(
         assert record["actual.recv_stream"] == "parent"
         assert record["actual.ffn_compute_sync"] is False
     assert "graph-replay" in case.events
+
+
+def test_ffn_graph_host_records_follow_real_returns_outside_capture(monkeypatch):
+    observations = []
+
+    def emit(record):
+        observations.append((record, case.api.capturing))
+
+    case = make_graph_service_case(
+        service_module,
+        monkeypatch,
+        overlap_settings=HcclOverlapSettings(stage_diagnostics=True),
+        diagnostic_sink=emit,
+    )
+    for phase in ("warmup", "capture", "replay"):
+        case.transport.queue_parent(phase, identifier=phase)
+        assert case.service.execute_step()
+    case.transport.queue_parent("replay", identifier="fallback", fallback=True)
+    assert case.service.execute_step()
+    for phase in ("warmup", "capture", "replay", "fallback"):
+        observed = [
+            record
+            for record, capturing in observations
+            if record.get("transaction_id") == phase
+            and record["event"].startswith("graph_parent_")
+        ]
+        expected = ["graph_parent_reserved"]
+        if phase == "replay":
+            expected += ["graph_parent_replay_begin", "graph_parent_replay_returned"]
+        expected += (
+            ["graph_parent_scope_returned"]
+            if phase == "fallback"
+            else ["graph_parent_finish_begin", "graph_parent_finish_returned"]
+        )
+        assert [record["event"] for record in observed] == expected
+        assert all(record["boundary"] == "host_control" for record in observed)
+    assert all(
+        not capturing
+        for record, capturing in observations
+        if record["event"].startswith("graph_parent_")
+    )
+    assert case.events.count("COMPLETE") == 4 and not case.transport.terminal
+
+
+@pytest.mark.parametrize("phase", ["capture", "replay"])
+def test_ffn_graph_failure_has_no_false_host_return_even_with_broken_sink(
+    monkeypatch, phase
+):
+    records = []
+
+    def emit(record):
+        records.append(record)
+        if record["event"] == "graph_parent_failed":
+            raise ValueError("secondary diagnostic failure")
+
+    case = make_graph_service_case(
+        service_module,
+        monkeypatch,
+        overlap_settings=HcclOverlapSettings(stage_diagnostics=True),
+        diagnostic_sink=emit,
+    )
+    if phase == "replay":
+        case.transport.queue_parent("capture", identifier="initial-capture")
+        assert case.service.execute_step()
+        records.clear()
+    case.api.fail_capture = phase == "capture"
+    case.api.fail_replay = phase == "replay"
+    case.transport.queue_parent(phase, identifier="failed-parent")
+    with pytest.raises(RuntimeError, match="controlled"):
+        case.service.execute_step()
+    host = [r for r in records if r["event"].startswith("graph_parent_")]
+    assert host[-1]["event"] == "graph_parent_failed"
+    assert host[-1]["error_type"] == "RuntimeError"
+    assert not any(r["event"].endswith("_returned") for r in host)
+    assert case.transport.terminal and case.cache.terminal and not case.cache.closed
+
+
+@pytest.mark.parametrize(
+    "failed_event", ["graph_parent_reserved", "graph_parent_replay_begin"]
+)
+def test_ffn_graph_host_sink_failure_preserves_error_and_retained_cache(
+    monkeypatch, failed_event
+):
+    records = []
+    failure = RuntimeError("ffn graph host sink failed")
+
+    def emit(record):
+        records.append(record)
+        if record["phase"] == "replay" and record["event"] == failed_event:
+            raise failure
+
+    case = make_graph_service_case(
+        service_module,
+        monkeypatch,
+        overlap_settings=HcclOverlapSettings(stage_diagnostics=True),
+        diagnostic_sink=emit,
+    )
+    case.transport.queue_parent("capture", identifier="initial-capture")
+    assert case.service.execute_step()
+    records.clear()
+    case.events.clear()
+    case.transport.queue_parent("replay", identifier="sink-failed-parent")
+    with pytest.raises(RuntimeError, match="ffn graph host sink failed") as raised:
+        case.service.execute_step()
+    host = [r for r in records if r["event"].startswith("graph_parent_")]
+    expected = ["graph_parent_reserved"]
+    if failed_event == "graph_parent_replay_begin":
+        expected.append("graph_parent_replay_begin")
+    assert [r["event"] for r in host] == [*expected, "graph_parent_failed"]
+    assert raised.value is failure
+    assert host[-1]["error_type"] == "RuntimeError"
+    assert not any(r["event"].endswith("_returned") for r in host)
+    assert "COMPLETE" not in case.events
+    assert case.transport.terminal and case.cache.terminal
+    assert not case.cache.is_empty and not case.cache.closed
 
 
 def test_graph_phase_sequence_keeps_caller_ownership(

@@ -45,11 +45,9 @@
     "card_count": "determine from measured memory budget"
   },
   "deferred": [
-    "Graph/U2/DBO",
-    "PD",
-    "Window/CAM optimization",
+    "Window/CAM-specific optimizations belonging to other connectors",
     "vision",
-    "additional parallel combinations"
+    "arbitrary U>2, PP/CP or topology combinations not supported by the locked donor"
   ],
   "blockers": [
     {
@@ -64,7 +62,9 @@
       "id": "B2",
       "summary": "The authorized A3 rejects the checkpoint DynamicMxQuant path with both CANN 9.0.1 and the isolated official 9.2.0 installation",
       "status": "confirmed_on_a3_a5_base_api_passed",
-      "blocks": ["Full-checkpoint execution on the tested A3 environments"],
+      "blocks": [
+        "Full-checkpoint execution on the tested A3 environments"
+      ],
       "runtime_policy": "Keep the original checkpoint and native quantization semantics. CANN 9.2.0 did not remove the A3 blocker. The user's A5 Ascend950DT_9582 report passes the exact base API; native FP4 MoE and full-checkpoint acceptance remain pending independently.",
       "evidence": "openspec/changes/afd-v41-hccl-text-eager/evidence/cann-920-validation.md",
       "a5_component_evidence": "openspec/changes/afd-v41-hccl-text-eager/evidence/a5-20261107-manual-001/README.md"
@@ -73,7 +73,9 @@
       "id": "B3",
       "summary": "The current A3 venv lacks the matching vllm_ascend compiled extension",
       "status": "confirmed_component_blocker",
-      "blocks": ["C2 A3 fused RMSNorm and custom router acceptance"],
+      "blocks": [
+        "C2 A3 fused RMSNorm and custom router acceptance"
+      ],
       "runtime_policy": "Keep A3 fallback evidence separate. A5 native wheel RMSNorm passed 18 cases without the optional _C_ascend hash top-k registration; the complete native router and FP4 MoE path remain unaccepted. Retain independent FP32 transport.",
       "evidence": "openspec/changes/afd-v41-hccl-text-eager/evidence/precision-validation.md",
       "a5_component_evidence": "openspec/changes/afd-v41-hccl-text-eager/evidence/a5-20261107-manual-001/README.md"
@@ -293,8 +295,258 @@
       "repo": "hccl_donor",
       "commit": "4ddd69a391dfb5b3e362c7601399e538a31de702",
       "path": "afd_plugin/connectors/npu/p2p_hccl.py",
-      "focus": "只提取标准 HCCL eager target 协议；排除旧 MTP/Graph/U2 框架",
+      "focus": "完整 HCCL 语义：stage/peer、eager 多流、Graph transport、GraphStreamPlan、MTP、控制和生命周期；按 V2 目标重建",
       "url": "https://github.com/wenhow/afd-plugin/blob/4ddd69a391dfb5b3e362c7601399e538a31de702/afd_plugin/connectors/npu/p2p_hccl.py"
+    },
+    {
+      "id": "D02",
+      "repo": "hccl_donor",
+      "commit": "4ddd69a391dfb5b3e362c7601399e538a31de702",
+      "path": "afd_plugin/model_executor/models/deepseek_v4.py",
+      "focus": "layer-major、Graph pipeline、continuation、aux merge",
+      "url": "https://github.com/wenhow/afd-plugin/blob/4ddd69a391dfb5b3e362c7601399e538a31de702/afd_plugin/model_executor/models/deepseek_v4.py"
+    },
+    {
+      "id": "D03",
+      "repo": "hccl_donor",
+      "commit": "4ddd69a391dfb5b3e362c7601399e538a31de702",
+      "path": "afd_plugin/v1/worker/npu/attention_model_runner.py",
+      "focus": "A capture/dispatch、IDs pretransfer、live shape fallback",
+      "url": "https://github.com/wenhow/afd-plugin/blob/4ddd69a391dfb5b3e362c7601399e538a31de702/afd_plugin/v1/worker/npu/attention_model_runner.py"
+    },
+    {
+      "id": "D04",
+      "repo": "hccl_donor",
+      "commit": "4ddd69a391dfb5b3e362c7601399e538a31de702",
+      "path": "afd_plugin/v1/worker/npu/ffn_model_runner.py",
+      "focus": "F 多 stage/多流/cross-layer、图 key、完整 MTP",
+      "url": "https://github.com/wenhow/afd-plugin/blob/4ddd69a391dfb5b3e362c7601399e538a31de702/afd_plugin/v1/worker/npu/ffn_model_runner.py"
+    },
+    {
+      "id": "D05",
+      "repo": "hccl_donor",
+      "commit": "4ddd69a391dfb5b3e362c7601399e538a31de702",
+      "path": "afd_plugin/v1/worker/npu/ubatching.py",
+      "focus": "NPU ubatch context 与 stream 作用域",
+      "url": "https://github.com/wenhow/afd-plugin/blob/4ddd69a391dfb5b3e362c7601399e538a31de702/afd_plugin/v1/worker/npu/ubatching.py"
+    },
+    {
+      "id": "D06",
+      "repo": "hccl_donor",
+      "commit": "4ddd69a391dfb5b3e362c7601399e538a31de702",
+      "path": "afd_plugin/v1/worker/npu/npu_ubatch_wrapper.py",
+      "focus": "layer-major 调用与图包装",
+      "url": "https://github.com/wenhow/afd-plugin/blob/4ddd69a391dfb5b3e362c7601399e538a31de702/afd_plugin/v1/worker/npu/npu_ubatch_wrapper.py"
+    },
+    {
+      "id": "D07",
+      "repo": "hccl_donor",
+      "commit": "4ddd69a391dfb5b3e362c7601399e538a31de702",
+      "path": "afd_plugin/v1/worker/npu/ubatch_utils.py",
+      "focus": "stage-local input/metadata、输出/aux 归并",
+      "url": "https://github.com/wenhow/afd-plugin/blob/4ddd69a391dfb5b3e362c7601399e538a31de702/afd_plugin/v1/worker/npu/ubatch_utils.py"
+    },
+    {
+      "id": "D08",
+      "repo": "hccl_donor",
+      "commit": "4ddd69a391dfb5b3e362c7601399e538a31de702",
+      "path": "afd_plugin/v1/worker/npu/mla_graph.py",
+      "focus": "attention 图参数更新、U1/U2 capture/replay",
+      "url": "https://github.com/wenhow/afd-plugin/blob/4ddd69a391dfb5b3e362c7601399e538a31de702/afd_plugin/v1/worker/npu/mla_graph.py"
+    },
+    {
+      "id": "D09",
+      "repo": "hccl_donor",
+      "commit": "4ddd69a391dfb5b3e362c7601399e538a31de702",
+      "path": "tests/unit/connectors/test_p2p_hccl_connector.py",
+      "focus": "peer/fanout、Graph lowering、开关和协议行为案例",
+      "url": "https://github.com/wenhow/afd-plugin/blob/4ddd69a391dfb5b3e362c7601399e538a31de702/tests/unit/connectors/test_p2p_hccl_connector.py"
+    },
+    {
+      "id": "D10",
+      "repo": "hccl_donor",
+      "commit": "4ddd69a391dfb5b3e362c7601399e538a31de702",
+      "path": "tests/unit/v1/worker/test_npu_runtime.py",
+      "focus": "stage、多流、回退、MTP/DSpark、graph key 行为案例",
+      "url": "https://github.com/wenhow/afd-plugin/blob/4ddd69a391dfb5b3e362c7601399e538a31de702/tests/unit/v1/worker/test_npu_runtime.py"
+    },
+    {
+      "id": "D11",
+      "repo": "hccl_donor",
+      "commit": "4ddd69a391dfb5b3e362c7601399e538a31de702",
+      "path": "afd_plugin/compat/npu/feature_validation.py",
+      "focus": "供体 U2=2、FULL_DECODE_ONLY、TP/拓扑和 speculative 支持边界",
+      "url": "https://github.com/wenhow/afd-plugin/blob/4ddd69a391dfb5b3e362c7601399e538a31de702/afd_plugin/compat/npu/feature_validation.py"
+    },
+    {
+      "id": "D12",
+      "repo": "hccl_donor",
+      "commit": "4ddd69a391dfb5b3e362c7601399e538a31de702",
+      "path": "afd_plugin/compat/patches/npu/dspark_pd.py",
+      "focus": "v0.23 DSpark async PD allocation/failure handling；目标重审",
+      "url": "https://github.com/wenhow/afd-plugin/blob/4ddd69a391dfb5b3e362c7601399e538a31de702/afd_plugin/compat/patches/npu/dspark_pd.py"
+    },
+    {
+      "id": "D13",
+      "repo": "hccl_donor",
+      "commit": "4ddd69a391dfb5b3e362c7601399e538a31de702",
+      "path": "afd_plugin/compat/patches/npu/dspark_pd_layout.py",
+      "focus": "异构 hybrid cache 的 layer-addressed PD transfer；目标重审",
+      "url": "https://github.com/wenhow/afd-plugin/blob/4ddd69a391dfb5b3e362c7601399e538a31de702/afd_plugin/compat/patches/npu/dspark_pd_layout.py"
+    },
+    {
+      "id": "D14",
+      "repo": "hccl_donor",
+      "commit": "4ddd69a391dfb5b3e362c7601399e538a31de702",
+      "path": "recipe/npu/P2pHcclAFDConnector/deepseek_v4/README.md",
+      "focus": "模式/开关/拓扑/capture-size/PD 五组合/运维契约",
+      "url": "https://github.com/wenhow/afd-plugin/blob/4ddd69a391dfb5b3e362c7601399e538a31de702/recipe/npu/P2pHcclAFDConnector/deepseek_v4/README.md"
+    },
+    {
+      "id": "D15",
+      "repo": "hccl_donor",
+      "commit": "4ddd69a391dfb5b3e362c7601399e538a31de702",
+      "path": "recipe/npu/P2pHcclAFDConnector/deepseek_v4/common.sh",
+      "focus": "preflight、capture-size 和显式开关默认/依赖",
+      "url": "https://github.com/wenhow/afd-plugin/blob/4ddd69a391dfb5b3e362c7601399e538a31de702/recipe/npu/P2pHcclAFDConnector/deepseek_v4/common.sh"
+    },
+    {
+      "id": "D16",
+      "repo": "hccl_donor",
+      "commit": "4ddd69a391dfb5b3e362c7601399e538a31de702",
+      "path": "afd_plugin/compat/npu/profiler.py",
+      "focus": "NPU profiler 配置、启停与 step",
+      "url": "https://github.com/wenhow/afd-plugin/blob/4ddd69a391dfb5b3e362c7601399e538a31de702/afd_plugin/compat/npu/profiler.py"
+    },
+    {
+      "id": "D17",
+      "repo": "hccl_donor",
+      "commit": "4ddd69a391dfb5b3e362c7601399e538a31de702",
+      "path": "afd_plugin/v1/worker/npu/ffn_worker.py",
+      "focus": "F 服务/管理/profiler 生命周期",
+      "url": "https://github.com/wenhow/afd-plugin/blob/4ddd69a391dfb5b3e362c7601399e538a31de702/afd_plugin/v1/worker/npu/ffn_worker.py"
+    },
+    {
+      "id": "D18",
+      "repo": "hccl_donor",
+      "commit": "4ddd69a391dfb5b3e362c7601399e538a31de702",
+      "path": "tests/unit/compat/patches/test_dspark_pd_layout.py",
+      "focus": "PD 异构 layout/failure 行为案例",
+      "url": "https://github.com/wenhow/afd-plugin/blob/4ddd69a391dfb5b3e362c7601399e538a31de702/tests/unit/compat/patches/test_dspark_pd_layout.py"
+    },
+    {
+      "id": "A15",
+      "repo": "afd_plugin",
+      "commit": "39017a137d7809bd0ab7cda4a86697e2a6b7a522",
+      "path": "afd_plugin/v1/worker/npu/ubatch_runner.py",
+      "focus": "原 v0.30 V2 UBatchRunner prepare/child context/Graph 更新",
+      "url": "https://github.com/wenhow/afd-plugin/blob/39017a137d7809bd0ab7cda4a86697e2a6b7a522/afd_plugin/v1/worker/npu/ubatch_runner.py"
+    },
+    {
+      "id": "A16",
+      "repo": "afd_plugin",
+      "commit": "39017a137d7809bd0ab7cda4a86697e2a6b7a522",
+      "path": "afd_plugin/compat/patches/npu/mrv2_ubatching.py",
+      "focus": "V2 slice/merge、NPU stream context 与 graph dispatch patch",
+      "url": "https://github.com/wenhow/afd-plugin/blob/39017a137d7809bd0ab7cda4a86697e2a6b7a522/afd_plugin/compat/patches/npu/mrv2_ubatching.py"
+    },
+    {
+      "id": "U13",
+      "repo": "vllm_ascend",
+      "commit": "7e37e29a7803d6897a7113088e2b771f83205bc0",
+      "path": "vllm_ascend/worker/v2/aclgraph_utils.py",
+      "focus": "目标 V2 ACL graph manager/descriptor 契约",
+      "url": "https://github.com/vllm-project/vllm-ascend/blob/7e37e29a7803d6897a7113088e2b771f83205bc0/vllm_ascend/worker/v2/aclgraph_utils.py"
+    },
+    {
+      "id": "U14",
+      "repo": "vllm",
+      "commit": "ced6857afa0ea7b2e3f0846a62e1394e90f15607",
+      "path": "vllm/v1/worker/gpu/cudagraph_utils.py",
+      "focus": "目标 V2 graph dispatch、capture descriptor 与原位输入",
+      "url": "https://github.com/vllm-project/vllm/blob/ced6857afa0ea7b2e3f0846a62e1394e90f15607/vllm/v1/worker/gpu/cudagraph_utils.py"
+    },
+    {
+      "id": "U15",
+      "repo": "vllm_ascend",
+      "commit": "7e37e29a7803d6897a7113088e2b771f83205bc0",
+      "path": "vllm_ascend/distributed/kv_transfer/kv_p2p/mooncake_hybrid_connector.py",
+      "focus": "目标 PD layout、异构组件与元数据",
+      "url": "https://github.com/vllm-project/vllm-ascend/blob/7e37e29a7803d6897a7113088e2b771f83205bc0/vllm_ascend/distributed/kv_transfer/kv_p2p/mooncake_hybrid_connector.py"
+    },
+    {
+      "id": "I01",
+      "repo": "afd_plugin",
+      "commit": "c1f9ccc7fd7e5ba09f243ce37824af90bb0030ea",
+      "path": "afd_plugin/connectors/npu/hccl_protocol.py",
+      "focus": "2026-11-09 当前 schema v2，stage_idx=0 限制、HELLO/plan",
+      "url": "https://github.com/wenhow/afd-plugin/blob/c1f9ccc7fd7e5ba09f243ce37824af90bb0030ea/afd_plugin/connectors/npu/hccl_protocol.py"
+    },
+    {
+      "id": "I02",
+      "repo": "afd_plugin",
+      "commit": "c1f9ccc7fd7e5ba09f243ce37824af90bb0030ea",
+      "path": "afd_plugin/connectors/npu/hccl_transport.py",
+      "focus": "当前 eager 双端 pair、单活动游标、独立 FP32/IDs",
+      "url": "https://github.com/wenhow/afd-plugin/blob/c1f9ccc7fd7e5ba09f243ce37824af90bb0030ea/afd_plugin/connectors/npu/hccl_transport.py"
+    },
+    {
+      "id": "I03",
+      "repo": "afd_plugin",
+      "commit": "c1f9ccc7fd7e5ba09f243ce37824af90bb0030ea",
+      "path": "afd_plugin/connectors/npu/p2p_hccl.py",
+      "focus": "当前 typed-plan connector 与 context 校验",
+      "url": "https://github.com/wenhow/afd-plugin/blob/c1f9ccc7fd7e5ba09f243ce37824af90bb0030ea/afd_plugin/connectors/npu/p2p_hccl.py"
+    },
+    {
+      "id": "I04",
+      "repo": "afd_plugin",
+      "commit": "c1f9ccc7fd7e5ba09f243ce37824af90bb0030ea",
+      "path": "afd_plugin/v1/worker/npu/ffn_model_runner.py",
+      "focus": "当前 execute_hccl_step 固定 U1/stage0",
+      "url": "https://github.com/wenhow/afd-plugin/blob/c1f9ccc7fd7e5ba09f243ce37824af90bb0030ea/afd_plugin/v1/worker/npu/ffn_model_runner.py"
+    },
+    {
+      "id": "I05",
+      "repo": "afd_plugin",
+      "commit": "c1f9ccc7fd7e5ba09f243ce37824af90bb0030ea",
+      "path": "afd_plugin/v1/worker/npu/attention_model_runner_v2.py",
+      "focus": "当前 HCCL plan provider 与原有 V2 Graph 插入点",
+      "url": "https://github.com/wenhow/afd-plugin/blob/c1f9ccc7fd7e5ba09f243ce37824af90bb0030ea/afd_plugin/v1/worker/npu/attention_model_runner_v2.py"
+    },
+    {
+      "id": "I06",
+      "repo": "afd_plugin",
+      "commit": "c1f9ccc7fd7e5ba09f243ce37824af90bb0030ea",
+      "path": "afd_plugin/model_executor/models/npu/deepseek_v41.py",
+      "focus": "当前 V4.1 同步 U1角色模型，异步 continuation 待重建",
+      "url": "https://github.com/wenhow/afd-plugin/blob/c1f9ccc7fd7e5ba09f243ce37824af90bb0030ea/afd_plugin/model_executor/models/npu/deepseek_v41.py"
+    },
+    {
+      "id": "I07",
+      "repo": "afd_plugin",
+      "commit": "c1f9ccc7fd7e5ba09f243ce37824af90bb0030ea",
+      "path": "afd_plugin/connectors/npu/hccl_config.py",
+      "focus": "当前 eager/角色拓扑准入",
+      "url": "https://github.com/wenhow/afd-plugin/blob/c1f9ccc7fd7e5ba09f243ce37824af90bb0030ea/afd_plugin/connectors/npu/hccl_config.py"
     }
-  ]
+  ],
+  "plan_revision": "2026-11-09-full-hccl-parity",
+  "completion_scope": {
+    "reference": "feat/dsv4-afd@4ddd69a391dfb5b3e362c7601399e538a31de702",
+    "matrix": "openspec/HCCL_CAPABILITY_MIGRATION_ZH.md",
+    "first_milestone_is_not_completion": true,
+    "required": [
+      "U1/U2 and DBO",
+      "stage and peer isolation",
+      "A=kF aggregation and F=kA fanout",
+      "eager multi-stream",
+      "FULL_DECODE_ONLY capture/replay/eager fallback",
+      "Graph/U2 compute, hybrid DAG, stream plan and F cross-layer",
+      "V4.1 HC/pre_mix, Engram and shared cache state",
+      "DSpark combinations and applicable legacy MTP semantics",
+      "five PD combinations",
+      "diagnostics, profiler, recipes and full acceptance"
+    ]
+  }
 }

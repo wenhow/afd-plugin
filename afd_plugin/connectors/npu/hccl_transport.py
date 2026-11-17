@@ -366,25 +366,28 @@ class HcclEagerTransport:
         self._expect(HcclMessageType.STOP_ACK)
         self.terminal = True
 
+    # The Gloo control plane stays on CPU even inside a native NPU loader's
+    # default-device context; payload tensors still use the HCCL data group.
     def _send_control(self, message: HcclControlMessage) -> None:
         try:
             data = encode_hccl_control_message(message)
-            size = torch.tensor([len(data)], dtype=torch.int64)
-            body = torch.tensor(list(data), dtype=torch.uint8)
+            size = torch.tensor([len(data)], dtype=torch.int64, device="cpu")
+            body = torch.tensor(list(data), dtype=torch.uint8, device="cpu")
             dist.send(size, group_dst=self.peer_rank, group=self.control_group)
             dist.send(body, group_dst=self.peer_rank, group=self.control_group)
         except BaseException:
             self.terminal = True
             raise
 
+    # Receive buffers follow the same CPU control-plane contract as sends.
     def _recv_control(self) -> HcclControlMessage:
         try:
-            size = torch.empty(1, dtype=torch.int64)
+            size = torch.empty(1, dtype=torch.int64, device="cpu")
             dist.recv(size, group_src=self.peer_rank, group=self.control_group)
             length = int(size.item())
             if not 0 < length <= MAX_CONTROL_MESSAGE_BYTES:
                 raise ValueError("invalid HCCL control frame size")
-            body = torch.empty(length, dtype=torch.uint8)
+            body = torch.empty(length, dtype=torch.uint8, device="cpu")
             dist.recv(body, group_src=self.peer_rank, group=self.control_group)
             message = decode_hccl_control_message(bytes(body.tolist()))
             if message.kind is HcclMessageType.ERROR:

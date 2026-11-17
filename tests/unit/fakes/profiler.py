@@ -69,8 +69,11 @@ class FakeTorchNPUProfiler:
 class RecordingProfiler:
     """Public profiler API observations, with no device/timeline simulation."""
 
-    def __init__(self, events, failure=None):
+    def __init__(
+        self, events, failure=None, failure_error: BaseException | None = None
+    ):
         self.events, self.failure = events, failure
+        self.failure_error = failure_error
         self.stop_entered = threading.Event()
         self.stop_release = threading.Event()
         self.stop_release.set()
@@ -78,6 +81,8 @@ class RecordingProfiler:
     def _record(self, action):
         self.events.append((action, threading.get_ident()))
         if self.failure == action:
+            if self.failure_error is not None:
+                raise self.failure_error
             raise ValueError(f"controlled profiler {action} failure")
 
     def start(self):
@@ -93,12 +98,18 @@ class RecordingProfiler:
         self._record("stop")
 
 
-def make_profiler_session_case(*, selected=True, failure=None):
+def make_profiler_session_case(
+    *, selected=True, failure=None, failure_error: BaseException | None = None
+):
     events, profilers = [], []
 
     def create(prefix):
         events.append(("create", threading.get_ident(), prefix))
-        profiler = RecordingProfiler(events, failure)
+        if failure == "create":
+            if failure_error is not None:
+                raise failure_error
+            raise ValueError("controlled profiler create failure")
+        profiler = RecordingProfiler(events, failure, failure_error)
         profilers.append(profiler)
         return profiler
 

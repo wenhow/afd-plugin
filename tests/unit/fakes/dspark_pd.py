@@ -16,9 +16,14 @@ from torch import nn
 from transformers import PretrainedConfig
 from vllm.config import ModelConfig
 from vllm.config.attention import AttentionConfig
-from vllm.v1.core.sched.output import CachedRequestData, SchedulerOutput
-from vllm.v1.kv_cache_interface import KVCacheGroupSpec, KVCacheTensor
+from vllm.v1.core.sched.output import CachedRequestData, NewRequestData, SchedulerOutput
+from vllm.v1.kv_cache_interface import (
+    KVCacheGroupSpec,
+    KVCacheTensor,
+    UniformTypeKVCacheSpecs,
+)
 from vllm.v1.worker.gpu.model_runner import ExecuteModelState
+from vllm_ascend.attention.dsa_v41 import DeepseekV41CacheLayer
 from vllm_ascend.core.kv_cache_interface import (
     AscendSlidingWindowMLASpec,
     is_circular_kv_cache_spec,
@@ -55,6 +60,8 @@ PD_CPU_VOCAB = 128
 PD_CPU_PAGE_PATTERN_DIVISOR = 4
 PD_CPU_BLOCK_PATTERN_DIVISOR = 16
 PD_CPU_WORD_PATTERN_DIVISOR = 256
+PD_U2_PREFILL_LENGTHS = (2, 5, 6)
+PD_U2_SOURCE_BLOCKS = 64
 
 
 class PDCPUModelConfig(SimpleNamespace):
@@ -76,11 +83,12 @@ class PrefixProjectionStream:
         self.drained = True
 
 
-class PrefixCacheLayer(nn.Module):
-    def __init__(self, name, block_size, tensor):
-        super().__init__()
+class PrefixCacheLayer(DeepseekV41CacheLayer):
+    def __init__(self, name, block_size, tensor, spec):
+        nn.Module.__init__(self)
         self.prefix, self.block_size = name, block_size
         self.kv_cache = [tensor]
+        self.spec = spec
 
 
 class PrefixAgreement:
@@ -119,6 +127,14 @@ def _projection_model(kv_case, names, *, fail_projection=False):
     model.main_norm = nn.Identity()
     blocks = {}
     for index, (name, block_size) in enumerate(reversed(names)):
+        group = next(
+            group
+            for group in kv_case.config.kv_cache_groups
+            if name in group.layer_names
+        )
+        spec = group.kv_cache_spec
+        if isinstance(spec, UniformTypeKVCacheSpecs):
+            spec = spec.kv_cache_specs[name]
         block = nn.Module()
         block.self_attn = nn.Module()
         attn = block.self_attn
@@ -130,7 +146,7 @@ def _projection_model(kv_case, names, *, fail_projection=False):
         attn.packed_cache_ops = None
         attn.dsa_attn = nn.Module()
         attn.dsa_attn.swa_cache_layer = PrefixCacheLayer(
-            name, block_size, kv_case.caches[name]
+            name, block_size, kv_case.caches[name], spec
         )
         blocks[str(index)] = block
     model.layers = nn.ModuleDict(blocks)
@@ -167,6 +183,9 @@ def make_dspark_pd_loaded_case(
     peer_error=False,
     projection_error=False,
     complete_cpu_models=False,
+    create_consumer=True,
+    before_draft_store=None,
+    draft_attention_mode="cached-only",
 ):
     """Bind native CPU model identities to caller-owned materialized cache views.
 
@@ -203,6 +222,11 @@ def make_dspark_pd_loaded_case(
                 name,
                 kv_cache_config.kv_cache_groups[group_index].kv_cache_spec.block_size,
                 caches[name],
+                (
+                    kv_cache_config.kv_cache_groups[
+                        group_index
+                    ].kv_cache_spec.kv_cache_specs[name]
+                ),
             )
             for group_index, group in enumerate(kv_cache_config.kv_cache_groups)
             if group_index not in group_ids
@@ -227,6 +251,20 @@ def make_dspark_pd_loaded_case(
     speculator.requires_non_causal = True
     speculator.device = torch.device("cpu")
     speculator.draft_attn_layer_names = set(model.get_draft_kv_cache_layer_names())
+    if draft_attention_mode != "cached-only":
+        extra_name = "draft.auxiliary_attention"
+        speculator.draft_attn_layer_names.add(extra_name)
+        if draft_attention_mode != "unregistered":
+            first_cache = next(
+                iter(model.model.layers.values())
+            ).self_attn.dsa_attn.swa_cache_layer
+            extra = PrefixCacheLayer(
+                extra_name,
+                first_cache.block_size,
+                first_cache.kv_cache[0],
+                first_cache.spec if draft_attention_mode == "unreported-kv" else None,
+            )
+            config.compilation_config.static_forward_context[extra_name] = extra
     speculator.draft_kv_cache_group_ids = group_ids
     speculator._layer_group_idx = [
         group_ids.index(layer_groups[block.self_attn.dsa_attn.swa_cache_layer.prefix])
@@ -237,6 +275,8 @@ def make_dspark_pd_loaded_case(
     stream = PrefixProjectionStream()
 
     def scatter_cpu(cache, slots, values):
+        if before_draft_store is not None:
+            before_draft_store()
         stream.drained = False
         for row, (block, offset) in enumerate(slots.tolist()):
             if block >= 0:
@@ -253,15 +293,19 @@ def make_dspark_pd_loaded_case(
         nn.Module.__init__(target_model)
     else:
         target_model = model_bundle.target_model
-    consumer = DsparkPdPrefixConsumer(
-        config,
-        speculator,
-        target_model=target_model,
-        device=speculator.device,
-        source_engine_id=source_engine_id,
-        tp_rank=tp_rank,
-        tp_size=tp_size,
-        agree_batch=agreement,
+    consumer = (
+        DsparkPdPrefixConsumer(
+            config,
+            speculator,
+            target_model=target_model,
+            device=speculator.device,
+            source_engine_id=source_engine_id,
+            tp_rank=tp_rank,
+            tp_size=tp_size,
+            agree_batch=agreement,
+        )
+        if create_consumer
+        else None
     )
     return SimpleNamespace(
         config=config,
@@ -365,9 +409,19 @@ def make_dspark_pd_prefix_case(
     bind=True,
     num_blocks=PD_CPU_BLOCKS,
     complete_cpu_models=False,
+    num_speculative_tokens=None,
+    config=None,
+    create_consumer=True,
+    before_draft_store=None,
+    draft_attention_mode="cached-only",
 ):
     """Return actual native model/speculator/KV records, without device setup."""
-    config = v41_dspark_pd_config(tensor_parallel_size=tp_size)
+    if not create_consumer and bind:
+        raise ValueError("deferred prefix consumer must bind through its owner")
+    if config is None:
+        config = v41_dspark_pd_config(tensor_parallel_size=tp_size)
+    if num_speculative_tokens is not None:
+        config.speculative_config.num_speculative_tokens = num_speculative_tokens
     if complete_cpu_models:
         _configure_complete_cpu_models(config)
     text = config.model_config.hf_text_config
@@ -444,6 +498,9 @@ def make_dspark_pd_prefix_case(
         peer_error=peer_error,
         projection_error=projection_error,
         complete_cpu_models=complete_cpu_models,
+        create_consumer=create_consumer,
+        before_draft_store=before_draft_store,
+        draft_attention_mode=draft_attention_mode,
     )
     consumer = loaded.consumer
     layout = collect_deepseek_v41_kv_layout(kv_case.config, kv_case.caches)
@@ -558,4 +615,128 @@ def make_dspark_pd_prefix_case(
         draft_group_ids=loaded.draft_group_ids,
         model_bundle=loaded.model_bundle,
         complete_cpu_models=complete_cpu_models,
+    )
+
+
+def make_dspark_pd_prefill_bundle(
+    monkeypatch,
+    *,
+    prefix=None,
+    bind=True,
+    sampling_params=None,
+    num_lookahead_tokens=0,
+    share_scheduler=None,
+):
+    """Legal U1/PD consumer and real P allocations, before no-PD U2 execute.
+
+    The single loaded target will be executed only by the separate no-PD U2
+    owner. This consumer never executes that target or changes its config.
+    Its draft projection and target/draft registered views remain the original
+    identities. No synthetic auxiliary state from make_step is used.
+    """
+    # Circular: connector factories reuse the loaded-model builder above.
+    from tests.unit.fakes.kv_layout_connector import (
+        make_dspark_registration_case,
+        make_dspark_scheduler_case,
+    )
+
+    if prefix is None:
+        prefix = make_dspark_pd_prefix_case(
+            monkeypatch,
+            bind=False,
+            complete_cpu_models=True,
+            num_blocks=PD_U2_SOURCE_BLOCKS,
+            num_speculative_tokens=2,
+        )
+    scheduler_case = make_dspark_scheduler_case(
+        monkeypatch,
+        SimpleNamespace(
+            config=deepcopy(prefix.config),
+            source=prefix.source,
+            kv_config=prefix.kv_config,
+        ),
+        sampling_params=sampling_params,
+    )
+    requests = []
+    new_requests = []
+    for index, length in enumerate(PD_U2_PREFILL_LENGTHS):
+        request_id = prefix.source.request_id if index == 1 else f"prefill-{index}"
+        tokens = (
+            list(range(length + 1))
+            if index == 1
+            else list(range(index * 10, index * 10 + length + 1))
+        )
+        request = (
+            scheduler_case.request
+            if index == 1
+            else scheduler_case.new_request(tokens, request_id=request_id)
+        )
+        allocation = scheduler_case.manager.allocate_slots(
+            request, length, num_lookahead_tokens=num_lookahead_tokens
+        )
+        if allocation is None:
+            raise AssertionError("CPU P request could not allocate its prefix")
+        blocks = scheduler_case.manager.get_blocks(request.request_id)
+        scheduler_case.scheduler.update_state_after_alloc(request, blocks, 0)
+        new_requests.append(
+            NewRequestData.from_request(
+                request,
+                blocks.get_block_ids(),
+                prefill_token_ids=list(request.prompt_token_ids),
+            )
+        )
+        requests.append(request)
+    scheduled = SchedulerOutput(
+        new_requests,
+        CachedRequestData.make_empty(),
+        {
+            request.request_id: length
+            for request, length in zip(requests, PD_U2_PREFILL_LENGTHS, strict=True)
+        },
+        sum(PD_U2_PREFILL_LENGTHS),
+        {},
+        {},
+        [],
+        set(),
+        [],
+    )
+    metadata = scheduler_case.scheduler.build_connector_meta(scheduled)
+    if share_scheduler is not None:
+        # An actual multi-process scheduler broadcast may select rank zero's
+        # original declaration before any worker binding/admission. The caller
+        # must compare independent allocations/schema before returning it.
+        scheduled.kv_connector_metadata = metadata
+        scheduled = share_scheduler(scheduled)
+        metadata = scheduled.kv_connector_metadata
+    sources = metadata.dspark_sources
+    by_request = {source.request_id: source for source in sources}
+    prefix.source = by_request[requests[1].request_id]
+    prefix.expected_ready = DsparkPdReady(
+        prefix.source.source_engine_id,
+        prefix.source.request_id,
+        prefix.source.source_generation,
+        prefix.source.original_prompt_tokens,
+        prefix.source.computed_prefix_tokens,
+        prefix.source.prompt_digest,
+        layout_digest(prefix.layout),
+        prefix.source.draft_schema_digest,
+        prefix.source.transfer_block_ids,
+        prefix.expected_ready.source_tp_rank,
+        prefix.expected_ready.tp_size,
+    )
+    producer = make_dspark_registration_case(monkeypatch, prefix, bind=bind)
+    if share_scheduler is None:
+        producer.metadata.dspark_sources = sources
+        producer.metadata.reqs_in_batch = {source.request_id for source in sources}
+    else:
+        # Keep the received native metadata object itself through actual
+        # ActiveKVConnector binding, not a replacement with copied sources.
+        producer.metadata = metadata
+    return SimpleNamespace(
+        prefix=prefix,
+        producer=producer,
+        scheduler=scheduled,
+        sources=sources,
+        requests=tuple(requests),
+        source_scheduler=scheduler_case,
     )

@@ -26,8 +26,13 @@ from afd_plugin.connectors.npu.hccl_config import (
     HcclExtraInfo,
     validate_hccl_runtime,
 )
-from afd_plugin.connectors.npu.hccl_protocol import HcclForwardPlan, HcclRole
-from afd_plugin.connectors.npu.hccl_transport import HcclEagerTransport
+from afd_plugin.connectors.npu.hccl_overlap import HcclOverlapSettings
+from afd_plugin.connectors.npu.hccl_protocol import (
+    HCCL_PROTOCOL_VERSION,
+    HcclForwardPlan,
+    HcclRole,
+)
+from afd_plugin.connectors.npu.hccl_transport import HCCL_WORLD_SIZE, HcclEagerTransport
 from afd_plugin.distributed.hccl import build_hccl_rank_mapping
 
 if TYPE_CHECKING:
@@ -84,6 +89,7 @@ class P2pHcclAFDConnector(AFDConnectorBase):
             timeout_seconds=afd_config.afd_process_group_timeout_s,
         )
         self._initialized = False
+        self._overlap_settings: HcclOverlapSettings | None = None
         self._active_plan: HcclForwardPlan | None = None
         self._layer_position = 0
         self._pending_context: AFDTransferContext | None = None
@@ -94,6 +100,82 @@ class P2pHcclAFDConnector(AFDConnectorBase):
     @property
     def is_initialized(self) -> bool:
         return self._initialized
+
+    @property
+    def overlap_settings(self) -> HcclOverlapSettings | None:
+        """The caller's immutable snapshot; legacy U1 does not enable streams."""
+        return self._overlap_settings
+
+    def bind_overlap_settings(self, settings: HcclOverlapSettings) -> None:
+        """Bind one explicit snapshot before HELLO, without reading process env.
+
+        Registry construction retains its existing signature. The runtime
+        factory supplies a parsed snapshot only after constructing the actual
+        registered connector; manual callers can leave its values unknown.
+        """
+        if not isinstance(settings, HcclOverlapSettings):
+            raise TypeError("HCCL overlap settings require HcclOverlapSettings")
+        transport = self._transport
+        if (
+            self._overlap_settings is not None
+            or self._initialized
+            or transport.initialized
+            or transport.closed
+            or transport.terminal
+            or self._active_plan is not None
+            or self._pending_context is not None
+            or transport.plan is not None
+            or transport.awaiting_output
+            or transport.pending_inputs is not None
+        ):
+            raise RuntimeError("bind HCCL overlap settings once before initialization")
+        self._overlap_settings = settings
+
+    def configuration_record(self) -> dict[str, str | int | bool]:
+        """Describe an idle live pair and configured values, without mode claims.
+
+        ``world_rank`` is the real two-peer transport rank (F0/A1), repeated
+        independently for every pair. ``pair_index`` is its negotiated native
+        TP coordinate. A/F role sizes describe local configuration; the legacy
+        HELLO negotiates native TP size, pair coordinate and token capacity.
+        """
+        transport = self._transport
+        if (
+            not self._initialized
+            or not transport.initialized
+            or transport.closed
+            or transport.terminal
+            or self._active_plan is not None
+            or self._pending_context is not None
+            or transport.plan is not None
+            or transport.awaiting_output
+            or transport.pending_inputs is not None
+        ):
+            raise RuntimeError("session configuration requires an idle live transport")
+        caps = transport.negotiated_capabilities
+        record: dict[str, str | int | bool] = {
+            "event": "session_configuration",
+            "phase": "startup",
+            "protocol": "legacy_pair",
+            "protocol_version": HCCL_PROTOCOL_VERSION,
+            "world_size": HCCL_WORLD_SIZE,
+            "world_rank": transport.world_rank,
+            "role": transport.role.value,
+            "role_rank": self.role_rank,
+            "pair_index": caps.pair_rank,
+            "local_device": transport.local_device,
+            "attention_size": self.attn_size,
+            "ffn_size": self.ffn_size,
+            "snapshot_present": self._overlap_settings is not None,
+            "negotiated.native_tp_size": caps.native_tp_size,
+            "negotiated.max_tokens": caps.max_tokens,
+        }
+        if self._overlap_settings is not None:
+            record.update(
+                (f"configured.{name}", value)
+                for name, value in self._overlap_settings.effective_settings().items()
+            )
+        return record
 
     @property
     def active_forward_plan(self) -> HcclForwardPlan | None:

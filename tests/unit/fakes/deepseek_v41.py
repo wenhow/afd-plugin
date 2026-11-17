@@ -369,7 +369,28 @@ class PDCacheAttention(nn.Module):
         )
 
     def forward(self, positions, hidden_states, scaling=None):
-        if self.batch is None:
+        context = get_forward_context()
+        metadata_name = self.dsa_attn.swa_cache_layer.prefix.replace(
+            ".swa_cache", ".v41_attn"
+        )
+        metadata = context.attn_metadata
+        batch = self.batch
+        if metadata is not None and metadata_name in metadata:
+            # Target U2 prepares both children before either runs. Read this
+            # child's actual context, rather than the last prepare's scratch.
+            # These are CPU cache arithmetic leaves, not device Attention.
+            child = metadata[metadata_name]
+            query = child.query_start_loc[: child.num_reqs + 1]
+            counts = (query[1:] - query[:-1]).tolist()
+            batch = SimpleNamespace(
+                query_start_loc=query,
+                prefix=[
+                    int(child.seq_lens[row]) - count for row, count in enumerate(counts)
+                ],
+                valid=counts,
+                block_table=child.block_tables[self.group_id],
+            )
+        if batch is None:
             raise RuntimeError("CPU PD Attention needs actual prepared coordinates")
         if self.contexts is not None:
             self.contexts.append(get_forward_context())
@@ -378,13 +399,13 @@ class PDCacheAttention(nn.Module):
         output = hidden_states.clone()
         for request, (start, stop) in enumerate(
             zip(
-                self.batch.query_start_loc[:-1].tolist(),
-                self.batch.query_start_loc[1:].tolist(),
+                batch.query_start_loc[:-1].tolist(),
+                batch.query_start_loc[1:].tolist(),
                 strict=True,
             )
         ):
-            prefix = self.batch.prefix[request]
-            table = self.batch.block_table[request]
+            prefix = batch.prefix[request]
+            table = batch.block_table[request]
             for row in range(start, stop):
                 position = int(positions[row])
                 context_sum = hidden_states.new_zeros((), dtype=torch.float32)
@@ -396,7 +417,7 @@ class PDCacheAttention(nn.Module):
                         raise ValueError("live PD prefix maps to the null block")
                     context_sum += cache[block, prior % block_size].float().sum()
                 output[row] += (context_sum / PD_CPU_ATTENTION_SCALE).to(output.dtype)
-                if row - start < self.batch.valid[request]:
+                if row - start < batch.valid[request]:
                     block = int(table[position // block_size])
                     if block == 0:
                         raise ValueError("live PD query maps to the null block")
@@ -556,7 +577,9 @@ def complete_pd_cpu_models(config, kv_config, draft_model, target_cache_layers):
             positions=positions,
             seq_lens=seq_lens,
             is_prefilling=is_prefilling,
-            block_tables=block_tables,
+            # Native U2 reuses input buffers while preparing the next child.
+            # Retain exactly the values handed to this CPU metadata leaf.
+            block_tables=tuple(table.clone() for table in block_tables),
         )
         return {
             f"model.layers.{index}.self_attn.v41_attn": metadata

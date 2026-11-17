@@ -14,7 +14,9 @@ import torch
 from vllm.utils import torch_utils
 
 from afd_plugin.compat.npu.stream import use_npu_current_stream
+from afd_plugin.connectors.npu.hccl_overlap import HcclOverlapSettings
 from afd_plugin.distributed.hccl_plan import HcclPlanMessage
+from afd_plugin.v1.worker.npu.hccl_v41_eager import HcclV41EagerSession
 from tests.unit.fakes.hccl import (
     ScriptedStagedControlPeer,
     StagedFFNContractModel,
@@ -73,6 +75,7 @@ def make_ffn_eager_case(
     valid=None,
     tp=1,
     role_rank=0,
+    open_parent=True,
 ):
     pair = make_eager_pair(
         monkeypatch, owner_module, transport_module, rows=rows, valid=valid, tp=tp
@@ -101,10 +104,28 @@ def make_ffn_eager_case(
         )
         pair.ffn.data_groups = [EagerHostGroup(i, role_rank) for i in range(2)]
         pair.ffn.control_group = "host-control"
-    _, owner = open_eager_pair(pair)
+    if open_parent:
+        _, owner = open_eager_pair(pair)
+    else:
+        # This fixture covers the runner's receive/open boundary. Session
+        # construction/prepare is separately tested with indexed host streams.
+        pair.ffn.warmup_eager_pipeline(parent_stream=pair.runtime.parent)
+        owner = object.__new__(HcclV41EagerSession)
+        owner.transport, owner._settings = pair.ffn, HcclOverlapSettings()
+        owner.parent_stream, owner.compute_stream = (
+            pair.runtime.parent,
+            pair.runtime.compute,
+        )
+        owner.send_stream, owner.receive_stream = (
+            pair.runtime.send,
+            pair.runtime.receive,
+        )
+        owner._initialized = True
     staged = make_staged_ffn_case(runner_type, pair.plan, role_rank=role_rank)
     model = EagerFFNContractModel(staged.context, pair.plan, role_rank, pair.runtime)
     staged.runner.model = model
+    if not open_parent:
+        staged.runner.hccl_v41_eager_session = owner
     monkeypatch.setattr(consumer_module.torch, "npu", pair.runtime, raising=False)
     monkeypatch.setattr(
         consumer_module, "ascend_forward_context", staged.context.activate

@@ -1,0 +1,6 @@
+interface:
+  display_name: "DSV4.1 Validation Evidence"
+  short_description: "Separate local checks from NPU support evidence"
+  default_prompt: "Use $afd-dsv41-evidence for the current DSV4.1 HCCL adaptation task."
+policy:
+  allow_implicit_invocation: true

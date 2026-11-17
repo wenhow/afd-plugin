@@ -7,7 +7,9 @@ from __future__ import annotations
 import errno
 import json
 import socket
+from collections import deque
 from contextlib import contextmanager
+from queue import Empty, Queue
 from types import SimpleNamespace
 
 import pytest
@@ -47,6 +49,91 @@ class ProfilerControlExecutor:
         raise ValueError("unexpected control method")
 
 
+class NativeRpcQueueBoundary:
+    """Deterministic pending wire replies; no delay or device is simulated."""
+
+    def __init__(self):
+        self.responses = Queue()
+        self.requests = deque()
+        self.transmitted = []
+
+    def enqueue(self, value):
+        self.responses.put_nowait(value)
+
+    def dequeue(self, timeout=None):
+        try:
+            return self.responses.get_nowait()
+        except Empty as error:
+            raise TimeoutError("controlled native RPC reply remains pending") from error
+
+    def transmit(self, request):
+        self.transmitted.append(request)
+        self.requests.append(request)
+
+
+def make_native_profiler_rpc_case():
+    """Retain pinned executor futures, WorkerProc dispatch and AFD worker RPC.
+
+    Lazy imports keep the stdlib control suite collectable without torch/vLLM.
+    Constructors, IPC startup, serving owner and device work are excluded. The
+    explicit queue leaf withholds the first response until the caller releases
+    its actual WorkerProc dispatch, after native collective_rpc has timed out.
+    """
+    from vllm.v1.executor.multiproc_executor import MultiprocExecutor, WorkerProc
+
+    from afd_plugin.v1.worker.npu.ffn_worker import AFDNPUFFNWorker
+
+    profile = make_profiler_session_case()
+    worker = AFDNPUFFNWorker.__new__(AFDNPUFFNWorker)
+    worker.model_runner = SimpleNamespace(prof=profile.session)
+    worker.profiler_config = None
+    worker._ffn_loop_error = None
+    queues = NativeRpcQueueBoundary()
+    worker_process = WorkerProc.__new__(WorkerProc)
+    worker_process.worker = worker
+    worker_process.rank = 0
+    worker_process.use_async_scheduling = False
+    worker_process.worker_response_mq = queues
+    executor = MultiprocExecutor.__new__(MultiprocExecutor)
+    executor.is_failed = False
+    executor.failure_callback = None
+    executor.rpc_broadcast_mq = SimpleNamespace(enqueue=queues.transmit)
+    executor.response_mqs = [queues]
+    executor.futures_queue = deque()
+    return SimpleNamespace(
+        executor=executor,
+        queues=queues,
+        profile=profile,
+        dispatch_pending=lambda: worker_process._execute_worker_rpc(
+            queues.requests.popleft()
+        ),
+        success=WorkerProc.ResponseStatus.SUCCESS,
+    )
+
+
+def make_native_profiler_engine_case():
+    """Keep native executor dispatch and the core fatal request handler real.
+
+    Only construction, queues and the registered fatal-notification callback are
+    host boundaries. No worker process or EngineCore serving loop is started.
+    """
+    from vllm.v1.engine.core import EngineCoreProc, EngineCoreRequestType
+
+    case = make_native_profiler_rpc_case()
+    engine = EngineCoreProc.__new__(EngineCoreProc)
+    engine.vllm_config = make_control_config()
+    engine.model_executor = case.executor
+    engine.input_queue = Queue()
+    case.executor.failure_callback = lambda: engine.input_queue.put_nowait(
+        (EngineCoreRequestType.EXECUTOR_FAILED, b"")
+    )
+    case.executor.output_rank = 0
+    case.executor.kv_output_aggregator = None
+    case.executor.ec_output_aggregator = None
+    case.engine = engine
+    return case
+
+
 class PartialWriteSocket(socket.socket):
     """Real Unix socket with a deliberately short public send operation."""
 
@@ -83,8 +170,9 @@ def make_control_socket_path(tmp_path_factory):
 
 
 @contextmanager
-def profiler_control_case(path):
-    executor = ProfilerControlExecutor()
+def profiler_control_case(path, *, executor=None):
+    if executor is None:
+        executor = ProfilerControlExecutor()
     clock = SimpleNamespace(now=0.0)
     server = FfnProfilerControl(path, executor, clock=lambda: clock.now)
     client = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)

@@ -15,6 +15,7 @@ pytest.importorskip("httpx")
 from fastapi import FastAPI
 
 from afd_plugin.compat.npu.profiler_api import PROFILER_RPC_TIMEOUT_SECONDS
+from afd_plugin.config import AFD_ASYNC_CONNECTOR, CAMP2P_CONNECTOR
 from tests.unit.fakes.profiler_api import (
     ProfilerEndpointEntryPoint,
     make_profiler_api_case,
@@ -24,6 +25,7 @@ from tests.unit.fakes.profiler_api import (
 
 @pytest.fixture(autouse=True)
 def _enable_role_profilers(monkeypatch):
+    monkeypatch.delenv("VLLM_PLUGINS", raising=False)
     monkeypatch.setenv("AFD_NPU_ATTENTION_PROFILER_ENABLE", "1")
     monkeypatch.setenv("AFD_NPU_FFN_PROFILER_ENABLE", "1")
 
@@ -173,6 +175,37 @@ def test_endpoint_initialization_rejects_incompatible_runtime(
         case.config.profiler_config = SimpleNamespace(profiler="torch")
     with pytest.raises(ValueError, match=error):
         asyncio.run(case.plugin.init_state(engine, case.app.state, case.args))
+
+
+@pytest.mark.parametrize("role", ["attention", "ffn"])
+@pytest.mark.parametrize("connector", [CAMP2P_CONNECTOR, AFD_ASYNC_CONNECTOR])
+def test_endpoint_initialization_rejects_non_hccl_connector(role, connector):
+    case = make_profiler_api_case(role=role, connector=connector, initialize=False)
+    with pytest.raises(ValueError, match="requires NPU HCCL"):
+        asyncio.run(case.plugin.init_state(case.engine, case.app.state, case.args))
+    assert case.engine.requests == []
+
+
+@pytest.mark.parametrize("plugins", ["", "afd_npu_profiler", "ascend,afd_npu_profiler"])
+def test_endpoint_initialization_requires_the_afd_general_plugin(plugins, monkeypatch):
+    case = make_profiler_api_case(initialize=False)
+    monkeypatch.setenv("VLLM_PLUGINS", plugins)
+    with pytest.raises(ValueError, match="requires the afd general plugin"):
+        asyncio.run(case.plugin.init_state(case.engine, case.app.state, case.args))
+    assert case.engine.requests == []
+
+
+@pytest.mark.parametrize(
+    "plugins", [None, "afd,afd_npu_profiler", "ascend,afd,afd_npu_profiler"]
+)
+def test_endpoint_initialization_accepts_native_default_or_afd_allowlist(
+    plugins, monkeypatch
+):
+    case = make_profiler_api_case(initialize=False)
+    if plugins is not None:
+        monkeypatch.setenv("VLLM_PLUGINS", plugins)
+    asyncio.run(case.plugin.init_state(case.engine, case.app.state, case.args))
+    assert profiler_http_request(case.app, "GET").status_code == 200
 
 
 @pytest.mark.parametrize(

@@ -19,7 +19,12 @@ from fractions import Fraction
 from typing import TypeAlias
 
 import torch
-from vllm.config import VllmConfig, set_current_vllm_config
+from vllm.config import (
+    VllmConfig,
+    get_layers_from_vllm_config,
+    set_current_vllm_config,
+)
+from vllm.model_executor.layers.attention_layer_base import AttentionLayerBase
 from vllm.v1.core.sched.output import SchedulerOutput
 from vllm.v1.kv_cache_interface import (
     KVCacheConfig,
@@ -521,10 +526,21 @@ class DsparkPdPrefixConsumer:
         ):
             raise ValueError("loaded DSpark prefix TP does not match config")
         names = tuple(speculator.model.get_draft_kv_cache_layer_names())
+        draft_layers = get_layers_from_vllm_config(
+            vllm_config, AttentionLayerBase, speculator.draft_attn_layer_names
+        )
+        # Native discovery includes attention helpers that own no KV storage.
+        # Only actual cache carriers participate in prefix writes and PD reads.
+        cache_names = {
+            name
+            for name, layer in draft_layers.items()
+            if layer.get_kv_cache_spec(vllm_config) is not None
+        }
         if (
             not names
             or len(set(names)) != len(names)
-            or set(names) != speculator.draft_attn_layer_names
+            or set(draft_layers) != speculator.draft_attn_layer_names
+            or set(names) != cache_names
         ):
             raise ValueError("loaded draft layer names do not match the speculator")
         if speculator.device != device:
@@ -723,7 +739,9 @@ class DsparkPdPrefixConsumer:
                 or peer.prefixes != report.prefixes
                 for index, peer in enumerate(reports)
             ):
-                raise RuntimeError("DSpark prompt projection TP agreement failed")
+                raise RuntimeError(
+                    "DSpark prompt projection TP agreement failed"
+                ) from error
             for index, peer in enumerate(reports):
                 expected = tuple(
                     DsparkPdReady(

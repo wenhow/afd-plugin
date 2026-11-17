@@ -25,6 +25,7 @@ from contextlib import suppress
 from typing import TYPE_CHECKING, Any
 
 import vllm.v1.engine.core as core_module
+from vllm.v1.engine.core import _R
 
 from afd_plugin.compat.npu.profiler_control import create_ffn_profiler_control
 from afd_plugin.compat.vllm import (
@@ -209,6 +210,62 @@ def __init__(
     core_module.enable_envs_cache()
 
 
+# Upstream source: vllm/v1/engine/core.py @ ced6857afa0ea7b2e3f0846a62e1394e90f15607.
+# Patch reason: Multiproc worker replies have no RPC ID. A timed-out or partial
+# HCCL profiler collective can leave replies that a later model RPC would read.
+# Patch functionality: poison only NPU HCCL Multiproc profile/status failures,
+# including interrupts, and notify the native fatal callback without waiting for
+# worker shutdown. FFN cleanup must not issue another STOP on that same channel.
+# Cost: no new normal-path RPC, synchronization or allocation; failure handling
+# changes existing executor state and submits its existing fatal notification.
+# Remove when upstream correlates/drains failed replies or terminalizes this
+# executor before any subsequent collective or model execution can reuse it.
+# Signature: matches upstream, including its original _R; no added parameters.
+def collective_rpc(
+    self,
+    method: str | Callable[..., _R],
+    timeout: float | None = None,
+    args: tuple = (),
+    kwargs: dict[str, Any] | None = None,
+) -> list[_R]:
+    # ### PATCH START: HCCL profiler RPC failure ownership
+    try:
+        # ### PATCH END: HCCL profiler RPC failure ownership
+        return self.model_executor.collective_rpc(method, timeout, args, kwargs)
+    # ### PATCH START: HCCL profiler RPC failure ownership
+    except BaseException:
+        if (
+            method in ("profile", "afd_profiler_status")
+            and self.vllm_config.device_config.device_type == "npu"
+        ):
+            afd_config = _get_afd_config(self.vllm_config)
+            if afd_config is not None and afd_config.connector == HCCL_P2P_CONNECTOR:
+                # Lazy worker-backend loading preserves UniProc/Ray isolation;
+                # only this failed NPU HCCL management path needs the MP class.
+                from vllm.v1.executor.multiproc_executor import MultiprocExecutor
+
+                executor = self.model_executor
+                if isinstance(executor, MultiprocExecutor):
+                    executor.is_failed = True
+                    if afd_config.role == "ffn":
+                        self._afd_ffn_rpc_failed = True
+                    failure_callback = executor.failure_callback
+                    executor.failure_callback = None
+                    if failure_callback is not None:
+                        try:
+                            failure_callback()
+                        except BaseException:
+                            # Preserve the original RPC error even if either
+                            # notification or best-effort logging also fails.
+                            with suppress(BaseException):
+                                core_module.logger.exception(
+                                    "HCCL profiler fatal notification failed; "
+                                    "preserving the original RPC failure"
+                                )
+        raise
+    # ### PATCH END: HCCL profiler RPC failure ownership
+
+
 # Patch reason: AFD FFN daemon engines skip scheduler/KV setup, so upstream
 # shutdown can touch attributes that were intentionally not initialized.
 # Patch functionality: stops the connector worker loop and shuts down the model
@@ -228,17 +285,25 @@ def shutdown(self):
         active_error = sys.exc_info()[1]
         afd_config = _get_afd_config(self.vllm_config)
         try:
-            _stop_ffn_worker_loop(self)
+            # A timed-out/partial management collective leaves untagged replies.
+            # Native executor shutdown closes death pipes and owns process
+            # termination; sending a further STOP RPC could consume stale data.
+            if not self._afd_ffn_rpc_failed:
+                _stop_ffn_worker_loop(self)
             model_executor = getattr(self, "model_executor", None)
             if model_executor is not None:
                 model_executor.shutdown()
             with suppress(Exception):
                 gc.unfreeze()
             core_module.cleanup_dist_env_and_memory()
-            if self._afd_hccl_peer_stop_complete and (
-                active_error is None
-                or isinstance(active_error, SystemExit)
-                and active_error.code in (None, 0)
+            if (
+                not self._afd_ffn_rpc_failed
+                and self._afd_hccl_peer_stop_complete
+                and (
+                    active_error is None
+                    or isinstance(active_error, SystemExit)
+                    and active_error.code in (None, 0)
+                )
             ):
                 core_module.logger.info("AFD HCCL FFN engine cleanup complete.")
         except Exception:
@@ -612,6 +677,7 @@ def _initialize_ffn_engine_core(
     self.afd_config = afd_config
     self.log_stats = log_stats
     self._afd_hccl_peer_stop_complete = False
+    self._afd_ffn_rpc_failed = False
 
     with suppress(Exception):
         vllm_config.afd_config = afd_config
@@ -661,6 +727,7 @@ def _prepare_late_loaded_ffn_engine_core(
     afd_config = _get_afd_config(vllm_config)
     self.afd_config = afd_config
     self._afd_hccl_peer_stop_complete = False
+    self._afd_ffn_rpc_failed = False
     with suppress(Exception):
         vllm_config.afd_config = afd_config
 
@@ -700,7 +767,12 @@ def _run_ffn_busy_loop(self, core_module: Any) -> None:
             self.vllm_config, self.model_executor
         )
         # ### PATCH END: explicitly owned headless F profiler management
-        self.model_executor.collective_rpc("start_ffn_server_loop")
+        try:
+            self.model_executor.collective_rpc("start_ffn_server_loop")
+        except BaseException:
+            if uses_hccl:
+                self._afd_ffn_rpc_failed = True
+            raise
         started = True
         # Emit readiness only after the collective start RPC succeeded; the
         # worker connector loop may not be ready to receive before this point.
@@ -721,7 +793,13 @@ def _run_ffn_busy_loop(self, core_module: Any) -> None:
                 # HCCL STOP ends the service thread without raising an error.
                 # Every F rank must finish its paired STOP before core exit;
                 # missing/malformed replies must never look like clean STOP.
-                statuses = self.model_executor.collective_rpc("poll_hccl_ffn_service")
+                try:
+                    statuses = self.model_executor.collective_rpc(
+                        "poll_hccl_ffn_service"
+                    )
+                except BaseException:
+                    self._afd_ffn_rpc_failed = True
+                    raise
                 if len(statuses) != afd_config.num_ffn_ranks or any(
                     type(status) is not bool for status in statuses
                 ):
@@ -739,13 +817,26 @@ def _run_ffn_busy_loop(self, core_module: Any) -> None:
                 self.model_executor.collective_rpc("raise_ffn_loop_error_if_any")
             time.sleep(0.5)
     except KeyboardInterrupt:
+        if self._afd_ffn_rpc_failed or (
+            profiler_control is not None and profiler_control.rpc_failed
+        ):
+            raise
         core_module.logger.info(
             "AFD FFN EngineCore shutting down after KeyboardInterrupt"
         )
     except Exception:
+        if profiler_control is not None and profiler_control.rpc_failed:
+            self._afd_ffn_rpc_failed = True
         core_module.logger.exception("AFD FFN EngineCore encountered a fatal error")
         raise
     finally:
+        # ### PATCH START: failed ordered management RPC channel
+        # Profiler/start/poll/STOP failures can leave late untagged replies.
+        # One host flag prevents more collectives; native executor shutdown
+        # owns process termination. No device work or synchronization is added.
+        if profiler_control is not None and profiler_control.rpc_failed:
+            self._afd_ffn_rpc_failed = True
+        # ### PATCH END: failed ordered management RPC channel
         # ### PATCH START: release only the owned local management endpoint
         if profiler_control is not None:
             try:
@@ -755,7 +846,7 @@ def _run_ffn_busy_loop(self, core_module: Any) -> None:
                     "AFD FFN profiler control cleanup failed", exc_info=True
                 )
         # ### PATCH END: release only the owned local management endpoint
-        if started:
+        if started and not self._afd_ffn_rpc_failed:
             _stop_ffn_worker_loop(self, raise_errors=uses_hccl and peer_stopped)
             # ### PATCH START: acknowledged HCCL shutdown diagnostics
             if uses_hccl and peer_stopped:
@@ -770,10 +861,15 @@ def _stop_ffn_worker_loop(self, *, raise_errors: bool = False) -> None:
     model_executor = getattr(self, "model_executor", None)
     if model_executor is None:
         return
+    if self._afd_ffn_rpc_failed:
+        return
     try:
         model_executor.collective_rpc("stop_ffn_server_loop")
-    except Exception:
-        if raise_errors:
+    except BaseException as error:
+        afd_config = _get_afd_config(self.vllm_config)
+        if afd_config is not None and afd_config.connector == HCCL_P2P_CONNECTOR:
+            self._afd_ffn_rpc_failed = True
+        if raise_errors or not isinstance(error, Exception):
             raise
         core_module.logger.debug(
             "AFD FFN worker loop stop failed or was already stopped",
@@ -816,6 +912,7 @@ def _get_afd_config(vllm_config: VllmConfig | None) -> AFDConfig | None:
 if _is_target_vllm_compatible():
     core_module.EngineCore.__init__ = __init__
     core_module.EngineCore._initialize_kv_caches = _initialize_kv_caches
+    core_module.EngineCore.collective_rpc = collective_rpc
     core_module.EngineCore.shutdown = shutdown
     core_module.EngineCoreProc.run_busy_loop = run_busy_loop
     core_module.DPEngineCoreProc.run_busy_loop = run_busy_loop

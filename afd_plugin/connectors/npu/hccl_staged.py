@@ -10,7 +10,7 @@ Tensor methods implement the base contract against that same accepted parent.
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Any
 
 import torch
@@ -31,7 +31,9 @@ from afd_plugin.connectors.npu.hccl_config import (
     uses_staged_hccl_runtime,
     validate_staged_hccl_runtime,
 )
+from afd_plugin.connectors.npu.hccl_overlap import HcclOverlapSettings
 from afd_plugin.connectors.npu.hccl_staged_transport import HcclStagedTransport
+from afd_plugin.connectors.npu.p2p_hccl import P2pHcclAFDConnector
 from afd_plugin.distributed import resolve_role_rank
 
 if TYPE_CHECKING:
@@ -61,6 +63,7 @@ class HcclStagedAFDConnector(AFDConnectorBase):
         role_rank: int,
         *,
         target_shape: DeepseekV41TargetShape | None = None,
+        overlap_settings: HcclOverlapSettings | None = None,
     ) -> None:
         caps = validate_staged_hccl_runtime(
             vllm_config,
@@ -71,7 +74,20 @@ class HcclStagedAFDConnector(AFDConnectorBase):
         )
         if type(rank) is not int or rank != role_rank:
             raise ValueError("staged HCCL requires caller rank equal to role_rank")
+        if overlap_settings is not None:
+            if not isinstance(overlap_settings, HcclOverlapSettings):
+                raise ValueError("staged HCCL requires immutable overlap settings")
+            caps = replace(
+                caps,
+                eager_pipeline_version=int(
+                    overlap_settings.eager_u2_stream_overlap
+                    and vllm_config.parallel_config.use_ubatching
+                    and caps.graph_execution_version == 0
+                ),
+            )
+            caps.validate()
         super().__init__(rank, local_rank, vllm_config, afd_config, role_rank)
+        self.overlap_settings = overlap_settings
         self.attn_size, self.ffn_size = caps.attention_size, caps.ffn_size
         self.transport = HcclStagedTransport(
             afd_config.role,
@@ -96,6 +112,45 @@ class HcclStagedAFDConnector(AFDConnectorBase):
 
     def init_afd_connector(self) -> None:
         self.transport.initialize()
+
+    def configuration_record(self) -> dict[str, str | int | bool]:
+        """Describe the idle negotiated session and its parsed settings snapshot.
+
+        This startup record makes explicit false values observable without
+        enabling per-parent diagnostics. It describes neither selected streams
+        nor executed overlap; those belong to actual parent execution records.
+        A manual caller without a snapshot leaves all configured values unknown.
+        """
+        transport = self.transport
+        if (
+            not self.is_initialized
+            or transport.plan is not None
+            or transport.graph_reservation is not None
+        ):
+            raise RuntimeError("session configuration requires an idle live transport")
+        caps = transport.negotiated_capabilities
+        record: dict[str, str | int | bool] = {
+            "event": "session_configuration",
+            "phase": "startup",
+            "role": transport.role,
+            "world_rank": transport.world_rank,
+            "role_rank": transport.role_rank,
+            "local_device": transport.local_device,
+            "snapshot_present": self.overlap_settings is not None,
+            "negotiated.graph_execution_version": caps.graph_execution_version,
+            "negotiated.eager_pipeline_version": caps.eager_pipeline_version,
+            "negotiated.native_tp_size": caps.native_tp_size,
+            "negotiated.attention_size": caps.attention_size,
+            "negotiated.ffn_size": caps.ffn_size,
+            "negotiated.max_stages": caps.max_stages,
+            "negotiated.max_tokens": caps.max_tokens,
+        }
+        if self.overlap_settings is not None:
+            record.update(
+                (f"configured.{name}", value)
+                for name, value in self.overlap_settings.effective_settings().items()
+            )
+        return record
 
     def close(self) -> None:
         self.transport.close()
@@ -253,6 +308,7 @@ def create_npu_runtime_connector(
     afd_config: AFDConfig,
     *,
     target_shape: DeepseekV41TargetShape | None = None,
+    overlap_settings: HcclOverlapSettings | None = None,
 ) -> AFDConnectorBase:
     """Select the staged target adapter; preserve other connector factories."""
     if uses_staged_hccl_runtime(vllm_config, afd_config):
@@ -263,7 +319,11 @@ def create_npu_runtime_connector(
             afd_config,
             resolve_role_rank(vllm_config, afd_config),
             target_shape=target_shape,
+            overlap_settings=overlap_settings,
         )
-    return AFDConnectorFactory.create_connector(
+    connector = AFDConnectorFactory.create_connector(
         rank, local_rank, vllm_config, afd_config
     )
+    if isinstance(connector, P2pHcclAFDConnector) and overlap_settings is not None:
+        connector.bind_overlap_settings(overlap_settings)
+    return connector

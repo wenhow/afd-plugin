@@ -340,8 +340,6 @@ def _validate_hccl_runtime(
         else:
             validate_deepseek_v41_speculation(vllm_config)
     if vllm_config.kv_transfer_config is not None:
-        if graph:
-            raise ValueError("graph HCCL does not support KV transfer/PD")
         if afd_config.role != "attention":
             raise ValueError("P2pHcclAFDConnector requires KV transfer/PD off on FFN")
         validate_deepseek_v41_pd(vllm_config)
