@@ -1,0 +1,539 @@
+{
+  "input_sha256": "609847e089f6052ede40afa851679071fc9056cea14718eb2c0b3c6d23b14504",
+  "files": 19,
+  "summary": {
+    "afd_pair_world_size": 2,
+    "continue_after_rejection_requested": false,
+    "eager_stream_overlap_requested": false,
+    "elapsed_seconds": 66.75598302180879,
+    "forced_killed_pids": [
+      101284,
+      101283,
+      101281
+    ],
+    "graph_all_axes_requested": true,
+    "graph_compute_overlap_requested": true,
+    "graph_exchange_order_requested": "cross_layer_v1",
+    "independent_afd_pair_count": 2,
+    "native_tp_world_size_per_process": 1,
+    "run_id": "2961f4d3e38240e9ad96aeb2ae8e705f",
+    "success": false,
+    "target_cancel_replace_requested": true,
+    "target_graph_requested": true,
+    "target_logits_policy": "constant7",
+    "target_u2_requested": true,
+    "timed_out": false,
+    "traceback": "Traceback (most recent call last):\n  File \"/home/z00569729/dsv41-afd/src/afd-plugin-dsv41-a5/results/dsv41-a5-dspark-sender-20261118/snapshot/tests/npu/hccl_native_attention_pd_dspark_decode_probe.py\", line 1230, in supervise\n    raise RuntimeError(f\"live native decode worker failed: {failures}\")\nRuntimeError: live native decode worker failed: {'kv_consumer': -6}\n"
+  },
+  "consumer_success": false,
+  "first_recorded_exception": "Traceback (most recent call last):\n  File \"/home/z00569729/dsv41-afd/src/afd-plugin-dsv41-a5/results/dsv41-a5-dspark-sender-20261118/snapshot/tests/npu/hccl_native_attention_pd_dspark_decode_probe.py\", line 963, in run_worker\n    lifecycle_probe.run_decode_cancel_replace(\n  File \"/home/z00569729/dsv41-afd/src/afd-plugin-dsv41-a5/results/dsv41-a5-dspark-sender-20261118/snapshot/tests/npu/hccl_native_attention_pd_dspark_lifecycle_probe.py\", line 321, in run_decode_cancel_replace\n    raw, detail = execute_decode_step(\n                  ^^^^^^^^^^^^^^^^^^^^\n  File \"/home/z00569729/dsv41-afd/src/afd-plugin-dsv41-a5/results/dsv41-a5-dspark-sender-20261118/snapshot/tests/npu/hccl_native_attention_pd_dspark_u2_probe.py\", line 497, in execute_decode_step\n    assert owner.execute_model(step) is None\n           ^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/home/z00569729/dsv41-afd/src/afd-plugin-dsv41-a5/results/dsv41-a5-dspark-sender-20261118/snapshot/tests/npu/hccl_native_attention_pd_dspark_graph_probe.py\", line 343, in observed_execute\n    assert entry[\"python_target_calls\"] == python_calls\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError\n",
+  "target_graph_decode": {
+    "accepted": false,
+    "consumer_ready_publications": [],
+    "executions": [
+      {
+        "finished_req_ids": [],
+        "host_records": [
+          {
+            "boundary": "host_control",
+            "boundary_api": "graph_reservation",
+            "configured.AFD_HCCL_EAGER_U2_STREAM_OVERLAP": false,
+            "configured.AFD_HCCL_FFN_COMPUTE_SYNC_DIAGNOSTICS": false,
+            "configured.AFD_HCCL_GRAPH_U2_ATTENTION_THREE_STREAM": true,
+            "configured.AFD_HCCL_GRAPH_U2_COMPUTE_OVERLAP": true,
+            "configured.AFD_HCCL_GRAPH_U2_FFN_CROSS_LAYER": true,
+            "configured.AFD_HCCL_GRAPH_U2_FFN_RECV_STREAM": true,
+            "configured.AFD_HCCL_GRAPH_U2_HYBRID_DAG": true,
+            "configured.AFD_HCCL_STAGE_DIAGNOSTICS": true,
+            "decision_digest": "cac4f0cb4ec16bc7200eb8b97aea6d1992370b330269976462e542e3270acf27",
+            "event": "graph_parent_reserved",
+            "key_digest": "",
+            "key_present": false,
+            "local_device": 1,
+            "mode": "target",
+            "num_stages": 1,
+            "outcome": "returned",
+            "phase": "eager",
+            "reason": "requested",
+            "role": "attention",
+            "role_rank": 0,
+            "transaction_id": "native-graph-6",
+            "world_rank": 1
+          },
+          {
+            "actual.compute_pipeline_enabled": false,
+            "actual.compute_stream": "parent",
+            "actual.ffn_compute_sync": false,
+            "actual.mode": "serial",
+            "actual.recv_stream": "parent",
+            "actual.send_stream": "parent",
+            "boundary": "host_enqueue",
+            "configured.AFD_HCCL_EAGER_U2_STREAM_OVERLAP": false,
+            "configured.AFD_HCCL_FFN_COMPUTE_SYNC_DIAGNOSTICS": false,
+            "configured.AFD_HCCL_GRAPH_U2_ATTENTION_THREE_STREAM": true,
+            "configured.AFD_HCCL_GRAPH_U2_COMPUTE_OVERLAP": true,
+            "configured.AFD_HCCL_GRAPH_U2_FFN_CROSS_LAYER": true,
+            "configured.AFD_HCCL_GRAPH_U2_FFN_RECV_STREAM": true,
+            "configured.AFD_HCCL_GRAPH_U2_HYBRID_DAG": true,
+            "configured.AFD_HCCL_STAGE_DIAGNOSTICS": true,
+            "effective.AFD_HCCL_EAGER_U2_STREAM_OVERLAP": false,
+            "effective.AFD_HCCL_FFN_COMPUTE_SYNC_DIAGNOSTICS": false,
+            "effective.AFD_HCCL_GRAPH_U2_ATTENTION_THREE_STREAM": false,
+            "effective.AFD_HCCL_GRAPH_U2_COMPUTE_OVERLAP": false,
+            "effective.AFD_HCCL_GRAPH_U2_FFN_CROSS_LAYER": false,
+            "effective.AFD_HCCL_GRAPH_U2_FFN_RECV_STREAM": false,
+            "effective.AFD_HCCL_GRAPH_U2_HYBRID_DAG": false,
+            "effective.AFD_HCCL_STAGE_DIAGNOSTICS": true,
+            "event": "configuration",
+            "in_profile_run": false,
+            "is_warmup": false,
+            "logical.compute_stream": "parent",
+            "logical.recv_stream": "parent",
+            "logical.send_stream": "parent",
+            "num_stages": 1,
+            "parent_transport_override": false,
+            "phase": "eager",
+            "physical.compute_stream": "parent",
+            "physical.recv_stream": "parent",
+            "physical.send_stream": "parent",
+            "role": "attention",
+            "role_rank": 0,
+            "transaction_id": "native-graph-6",
+            "world_rank": 1
+          },
+          {
+            "boundary": "host_control",
+            "boundary_api": "finish_forward",
+            "configured.AFD_HCCL_EAGER_U2_STREAM_OVERLAP": false,
+            "configured.AFD_HCCL_FFN_COMPUTE_SYNC_DIAGNOSTICS": false,
+            "configured.AFD_HCCL_GRAPH_U2_ATTENTION_THREE_STREAM": true,
+            "configured.AFD_HCCL_GRAPH_U2_COMPUTE_OVERLAP": true,
+            "configured.AFD_HCCL_GRAPH_U2_FFN_CROSS_LAYER": true,
+            "configured.AFD_HCCL_GRAPH_U2_FFN_RECV_STREAM": true,
+            "configured.AFD_HCCL_GRAPH_U2_HYBRID_DAG": true,
+            "configured.AFD_HCCL_STAGE_DIAGNOSTICS": true,
+            "decision_digest": "cac4f0cb4ec16bc7200eb8b97aea6d1992370b330269976462e542e3270acf27",
+            "event": "graph_parent_finish_begin",
+            "key_digest": "",
+            "key_present": false,
+            "local_device": 1,
+            "mode": "target",
+            "num_stages": 1,
+            "outcome": "begin",
+            "phase": "eager",
+            "reason": "requested",
+            "role": "attention",
+            "role_rank": 0,
+            "transaction_id": "native-graph-6",
+            "world_rank": 1
+          },
+          {
+            "boundary": "host_control",
+            "boundary_api": "finish_forward",
+            "configured.AFD_HCCL_EAGER_U2_STREAM_OVERLAP": false,
+            "configured.AFD_HCCL_FFN_COMPUTE_SYNC_DIAGNOSTICS": false,
+            "configured.AFD_HCCL_GRAPH_U2_ATTENTION_THREE_STREAM": true,
+            "configured.AFD_HCCL_GRAPH_U2_COMPUTE_OVERLAP": true,
+            "configured.AFD_HCCL_GRAPH_U2_FFN_CROSS_LAYER": true,
+            "configured.AFD_HCCL_GRAPH_U2_FFN_RECV_STREAM": true,
+            "configured.AFD_HCCL_GRAPH_U2_HYBRID_DAG": true,
+            "configured.AFD_HCCL_STAGE_DIAGNOSTICS": true,
+            "decision_digest": "cac4f0cb4ec16bc7200eb8b97aea6d1992370b330269976462e542e3270acf27",
+            "event": "graph_parent_finish_returned",
+            "key_digest": "",
+            "key_present": false,
+            "local_device": 1,
+            "mode": "target",
+            "num_stages": 1,
+            "outcome": "returned",
+            "phase": "eager",
+            "reason": "requested",
+            "role": "attention",
+            "role_rank": 0,
+            "transaction_id": "native-graph-6",
+            "world_rank": 1
+          }
+        ],
+        "key_digest": "",
+        "mode": "target",
+        "ordinal": 0,
+        "phase": "eager",
+        "python_target_calls": 0,
+        "reason": "requested",
+        "scheduled_tokens": 0,
+        "transaction_id": "native-graph-6"
+      },
+      {
+        "finished_req_ids": [],
+        "host_records": [
+          {
+            "boundary": "host_control",
+            "boundary_api": "graph_reservation",
+            "configured.AFD_HCCL_EAGER_U2_STREAM_OVERLAP": false,
+            "configured.AFD_HCCL_FFN_COMPUTE_SYNC_DIAGNOSTICS": false,
+            "configured.AFD_HCCL_GRAPH_U2_ATTENTION_THREE_STREAM": true,
+            "configured.AFD_HCCL_GRAPH_U2_COMPUTE_OVERLAP": true,
+            "configured.AFD_HCCL_GRAPH_U2_FFN_CROSS_LAYER": true,
+            "configured.AFD_HCCL_GRAPH_U2_FFN_RECV_STREAM": true,
+            "configured.AFD_HCCL_GRAPH_U2_HYBRID_DAG": true,
+            "configured.AFD_HCCL_STAGE_DIAGNOSTICS": true,
+            "decision_digest": "842df63324bb39419fe247ff45978a901b385584e925e1c8c0ab179bc3668731",
+            "event": "graph_parent_reserved",
+            "key_digest": "",
+            "key_present": false,
+            "local_device": 1,
+            "mode": "target",
+            "num_stages": 1,
+            "outcome": "returned",
+            "phase": "eager",
+            "reason": "requested",
+            "role": "attention",
+            "role_rank": 0,
+            "transaction_id": "native-graph-7",
+            "world_rank": 1
+          },
+          {
+            "actual.compute_pipeline_enabled": false,
+            "actual.compute_stream": "parent",
+            "actual.ffn_compute_sync": false,
+            "actual.mode": "serial",
+            "actual.recv_stream": "parent",
+            "actual.send_stream": "parent",
+            "boundary": "host_enqueue",
+            "configured.AFD_HCCL_EAGER_U2_STREAM_OVERLAP": false,
+            "configured.AFD_HCCL_FFN_COMPUTE_SYNC_DIAGNOSTICS": false,
+            "configured.AFD_HCCL_GRAPH_U2_ATTENTION_THREE_STREAM": true,
+            "configured.AFD_HCCL_GRAPH_U2_COMPUTE_OVERLAP": true,
+            "configured.AFD_HCCL_GRAPH_U2_FFN_CROSS_LAYER": true,
+            "configured.AFD_HCCL_GRAPH_U2_FFN_RECV_STREAM": true,
+            "configured.AFD_HCCL_GRAPH_U2_HYBRID_DAG": true,
+            "configured.AFD_HCCL_STAGE_DIAGNOSTICS": true,
+            "effective.AFD_HCCL_EAGER_U2_STREAM_OVERLAP": false,
+            "effective.AFD_HCCL_FFN_COMPUTE_SYNC_DIAGNOSTICS": false,
+            "effective.AFD_HCCL_GRAPH_U2_ATTENTION_THREE_STREAM": false,
+            "effective.AFD_HCCL_GRAPH_U2_COMPUTE_OVERLAP": false,
+            "effective.AFD_HCCL_GRAPH_U2_FFN_CROSS_LAYER": false,
+            "effective.AFD_HCCL_GRAPH_U2_FFN_RECV_STREAM": false,
+            "effective.AFD_HCCL_GRAPH_U2_HYBRID_DAG": false,
+            "effective.AFD_HCCL_STAGE_DIAGNOSTICS": true,
+            "event": "configuration",
+            "in_profile_run": false,
+            "is_warmup": false,
+            "logical.compute_stream": "parent",
+            "logical.recv_stream": "parent",
+            "logical.send_stream": "parent",
+            "num_stages": 1,
+            "parent_transport_override": false,
+            "phase": "eager",
+            "physical.compute_stream": "parent",
+            "physical.recv_stream": "parent",
+            "physical.send_stream": "parent",
+            "role": "attention",
+            "role_rank": 0,
+            "transaction_id": "native-graph-7",
+            "world_rank": 1
+          },
+          {
+            "boundary": "host_control",
+            "boundary_api": "finish_forward",
+            "configured.AFD_HCCL_EAGER_U2_STREAM_OVERLAP": false,
+            "configured.AFD_HCCL_FFN_COMPUTE_SYNC_DIAGNOSTICS": false,
+            "configured.AFD_HCCL_GRAPH_U2_ATTENTION_THREE_STREAM": true,
+            "configured.AFD_HCCL_GRAPH_U2_COMPUTE_OVERLAP": true,
+            "configured.AFD_HCCL_GRAPH_U2_FFN_CROSS_LAYER": true,
+            "configured.AFD_HCCL_GRAPH_U2_FFN_RECV_STREAM": true,
+            "configured.AFD_HCCL_GRAPH_U2_HYBRID_DAG": true,
+            "configured.AFD_HCCL_STAGE_DIAGNOSTICS": true,
+            "decision_digest": "842df63324bb39419fe247ff45978a901b385584e925e1c8c0ab179bc3668731",
+            "event": "graph_parent_finish_begin",
+            "key_digest": "",
+            "key_present": false,
+            "local_device": 1,
+            "mode": "target",
+            "num_stages": 1,
+            "outcome": "begin",
+            "phase": "eager",
+            "reason": "requested",
+            "role": "attention",
+            "role_rank": 0,
+            "transaction_id": "native-graph-7",
+            "world_rank": 1
+          },
+          {
+            "boundary": "host_control",
+            "boundary_api": "finish_forward",
+            "configured.AFD_HCCL_EAGER_U2_STREAM_OVERLAP": false,
+            "configured.AFD_HCCL_FFN_COMPUTE_SYNC_DIAGNOSTICS": false,
+            "configured.AFD_HCCL_GRAPH_U2_ATTENTION_THREE_STREAM": true,
+            "configured.AFD_HCCL_GRAPH_U2_COMPUTE_OVERLAP": true,
+            "configured.AFD_HCCL_GRAPH_U2_FFN_CROSS_LAYER": true,
+            "configured.AFD_HCCL_GRAPH_U2_FFN_RECV_STREAM": true,
+            "configured.AFD_HCCL_GRAPH_U2_HYBRID_DAG": true,
+            "configured.AFD_HCCL_STAGE_DIAGNOSTICS": true,
+            "decision_digest": "842df63324bb39419fe247ff45978a901b385584e925e1c8c0ab179bc3668731",
+            "event": "graph_parent_finish_returned",
+            "key_digest": "",
+            "key_present": false,
+            "local_device": 1,
+            "mode": "target",
+            "num_stages": 1,
+            "outcome": "returned",
+            "phase": "eager",
+            "reason": "requested",
+            "role": "attention",
+            "role_rank": 0,
+            "transaction_id": "native-graph-7",
+            "world_rank": 1
+          }
+        ],
+        "key_digest": "",
+        "mode": "target",
+        "ordinal": 1,
+        "phase": "eager",
+        "python_target_calls": 0,
+        "reason": "requested",
+        "scheduled_tokens": 0,
+        "transaction_id": "native-graph-7"
+      }
+    ],
+    "expected_target_batches": [
+      [
+        2,
+        "eager",
+        2
+      ],
+      [
+        2,
+        "replay",
+        0
+      ],
+      [
+        1,
+        "replay",
+        0
+      ],
+      [
+        1,
+        "eager",
+        1
+      ],
+      [
+        1,
+        "replay",
+        0
+      ]
+    ],
+    "python_target_calls": [],
+    "storage_before": {
+      "block_tables": 281452883268112,
+      "consumer": 281452496641616,
+      "entries": [
+        {
+          "auxiliary": [
+            19792580870144,
+            19792580876288
+          ],
+          "bank": 281446731303824,
+          "bank_exchange_order": "stage_serial",
+          "exchange": [
+            19792580837376,
+            19792580843520,
+            19792580855808,
+            19792580856320
+          ],
+          "generation": 0,
+          "graph": 281448334762128,
+          "hidden": 19792580864000,
+          "key_digest": "04be0ad48ee11d6c7e6b65006c5b09e6819270a7899844361d304d6088ee08f7",
+          "num_reqs": 2,
+          "num_stages": 1,
+          "num_tokens": 6,
+          "pipeline_storage": null
+        },
+        {
+          "auxiliary": [
+            19792580870144,
+            19792580876288
+          ],
+          "bank": 281448067806416,
+          "bank_exchange_order": "cross_layer_v1",
+          "exchange": [
+            19792580883456,
+            19792580886528,
+            19792580892672,
+            19792580893184,
+            19792580896256,
+            19792580899328,
+            19792580905472,
+            19792580905984
+          ],
+          "generation": 0,
+          "graph": 281448066495120,
+          "hidden": 19792580864000,
+          "key_digest": "412a588463b0e35e8047e3966f05db35ca71166c07c6398791c5683d465c1536",
+          "num_reqs": 2,
+          "num_stages": 2,
+          "num_tokens": 6,
+          "pipeline_storage": {
+            "bank": 281448067806416,
+            "compute_stream": 281448068125920,
+            "device": 1,
+            "events": [
+              281448067737424,
+              281446731478736,
+              281446731477584,
+              281448066878544,
+              281448066891472,
+              281448066891600,
+              281448066875600,
+              281448066876112,
+              281448066884176,
+              281448066878416,
+              281448066879312,
+              281448066879056,
+              281448066880208,
+              281448066880080,
+              281448066879696,
+              281448066879824,
+              281448066881232,
+              281448066880848,
+              281448066880464,
+              281448066880592
+            ],
+            "exchange_order": "cross_layer_v1",
+            "pipeline": 281446731347216,
+            "policy": {
+              "attention_three_stream": true,
+              "ffn_cross_layer": true,
+              "ffn_recv_stream": true,
+              "hybrid": true
+            },
+            "schedule": {
+              "actions": [
+                [
+                  "input",
+                  0,
+                  0
+                ],
+                [
+                  "input",
+                  0,
+                  1
+                ],
+                [
+                  "output",
+                  0,
+                  0
+                ],
+                [
+                  "input",
+                  1,
+                  0
+                ],
+                [
+                  "output",
+                  0,
+                  1
+                ],
+                [
+                  "input",
+                  1,
+                  1
+                ],
+                [
+                  "output",
+                  1,
+                  0
+                ],
+                [
+                  "output",
+                  1,
+                  1
+                ]
+              ],
+              "compute_steps": [
+                [
+                  0,
+                  0
+                ],
+                [
+                  0,
+                  1
+                ],
+                [
+                  1,
+                  0
+                ],
+                [
+                  1,
+                  1
+                ]
+              ],
+              "identity": 281446731229952
+            },
+            "stages": [
+              0,
+              1
+            ],
+            "steps": [
+              [
+                0,
+                0
+              ],
+              [
+                0,
+                1
+              ],
+              [
+                1,
+                0
+              ],
+              [
+                1,
+                1
+              ]
+            ]
+          }
+        }
+      ],
+      "input_buffers": 281455459772176,
+      "manager": 281452500260688,
+      "model": 281452883274512,
+      "model_state": 281452496516112,
+      "owner": 281452499852304,
+      "physical_kv": [
+        19792522117120,
+        19792555671552,
+        19792522137600,
+        19792522141696,
+        19792555692032,
+        19792555696128,
+        19792522117120,
+        19792555671552,
+        19792522117120,
+        19792555671552,
+        19792522117120
+      ],
+      "session": 281452496600272,
+      "speculator": 281453277683280,
+      "transport": 281453295398096
+    },
+    "target_requests": 2,
+    "target_u2": true
+  },
+  "startup": {
+    "native_capture_completed": true,
+    "capture_completed_without_requests": true,
+    "capture_completed_without_pd_metadata": true,
+    "capture_kv_bytes_unchanged": true,
+    "capture_physical_pages_unchanged": true,
+    "replay_observed": false
+  },
+  "native_groups_destroyed": true,
+  "heap_corruption_also_observed": true,
+  "full_model_accepted": false,
+  "reject_success_evidence": "user_report_only_not_in_this_zip",
+  "frozen_source_identity": "outer_source_lock_and_snapshot_not_supplied",
+  "verdict": "failed_observer_assertion_then_process_abort_not_accepted",
+  "after_fix_A5_replay_cancel_and_clean_exit": "pending"
+}

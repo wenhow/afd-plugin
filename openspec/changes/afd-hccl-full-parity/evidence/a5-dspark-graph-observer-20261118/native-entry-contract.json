@@ -1,0 +1,11 @@
+{
+  "repository": "vllm-ascend",
+  "revision": "7e37e29a7803d6897a7113088e2b771f83205bc0",
+  "path": "vllm_ascend/models/deepseek_v41/model.py",
+  "line": 1138,
+  "signature_and_body": [
+    "    def embed_input_ids(self, input_ids):",
+    "        return self.embed_tokens(input_ids)"
+  ],
+  "source_sha256": "989aec6db1e344dca76159dcbef0d5876874facedaa36b47e993146d5b8a2b9f"
+}

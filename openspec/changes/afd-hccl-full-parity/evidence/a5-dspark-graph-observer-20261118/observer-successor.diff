@@ -1,0 +1,35 @@
+--- parent/tests/npu/hccl_native_attention_pd_dspark_graph_probe.py
++++ successor/tests/npu/hccl_native_attention_pd_dspark_graph_probe.py
+@@ -259 +259 @@
+-    """Observe unchanged public execution and Python target entry on the D owner.
++    """Observe public execution and Python target stage entry on the D owner.
+@@ -266 +266 @@
+-    model = owner.model
++    model = owner.model.language_model.model
+@@ -282,0 +283 @@
++        "python_target_entrypoint": "language_model.model.embed_input_ids",
+@@ -289 +290 @@
+-    assert "forward" not in owner.model.__dict__
++    assert "embed_input_ids" not in model.__dict__
+@@ -291 +292 @@
+-    forward = model.forward
++    embed = model.embed_input_ids
+@@ -300 +301 @@
+-    def observed_forward(*args, **kwargs):
++    def observed_embed(input_ids):
+@@ -302,3 +303,6 @@
+-            {"execute_ordinal": len(detail["executions"])}
+-        )
+-        return forward(*args, **kwargs)
++            {
++                "execute_ordinal": len(detail["executions"]),
++                "token_rows": input_ids.numel(),
++            }
++        )
++        return embed(input_ids)
+@@ -374 +378 @@
+-        model.forward = observed_forward
++        model.embed_input_ids = observed_embed
+@@ -390 +394 @@
+-        del model.forward
++        del model.embed_input_ids

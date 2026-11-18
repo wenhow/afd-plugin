@@ -45,6 +45,10 @@ PRODUCTION_OVERLAYS = (
 )
 OUTPUT = "reports/dsv41-a5-functional"
 PRODUCTION_COUNT = 146
+GRAPH_PROBE = "tests/npu/hccl_native_attention_pd_dspark_graph_probe.py"
+GRAPH_PROBE_PARENT_SHA256 = (
+    "87559172c4be2f2579c0630c159f8d24c872699bda3625cab4506887fe5e45b0"
+)
 
 
 def digest(raw: bytes) -> str:
@@ -97,6 +101,63 @@ def add_local_helpers(root: Path, files: dict[str, bytes]) -> None:
                         pending.append(candidate)
 
 
+def staged_graph_observer(raw: bytes) -> bytes:
+    """Retarget the exact reviewed observer to the shared U1/U2 stage entry.
+
+    HcclV41UBatchRunner.run_staged bypasses the wrapper's forward. This raw-token
+    component calls the core embedding once per nonempty eager stage; graph
+    replay calls neither Python entry. Preserve expected counts and numerical,
+    KV, proposal, replay-storage and transport checks in the original helper.
+    """
+    if digest(raw) != GRAPH_PROBE_PARENT_SHA256:
+        raise ValueError("reviewed Graph observer parent differs")
+    source = raw.decode("utf-8")
+    replacements = (
+        (
+            "Observe unchanged public execution and Python target entry "
+            "on the D owner.",
+            "Observe public execution and Python target stage entry on the D owner.",
+        ),
+        ("    model = owner.model\n", "    model = owner.model.language_model.model\n"),
+        (
+            '        "python_target_calls": [],\n',
+            '        "python_target_calls": [],\n'
+            '        "python_target_entrypoint": '
+            '"language_model.model.embed_input_ids",\n',
+        ),
+        (
+            '    assert "forward" not in owner.model.__dict__\n',
+            '    assert "embed_input_ids" not in model.__dict__\n',
+        ),
+        ("    forward = model.forward\n", "    embed = model.embed_input_ids\n"),
+        (
+            "    def observed_forward(*args, **kwargs):\n",
+            "    def observed_embed(input_ids):\n",
+        ),
+        (
+            '{"execute_ordinal": len(detail["executions"])}\n',
+            '{\n'
+            '                "execute_ordinal": len(detail["executions"]),\n'
+            '                "token_rows": input_ids.numel(),\n'
+            '            }\n',
+        ),
+        (
+            "        return forward(*args, **kwargs)\n",
+            "        return embed(input_ids)\n",
+        ),
+        (
+            "        model.forward = observed_forward\n",
+            "        model.embed_input_ids = observed_embed\n",
+        ),
+        ("        del model.forward\n", "        del model.embed_input_ids\n"),
+    )
+    for before, after in replacements:
+        if source.count(before) != 1:
+            raise ValueError(f"Graph observer replacement is not unique: {before}")
+        source = source.replace(before, after)
+    return source.encode("utf-8")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output-dir", type=Path, default=Path(OUTPUT))
@@ -112,6 +173,7 @@ def main() -> int:
     successors, _ = a5_helper_successors(donor, root)
     for name in (A5_RUNTIME, "tests/npu/dsv41_dspark_speculator_probe.py"):
         files[name] = successors[name]
+    files[GRAPH_PROBE] = staged_graph_observer(files[GRAPH_PROBE])
     original_production = {
         name: digest(raw)
         for name, raw in files.items()
@@ -165,6 +227,12 @@ def main() -> int:
             "worker_parent_sha256": WORKER_SHA256,
             "production_delta_from_dspark": delta,
             "production_overlays_from_worker": list(PRODUCTION_OVERLAYS),
+            "graph_observer_successor": {
+                "source": GRAPH_PROBE,
+                "parent_sha256": GRAPH_PROBE_PARENT_SHA256,
+                "sha256": digest(files[GRAPH_PROBE]),
+                "entrypoint": "language_model.model.embed_input_ids",
+            },
             "paused_old_v4_mtp_included": False,
         }
     )

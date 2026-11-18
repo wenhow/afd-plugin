@@ -1,0 +1,77 @@
+{
+  "status": "local_host_checks_not_NPU_acceptance",
+  "checks": [
+    {
+      "command": [
+        "D:\\openSource\\afd-plugin-dsv41-flash-v030\\.venv\\Scripts\\python.exe",
+        "-B",
+        "tools/diagnostics/prepare_dsv41_a5_functional_bundle.py",
+        "--output-dir",
+        "D:\\openSource\\afd-plugin-dsv41-flash-v030\\.tmp\\a5-graph-rebuild-cianxoxe\\bundle"
+      ],
+      "returncode": 0,
+      "stdout": "{\n  \"status\": \"source_prepared_not_device_validated\",\n  \"runtime_source_sha256\": \"1bdf52cdfc3eb5f7f6250111e4bcb462cda9e1565910ea202c2c92466ff34d49\",\n  \"python_sources_compiled\": 186,\n  \"source_count\": 189,\n  \"production_count\": 146,\n  \"native_git_pins_verified\": 194,\n  \"production_delta_from_dspark\": {\n    \"afd_plugin/compat/npu/feature_validation.py\": {\n      \"parent_sha256\": \"943aec35a56dfd9e7256c3b33620937b5988ac6a30f6ffc1a6d1382362ed0897\",\n      \"sha256\": \"f953fd72cf37114a3d0ab1e256f1e17870db3111c97c11d419e6af8dc62c3fd5\"\n    },\n    \"afd_plugin/compat/npu/kv_layout_connector.py\": {\n      \"parent_sha256\": \"8c6ef6392995d7c80b5fed5eb3f2b4d3b8e9bc8f94750e53f2c5f5bb2c53af0e\",\n      \"sha256\": \"430973da6495a5ee60257b9e6507a5ce98ca4e5ef27673cb21fe72ac7140c407\"\n    },\n    \"afd_plugin/compat/npu/profiler.py\": {\n      \"parent_sha256\": \"4dcd664757a788f26efbdf1a3dfaf8acbf7a0a007f26bd2e53c1b6a896d1c117\",\n      \"sha256\": \"92b418c949591c5f67f75c8ddfc4225944ce95446a48bf55697e3615f1516dc0\"\n    },\n    \"afd_plugin/compat/npu/profiler_api.py\": {\n      \"parent_sha256\": \"d75cbba9548607feedd65f0c739f6ede827dfdb34bf3b5a1090ee4004cbd5841\",\n      \"sha256\": \"107d4458d6caf63ff79cd3a89eee55dde13db364f459f3d455ef6976c324616e\"\n    },\n    \"afd_plugin/compat/npu/runtime_config.py\": {\n      \"parent_sha256\": \"f9c5471728faae1102993df5205468714bb32af157139479729e8cd06966b316\",\n      \"sha256\": \"b74ba2210ed2f3a9aab7421df825f07dd1681f47d57dee20b12fecb2fc66e623\"\n    },\n    \"afd_plugin/compat/patches/engine_core.py\": {\n      \"parent_sha256\": \"ee5d31461487c8ca03fb08a0a725ce8f9fdb22612f0347d605f2deebf9726fad\",\n      \"sha256\": \"c84b5ec7e2be6231da409b5ab3823b9e1f67eeaba021e8d446e27f858f925d4e\"\n    },\n    \"afd_plugin/v1/worker/npu/ffn_worker.py\": {\n      \"parent_sha256\": \"a05670efc7318681b91367a8185ca0fa4e0b0500c551d19701e43414418e5396\",\n      \"sha256\": \"8965c3fd62663731b594c77871d5c98bf62c17c85b79c44b973d3dbd165983ac\"\n    },\n    \"afd_plugin/v1/worker/npu/ubatch_runner.py\": {\n      \"parent_sha256\": \"7f82ffdb3a8ece8072dc67ca986cd75a637da2561e211d64defefe14567d95f2\",\n      \"sha256\": \"8279c2fc054ccb69d12f7fad3e806d0c5d6e91a946d1c18345008bb946cbd770\"\n    }\n  },\n  \"new_admission_source_sha256\": \"f953fd72cf37114a3d0ab1e256f1e17870db3111c97c11d419e6af8dc62c3fd5\",\n  \"npu_validation\": \"pending_on_A5\",\n  \"contains_binaries\": false\n}\n",
+      "stderr": ""
+    },
+    {
+      "command": [
+        "D:\\openSource\\afd-plugin-dsv41-flash-v030\\.venv\\Scripts\\python.exe",
+        "-B",
+        "-S",
+        "-m",
+        "unittest",
+        "tests.e2e.diagnostics.test_dsv41_a5_graph_observer",
+        "tests.e2e.diagnostics.test_dsv41_a5_functional_validation"
+      ],
+      "returncode": 0,
+      "stdout": "",
+      "stderr": ".....................\n----------------------------------------------------------------------\nRan 21 tests in 10.786s\n\nOK\n"
+    },
+    {
+      "command": [
+        "D:\\openSource\\afd-plugin-dsv41-flash-v030\\.venv\\Scripts\\python.exe",
+        "-B",
+        "-m",
+        "ruff",
+        "check",
+        "tools/diagnostics/prepare_dsv41_a5_functional_bundle.py",
+        "tests/e2e/diagnostics/test_dsv41_a5_graph_observer.py",
+        "tests/npu/hccl_native_attention_pd_dspark_graph_probe.py",
+        "D:\\openSource\\afd-plugin-dsv41-flash-v030\\openspec\\changes\\afd-hccl-full-parity\\evidence\\a5-dspark-graph-observer-20261118\\assess_report.py",
+        "D:\\openSource\\afd-plugin-dsv41-flash-v030\\openspec\\changes\\afd-hccl-full-parity\\evidence\\a5-dspark-graph-observer-20261118\\run_local_validation.py"
+      ],
+      "returncode": 1,
+      "stdout": "E501 Line too long (92 > 88)\n  --> openspec\\changes\\afd-hccl-full-parity\\evidence\\a5-dspark-graph-observer-20261118\\run_local_validation.py:32:89\n   |\n30 | def main() -> None:\n31 |     results = []\n32 |     with tempfile.TemporaryDirectory(prefix=\"a5-graph-rebuild-\", dir=ROOT / \".tmp\") as name:\n   |                                                                                         ^^^^\n33 |         output = Path(name) / \"bundle\"\n34 |         results.append(\n   |\n\nFound 1 error.\n",
+      "stderr": ""
+    },
+    {
+      "command": [
+        "D:\\openSource\\afd-plugin-dsv41-flash-v030\\.venv\\Scripts\\python.exe",
+        "-B",
+        ".agents/dsv41/harness.py",
+        "check"
+      ],
+      "returncode": 0,
+      "stdout": "{\n  \"ok\": true,\n  \"files\": 434,\n  \"changes\": 8,\n  \"tasks\": 109,\n  \"source_objects\": 56,\n  \"skills\": 3,\n  \"phase\": \"implementation\",\n  \"upstreams_unchanged\": true,\n  \"validation_scope\": \"local plan checks; not official CLI or NPU qualification\"\n}\n",
+      "stderr": ""
+    },
+    {
+      "command": [
+        "D:\\openSource\\afd-plugin-dsv41-flash-v030\\.venv\\Scripts\\python.exe",
+        "-B",
+        ".agents/dsv41/harness.py",
+        "guard"
+      ],
+      "returncode": 0,
+      "stdout": "{\n  \"ok\": true,\n  \"upstreams\": [\n    \"vllm\",\n    \"vllm_ascend\",\n    \"hccl_donor\"\n  ],\n  \"unchanged\": true\n}\n",
+      "stderr": ""
+    }
+  ],
+  "deterministic_rebuild": {
+    "runtime-source.tar.gz": true,
+    "bundle-lock.json": true,
+    "preparation.json": true
+  },
+  "runtime_source_sha256": "1bdf52cdfc3eb5f7f6250111e4bcb462cda9e1565910ea202c2c92466ff34d49",
+  "A5_replay_cancel_replace_clean_exit": "pending"
+}

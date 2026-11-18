@@ -1,0 +1,30 @@
+{
+  "unrelated_modified_files_byte_identical": {
+    "afd_plugin/compat/patches/npu/model_loader.py": true,
+    "afd_plugin/model_executor/models/npu/deepseek_v4.py": true,
+    "docs/design/module/attention_runtime.md": true,
+    "docs/design/module/compatibility_and_patches.md": true,
+    "docs/design/module/model_integration.md": true,
+    "docs/npu/DSV41_A5_MOE_PARITY_ZH.md": true,
+    "docs/npu/DSV41_A5_PROFILER_VALIDATION_ZH.md": true,
+    "docs/npu/DSV41_AFD_EAGER_QUALIFICATION_ZH.md": true,
+    "docs/npu/DSV41_V030_HCCL_WORKFLOW_ZH.md": true,
+    "openspec/changes/afd-hccl-v2-microbatch/evidence/a3-failure-20261109/run_a3_failure.py": true,
+    "recipe/README.md": true,
+    "tests/npu/hccl_eager_pipeline_probe.py": true,
+    "tests/npu/hccl_graph_manager_probe.py": true,
+    "tests/npu/hccl_staged_failure_probe.py": true,
+    "tests/npu/hccl_staged_probe.py": true,
+    "tests/unit/compat/npu/test_dspark_pd.py": true,
+    "tests/unit/compat/npu/test_kv_layout_connector.py": true,
+    "tests/unit/compat/npu/test_profiler_control.py": true,
+    "tests/unit/compat/patches/npu/test_model_loader.py": true,
+    "tests/unit/compat/patches/test_signatures.py": true,
+    "tests/unit/connectors/npu/test_hccl_staged_transport.py": true,
+    "tests/unit/connectors/npu/test_p2p_hccl.py": true,
+    "tests/unit/distributed/test_hccl_plan.py": true,
+    "tests/unit/model_executor/models/npu/test_deepseek_v4.py": true,
+    "tests/unit/v1/worker/npu/test_ffn_model_runner.py": true
+  },
+  "two_docs_prior_working_prefixes_preserved": true
+}
