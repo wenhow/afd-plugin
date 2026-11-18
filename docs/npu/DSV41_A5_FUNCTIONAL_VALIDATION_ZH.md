@@ -113,7 +113,7 @@ python -B -c 'import json; print(json.load(open("reports/dsv41-a5-functional/bun
 ```
 
 默认交付包的入口 SHA256 为
-`85b363f23681ce0bf33777422c2a13279325de2f8b75a44d7876b2bdac170db7`。
+`5732cc4eb3709d660b51c778d236b46dedcc5347bdc110cd2d3d3931e1cfbe30`。
 更新时需要同步入口与 `reports/dsv41-a5-functional/` 下的归档、锁和准备记录，
 不要只复制新增超时参数后的脚本。
 保留现场脚本，再从已经通过校验的同一冻结包恢复入口：
@@ -375,6 +375,48 @@ python -B tests/npu/dsv41_a5_functional_validation.py \
 [本轮记录](../../openspec/changes/afd-hccl-full-parity/evidence/a5-router-isolation-20261118/README.md)
 包含本地与A3各10项CPU检查，未执行NPU算子。146份生产模块和194份原生身份不变。
 本次交付用于区分形状、dtype、top-k和实际算子库问题，尚未解决或验收A5启动。
+
+### 六项单算子通过：保存原生失败时的真实输入
+
+11月18日上传的`ee5a52b081874d3ba24a851cd876b18a.zip`中，六个独立算子均成功执行，
+路由ID与CPU参考完全一致，FP32权重最大绝对误差为`1.1920928955078125e-7`，
+BF16两项误差均为0；六项加载的扩展及opapi库路径/SHA一致，原生194份Python源码匹配。
+按用户要求，本次分析忽略NPU占用提示。原始`summary.json`仍保留`success=false`及
+`npu_acceptance=failed`，其占用观察不能覆盖六项实际算子结果，也不证明原生启动已修复。
+普通随机输入下64专家可以运行，下一步检查原生模型实际路由输入及执行上下文。
+
+更新后运行原生诊断，使用全新输出目录：
+
+```bash
+git pull --ff-only origin feat/dsv41-flash-hccl-v030
+
+python -B tests/npu/dsv41_a5_functional_validation.py \
+  --model /home/models/DeepSeek-V4.1-Flash \
+  --transformer-vendor /usr/local/Ascend/ascend-toolkit/latest/opp/vendors/custom_transformer \
+  --devices 0,1,2,3 \
+  --preflight-timeout 900 \
+  --output-dir results/dsv41-a5-native-inputs-20261118 \
+  --diagnose-native \
+  --ignore-npu-occupancy \
+  --run
+```
+
+`--diagnose-native`现在通过线程局部的Python调用观察器，保存最多64次原生路由调用的CPU输入、
+shape/stride/storage_offset、dtype、有限值统计及标量参数；记录实际加载库路径/SHA。
+算子仍接收原始参数，输入不会替换为随机对照值。此模式有同步读回和落盘开销，仅用于定位。
+若Worker失败且所属子进程已回收，父进程从失败调用的完整记录中选择有限值输入，
+启动全新进程重放；恢复逻辑值、形状、步长和存储偏移，每张量分配上限为1,048,576个元素。
+记录不完整、含非有限值或没有捕获失败路由时，明确登记跳过原因；不会在损坏的上下文重试。
+如果读回输入就失败，需结合保存阶段和原异常判断是否为此前算子的错误。
+重放成功仅表明该输入在独立上下文可执行，不代表原生模型或七场景通过；原生失败仍保持失败。
+
+`--ignore-npu-occupancy`仅接受诊断模式，保留全部占用观察并在summary记录排除选择，
+继续检查所属进程回收、预检和真实算子/Worker结果。默认七场景仍要求原有空闲检查。
+请压缩整个新输出目录，尤其保留`native-eager-u1/router-inputs/*.pt`及同名JSON、
+`native-eager-u1/result.json`、`router-actual-replay/`（若生成）、各日志和`summary.json`。
+
+[本轮证据与CPU检查](../../openspec/changes/afd-hccl-full-parity/evidence/a5-router-real-inputs-20261118/README.md)
+保留原始上传和独立判读。实际A5输入捕获/重放、原生首轮及七场景验收仍待环境运行。
 
 ## 4. 源码与实施边界
 

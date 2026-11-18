@@ -25,6 +25,7 @@ from contextlib import contextmanager, nullcontext
 from dataclasses import asdict
 from pathlib import Path
 
+from dsv41_a5_router_probe import capture_router_inputs
 from dsv41_dspark_a5_runtime import NATIVE_INDEX_HEADS, native_a5_bootstrap
 from dsv41_normal_c2_probe import (
     ATTENTION_KV_BUDGET_BYTES,
@@ -58,8 +59,8 @@ from dsv41_normal_worker_probe import EXPERTS_PER_TOKEN, INDEX_HEAD_SIZE
 FUNCTIONAL_ENV = "AFD_DSV41_FUNCTIONAL_QUALIFICATION"
 # CompressorV2 accepts H >= 1024, while packed Attention keeps D=512.
 A5_MODEL_HIDDEN_SIZE = 1024
-# The A5 hash router loads full 64-lane FP32 vectors from its UB buffers.
-# Eight experts only allocate 32 padded lanes in the pinned native kernel.
+# Keep the bounded candidate used by the isolated A5 operator controls.
+# Passing those controls does not establish normal Worker execution.
 A5_ROUTED_EXPERTS = 64
 OLDER_QUALIFICATIONS = (
     "AFD_DSV41_EAGER_QUALIFICATION",
@@ -798,7 +799,14 @@ def run_worker(args: argparse.Namespace, config, report: dict) -> None:
     wrapper = WorkerWrapperBase()
     constructed = False
     observation = observe_runtime(report) if args.role != "native" else nullcontext()
-    with observation:
+    capture = (
+        capture_router_inputs(args.output_dir / "router-inputs")
+        if args.capture_router_inputs
+        else nullcontext(None)
+    )
+    with observation, capture as router_capture:
+        if router_capture is not None:
+            report["router_input_capture"] = router_capture
         try:
             wrapper.init_worker(
                 [
@@ -915,12 +923,15 @@ def main() -> int:
         default="eager-u1",
     )
     parser.add_argument("--overlap", action="store_true")
+    parser.add_argument("--capture-router-inputs", action="store_true")
     parser.add_argument("--model")
     parser.add_argument("--output-dir", type=Path)
     parser.add_argument("--device", type=int, default=0)
     parser.add_argument("--afd-port", type=int, default=DEFAULT_AFD_PORT)
     parser.add_argument("--timeout", type=int, default=DEFAULT_TIMEOUT_SECONDS)
     args = parser.parse_args()
+    if args.capture_router_inputs and args.role != "native":
+        parser.error("--capture-router-inputs requires the native role")
     if args.role == "native" and (args.mode != "eager-u1" or args.overlap):
         parser.error("native baseline supports eager-u1 without --overlap only")
     if args.overlap and not args.mode.endswith("u2"):
@@ -942,6 +953,7 @@ def main() -> int:
         "mode": args.mode,
         "run": args.run,
         "run_config": args.run_config,
+        "capture_router_inputs_requested": args.capture_router_inputs,
         "ascend_launch_blocking": os.environ.get("ASCEND_LAUNCH_BLOCKING"),
         "overlap_requested": args.overlap,
         "environment_declaration": environment,

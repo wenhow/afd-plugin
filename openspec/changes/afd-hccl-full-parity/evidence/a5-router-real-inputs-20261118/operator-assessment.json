@@ -1,0 +1,278 @@
+{
+  "input_zip_sha256": "5c557e701ee22b28ad451f3df8f7441d2246a312944c2e5ea909f7de36940355",
+  "scope": "six synthetic operator cases only; no Worker/model execution",
+  "operator_cases_passed": 6,
+  "operator_cases": [
+    {
+      "case": "e384-k2-fp32",
+      "shape": [
+        8,
+        384
+      ],
+      "dtype": "float32",
+      "top_k": 2,
+      "operator_returned": true,
+      "reference_matched": true,
+      "success": true,
+      "max_weight_absolute_error": 5.960464477539063e-08,
+      "inputs_sha256": "e35e4ea1b35bb0f80b30e9f8b628c9e04583303d15cc845fd505781994b50e55",
+      "loaded_operator_libraries": [
+        {
+          "path": "/opt/vllm-ascend/vllm_ascend/_cann_ops_custom/vendors/custom_transformer/op_api/lib/libcust_opapi.so",
+          "sha256": "e896e0387f6ddad9e8088ca3aa636e414da31f31607d9fa78d4ef090c9df1595"
+        },
+        {
+          "path": "/opt/vllm-ascend/vllm_ascend/vllm_ascend_C.cpython-311-aarch64-linux-gnu.so",
+          "sha256": "c0476a67006e7eeea2b34f17ff103be8034852aeb4b07a923a0e6436002a7da6"
+        },
+        {
+          "path": "/usr/local/Ascend/cann-9.2.0/aarch64-linux/lib64/libopapi.so",
+          "sha256": "5f101f982e4c55b0e0317a470e8bfd1c6cecbd95222aa66269f8dedf7191d037"
+        },
+        {
+          "path": "/usr/local/Ascend/cann-9.2.0/aarch64-linux/lib64/libopapi_transformer.so",
+          "sha256": "d3c5cc4bc671789345a3417f22da923379ae0d4678cdbcee083fdd1794138aad"
+        },
+        {
+          "path": "/usr/local/Ascend/cann-9.2.0/opp/vendors/custom_transformer/op_api/lib/libcust_opapi.so",
+          "sha256": "e8861d0e94710c8cc82dba89f99877eeee78fa2e0aeffa9512085d3df1ffe056"
+        },
+        {
+          "path": "/usr/local/python3.11.10/lib/python3.11/site-packages/fla_npu/opp/vendors/fla_npu_transformer/op_api/lib/libcust_opapi.so",
+          "sha256": "70bc56a1415d2028c18391f852816030c3b4e9f74f42b646fe494477ad7a9356"
+        },
+        {
+          "path": "/usr/local/python3.11.10/lib/python3.11/site-packages/fla_npu/opp/vendors/fla_npu_transformer/op_impl/ai_core/tbe/op_tiling/liboptiling.so",
+          "sha256": "88fe700e0e0712dff7975ce46339bac0353592469875f756b5cc622246df5921"
+        }
+      ]
+    },
+    {
+      "case": "e384-k6-bf16",
+      "shape": [
+        8,
+        384
+      ],
+      "dtype": "bfloat16",
+      "top_k": 6,
+      "operator_returned": true,
+      "reference_matched": true,
+      "success": true,
+      "max_weight_absolute_error": 0.0,
+      "inputs_sha256": "ca885ecd3935bb108ff3ac089d53e86fe7c0b83d240e9eef21da438b4c51bee3",
+      "loaded_operator_libraries": [
+        {
+          "path": "/opt/vllm-ascend/vllm_ascend/_cann_ops_custom/vendors/custom_transformer/op_api/lib/libcust_opapi.so",
+          "sha256": "e896e0387f6ddad9e8088ca3aa636e414da31f31607d9fa78d4ef090c9df1595"
+        },
+        {
+          "path": "/opt/vllm-ascend/vllm_ascend/vllm_ascend_C.cpython-311-aarch64-linux-gnu.so",
+          "sha256": "c0476a67006e7eeea2b34f17ff103be8034852aeb4b07a923a0e6436002a7da6"
+        },
+        {
+          "path": "/usr/local/Ascend/cann-9.2.0/aarch64-linux/lib64/libopapi.so",
+          "sha256": "5f101f982e4c55b0e0317a470e8bfd1c6cecbd95222aa66269f8dedf7191d037"
+        },
+        {
+          "path": "/usr/local/Ascend/cann-9.2.0/aarch64-linux/lib64/libopapi_transformer.so",
+          "sha256": "d3c5cc4bc671789345a3417f22da923379ae0d4678cdbcee083fdd1794138aad"
+        },
+        {
+          "path": "/usr/local/Ascend/cann-9.2.0/opp/vendors/custom_transformer/op_api/lib/libcust_opapi.so",
+          "sha256": "e8861d0e94710c8cc82dba89f99877eeee78fa2e0aeffa9512085d3df1ffe056"
+        },
+        {
+          "path": "/usr/local/python3.11.10/lib/python3.11/site-packages/fla_npu/opp/vendors/fla_npu_transformer/op_api/lib/libcust_opapi.so",
+          "sha256": "70bc56a1415d2028c18391f852816030c3b4e9f74f42b646fe494477ad7a9356"
+        },
+        {
+          "path": "/usr/local/python3.11.10/lib/python3.11/site-packages/fla_npu/opp/vendors/fla_npu_transformer/op_impl/ai_core/tbe/op_tiling/liboptiling.so",
+          "sha256": "88fe700e0e0712dff7975ce46339bac0353592469875f756b5cc622246df5921"
+        }
+      ]
+    },
+    {
+      "case": "e384-k6-fp32",
+      "shape": [
+        8,
+        384
+      ],
+      "dtype": "float32",
+      "top_k": 6,
+      "operator_returned": true,
+      "reference_matched": true,
+      "success": true,
+      "max_weight_absolute_error": 5.960464477539063e-08,
+      "inputs_sha256": "e90d1f1497379e351f9dc9739cc6f5680cb3325235a4aae8683a3847def0b02f",
+      "loaded_operator_libraries": [
+        {
+          "path": "/opt/vllm-ascend/vllm_ascend/_cann_ops_custom/vendors/custom_transformer/op_api/lib/libcust_opapi.so",
+          "sha256": "e896e0387f6ddad9e8088ca3aa636e414da31f31607d9fa78d4ef090c9df1595"
+        },
+        {
+          "path": "/opt/vllm-ascend/vllm_ascend/vllm_ascend_C.cpython-311-aarch64-linux-gnu.so",
+          "sha256": "c0476a67006e7eeea2b34f17ff103be8034852aeb4b07a923a0e6436002a7da6"
+        },
+        {
+          "path": "/usr/local/Ascend/cann-9.2.0/aarch64-linux/lib64/libopapi.so",
+          "sha256": "5f101f982e4c55b0e0317a470e8bfd1c6cecbd95222aa66269f8dedf7191d037"
+        },
+        {
+          "path": "/usr/local/Ascend/cann-9.2.0/aarch64-linux/lib64/libopapi_transformer.so",
+          "sha256": "d3c5cc4bc671789345a3417f22da923379ae0d4678cdbcee083fdd1794138aad"
+        },
+        {
+          "path": "/usr/local/Ascend/cann-9.2.0/opp/vendors/custom_transformer/op_api/lib/libcust_opapi.so",
+          "sha256": "e8861d0e94710c8cc82dba89f99877eeee78fa2e0aeffa9512085d3df1ffe056"
+        },
+        {
+          "path": "/usr/local/python3.11.10/lib/python3.11/site-packages/fla_npu/opp/vendors/fla_npu_transformer/op_api/lib/libcust_opapi.so",
+          "sha256": "70bc56a1415d2028c18391f852816030c3b4e9f74f42b646fe494477ad7a9356"
+        },
+        {
+          "path": "/usr/local/python3.11.10/lib/python3.11/site-packages/fla_npu/opp/vendors/fla_npu_transformer/op_impl/ai_core/tbe/op_tiling/liboptiling.so",
+          "sha256": "88fe700e0e0712dff7975ce46339bac0353592469875f756b5cc622246df5921"
+        }
+      ]
+    },
+    {
+      "case": "e384-k6-fp32-vision",
+      "shape": [
+        8,
+        384
+      ],
+      "dtype": "float32",
+      "top_k": 6,
+      "operator_returned": true,
+      "reference_matched": true,
+      "success": true,
+      "max_weight_absolute_error": 5.960464477539063e-08,
+      "inputs_sha256": "adfc59a7b2e14582e1c1d8447b38c7cd7d945460fba6b8e1f1ead00fa53a362f",
+      "loaded_operator_libraries": [
+        {
+          "path": "/opt/vllm-ascend/vllm_ascend/_cann_ops_custom/vendors/custom_transformer/op_api/lib/libcust_opapi.so",
+          "sha256": "e896e0387f6ddad9e8088ca3aa636e414da31f31607d9fa78d4ef090c9df1595"
+        },
+        {
+          "path": "/opt/vllm-ascend/vllm_ascend/vllm_ascend_C.cpython-311-aarch64-linux-gnu.so",
+          "sha256": "c0476a67006e7eeea2b34f17ff103be8034852aeb4b07a923a0e6436002a7da6"
+        },
+        {
+          "path": "/usr/local/Ascend/cann-9.2.0/aarch64-linux/lib64/libopapi.so",
+          "sha256": "5f101f982e4c55b0e0317a470e8bfd1c6cecbd95222aa66269f8dedf7191d037"
+        },
+        {
+          "path": "/usr/local/Ascend/cann-9.2.0/aarch64-linux/lib64/libopapi_transformer.so",
+          "sha256": "d3c5cc4bc671789345a3417f22da923379ae0d4678cdbcee083fdd1794138aad"
+        },
+        {
+          "path": "/usr/local/Ascend/cann-9.2.0/opp/vendors/custom_transformer/op_api/lib/libcust_opapi.so",
+          "sha256": "e8861d0e94710c8cc82dba89f99877eeee78fa2e0aeffa9512085d3df1ffe056"
+        },
+        {
+          "path": "/usr/local/python3.11.10/lib/python3.11/site-packages/fla_npu/opp/vendors/fla_npu_transformer/op_api/lib/libcust_opapi.so",
+          "sha256": "70bc56a1415d2028c18391f852816030c3b4e9f74f42b646fe494477ad7a9356"
+        },
+        {
+          "path": "/usr/local/python3.11.10/lib/python3.11/site-packages/fla_npu/opp/vendors/fla_npu_transformer/op_impl/ai_core/tbe/op_tiling/liboptiling.so",
+          "sha256": "88fe700e0e0712dff7975ce46339bac0353592469875f756b5cc622246df5921"
+        }
+      ]
+    },
+    {
+      "case": "e64-k2-bf16",
+      "shape": [
+        8,
+        64
+      ],
+      "dtype": "bfloat16",
+      "top_k": 2,
+      "operator_returned": true,
+      "reference_matched": true,
+      "success": true,
+      "max_weight_absolute_error": 0.0,
+      "inputs_sha256": "da53606e987f3f146117007cc40752f6339c0300b8db9778a7a2e980d9cd9c8f",
+      "loaded_operator_libraries": [
+        {
+          "path": "/opt/vllm-ascend/vllm_ascend/_cann_ops_custom/vendors/custom_transformer/op_api/lib/libcust_opapi.so",
+          "sha256": "e896e0387f6ddad9e8088ca3aa636e414da31f31607d9fa78d4ef090c9df1595"
+        },
+        {
+          "path": "/opt/vllm-ascend/vllm_ascend/vllm_ascend_C.cpython-311-aarch64-linux-gnu.so",
+          "sha256": "c0476a67006e7eeea2b34f17ff103be8034852aeb4b07a923a0e6436002a7da6"
+        },
+        {
+          "path": "/usr/local/Ascend/cann-9.2.0/aarch64-linux/lib64/libopapi.so",
+          "sha256": "5f101f982e4c55b0e0317a470e8bfd1c6cecbd95222aa66269f8dedf7191d037"
+        },
+        {
+          "path": "/usr/local/Ascend/cann-9.2.0/aarch64-linux/lib64/libopapi_transformer.so",
+          "sha256": "d3c5cc4bc671789345a3417f22da923379ae0d4678cdbcee083fdd1794138aad"
+        },
+        {
+          "path": "/usr/local/Ascend/cann-9.2.0/opp/vendors/custom_transformer/op_api/lib/libcust_opapi.so",
+          "sha256": "e8861d0e94710c8cc82dba89f99877eeee78fa2e0aeffa9512085d3df1ffe056"
+        },
+        {
+          "path": "/usr/local/python3.11.10/lib/python3.11/site-packages/fla_npu/opp/vendors/fla_npu_transformer/op_api/lib/libcust_opapi.so",
+          "sha256": "70bc56a1415d2028c18391f852816030c3b4e9f74f42b646fe494477ad7a9356"
+        },
+        {
+          "path": "/usr/local/python3.11.10/lib/python3.11/site-packages/fla_npu/opp/vendors/fla_npu_transformer/op_impl/ai_core/tbe/op_tiling/liboptiling.so",
+          "sha256": "88fe700e0e0712dff7975ce46339bac0353592469875f756b5cc622246df5921"
+        }
+      ]
+    },
+    {
+      "case": "e64-k2-fp32",
+      "shape": [
+        8,
+        64
+      ],
+      "dtype": "float32",
+      "top_k": 2,
+      "operator_returned": true,
+      "reference_matched": true,
+      "success": true,
+      "max_weight_absolute_error": 1.1920928955078125e-07,
+      "inputs_sha256": "337d59bae8f85dd9cc67b8580dc08648225649681b7d1b94862c7f43da5741c8",
+      "loaded_operator_libraries": [
+        {
+          "path": "/opt/vllm-ascend/vllm_ascend/_cann_ops_custom/vendors/custom_transformer/op_api/lib/libcust_opapi.so",
+          "sha256": "e896e0387f6ddad9e8088ca3aa636e414da31f31607d9fa78d4ef090c9df1595"
+        },
+        {
+          "path": "/opt/vllm-ascend/vllm_ascend/vllm_ascend_C.cpython-311-aarch64-linux-gnu.so",
+          "sha256": "c0476a67006e7eeea2b34f17ff103be8034852aeb4b07a923a0e6436002a7da6"
+        },
+        {
+          "path": "/usr/local/Ascend/cann-9.2.0/aarch64-linux/lib64/libopapi.so",
+          "sha256": "5f101f982e4c55b0e0317a470e8bfd1c6cecbd95222aa66269f8dedf7191d037"
+        },
+        {
+          "path": "/usr/local/Ascend/cann-9.2.0/aarch64-linux/lib64/libopapi_transformer.so",
+          "sha256": "d3c5cc4bc671789345a3417f22da923379ae0d4678cdbcee083fdd1794138aad"
+        },
+        {
+          "path": "/usr/local/Ascend/cann-9.2.0/opp/vendors/custom_transformer/op_api/lib/libcust_opapi.so",
+          "sha256": "e8861d0e94710c8cc82dba89f99877eeee78fa2e0aeffa9512085d3df1ffe056"
+        },
+        {
+          "path": "/usr/local/python3.11.10/lib/python3.11/site-packages/fla_npu/opp/vendors/fla_npu_transformer/op_api/lib/libcust_opapi.so",
+          "sha256": "70bc56a1415d2028c18391f852816030c3b4e9f74f42b646fe494477ad7a9356"
+        },
+        {
+          "path": "/usr/local/python3.11.10/lib/python3.11/site-packages/fla_npu/opp/vendors/fla_npu_transformer/op_impl/ai_core/tbe/op_tiling/liboptiling.so",
+          "sha256": "88fe700e0e0712dff7975ce46339bac0353592469875f756b5cc622246df5921"
+        }
+      ]
+    }
+  ],
+  "native_preflight_sources_match": true,
+  "native_source_count": 194,
+  "raw_summary_success": false,
+  "raw_summary_npu_acceptance": "failed",
+  "npu_occupancy_excluded_per_user": true,
+  "all_owned_children_returned_zero_without_survivors": true,
+  "startup_resolved": false
+}

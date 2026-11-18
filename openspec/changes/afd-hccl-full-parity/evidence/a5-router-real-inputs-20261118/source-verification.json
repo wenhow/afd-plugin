@@ -1,0 +1,16 @@
+{
+  "changed_sources": [
+    "bundle-manifest.json",
+    "tests/npu/dsv41_a5_functional_validation.py",
+    "tests/npu/dsv41_a5_router_probe.py",
+    "tests/npu/dsv41_functional_worker_probe.py"
+  ],
+  "production_modules_unchanged": 146,
+  "python_compiled": 186,
+  "unrelated_dirty_files_preserved": 25,
+  "runtime_source_sha256": "99d24a6388a0fe491f051d68accab5710ff2bb550aff733f6750e73bceb4e9d9",
+  "python_ast_matches_validated_cpu_snapshot": true,
+  "post_validation_delta": "one comment removes CPU qualification of native Python kernel",
+  "npu_actual_input_capture": "pending_on_A5",
+  "startup_resolved": false
+}

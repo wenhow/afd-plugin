@@ -46,7 +46,14 @@ class TestTransformerVendor(unittest.TestCase):
         # Metadata checks file presence only; this fixture is never loaded.
         library.write_bytes(b"CPU CLI fixture, not an operator library\n")
 
-    def run_cli(self, *, vendor=None, diagnose_native=False, diagnose_router=False):
+    def run_cli(
+        self,
+        *,
+        vendor=None,
+        diagnose_native=False,
+        diagnose_router=False,
+        ignore_npu_occupancy=False,
+    ):
         output = self.directory / "result"
         command = [
             sys.executable,
@@ -64,6 +71,8 @@ class TestTransformerVendor(unittest.TestCase):
             command.append("--diagnose-native")
         if diagnose_router:
             command.append("--diagnose-router")
+        if ignore_npu_occupancy:
+            command.append("--ignore-npu-occupancy")
         result = subprocess.run(
             command,
             env={**os.environ, **INHERITED_PATHS},
@@ -118,6 +127,8 @@ class TestTransformerVendor(unittest.TestCase):
         for scene in report["scenes"]:
             metadata = json.loads((output / (scene["name"] + ".log")).read_bytes())
             self.assertIs(metadata["runtime_imported"], False)
+            if scene["name"] in {"native-eager-u1", "afd-eager-u1"}:
+                self.assertIs(metadata["capture_router_inputs_requested"], False)
 
     def test_cli_preserves_inherited_paths_without_vendor_override(self):
         result, output = self.run_cli()
@@ -147,6 +158,21 @@ class TestTransformerVendor(unittest.TestCase):
         self.assertEqual(metadata["ascend_launch_blocking"], "1")
         self.assertIs(metadata["runtime_imported"], False)
         self.assertIs(metadata["functional_worker_component_accepted"], False)
+        self.assertIs(metadata["capture_router_inputs_requested"], True)
+
+    def test_occupancy_exclusion_requires_diagnostic_mode(self):
+        result, output = self.run_cli(ignore_npu_occupancy=True)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn(b"requires a diagnostic mode", result.stderr)
+        self.assertFalse(output.exists())
+
+    def test_diagnostic_metadata_records_explicit_occupancy_exclusion(self):
+        result, output = self.run_cli(diagnose_native=True, ignore_npu_occupancy=True)
+        self.assertEqual(result.returncode, 0, result.stderr.decode(errors="replace"))
+        report = json.loads((output / "summary.json").read_bytes())
+        self.assertIs(report["npu_occupancy_excluded"], True)
+        self.assertIs(report["diagnostic_only"], True)
+        self.assertEqual(report["npu_acceptance"], "pending_on_A5")
 
     def test_router_diagnosis_isolates_six_cases_without_model_or_runtime_imports(self):
         result, output = self.run_cli(vendor=self.vendor, diagnose_router=True)
@@ -212,6 +238,7 @@ class TestRouterDiagnostics(unittest.TestCase):
             _devices=(0, 1, 2, 3),
             output_dir=self.directory,
             timeout=10,
+            ignore_npu_occupancy=False,
         )
 
     def test_child_exit_zero_without_operator_result_fails_diagnosis(self):
@@ -266,6 +293,89 @@ class TestRouterDiagnostics(unittest.TestCase):
         self.assertEqual(len(report["scenes"]), 6)
         self.assertEqual(sum(s["result"]["success"] for s in report["scenes"]), 5)
         self.assertTrue(all(s["npu_after"]["all_eight_idle"] for s in report["scenes"]))
+
+
+class TestActualRouterReplay(unittest.TestCase):
+    def setUp(self):
+        temporary = tempfile.TemporaryDirectory(dir=ROOT / ".tmp")
+        self.addCleanup(temporary.cleanup)
+        self.directory = Path(temporary.name)
+        self.launcher = load_launcher()
+        self.args = SimpleNamespace(
+            run=True,
+            python=sys.executable,
+            _devices=(0, 1, 2, 3),
+            output_dir=self.directory,
+            timeout=10,
+            ignore_npu_occupancy=True,
+        )
+        self.item = {"name": "native-eager-u1", "process": {"success": False}}
+        self.capture = self.directory / "native-eager-u1/router-inputs/call-001.json"
+        self.capture.parent.mkdir(parents=True)
+
+    def write_capture(self, *, finite=True, returned=False):
+        self.capture.write_text(
+            json.dumps(
+                {
+                    "capture_complete": True,
+                    "operator_called": True,
+                    "operator_returned": returned,
+                    "tensors": {"x": {"finite": finite}},
+                }
+            )
+        )
+        self.capture.with_suffix(".pt").write_bytes(b"transport fixture only")
+
+    def test_replay_retains_original_failure_and_records_independent_result(self):
+        self.write_capture()
+
+        def replay_result(command, environment, snapshot, log, timeout):
+            output = Path(command[command.index("--output-dir") + 1])
+            output.mkdir()
+            (output / "result.json").write_text(json.dumps({"success": True}))
+            return {"success": True, "returncode": 0}
+
+        with (
+            patch.object(
+                self.launcher.shared, "run_bounded", side_effect=replay_result
+            ),
+            patch.object(
+                self.launcher.shared,
+                "npu_snapshot",
+                return_value={"all_eight_idle": False},
+            ),
+        ):
+            self.launcher.replay_failed_router(self.args, self.directory, {}, self.item)
+        replay = self.item["router_actual_replay"]
+        self.assertIs(replay["attempted"], True)
+        self.assertIs(replay["result"]["success"], True)
+        self.assertIs(self.item["process"]["success"], False)
+        self.assertIs(replay["npu_before"]["all_eight_idle"], False)
+
+    def test_replay_skips_nonfinite_or_successful_capture(self):
+        for finite, returned in ((False, False), (True, True)):
+            with self.subTest(finite=finite, returned=returned):
+                self.write_capture(finite=finite, returned=returned)
+                with patch.object(
+                    self.launcher.shared,
+                    "npu_snapshot",
+                    return_value={"all_eight_idle": False},
+                ):
+                    self.launcher.replay_failed_router(
+                        self.args, self.directory, {}, self.item
+                    )
+                self.assertIs(self.item["router_actual_replay"]["attempted"], False)
+                self.assertIn("skip_reason", self.item["router_actual_replay"])
+
+    def test_replay_requires_owned_child_cleanup(self):
+        self.write_capture()
+        self.item["process"]["surviving_owned_pids"] = [123]
+        self.launcher.replay_failed_router(self.args, self.directory, {}, self.item)
+        self.assertIs(self.item["router_actual_replay"]["attempted"], False)
+        self.assertEqual(
+            self.item["router_actual_replay"]["skip_reason"],
+            "native child processes remain",
+        )
 
 
 if __name__ == "__main__":

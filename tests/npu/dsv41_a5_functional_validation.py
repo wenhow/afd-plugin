@@ -88,6 +88,8 @@ def probe_command(
     ]
     if args._overlap:
         command.append("--overlap")
+    if args.diagnose_native:
+        command.append("--capture-router-inputs")
     if args.run:
         command.append("--run")
     return command
@@ -314,7 +316,7 @@ def diagnose_router(args, snapshot: Path, environment: dict[str, str], report: d
             )
             idle = shared.npu_snapshot(args.output_dir / (name + "-npu.log"))
             item["npu_after"] = idle
-            if not idle["all_eight_idle"]:
+            if not idle["all_eight_idle"] and not args.ignore_npu_occupancy:
                 raise RuntimeError(f"devices not idle after {name}")
         # A failed kernel poisons only this child context. Continue the
         # remaining independent cases after owned cleanup and the idle check.
@@ -324,6 +326,54 @@ def diagnose_router(args, snapshot: Path, environment: dict[str, str], report: d
         for item in report["scenes"]
     ):
         raise RuntimeError("isolated router cases failed; see each result and log")
+
+
+def replay_failed_router(args, snapshot: Path, environment: dict[str, str], item: dict):
+    """Replay a captured failing call only after its owned child has exited."""
+    replay = {"attempted": False, "diagnostic_only": True}
+    item["router_actual_replay"] = replay
+    if item["process"].get("surviving_owned_pids"):
+        replay["skip_reason"] = "native child processes remain"
+        return
+    idle = shared.npu_snapshot(args.output_dir / "native-before-router-replay-npu.log")
+    replay["npu_before"] = idle
+    if not idle["all_eight_idle"] and not args.ignore_npu_occupancy:
+        replay["skip_reason"] = "devices not idle after native child cleanup"
+        return
+    records = sorted((args.output_dir / item["name"] / "router-inputs").glob("*.json"))
+    for path in records:
+        record = json.loads(path.read_text("utf-8"))
+        if (
+            record["capture_complete"]
+            and record["operator_called"]
+            and not record["operator_returned"]
+        ):
+            replay["source_capture"] = record
+            if not all(tensor["finite"] for tensor in record["tensors"].values()):
+                replay["skip_reason"] = "captured inputs contain nonfinite values"
+                return
+            name = "router-actual-replay"
+            command = [
+                args.python,
+                "-B",
+                str(snapshot / "tests/npu/dsv41_a5_router_probe.py"),
+                "--replay-inputs",
+                str(path.with_suffix(".pt")),
+                "--device",
+                str(args._devices[0]),
+                "--output-dir",
+                str(args.output_dir / name),
+                "--run",
+            ]
+            replay["attempted"] = True
+            replay["process"] = execute_scene(
+                args, command, environment, snapshot, name
+            )
+            result = args.output_dir / name / "result.json"
+            if result.is_file():
+                replay["result"] = json.loads(result.read_text("utf-8"))
+            return
+    replay["skip_reason"] = "no completed capture of a failing router call"
 
 
 def main() -> int:
@@ -357,6 +407,11 @@ def main() -> int:
         action="store_true",
         help="six isolated hash-router cases; no Worker or model; diagnostic only",
     )
+    parser.add_argument(
+        "--ignore-npu-occupancy",
+        action="store_true",
+        help="diagnostic modes only; retain but exclude occupancy observations",
+    )
     parser.add_argument("--_pair", action="store_true", help=argparse.SUPPRESS)
     parser.add_argument("--_snapshot", type=Path, help=argparse.SUPPRESS)
     parser.add_argument("--_mode", default="eager-u1", help=argparse.SUPPRESS)
@@ -366,6 +421,8 @@ def main() -> int:
     parser.add_argument("--_overlap", action="store_true", help=argparse.SUPPRESS)
     args = parser.parse_args()
     diagnostic = args.diagnose_native or args.diagnose_router
+    if args.ignore_npu_occupancy and not diagnostic:
+        parser.error("--ignore-npu-occupancy requires a diagnostic mode")
     if diagnostic and args._pair:
         parser.error("diagnostic modes cannot run an A/F pair")
     try:
@@ -420,6 +477,7 @@ def main() -> int:
         "run_requested": args.run,
         "diagnostic_only": diagnostic,
         "router_diagnostic": args.diagnose_router,
+        "npu_occupancy_excluded": args.ignore_npu_occupancy,
         "ascend_launch_blocking": environment.get("ASCEND_LAUNCH_BLOCKING"),
         "preflight_timeout_seconds": args.preflight_timeout,
         "scenes": [],
@@ -444,7 +502,7 @@ def main() -> int:
         if args.run:
             before = shared.npu_snapshot(args.output_dir / "npu-before.log")
             report["npu_before"] = before
-            if not before["all_eight_idle"]:
+            if not before["all_eight_idle"] and not args.ignore_npu_occupancy:
                 raise RuntimeError("eight idle devices were not confirmed")
             inspect = [
                 args.python,
@@ -506,13 +564,18 @@ def main() -> int:
             process = execute_scene(args, command, environment, snapshot, name)
             item = {"name": name, "process": process}
             report["scenes"].append(item)
+            result_path = args.output_dir / name / "result.json"
+            if args.run and result_path.is_file():
+                item["result"] = json.loads(result_path.read_text("utf-8"))
             if not process["success"]:
+                if args.run and args.diagnose_native:
+                    replay_failed_router(args, snapshot, environment, item)
                 raise RuntimeError(f"normal Worker scene failed: {name}")
             if args.run:
-                result = json.loads(
-                    (args.output_dir / name / "result.json").read_text("utf-8")
-                )
+                result = item["result"]
                 if result.get("success") is not True:
+                    if args.diagnose_native:
+                        replay_failed_router(args, snapshot, environment, item)
                     raise RuntimeError(f"normal Worker report failed: {name}")
                 if role == "native" and not all(
                     result.get(k) is True for k in NORMAL_REQUIRED_FLAGS
@@ -521,7 +584,7 @@ def main() -> int:
                 item["result"] = result
                 idle = shared.npu_snapshot(args.output_dir / (name + "-npu.log"))
                 item["npu_after"] = idle
-                if not idle["all_eight_idle"]:
+                if not idle["all_eight_idle"] and not args.ignore_npu_occupancy:
                     raise RuntimeError(f"devices not idle after {name}")
         if args.run and not diagnostic:
             report["native_afd_comparison"] = compare_normal_scenes(report["scenes"])
@@ -587,7 +650,10 @@ def main() -> int:
                 report["npu_after"] = shared.npu_snapshot(
                     args.output_dir / "npu-after.log"
                 )
-                if not report["npu_after"]["all_eight_idle"]:
+                if (
+                    not report["npu_after"]["all_eight_idle"]
+                    and not args.ignore_npu_occupancy
+                ):
                     report["success"] = False
             except BaseException:
                 report["cleanup_collection_error"] = traceback.format_exc()
