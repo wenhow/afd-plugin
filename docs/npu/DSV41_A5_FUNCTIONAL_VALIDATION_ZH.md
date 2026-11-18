@@ -11,6 +11,10 @@ DSpark/PD 使用真实原生 DSpark draft、设备缓存写入和 Mooncake 传�
 仍是有明确输出预期的受控组件。因此结果用于**功能组合验证**，不代表训练检查点
 精度、完整 Engram 模型或所有拓扑/长运行已经验收。
 
+2026-11-18 更新：vendor 路径准备前置后，原生 eager/U1 诊断已完成六轮执行、
+取消/追加请求及正常清理，十八次路由调用全部返回。该次仅运行原生诊断场景；
+下一步执行完整七场景，见下方“原生 vendor 前置诊断通过”记录。
+
 ## 1. 更新并执行
 
 使用此前能运行 DSV4.1 的 A5 容器和 Python 环境，保留其 CANN/ATB/OPP 环境。
@@ -455,6 +459,37 @@ python -B tests/npu/dsv41_a5_functional_validation.py \
 不忽略原生失败；只有原生生命周期和清理实际通过后，才继续完整七场景。
 [本轮记录与CPU核对](../../openspec/changes/afd-hccl-full-parity/evidence/a5-router-import-order-20261118/README.md)
 与之前失败和对照分别保留，A5启动及七场景验收仍待确认。
+
+### 原生 vendor 前置诊断通过：继续完整七场景
+
+`a095f8a7ad73413a9fa98abd3eceaf49.zip`及
+`e19a3975e09d411a838711d3b1e7c245.zip`确认：冻结包
+`d0a32a80a5737f04b968e176cc61f7afa3af444658ecdfc93f6f937b359da521`
+在A5原生 eager/U1 完成六轮执行和采样，十八次路由调用全部返回；
+A/B两轮后取消A、B结束、追加C并结束，Worker/通信组清理通过，进程退出0且无所属残留。
+首次路由输入PT的SHA与此前失败完全相同，前置vendor准备发生在扩展导入前。
+该调整后的原生诊断路径现已跑通，原始summary仍为`npu_acceptance=diagnostic_only`。
+
+成功进程仍加载customize vendor库，不能把此前错误解释为“加载该库本身就会失败”。
+本次没有原生/AFD比较，也没有运行U2、Graph或DSpark/PD场景；完整七场景仍待验证。
+按下面命令继续，使用全新目录，正常模式不带`--diagnose-native`或`--ignore-npu-occupancy`：
+
+```bash
+git pull --ff-only origin feat/dsv41-flash-hccl-v030
+
+python -B tests/npu/dsv41_a5_functional_validation.py \
+  --model /home/models/DeepSeek-V4.1-Flash \
+  --transformer-vendor /usr/local/Ascend/ascend-toolkit/latest/opp/vendors/custom_transformer \
+  --devices 0,1,2,3 \
+  --preflight-timeout 900 \
+  --output-dir results/dsv41-a5-functional-vendor-first-20261118 \
+  --run
+```
+
+回传整个输出目录的压缩包，包含snapshot、summary、各角色结果、日志和原始hidden。
+七场景通过仍要求`success=true`、`npu_acceptance=component_suite_passed`及七项完整结果。
+[本次原始上传与独立核对](../../openspec/changes/afd-hccl-full-parity/evidence/a5-native-vendor-first-pass-20261118/README.md)
+记录源码身份、真实输入、六轮输出及清理；完整检查点/Engram/性能范围保持待验收。
 
 ## 4. 源码与实施边界
 

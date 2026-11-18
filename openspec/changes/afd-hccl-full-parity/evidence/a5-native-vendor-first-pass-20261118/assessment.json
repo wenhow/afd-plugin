@@ -1,0 +1,241 @@
+{
+  "uploads": {
+    "a095f8a7ad73413a9fa98abd3eceaf49.zip": "a1fdb46716b36e62b3412edbed9dcac24252e80939e70c3cc273ae131726097a",
+    "e19a3975e09d411a838711d3b1e7c245.zip": "0e359d153823d44d7f5c72067e38626a5c15423421790f70b39af61a0a299443"
+  },
+  "runtime_source_sha256": "d0a32a80a5737f04b968e176cc61f7afa3af444658ecdfc93f6f937b359da521",
+  "source_files": 189,
+  "production_files": 146,
+  "native_sources_match": true,
+  "native_source_count": 194,
+  "package_versions": {
+    "cann-ops-transformer": "1.0.0",
+    "custom-ops": "1.0",
+    "torch": "2.10.0",
+    "torch-npu": "2.10.0.post4",
+    "vllm": "0.30.0+empty",
+    "vllm-afd-plugin": null,
+    "vllm-ascend": "0.19.1rc2.dev637+g2db8549c5"
+  },
+  "geometry": {
+    "role": "native",
+    "mode": "eager-u1",
+    "hf_override": "bounded_a5_c2_hf_config",
+    "hidden_size": 1024,
+    "n_routed_experts": 64,
+    "num_experts_per_tok": 2,
+    "head_size": 512,
+    "num_attention_heads": 64,
+    "index_n_heads": 32,
+    "index_head_dim": 128,
+    "hc_mult": 4,
+    "num_hidden_layers": 3,
+    "compress_ratios": [
+      0,
+      0,
+      2
+    ],
+    "max_num_seqs": 2,
+    "ubatch_size": 0,
+    "enforce_eager": true,
+    "capture_sizes": [],
+    "kv_budget_bytes": 8388608,
+    "additional_config": {
+      "enable_cpu_binding": false
+    },
+    "geometry_or_mode_mutated_after_construction": false
+  },
+  "device": "npu:0",
+  "scope": "bounded BF16 dummy C2 normal Worker functional component",
+  "success": true,
+  "diagnostic_only": true,
+  "npu_acceptance": "diagnostic_only",
+  "npu_occupancy_excluded_per_user": true,
+  "process_returncode": 0,
+  "timed_out": false,
+  "forced_killed_pids": [],
+  "surviving_owned_pids": [],
+  "operator_environment_preparation": {
+    "before": "/usr/local/Ascend/cann-9.2.0/opp/vendors/custom_transformer:/usr/local/python3.11.10/lib/python3.11/site-packages/fla_npu/opp/vendors/fla_npu_transformer:/usr/local/python3.11.10/lib/python3.11/site-packages/fla_npu/opp/vendors/fla_npu_transformer/op_api/lib",
+    "extension_already_imported": false,
+    "available": true,
+    "vendor": "/opt/vllm-ascend/vllm_ascend/_cann_ops_custom/vendors/custom_transformer",
+    "after": "/opt/vllm-ascend/vllm_ascend/_cann_ops_custom/vendors/custom_transformer:/usr/local/Ascend/cann-9.2.0/opp/vendors/custom_transformer:/usr/local/python3.11.10/lib/python3.11/site-packages/fla_npu/opp/vendors/fla_npu_transformer:/usr/local/python3.11.10/lib/python3.11/site-packages/fla_npu/opp/vendors/fla_npu_transformer/op_api/lib",
+    "library_sha256": "e896e0387f6ddad9e8088ca3aa636e414da31f31607d9fa78d4ef090c9df1595"
+  },
+  "router_calls_verified": 18,
+  "first_input_matches_previous_failure": true,
+  "first_input_sha256": "6bf7ca17a89d2e6dbcbc1c9878b567a5e2a3dca2357d1be2a84eaad37e93d6e0",
+  "symbol_providers_before_call": [
+    {
+      "lookup_library": "/opt/vllm-ascend/vllm_ascend/_cann_ops_custom/vendors/custom_transformer/op_api/lib/libcust_opapi.so",
+      "symbol": "aclnnMoeGatingTopKHashGetWorkspaceSize",
+      "provider": "/opt/vllm-ascend/vllm_ascend/_cann_ops_custom/vendors/custom_transformer/op_api/lib/libcust_opapi.so"
+    },
+    {
+      "lookup_library": "/opt/vllm-ascend/vllm_ascend/_cann_ops_custom/vendors/custom_transformer/op_api/lib/libcust_opapi.so",
+      "symbol": "aclnnMoeGatingTopKHash",
+      "provider": "/opt/vllm-ascend/vllm_ascend/_cann_ops_custom/vendors/custom_transformer/op_api/lib/libcust_opapi.so"
+    },
+    {
+      "lookup_library": "/usr/local/Ascend/cann-9.2.0/opp/vendors/customize/op_api/lib/libcust_opapi.so",
+      "symbol": "aclnnMoeGatingTopKHashGetWorkspaceSize",
+      "provider": "/usr/local/Ascend/cann-9.2.0/opp/vendors/customize/op_api/lib/libcust_opapi.so"
+    },
+    {
+      "lookup_library": "/usr/local/Ascend/cann-9.2.0/opp/vendors/customize/op_api/lib/libcust_opapi.so",
+      "symbol": "aclnnMoeGatingTopKHash",
+      "provider": "/usr/local/Ascend/cann-9.2.0/opp/vendors/customize/op_api/lib/libcust_opapi.so"
+    }
+  ],
+  "libraries_before_call": [
+    {
+      "path": "/opt/vllm-ascend/vllm_ascend/_cann_ops_custom/vendors/custom_transformer/op_api/lib/libcust_opapi.so",
+      "sha256": "e896e0387f6ddad9e8088ca3aa636e414da31f31607d9fa78d4ef090c9df1595"
+    },
+    {
+      "path": "/opt/vllm-ascend/vllm_ascend/vllm_ascend_C.cpython-311-aarch64-linux-gnu.so",
+      "sha256": "c0476a67006e7eeea2b34f17ff103be8034852aeb4b07a923a0e6436002a7da6"
+    },
+    {
+      "path": "/usr/local/Ascend/cann-9.2.0/aarch64-linux/lib64/libopapi.so",
+      "sha256": "5f101f982e4c55b0e0317a470e8bfd1c6cecbd95222aa66269f8dedf7191d037"
+    },
+    {
+      "path": "/usr/local/Ascend/cann-9.2.0/aarch64-linux/lib64/libopapi_transformer.so",
+      "sha256": "d3c5cc4bc671789345a3417f22da923379ae0d4678cdbcee083fdd1794138aad"
+    },
+    {
+      "path": "/usr/local/Ascend/cann-9.2.0/opp/vendors/custom_transformer/op_api/lib/libcust_opapi.so",
+      "sha256": "e8861d0e94710c8cc82dba89f99877eeee78fa2e0aeffa9512085d3df1ffe056"
+    },
+    {
+      "path": "/usr/local/Ascend/cann-9.2.0/opp/vendors/customize/op_api/lib/libcust_opapi.so",
+      "sha256": "c6592b7bafefdfb1f8333f5878582e371205f1596c51113e09ec606e5350b296"
+    },
+    {
+      "path": "/usr/local/python3.11.10/lib/python3.11/site-packages/fla_npu/opp/vendors/fla_npu_transformer/op_api/lib/libcust_opapi.so",
+      "sha256": "70bc56a1415d2028c18391f852816030c3b4e9f74f42b646fe494477ad7a9356"
+    },
+    {
+      "path": "/usr/local/python3.11.10/lib/python3.11/site-packages/fla_npu/opp/vendors/fla_npu_transformer/op_impl/ai_core/tbe/op_tiling/liboptiling.so",
+      "sha256": "88fe700e0e0712dff7975ce46339bac0353592469875f756b5cc622246df5921"
+    }
+  ],
+  "request_rounds": 6,
+  "outputs": {
+    "functional-A": [
+      239,
+      14
+    ],
+    "functional-B": [
+      1140,
+      382,
+      3962,
+      2736
+    ],
+    "functional-C": [
+      1605,
+      3825
+    ]
+  },
+  "scheduler_empty": true,
+  "worker_requests_retired": true,
+  "replacement_slot_matches_retired": true,
+  "hidden_artifacts_verified": [
+    {
+      "ordinal": 0,
+      "shape": [
+        8,
+        1024
+      ],
+      "dtype": "torch.bfloat16",
+      "device": "npu:0",
+      "data_ptr": 19793272256512,
+      "bytes": 16384,
+      "sha256": "be3268387149ce3a07d9220cbff8f067ff603b2d2fe1d70548588190e37dd9bc",
+      "raw_file": "step-0-hidden-valid.bin",
+      "finite": true
+    },
+    {
+      "ordinal": 1,
+      "shape": [
+        2,
+        1024
+      ],
+      "dtype": "torch.bfloat16",
+      "device": "npu:0",
+      "data_ptr": 19793272109056,
+      "bytes": 4096,
+      "sha256": "3c506c2ea77b303a427197ba0bf30753f6c3b9419c2351bb68540540a9dddc17",
+      "raw_file": "step-1-hidden-valid.bin",
+      "finite": true
+    },
+    {
+      "ordinal": 2,
+      "shape": [
+        1,
+        1024
+      ],
+      "dtype": "torch.bfloat16",
+      "device": "npu:0",
+      "data_ptr": 19793272053760,
+      "bytes": 2048,
+      "sha256": "ab9142b17aa1c454ce58e62492d96b93eb705f192caf0a5ba69c01721e38cf4f",
+      "raw_file": "step-2-hidden-valid.bin",
+      "finite": true
+    },
+    {
+      "ordinal": 3,
+      "shape": [
+        1,
+        1024
+      ],
+      "dtype": "torch.bfloat16",
+      "device": "npu:0",
+      "data_ptr": 19793272053760,
+      "bytes": 2048,
+      "sha256": "93089760b09069b22838162487c59d38a090437a73e6cdd85b1bc2c399d7a6e3",
+      "raw_file": "step-3-hidden-valid.bin",
+      "finite": true
+    },
+    {
+      "ordinal": 4,
+      "shape": [
+        4,
+        1024
+      ],
+      "dtype": "torch.bfloat16",
+      "device": "npu:0",
+      "data_ptr": 19793272055808,
+      "bytes": 8192,
+      "sha256": "f0060ba1052fcd1d94dc35760f009c4dc21145becfaba4f53c59e2552b8cfa14",
+      "raw_file": "step-4-hidden-valid.bin",
+      "finite": true
+    },
+    {
+      "ordinal": 5,
+      "shape": [
+        1,
+        1024
+      ],
+      "dtype": "torch.bfloat16",
+      "device": "npu:0",
+      "data_ptr": 19793272053760,
+      "bytes": 2048,
+      "sha256": "dfbdfa9dc9c19df463f77be94cfd6338c7c70873fc6000d865004ca853bc859e",
+      "raw_file": "step-5-hidden-valid.bin",
+      "finite": true
+    }
+  ],
+  "worker_shutdown_completed": true,
+  "native_groups_destroyed": true,
+  "cleanup_failures": [],
+  "full_checkpoint_accepted": false,
+  "numerical_equivalence_accepted": false,
+  "dspark_accepted": false,
+  "pd_accepted": false,
+  "engram_accepted": false,
+  "performance_accepted": false,
+  "seven_scene_suite_accepted": false
+}
