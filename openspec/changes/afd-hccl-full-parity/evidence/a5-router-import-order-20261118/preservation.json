@@ -1,0 +1,9 @@
+{
+  "preexisting_paths": 27,
+  "unchanged_paths": 25,
+  "documentation_paths_with_only_scoped_append": [
+    "docs/npu/DSV41_A5_FUNCTIONAL_VALIDATION_ZH.md",
+    "openspec/changes/afd-hccl-full-parity/tasks.md"
+  ],
+  "result": "preserved"
+}

@@ -1,0 +1,15 @@
+{
+  "command": [
+    "python",
+    "-B",
+    "-S",
+    "-m",
+    "unittest",
+    "tests.e2e.diagnostics.test_dsv41_a5_functional_validation"
+  ],
+  "returncode": 0,
+  "tests": 17,
+  "failures": 0,
+  "errors": 0,
+  "raw_log": ".venv/Scripts/python.exe : .................\n\u6240\u5728\u4f4d\u7f6e \u884c:2 \u5b57\u7b26: 1\n+ .venv/Scripts/python.exe -B -S -m unittest tests.e2e.diagnostics.test ...\n+ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n    + CategoryInfo          : NotSpecified: (.................:String) [], RemoteException\n    + FullyQualifiedErrorId : NativeCommandError\n \n----------------------------------------------------------------------\nRan 17 tests in 9.536s\n\nOK\n"
+}

@@ -418,6 +418,44 @@ shape/stride/storage_offset、dtype、有限值统计及标量参数；记录实
 [本轮证据与CPU检查](../../openspec/changes/afd-hccl-full-parity/evidence/a5-router-real-inputs-20261118/README.md)
 保留原始上传和独立判读。实际A5输入捕获/重放、原生首轮及七场景验收仍待环境运行。
 
+### 真实输入重放通过：提前准备已安装算子的 vendor 路径
+
+新上传的`71469d06557e4671a2dc7517df967c36.zip`及
+`d2b863b33663403fb93ce9b9b3963d4a.zip`确认真实输入保存与独立重放均已执行。
+原生首轮仍在hash router报507035/341，Worker shutdown失败；所属子进程最终已回收。
+真实logits为FP32 `[8,64]`，bias为FP32 `[64]`，均连续、偏移为0且没有NaN/Inf。
+同一输入和标量参数在新进程中成功执行，ID与CPU参考完全一致，权重最大误差
+`5.960464477539063e-8`。原始重放报告没有数值参考验收，本轮独立CPU核对另行记录。
+这说明不能继续把错误归因于这份输入的逻辑值、普通步长或64专家形状。
+
+两进程实际加载库仍有差异：原生额外加载`opp/vendors/customize/op_api/lib/libcust_opapi.so`。
+它是否参与了失败路由调用尚未证实。锁定扩展的`op_api_common.h`在库导入时就把
+`ASCEND_CUSTOM_OPP_PATH`存入静态搜索表；普通Worker的A5 bootstrap原先在配置和设备初始化后。
+本轮在任何torch/vLLM运行时导入前，把当前已安装vLLM-Ascend自带的custom_transformer目录
+放到搜索路径首位，保留外部Transformer及其他原有目录，不修改共享安装或原生算子。
+准备报告记录前后路径、库SHA以及扩展是否已经提前导入。该时序调整的设备效果仍待重跑。
+
+```bash
+git pull --ff-only origin feat/dsv41-flash-hccl-v030
+
+python -B tests/npu/dsv41_a5_functional_validation.py \
+  --model /home/models/DeepSeek-V4.1-Flash \
+  --transformer-vendor /usr/local/Ascend/ascend-toolkit/latest/opp/vendors/custom_transformer \
+  --devices 0,1,2,3 \
+  --preflight-timeout 900 \
+  --output-dir results/dsv41-a5-native-vendor-first-20261118 \
+  --diagnose-native \
+  --ignore-npu-occupancy \
+  --run
+```
+
+仍使用全新目录并回传整个目录（含PT输入）。首个路由调用前及重放调用前增加已加载库、
+两个路由ACLNN符号的导出来源，以及inference/grad/deterministic上下文记录。
+符号探针只查看已经加载的库，不加载新算子库、不调用算子，也不能证明C++缓存指针的最终绑定。
+不忽略原生失败；只有原生生命周期和清理实际通过后，才继续完整七场景。
+[本轮记录与CPU核对](../../openspec/changes/afd-hccl-full-parity/evidence/a5-router-import-order-20261118/README.md)
+与之前失败和对照分别保留，A5启动及七场景验收仍待确认。
+
 ## 4. 源码与实施边界
 
 交付源码见 [准备记录](../../reports/dsv41-a5-functional/preparation.json) 和

@@ -25,7 +25,10 @@ from contextlib import contextmanager, nullcontext
 from dataclasses import asdict
 from pathlib import Path
 
-from dsv41_a5_router_probe import capture_router_inputs
+from dsv41_a5_router_probe import (
+    capture_router_inputs,
+    prepare_native_operator_environment,
+)
 from dsv41_dspark_a5_runtime import NATIVE_INDEX_HEADS, native_a5_bootstrap
 from dsv41_normal_c2_probe import (
     ATTENTION_KV_BUDGET_BYTES,
@@ -983,6 +986,10 @@ def main() -> int:
         report["output_dir"] = str(args.output_dir)
         os.environ.update(environment)
         try:
+            if args.run:
+                report["operator_environment_preparation"] = (
+                    prepare_native_operator_environment()
+                )
             report["runtime_imported"] = True
             config = build_config(args, report)
             if args.run:

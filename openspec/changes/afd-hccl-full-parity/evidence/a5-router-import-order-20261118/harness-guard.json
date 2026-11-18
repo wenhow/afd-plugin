@@ -1,0 +1,16 @@
+{
+  "ok": true,
+  "upstreams": [
+    "vllm",
+    "vllm_ascend",
+    "hccl_donor"
+  ],
+  "unchanged": true,
+  "command": [
+    "python",
+    "-B",
+    ".agents/dsv41/harness.py",
+    "guard"
+  ],
+  "returncode": 0
+}

@@ -226,6 +226,66 @@ class TestTransformerVendor(unittest.TestCase):
         self.assertEqual(normal["ASCEND_LAUNCH_BLOCKING"], "0")
 
 
+class TestInstalledVendorEnvironment(unittest.TestCase):
+    def setUp(self):
+        temporary = tempfile.TemporaryDirectory(dir=ROOT / ".tmp")
+        self.addCleanup(temporary.cleanup)
+        self.directory = Path(temporary.name).resolve()
+        package = self.directory / "vllm_ascend"
+        package.mkdir()
+        (package / "__init__.py").write_text("raise RuntimeError('runtime imported')")
+        self.vendor = package / "_cann_ops_custom/vendors/custom_transformer"
+        self.library = self.vendor / "op_api/lib/libcust_opapi.so"
+        self.library.parent.mkdir(parents=True)
+        self.library.write_bytes(b"presence fixture; never dlopen this file")
+
+    def prepare_in_child(self, inherited):
+        script = (
+            "import json,os,sys;"
+            "from dsv41_a5_router_probe import prepare_native_operator_environment;"
+            "record=prepare_native_operator_environment();"
+            "print(json.dumps({'record':record,'ld':os.environ['LD_LIBRARY_PATH'],"
+            "'runtime':[n for n in sys.modules if n.split('.')[0] in "
+            "('vllm_ascend','torch','torch_npu','vllm')]}))"
+        )
+        return subprocess.run(
+            [sys.executable, "-B", "-S", "-c", script],
+            env={
+                **os.environ,
+                "PYTHONPATH": os.pathsep.join(
+                    (str(self.directory), str(LAUNCHER.parent))
+                ),
+                "ASCEND_CUSTOM_OPP_PATH": inherited,
+                "LD_LIBRARY_PATH": "external-transformer-library",
+            },
+            capture_output=True,
+            check=True,
+            timeout=TIMEOUT_SECONDS,
+        )
+
+    def test_installed_vendor_precedes_external_roots_without_runtime_imports(self):
+        for entries in (("external", "fla"), ("external", str(self.vendor), "fla")):
+            with self.subTest(entries=entries):
+                result = self.prepare_in_child(os.pathsep.join(entries))
+                report = json.loads(result.stdout)
+                self.assertEqual(
+                    report["record"]["after"].split(os.pathsep),
+                    [str(self.vendor), "external", "fla"],
+                )
+                self.assertIs(report["record"]["extension_already_imported"], False)
+                self.assertEqual(report["runtime"], [])
+                self.assertEqual(report["ld"], "external-transformer-library")
+
+    def test_missing_installed_vendor_retains_external_environment(self):
+        self.library.unlink()
+        result = self.prepare_in_child("external")
+        report = json.loads(result.stdout)
+        self.assertIs(report["record"]["available"], False)
+        self.assertEqual(report["record"]["before"], "external")
+        self.assertNotIn("after", report["record"])
+        self.assertEqual(report["runtime"], [])
+
+
 class TestRouterDiagnostics(unittest.TestCase):
     def setUp(self):
         temporary = tempfile.TemporaryDirectory(dir=ROOT / ".tmp")

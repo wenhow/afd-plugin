@@ -1,0 +1,154 @@
+{
+  "uploads": {
+    "71469d06557e4671a2dc7517df967c36": "88639577f3a98970fed83c3dcf0d269faa4f47367014d147893764473d2fbb46",
+    "d2b863b33663403fb93ce9b9b3963d4a": "1d1e377676967fc474b35875a6aa9305fbd16c467ae47229f2a219fe37081833"
+  },
+  "runtime_source_sha256": "99d24a6388a0fe491f051d68accab5710ff2bb550aff733f6750e73bceb4e9d9",
+  "npu_occupancy_excluded_per_user": true,
+  "native_success": false,
+  "inference_executed": false,
+  "native_returncode": 1,
+  "actual_capture": {
+    "index": 1,
+    "schema": "_C_ascend::moe_gating_top_k_hash(Tensor x, int k, Tensor? bias=None, Tensor? input_ids=None, Tensor? tid2eid=None, int k_group=1, int group_count=1, float routed_scaling_factor=1., float eps=9.9999999999999995e-21, int group_select_mode=0, int renorm=0, int norm_type=0, bool out_flag=False, Tensor? bias_vl=None, int image_sentinel_lo=129257, int image_sentinel_count=5) -> (Tensor y, Tensor expert_idx, Tensor out)",
+    "inputs_file": "/home/z00569729/dsv41-afd/src/afd-plugin-dsv41-a5/results/dsv41-a5-native-inputs-20261118/native-eager-u1/router-inputs/call-001.pt",
+    "metadata_file": "/home/z00569729/dsv41-afd/src/afd-plugin-dsv41-a5/results/dsv41-a5-native-inputs-20261118/native-eager-u1/router-inputs/call-001.json",
+    "capture_complete": true,
+    "operator_called": true,
+    "operator_returned": false,
+    "tensors": {
+      "x": {
+        "shape": [
+          8,
+          64
+        ],
+        "stride": [
+          64,
+          1
+        ],
+        "storage_offset": 0,
+        "dtype": "torch.float32",
+        "device": "npu:0",
+        "finite": true,
+        "nonfinite_count": 0,
+        "finite_min": -3.8198453694349155e-05,
+        "finite_max": 2.9058592190267518e-05
+      },
+      "bias": {
+        "shape": [
+          64
+        ],
+        "stride": [
+          1
+        ],
+        "storage_offset": 0,
+        "dtype": "torch.float32",
+        "device": "npu:0",
+        "finite": true,
+        "nonfinite_count": 0,
+        "finite_min": -0.000991996144875884,
+        "finite_max": 0.0009762373520061374
+      }
+    },
+    "scalars": {
+      "k": 2,
+      "input_ids": null,
+      "tid2eid": null,
+      "k_group": 1,
+      "group_count": 1,
+      "routed_scaling_factor": 1.5,
+      "eps": 1e-20,
+      "group_select_mode": 1,
+      "renorm": 0,
+      "norm_type": 2,
+      "out_flag": false,
+      "bias_vl": null,
+      "image_sentinel_lo": 129264,
+      "image_sentinel_count": 5
+    },
+    "inputs_sha256": "6bf7ca17a89d2e6dbcbc1c9878b567a5e2a3dca2357d1be2a84eaad37e93d6e0"
+  },
+  "replay_operator_returned": true,
+  "replay_success": true,
+  "replay_reference_matched_in_original": false,
+  "native_only_libraries": [
+    {
+      "path": "/usr/local/Ascend/cann-9.2.0/opp/vendors/customize/op_api/lib/libcust_opapi.so",
+      "sha256": "c6592b7bafefdfb1f8333f5878582e371205f1596c51113e09ec606e5350b296"
+    }
+  ],
+  "replay_only_libraries": [],
+  "native_libraries": [
+    {
+      "path": "/opt/vllm-ascend/vllm_ascend/_cann_ops_custom/vendors/custom_transformer/op_api/lib/libcust_opapi.so",
+      "sha256": "e896e0387f6ddad9e8088ca3aa636e414da31f31607d9fa78d4ef090c9df1595"
+    },
+    {
+      "path": "/opt/vllm-ascend/vllm_ascend/vllm_ascend_C.cpython-311-aarch64-linux-gnu.so",
+      "sha256": "c0476a67006e7eeea2b34f17ff103be8034852aeb4b07a923a0e6436002a7da6"
+    },
+    {
+      "path": "/usr/local/Ascend/cann-9.2.0/aarch64-linux/lib64/libopapi.so",
+      "sha256": "5f101f982e4c55b0e0317a470e8bfd1c6cecbd95222aa66269f8dedf7191d037"
+    },
+    {
+      "path": "/usr/local/Ascend/cann-9.2.0/aarch64-linux/lib64/libopapi_transformer.so",
+      "sha256": "d3c5cc4bc671789345a3417f22da923379ae0d4678cdbcee083fdd1794138aad"
+    },
+    {
+      "path": "/usr/local/Ascend/cann-9.2.0/opp/vendors/custom_transformer/op_api/lib/libcust_opapi.so",
+      "sha256": "e8861d0e94710c8cc82dba89f99877eeee78fa2e0aeffa9512085d3df1ffe056"
+    },
+    {
+      "path": "/usr/local/Ascend/cann-9.2.0/opp/vendors/customize/op_api/lib/libcust_opapi.so",
+      "sha256": "c6592b7bafefdfb1f8333f5878582e371205f1596c51113e09ec606e5350b296"
+    },
+    {
+      "path": "/usr/local/python3.11.10/lib/python3.11/site-packages/fla_npu/opp/vendors/fla_npu_transformer/op_api/lib/libcust_opapi.so",
+      "sha256": "70bc56a1415d2028c18391f852816030c3b4e9f74f42b646fe494477ad7a9356"
+    },
+    {
+      "path": "/usr/local/python3.11.10/lib/python3.11/site-packages/fla_npu/opp/vendors/fla_npu_transformer/op_impl/ai_core/tbe/op_tiling/liboptiling.so",
+      "sha256": "88fe700e0e0712dff7975ce46339bac0353592469875f756b5cc622246df5921"
+    }
+  ],
+  "replay_libraries": [
+    {
+      "path": "/opt/vllm-ascend/vllm_ascend/_cann_ops_custom/vendors/custom_transformer/op_api/lib/libcust_opapi.so",
+      "sha256": "e896e0387f6ddad9e8088ca3aa636e414da31f31607d9fa78d4ef090c9df1595"
+    },
+    {
+      "path": "/opt/vllm-ascend/vllm_ascend/vllm_ascend_C.cpython-311-aarch64-linux-gnu.so",
+      "sha256": "c0476a67006e7eeea2b34f17ff103be8034852aeb4b07a923a0e6436002a7da6"
+    },
+    {
+      "path": "/usr/local/Ascend/cann-9.2.0/aarch64-linux/lib64/libopapi.so",
+      "sha256": "5f101f982e4c55b0e0317a470e8bfd1c6cecbd95222aa66269f8dedf7191d037"
+    },
+    {
+      "path": "/usr/local/Ascend/cann-9.2.0/aarch64-linux/lib64/libopapi_transformer.so",
+      "sha256": "d3c5cc4bc671789345a3417f22da923379ae0d4678cdbcee083fdd1794138aad"
+    },
+    {
+      "path": "/usr/local/Ascend/cann-9.2.0/opp/vendors/custom_transformer/op_api/lib/libcust_opapi.so",
+      "sha256": "e8861d0e94710c8cc82dba89f99877eeee78fa2e0aeffa9512085d3df1ffe056"
+    },
+    {
+      "path": "/usr/local/python3.11.10/lib/python3.11/site-packages/fla_npu/opp/vendors/fla_npu_transformer/op_api/lib/libcust_opapi.so",
+      "sha256": "70bc56a1415d2028c18391f852816030c3b4e9f74f42b646fe494477ad7a9356"
+    },
+    {
+      "path": "/usr/local/python3.11.10/lib/python3.11/site-packages/fla_npu/opp/vendors/fla_npu_transformer/op_impl/ai_core/tbe/op_tiling/liboptiling.so",
+      "sha256": "88fe700e0e0712dff7975ce46339bac0353592469875f756b5cc622246df5921"
+    }
+  ],
+  "cause_confirmed": false,
+  "startup_resolved": false,
+  "derived_cpu_reference": {
+    "ids_match": true,
+    "max_weight_absolute_error": 5.960464477539063e-08,
+    "weights_match": true,
+    "inputs_sha256": "6bf7ca17a89d2e6dbcbc1c9878b567a5e2a3dca2357d1be2a84eaad37e93d6e0",
+    "scope": "CPU reference comparison with the uploaded actual A5 replay result"
+  }
+}

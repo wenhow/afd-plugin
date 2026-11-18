@@ -1,0 +1,17 @@
+{
+  "tests_run": 7,
+  "failures": 0,
+  "errors": 0,
+  "torch_version": "2.10.0+cpu",
+  "npu_initialized": false,
+  "source_unchanged": true,
+  "scope": "CPU capture and layout restoration only; no A5 operator execution",
+  "actual_input_reference": {
+    "ids_match": true,
+    "max_weight_absolute_error": 5.960464477539063e-08,
+    "weights_match": true,
+    "inputs_sha256": "6bf7ca17a89d2e6dbcbc1c9878b567a5e2a3dca2357d1be2a84eaad37e93d6e0",
+    "scope": "CPU reference comparison with the uploaded actual A5 replay result"
+  },
+  "success": true
+}

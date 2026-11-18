@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import importlib.util
 import json
 import os
 import sys
@@ -37,6 +38,90 @@ IMAGE_SENTINEL_COUNT = 5
 ROUTER_OPERATOR = "_C_ascend::moe_gating_top_k_hash"
 MAX_CAPTURED_CALLS = 64
 MAX_REPLAY_STORAGE_ELEMENTS = 1024 * 1024
+ROUTER_SYMBOLS = (
+    "aclnnMoeGatingTopKHashGetWorkspaceSize",
+    "aclnnMoeGatingTopKHash",
+)
+
+
+def prepare_native_operator_environment() -> dict:
+    """Establish installed vendor precedence before any runtime import.
+
+    The pinned extension snapshots ASCEND_CUSTOM_OPP_PATH at dlopen, before
+    native_a5_bootstrap currently runs in the normal Worker. Match the native
+    bootstrap's installed vendor first, preserving external transformer roots.
+    """
+    before = os.environ.get("ASCEND_CUSTOM_OPP_PATH", "")
+    record = {
+        "before": before,
+        "extension_already_imported": "vllm_ascend.vllm_ascend_C" in sys.modules,
+        "available": False,
+    }
+    spec = importlib.util.find_spec("vllm_ascend")
+    if spec is None:
+        return record
+    vendor = Path(spec.origin).parent / "_cann_ops_custom/vendors/custom_transformer"
+    library = vendor / "op_api/lib/libcust_opapi.so"
+    record["vendor"] = str(vendor)
+    if not library.is_file():
+        return record
+    entries = [
+        part for part in before.split(os.pathsep) if part and part != str(vendor)
+    ]
+    os.environ["ASCEND_CUSTOM_OPP_PATH"] = os.pathsep.join((str(vendor), *entries))
+    record.update(
+        available=True,
+        after=os.environ["ASCEND_CUSTOM_OPP_PATH"],
+        library_sha256=hashlib.sha256(library.read_bytes()).hexdigest(),
+    )
+    return record
+
+
+def operator_symbol_providers(
+    paths: list[str], symbols: tuple[str, ...] = ROUTER_SYMBOLS
+) -> list[dict]:
+    """Inspect already loaded ELF handles; never load or invoke an operator."""
+    # Runtime-only ELF inspection; metadata children must not load _ctypes.
+    import ctypes
+
+    class LibraryInfo(ctypes.Structure):
+        _fields_ = (
+            ("filename", ctypes.c_char_p),
+            ("base", ctypes.c_void_p),
+            ("symbol", ctypes.c_char_p),
+            ("address", ctypes.c_void_p),
+        )
+
+    loader = ctypes.CDLL(None)
+    loader.dlopen.argtypes = (ctypes.c_char_p, ctypes.c_int)
+    loader.dlopen.restype = ctypes.c_void_p
+    loader.dlsym.argtypes = (ctypes.c_void_p, ctypes.c_char_p)
+    loader.dlsym.restype = ctypes.c_void_p
+    loader.dladdr.argtypes = (ctypes.c_void_p, ctypes.POINTER(LibraryInfo))
+    loader.dladdr.restype = ctypes.c_int
+    loader.dlclose.argtypes = (ctypes.c_void_p,)
+    loader.dlclose.restype = ctypes.c_int
+    providers = []
+    for path in paths:
+        handle = loader.dlopen(os.fsencode(path), os.RTLD_NOLOAD | os.RTLD_LAZY)
+        if not handle:
+            continue
+        try:
+            for symbol in symbols:
+                address = loader.dlsym(handle, symbol.encode())
+                if address:
+                    info = LibraryInfo()
+                    if loader.dladdr(address, ctypes.byref(info)):
+                        providers.append(
+                            {
+                                "lookup_library": path,
+                                "symbol": symbol,
+                                "provider": os.fsdecode(info.filename),
+                            }
+                        )
+        finally:
+            loader.dlclose(handle)
+    return providers
 
 
 @contextmanager
@@ -98,7 +183,23 @@ def capture_router_inputs(output: Path, operator_name: str = ROUTER_OPERATOR):
             "operator_returned": False,
             "tensors": {},
             "scalars": {},
+            "runtime_context": {
+                "inference_mode": torch.is_inference_mode_enabled(),
+                "grad_enabled": torch.is_grad_enabled(),
+                "deterministic_algorithms": (
+                    torch.are_deterministic_algorithms_enabled()
+                ),
+            },
         }
+        if index == 1:
+            libraries = loaded_operator_libraries()
+            record["libraries_before_call"] = libraries
+            record["symbol_providers_before_call"] = operator_symbol_providers(
+                [item["path"] for item in libraries]
+            )
+            record["custom_opp_path_before_call"] = os.environ.get(
+                "ASCEND_CUSTOM_OPP_PATH"
+            )
         capture["calls"].append(record)
         cpu_values = {}
         try:
@@ -250,6 +351,16 @@ def replay_inputs(path: Path, device: int, output: Path, report: dict) -> None:
         if isinstance(value, torch.Tensor)
     }
     report["phase"] = "operator"
+    report["runtime_context"] = {
+        "inference_mode": torch.is_inference_mode_enabled(),
+        "grad_enabled": torch.is_grad_enabled(),
+        "deterministic_algorithms": torch.are_deterministic_algorithms_enabled(),
+    }
+    libraries = loaded_operator_libraries()
+    report["libraries_before_call"] = libraries
+    report["symbol_providers_before_call"] = operator_symbol_providers(
+        [item["path"] for item in libraries]
+    )
     (output / "result.json").write_bytes((json.dumps(report, indent=2) + "\n").encode())
     weights, ids, _ = torch.ops._C_ascend.moe_gating_top_k_hash(**npu_values)
     torch.npu.synchronize()
@@ -404,6 +515,9 @@ def main() -> int:
         parser.error("--run requires Linux and ASCEND_LAUNCH_BLOCKING=1")
     args.output_dir.mkdir(parents=True, exist_ok=False)
     try:
+        report["operator_environment_preparation"] = (
+            prepare_native_operator_environment()
+        )
         if args.replay_inputs:
             replay_inputs(args.replay_inputs, args.device, args.output_dir, report)
         else:

@@ -1,0 +1,17 @@
+{
+  "runtime_source_sha256": "d0a32a80a5737f04b968e176cc61f7afa3af444658ecdfc93f6f937b359da521",
+  "launcher_sha256": "5732cc4eb3709d660b51c778d236b46dedcc5347bdc110cd2d3d3931e1cfbe30",
+  "changed_from_parent": [
+    "bundle-manifest.json",
+    "tests/npu/dsv41_a5_router_probe.py",
+    "tests/npu/dsv41_functional_worker_probe.py"
+  ],
+  "production_sources_preserved": 146,
+  "python_sources_compiled": 186,
+  "native_git_pins_verified": 194,
+  "cpu_snapshots_match": [
+    "cpu-cli-final",
+    "cpu-capture-final"
+  ],
+  "scope": "Static source identity and CPU snapshots; A5 fix effect pending"
+}

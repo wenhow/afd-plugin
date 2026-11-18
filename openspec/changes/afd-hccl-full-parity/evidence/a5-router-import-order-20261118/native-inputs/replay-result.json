@@ -1,0 +1,240 @@
+{
+  "case": null,
+  "shape": null,
+  "top_k": null,
+  "dtype": null,
+  "vision_bias": null,
+  "replay_inputs": "/home/z00569729/dsv41-afd/src/afd-plugin-dsv41-a5/results/dsv41-a5-native-inputs-20261118/native-eager-u1/router-inputs/call-001.pt",
+  "hash_routing": false,
+  "device": 0,
+  "ascend_launch_blocking": "1",
+  "runtime_imported": true,
+  "operator_returned": true,
+  "reference_matched": false,
+  "model_executed": false,
+  "collective_executed": false,
+  "functional_worker_component_accepted": false,
+  "diagnostic_only": true,
+  "success": true,
+  "source_capture": {
+    "index": 1,
+    "schema": "_C_ascend::moe_gating_top_k_hash(Tensor x, int k, Tensor? bias=None, Tensor? input_ids=None, Tensor? tid2eid=None, int k_group=1, int group_count=1, float routed_scaling_factor=1., float eps=9.9999999999999995e-21, int group_select_mode=0, int renorm=0, int norm_type=0, bool out_flag=False, Tensor? bias_vl=None, int image_sentinel_lo=129257, int image_sentinel_count=5) -> (Tensor y, Tensor expert_idx, Tensor out)",
+    "inputs_file": "/home/z00569729/dsv41-afd/src/afd-plugin-dsv41-a5/results/dsv41-a5-native-inputs-20261118/native-eager-u1/router-inputs/call-001.pt",
+    "metadata_file": "/home/z00569729/dsv41-afd/src/afd-plugin-dsv41-a5/results/dsv41-a5-native-inputs-20261118/native-eager-u1/router-inputs/call-001.json",
+    "capture_complete": true,
+    "operator_called": true,
+    "operator_returned": false,
+    "tensors": {
+      "x": {
+        "shape": [
+          8,
+          64
+        ],
+        "stride": [
+          64,
+          1
+        ],
+        "storage_offset": 0,
+        "dtype": "torch.float32",
+        "device": "npu:0",
+        "finite": true,
+        "nonfinite_count": 0,
+        "finite_min": -3.8198453694349155e-05,
+        "finite_max": 2.9058592190267518e-05
+      },
+      "bias": {
+        "shape": [
+          64
+        ],
+        "stride": [
+          1
+        ],
+        "storage_offset": 0,
+        "dtype": "torch.float32",
+        "device": "npu:0",
+        "finite": true,
+        "nonfinite_count": 0,
+        "finite_min": -0.000991996144875884,
+        "finite_max": 0.0009762373520061374
+      }
+    },
+    "scalars": {
+      "k": 2,
+      "input_ids": null,
+      "tid2eid": null,
+      "k_group": 1,
+      "group_count": 1,
+      "routed_scaling_factor": 1.5,
+      "eps": 1e-20,
+      "group_select_mode": 1,
+      "renorm": 0,
+      "norm_type": 2,
+      "out_flag": false,
+      "bias_vl": null,
+      "image_sentinel_lo": 129264,
+      "image_sentinel_count": 5
+    },
+    "inputs_sha256": "6bf7ca17a89d2e6dbcbc1c9878b567a5e2a3dca2357d1be2a84eaad37e93d6e0"
+  },
+  "phase": "complete",
+  "native_a5_bootstrap": {
+    "native_enable_custom_op_result": false,
+    "runtime_custom_ops_capability": false,
+    "packed_cache_capability": true,
+    "native_partial_rotary_kernel_registered": true,
+    "direct_installed_extension_import": true,
+    "replaced_native_method_or_kernel": false,
+    "modules": {
+      "vllm_ascend_C": {
+        "path": "/opt/vllm-ascend/vllm_ascend/vllm_ascend_C.cpython-311-aarch64-linux-gnu.so",
+        "sha256": "c0476a67006e7eeea2b34f17ff103be8034852aeb4b07a923a0e6436002a7da6"
+      },
+      "custom_ops": {
+        "path": "/usr/local/python3.11.10/lib/python3.11/site-packages/custom_ops/__init__.py",
+        "sha256": "ac77c05e1000a1b5f0b77b0eb20bc98445981204669233f81da9a4cae97e88ec"
+      },
+      "cann_ops_transformer": {
+        "path": "/usr/local/python3.11.10/lib/python3.11/site-packages/cann_ops_transformer/__init__.py",
+        "sha256": "cd60c29a125cfbf351c3f5a38529ca922aa93db9996721d947f3ffb532c2193d"
+      }
+    },
+    "schemas": {
+      "partial_rotary": "_C_ascend::inplace_partial_rotary_mul(Tensor(a!) x, Tensor r1, Tensor r2, str rotary_mode, int[] partial_slice, bool negate_sin=False) -> ()",
+      "hc_pre": "custom::npu_hc_pre_v2(Tensor x, Tensor hc_fn, Tensor hc_scale, Tensor hc_base, Tensor? pre_mix=None, *, int hc_mult=4, int hc_sinkhorn_iters=20, float norm_eps=9.9999999999999995e-07, float hc_eps=9.9999999999999995e-07) -> (Tensor, Tensor, Tensor, Tensor)",
+      "hc_post": "cann_ops_transformer::mhc_post(Tensor x, Tensor? hRes, Tensor hOut, Tensor hPost) -> Tensor",
+      "packed_swa_writer": "custom::kv_compress_epilog_v2(Tensor(a!) cache, Tensor x, Tensor slot_mapping, *, int quant_group_size=32, str quant_mode=\"mxfp8_bf16\", bool round_scale=True, float x_scale=1.) -> ()"
+    },
+    "packed_writer_dispatch": {
+      "PrivateUse1": true,
+      "CompositeExplicitAutograd": false,
+      "CompositeImplicitAutograd": false
+    }
+  },
+  "schema": "_C_ascend::moe_gating_top_k_hash(Tensor x, int k, Tensor? bias=None, Tensor? input_ids=None, Tensor? tid2eid=None, int k_group=1, int group_count=1, float routed_scaling_factor=1., float eps=9.9999999999999995e-21, int group_select_mode=0, int renorm=0, int norm_type=0, bool out_flag=False, Tensor? bias_vl=None, int image_sentinel_lo=129257, int image_sentinel_count=5) -> (Tensor y, Tensor expert_idx, Tensor out)",
+  "restored_layouts": {
+    "x": {
+      "shape": [
+        8,
+        64
+      ],
+      "stride": [
+        64,
+        1
+      ],
+      "storage_offset": 0
+    },
+    "bias": {
+      "shape": [
+        64
+      ],
+      "stride": [
+        1
+      ],
+      "storage_offset": 0
+    }
+  },
+  "output_finite": true,
+  "output_ids": [
+    [
+      53,
+      15
+    ],
+    [
+      53,
+      15
+    ],
+    [
+      53,
+      15
+    ],
+    [
+      53,
+      15
+    ],
+    [
+      15,
+      53
+    ],
+    [
+      53,
+      15
+    ],
+    [
+      53,
+      15
+    ],
+    [
+      53,
+      15
+    ]
+  ],
+  "output_weights": [
+    [
+      0.7499997615814209,
+      0.7500001788139343
+    ],
+    [
+      0.7500015497207642,
+      0.7499984502792358
+    ],
+    [
+      0.7500008940696716,
+      0.7499991655349731
+    ],
+    [
+      0.7500001192092896,
+      0.7499999403953552
+    ],
+    [
+      0.7500039339065552,
+      0.7499960660934448
+    ],
+    [
+      0.749997615814209,
+      0.750002384185791
+    ],
+    [
+      0.7500009536743164,
+      0.7499989867210388
+    ],
+    [
+      0.7499977350234985,
+      0.7500022649765015
+    ]
+  ],
+  "output_ids_in_range": true,
+  "runtime_environment": {
+    "ASCEND_CUSTOM_OPP_PATH": "/usr/local/python3.11.10/lib/python3.11/site-packages/fla_npu/opp:/opt/vllm-ascend/vllm_ascend/_cann_ops_custom/vendors/custom_transformer:/usr/local/Ascend/cann-9.2.0/opp/vendors/custom_transformer:/usr/local/python3.11.10/lib/python3.11/site-packages/fla_npu/opp/vendors/fla_npu_transformer:/usr/local/python3.11.10/lib/python3.11/site-packages/fla_npu/opp/vendors/fla_npu_transformer/op_api/lib",
+    "LD_LIBRARY_PATH": "/usr/local/python3.11.10/lib/python3.11/site-packages/cv2/../../lib64:/usr/local/Ascend/cann-9.2.0/opp/vendors/custom_transformer/op_api/lib:/usr/local/Ascend/nnal/atb/latest/atb/cxx_abi_1/lib:/usr/local/Ascend/nnal/atb/latest/atb/cxx_abi_1/examples:/usr/local/Ascend/nnal/atb/latest/atb/cxx_abi_1/tests/atbopstest:/usr/local/Ascend/ascend-toolkit/latest/tools/aml/lib64:/usr/local/Ascend/ascend-toolkit/latest/tools/aml/lib64/plugin:/usr/local/Ascend/ascend-toolkit/latest/lib64:/usr/local/Ascend/ascend-toolkit/latest/lib64/plugin/opskernel:/usr/local/Ascend/ascend-toolkit/latest/lib64/plugin/nnengine:/usr/local/Ascend/ascend-toolkit/latest/opp/built-in/op_impl/ai_core/tbe/op_tiling:/usr/local/Ascend/driver/lib64/common/:/usr/local/Ascend/driver/lib64/driver/:/usr/local/lib::/usr/local/Ascend/ascend-toolkit/latest/aarch64-linux/devlib:/usr/lib64"
+  },
+  "loaded_operator_libraries": [
+    {
+      "path": "/opt/vllm-ascend/vllm_ascend/_cann_ops_custom/vendors/custom_transformer/op_api/lib/libcust_opapi.so",
+      "sha256": "e896e0387f6ddad9e8088ca3aa636e414da31f31607d9fa78d4ef090c9df1595"
+    },
+    {
+      "path": "/opt/vllm-ascend/vllm_ascend/vllm_ascend_C.cpython-311-aarch64-linux-gnu.so",
+      "sha256": "c0476a67006e7eeea2b34f17ff103be8034852aeb4b07a923a0e6436002a7da6"
+    },
+    {
+      "path": "/usr/local/Ascend/cann-9.2.0/aarch64-linux/lib64/libopapi.so",
+      "sha256": "5f101f982e4c55b0e0317a470e8bfd1c6cecbd95222aa66269f8dedf7191d037"
+    },
+    {
+      "path": "/usr/local/Ascend/cann-9.2.0/aarch64-linux/lib64/libopapi_transformer.so",
+      "sha256": "d3c5cc4bc671789345a3417f22da923379ae0d4678cdbcee083fdd1794138aad"
+    },
+    {
+      "path": "/usr/local/Ascend/cann-9.2.0/opp/vendors/custom_transformer/op_api/lib/libcust_opapi.so",
+      "sha256": "e8861d0e94710c8cc82dba89f99877eeee78fa2e0aeffa9512085d3df1ffe056"
+    },
+    {
+      "path": "/usr/local/python3.11.10/lib/python3.11/site-packages/fla_npu/opp/vendors/fla_npu_transformer/op_api/lib/libcust_opapi.so",
+      "sha256": "70bc56a1415d2028c18391f852816030c3b4e9f74f42b646fe494477ad7a9356"
+    },
+    {
+      "path": "/usr/local/python3.11.10/lib/python3.11/site-packages/fla_npu/opp/vendors/fla_npu_transformer/op_impl/ai_core/tbe/op_tiling/liboptiling.so",
+      "sha256": "88fe700e0e0712dff7975ce46339bac0353592469875f756b5cc622246df5921"
+    }
+  ]
+}

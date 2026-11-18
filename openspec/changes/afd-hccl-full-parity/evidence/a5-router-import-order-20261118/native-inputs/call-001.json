@@ -1,0 +1,60 @@
+{
+  "index": 1,
+  "schema": "_C_ascend::moe_gating_top_k_hash(Tensor x, int k, Tensor? bias=None, Tensor? input_ids=None, Tensor? tid2eid=None, int k_group=1, int group_count=1, float routed_scaling_factor=1., float eps=9.9999999999999995e-21, int group_select_mode=0, int renorm=0, int norm_type=0, bool out_flag=False, Tensor? bias_vl=None, int image_sentinel_lo=129257, int image_sentinel_count=5) -> (Tensor y, Tensor expert_idx, Tensor out)",
+  "inputs_file": "/home/z00569729/dsv41-afd/src/afd-plugin-dsv41-a5/results/dsv41-a5-native-inputs-20261118/native-eager-u1/router-inputs/call-001.pt",
+  "metadata_file": "/home/z00569729/dsv41-afd/src/afd-plugin-dsv41-a5/results/dsv41-a5-native-inputs-20261118/native-eager-u1/router-inputs/call-001.json",
+  "capture_complete": true,
+  "operator_called": true,
+  "operator_returned": false,
+  "tensors": {
+    "x": {
+      "shape": [
+        8,
+        64
+      ],
+      "stride": [
+        64,
+        1
+      ],
+      "storage_offset": 0,
+      "dtype": "torch.float32",
+      "device": "npu:0",
+      "finite": true,
+      "nonfinite_count": 0,
+      "finite_min": -3.8198453694349155e-05,
+      "finite_max": 2.9058592190267518e-05
+    },
+    "bias": {
+      "shape": [
+        64
+      ],
+      "stride": [
+        1
+      ],
+      "storage_offset": 0,
+      "dtype": "torch.float32",
+      "device": "npu:0",
+      "finite": true,
+      "nonfinite_count": 0,
+      "finite_min": -0.000991996144875884,
+      "finite_max": 0.0009762373520061374
+    }
+  },
+  "scalars": {
+    "k": 2,
+    "input_ids": null,
+    "tid2eid": null,
+    "k_group": 1,
+    "group_count": 1,
+    "routed_scaling_factor": 1.5,
+    "eps": 1e-20,
+    "group_select_mode": 1,
+    "renorm": 0,
+    "norm_type": 2,
+    "out_flag": false,
+    "bias_vl": null,
+    "image_sentinel_lo": 129264,
+    "image_sentinel_count": 5
+  },
+  "inputs_sha256": "6bf7ca17a89d2e6dbcbc1c9878b567a5e2a3dca2357d1be2a84eaad37e93d6e0"
+}
