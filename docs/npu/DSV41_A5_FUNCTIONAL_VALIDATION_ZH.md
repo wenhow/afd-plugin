@@ -113,7 +113,7 @@ python -B -c 'import json; print(json.load(open("reports/dsv41-a5-functional/bun
 ```
 
 默认交付包的入口 SHA256 为
-`68ebe0a924959e2870bfc47b04076b38fe6d70e537406638c015a6ce27f8ab2d`。
+`85b363f23681ce0bf33777422c2a13279325de2f8b75a44d7876b2bdac170db7`。
 更新时需要同步入口与 `reports/dsv41-a5-functional/` 下的归档、锁和准备记录，
 不要只复制新增超时参数后的脚本。
 保留现场脚本，再从已经通过校验的同一冻结包恢复入口：
@@ -333,6 +333,48 @@ functional准入仅增加固定64专家候选；历史8专家及独立DSpark组�
 [本轮证据](../../openspec/changes/afd-hccl-full-parity/evidence/a5-routing-width-20261117/README.md)
 记录472项真实依赖CPU测试、9组EngineArgs配置及本地/A3各6项CLI检查通过；
 CPU过程未初始化NPU。A5越界消除、采样及原生/AFD等价仍待验证。
+
+### 64 专家仍失败：先隔离实际路由算子
+
+11月18日上传的`59a4b91ce20c4c3aa755523e918e496e.zip`确认
+H1024、64专家、top-k2和同步开关全部生效，但首轮仍在
+`_C_ascend.moe_gating_top_k_hash`报507035/341 UB越界，Worker shutdown也失败。
+上一轮64专家调整没有解决问题；目前仍未完成首轮推理。
+源码复核还发现编译入口包含同目录的regbase内核，而非此前分析的arch35子目录同名文件；
+实际安装二进制的来源尚未核对，不能继续把静态缓冲区推断当成设备根因。
+
+先运行新增的单算子诊断，使用全新目录：
+
+```bash
+git pull --ff-only origin feat/dsv41-flash-hccl-v030
+
+python -B tests/npu/dsv41_a5_functional_validation.py \
+  --model /home/models/DeepSeek-V4.1-Flash \
+  --transformer-vendor /usr/local/Ascend/ascend-toolkit/latest/opp/vendors/custom_transformer \
+  --devices 0,1,2,3 \
+  --preflight-timeout 900 \
+  --output-dir results/dsv41-a5-router-20261118 \
+  --diagnose-router \
+  --run
+```
+
+该模式保留原生身份预检与前后八卡空闲检查，以六个独立子进程测试：
+64专家/top-k2/FP32，384专家/top-k2/FP32，384专家/top-k6/FP32，
+64专家/top-k2/BF16，384专家/top-k6/BF16，以及384专家/top-k6/FP32的vision-bias对照。
+各用8行固定输入，保持原生sqrtsoftplus评分和权重归一化；最后一项仅为额外算子对照，
+不代表启用或验收视觉模型。`--model`仍为入口必选参数，但本模式不加载Worker、模型或权重，
+不建立通信组，也不启动普通七场景。
+
+每项记录实际schema、输入文件及SHA、CPU参考ID/权重比较、失败阶段和同步栈，
+以及进程实际加载的opapi/tiling/扩展库路径和SHA。失败项退出后，确认所属进程已回收、
+八卡空闲，再继续下一独立项；不会在已损坏的NPU上下文中继续测试。
+有失败或缺少有效算子结果时，入口最终非零退出，但保留所有已收集结果。
+回传新目录的`summary.json`、`native-runtime.json`、`router-*.log`及各
+`router-*/result.json`；也可直接压缩整个新目录。
+
+[本轮记录](../../openspec/changes/afd-hccl-full-parity/evidence/a5-router-isolation-20261118/README.md)
+包含本地与A3各10项CPU检查，未执行NPU算子。146份生产模块和194份原生身份不变。
+本次交付用于区分形状、dtype、top-k和实际算子库问题，尚未解决或验收A5启动。
 
 ## 4. 源码与实施边界
 

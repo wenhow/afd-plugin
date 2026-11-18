@@ -1,0 +1,10 @@
+{
+  "changed_members": [
+    "bundle-manifest.json",
+    "tests/npu/dsv41_a5_functional_validation.py",
+    "tests/npu/dsv41_a5_router_probe.py"
+  ],
+  "production_unchanged": 146,
+  "native_identity_unchanged": true,
+  "launcher_sha256": "85b363f23681ce0bf33777422c2a13279325de2f8b75a44d7876b2bdac170db7"
+}

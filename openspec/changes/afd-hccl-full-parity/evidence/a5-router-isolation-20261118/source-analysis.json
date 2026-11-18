@@ -1,0 +1,34 @@
+{
+  "commit": "7e37e29a7803d6897a7113088e2b771f83205bc0",
+  "sources": {
+    "csrc/moe/moe_gating_top_k_hash/op_kernel/moe_gating_top_k_hash.cpp": {
+      "sha256": "db68b6b7c94d8a66246ced81c8ea65a31f0e84955fb3c9dd66e7554bf4566563",
+      "git_blob": "e7d70f0f190b080aa1be2f7831baf3479495d4e3"
+    },
+    "csrc/moe/moe_gating_top_k_hash/op_kernel/moe_gating_top_k_hash_regbase.h": {
+      "sha256": "63a1c254c0746d75f6735e32308148b94cef597a3edbb8a7c13bfe8b3d28f2a7",
+      "git_blob": "53fa31390c79ae2e93e4e15011353eac8e1af30c"
+    },
+    "csrc/moe/moe_gating_top_k_hash/op_kernel/arch35/moe_gating_top_k_hash_regbase.h": {
+      "sha256": "90407af0d524c79c30a98e9fd1b86a76b0d2f4842de918b3af6f54edcdbe5572",
+      "git_blob": "ae40058c7bc11dda96685838a4c36ab98d0b65fa"
+    },
+    "csrc/moe/moe_gating_top_k_hash/op_host/moe_gating_top_k_hash_tiling.cpp": {
+      "sha256": "839a3f156fa5a74d792297f002ae77d604aef00c64745c7d125c7be505aef842",
+      "git_blob": "ab4e185fd6d520c72be344247da4320bc7f7507d"
+    },
+    "tests/e2e/nightly/single_node/ops/singlecard_ops/test_npu_moe_gating_top_k_hash.py": {
+      "sha256": "69ce0ed504030eb9c45fadf228d1c9da703eab607c5d2a17edd9f42b2d09ec52",
+      "git_blob": "3627d2efc1943f27233789039e6d95b7f79151f3"
+    }
+  },
+  "expert64_fix_effective_on_A5": false,
+  "faulting_operator": "_C_ascend.moe_gating_top_k_hash",
+  "fault_code": 507035,
+  "UB_error": 341,
+  "old_and_new_pc_offset_hex": "0xa860",
+  "kernel_entry_includes_root_regbase_header": true,
+  "host_selects_arch35_tiling_for_ASCEND950": true,
+  "installed_kernel_cpp_provenance_verified": false,
+  "next_scope": "Isolate the installed operator with explicit synthetic inputs, CPU reference, and mapped library identities. Do not change production routing or expand model geometry again."
+}

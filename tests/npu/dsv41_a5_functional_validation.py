@@ -17,6 +17,7 @@ import sys
 import traceback
 from pathlib import Path
 
+import dsv41_a5_router_probe as router_probe
 import dsv41_dspark_a5_validation as shared
 
 FAMILY = "reports/dsv41-a5-functional"
@@ -273,6 +274,58 @@ def compare_normal_scenes(scenes: list[dict]) -> dict:
     }
 
 
+def diagnose_router(args, snapshot: Path, environment: dict[str, str], report: dict):
+    for case, *_ in router_probe.CASES:
+        name = "router-" + case
+        output = args.output_dir / name
+        command = [
+            args.python,
+            "-B",
+            str(snapshot / "tests/npu/dsv41_a5_router_probe.py"),
+            "--case",
+            case,
+            "--device",
+            str(args._devices[0]),
+            "--output-dir",
+            str(output),
+        ]
+        if args.run:
+            command.append("--run")
+        process = execute_scene(args, command, environment, snapshot, name)
+        item = {"name": name, "process": process}
+        report["scenes"].append(item)
+        if args.run:
+            if process.get("surviving_owned_pids"):
+                raise RuntimeError(f"owned processes remain after {name}")
+            result = output / "result.json"
+            if result.is_file():
+                item["result"] = json.loads(result.read_text("utf-8"))
+            actual = item.get("result", {})
+            item["operator_result_valid"] = all(
+                actual.get(key) is expected
+                for key, expected in (
+                    ("success", True),
+                    ("operator_returned", True),
+                    ("reference_matched", True),
+                    ("diagnostic_only", True),
+                    ("model_executed", False),
+                    ("collective_executed", False),
+                )
+            )
+            idle = shared.npu_snapshot(args.output_dir / (name + "-npu.log"))
+            item["npu_after"] = idle
+            if not idle["all_eight_idle"]:
+                raise RuntimeError(f"devices not idle after {name}")
+        # A failed kernel poisons only this child context. Continue the
+        # remaining independent cases after owned cleanup and the idle check.
+    if any(
+        not item["process"]["success"]
+        or (args.run and not item["operator_result_valid"])
+        for item in report["scenes"]
+    ):
+        raise RuntimeError("isolated router cases failed; see each result and log")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--model", required=True)
@@ -293,10 +346,16 @@ def main() -> int:
         help="native runtime import/bootstrap timeout, including cold JIT compilation",
     )
     parser.add_argument("--run", action="store_true")
-    parser.add_argument(
+    diagnosis = parser.add_mutually_exclusive_group()
+    diagnosis.add_argument(
         "--diagnose-native",
         action="store_true",
         help="native eager/U1 only; synchronous operator errors; diagnostic only",
+    )
+    diagnosis.add_argument(
+        "--diagnose-router",
+        action="store_true",
+        help="six isolated hash-router cases; no Worker or model; diagnostic only",
     )
     parser.add_argument("--_pair", action="store_true", help=argparse.SUPPRESS)
     parser.add_argument("--_snapshot", type=Path, help=argparse.SUPPRESS)
@@ -306,8 +365,9 @@ def main() -> int:
     )
     parser.add_argument("--_overlap", action="store_true", help=argparse.SUPPRESS)
     args = parser.parse_args()
-    if args.diagnose_native and args._pair:
-        parser.error("--diagnose-native cannot run an A/F pair")
+    diagnostic = args.diagnose_native or args.diagnose_router
+    if diagnostic and args._pair:
+        parser.error("diagnostic modes cannot run an A/F pair")
     try:
         devices = tuple(map(int, args.devices.split(",")))
     except ValueError:
@@ -353,12 +413,13 @@ def main() -> int:
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_bytes(raw)
     environment = runtime_environment(
-        snapshot, args.transformer_vendor, diagnose_native=args.diagnose_native
+        snapshot, args.transformer_vendor, diagnose_native=diagnostic
     )
     report = {
         "success": False,
         "run_requested": args.run,
-        "diagnostic_only": args.diagnose_native,
+        "diagnostic_only": diagnostic,
+        "router_diagnostic": args.diagnose_router,
         "ascend_launch_blocking": environment.get("ASCEND_LAUNCH_BLOCKING"),
         "preflight_timeout_seconds": args.preflight_timeout,
         "scenes": [],
@@ -417,7 +478,15 @@ def main() -> int:
                     f"(returncode={check['returncode']}); "
                     "see native-runtime.json and native-runtime.process.json"
                 )
-        normal_scenes = NORMAL_SCENES[:1] if args.diagnose_native else NORMAL_SCENES
+        if args.diagnose_router:
+            diagnose_router(args, snapshot, environment, report)
+        normal_scenes = (
+            ()
+            if args.diagnose_router
+            else NORMAL_SCENES[:1]
+            if args.diagnose_native
+            else NORMAL_SCENES
+        )
         for index, (name, role, mode, overlap) in enumerate(normal_scenes):
             if args.run:
                 command = normal_command(
@@ -454,13 +523,13 @@ def main() -> int:
                 item["npu_after"] = idle
                 if not idle["all_eight_idle"]:
                     raise RuntimeError(f"devices not idle after {name}")
-        if args.run and not args.diagnose_native:
+        if args.run and not diagnostic:
             report["native_afd_comparison"] = compare_normal_scenes(report["scenes"])
             if not report["native_afd_comparison"]["success"]:
                 raise RuntimeError(
                     "normal native/AFD parameter or sampled-token comparison failed"
                 )
-        for scene in () if args.diagnose_native else shared.SCENES:
+        for scene in () if diagnostic else shared.SCENES:
             name = "dspark-pd-" + scene
             output = args.output_dir / name
             command = shared.scene_command(
@@ -506,7 +575,7 @@ def main() -> int:
                     raise RuntimeError(f"devices not idle after {name}")
         report["success"] = True
         report["npu_acceptance"] = (
-            ("diagnostic_only" if args.diagnose_native else "component_suite_passed")
+            ("diagnostic_only" if diagnostic else "component_suite_passed")
             if args.run
             else "pending_on_A5"
         )

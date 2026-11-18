@@ -11,7 +11,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
-from types import MappingProxyType
+from types import MappingProxyType, SimpleNamespace
 from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[3]
@@ -23,6 +23,14 @@ INHERITED_PATHS = MappingProxyType(
         "LD_LIBRARY_PATH": "/existing/runtime/lib",
     }
 )
+
+
+def load_launcher():
+    spec = importlib.util.spec_from_file_location("a5_launcher", LAUNCHER)
+    launcher = importlib.util.module_from_spec(spec)
+    with patch.object(sys, "path", [str(LAUNCHER.parent), *sys.path]):
+        spec.loader.exec_module(launcher)
+    return launcher
 
 
 class TestTransformerVendor(unittest.TestCase):
@@ -38,7 +46,7 @@ class TestTransformerVendor(unittest.TestCase):
         # Metadata checks file presence only; this fixture is never loaded.
         library.write_bytes(b"CPU CLI fixture, not an operator library\n")
 
-    def run_cli(self, *, vendor=None, diagnose_native=False):
+    def run_cli(self, *, vendor=None, diagnose_native=False, diagnose_router=False):
         output = self.directory / "result"
         command = [
             sys.executable,
@@ -54,6 +62,8 @@ class TestTransformerVendor(unittest.TestCase):
             command.extend(("--transformer-vendor", str(vendor)))
         if diagnose_native:
             command.append("--diagnose-native")
+        if diagnose_router:
+            command.append("--diagnose-router")
         result = subprocess.run(
             command,
             env={**os.environ, **INHERITED_PATHS},
@@ -63,10 +73,7 @@ class TestTransformerVendor(unittest.TestCase):
         return result, output
 
     def test_vendor_environment_reaches_a_fresh_python_process(self):
-        spec = importlib.util.spec_from_file_location("a5_launcher", LAUNCHER)
-        launcher = importlib.util.module_from_spec(spec)
-        with patch.object(sys, "path", [str(LAUNCHER.parent), *sys.path]):
-            spec.loader.exec_module(launcher)
+        launcher = load_launcher()
         with patch.dict(os.environ, INHERITED_PATHS):
             before = dict(os.environ)
             environment = launcher.runtime_environment(self.directory, self.vendor)
@@ -141,11 +148,47 @@ class TestTransformerVendor(unittest.TestCase):
         self.assertIs(metadata["runtime_imported"], False)
         self.assertIs(metadata["functional_worker_component_accepted"], False)
 
+    def test_router_diagnosis_isolates_six_cases_without_model_or_runtime_imports(self):
+        result, output = self.run_cli(vendor=self.vendor, diagnose_router=True)
+        self.assertEqual(result.returncode, 0, result.stderr.decode(errors="replace"))
+        report = json.loads((output / "summary.json").read_bytes())
+        self.assertTrue(report["success"])
+        self.assertIs(report["diagnostic_only"], True)
+        self.assertIs(report["router_diagnostic"], True)
+        self.assertEqual(report["ascend_launch_blocking"], "1")
+        self.assertEqual(report["npu_acceptance"], "pending_on_A5")
+        self.assertNotIn("native_afd_comparison", report)
+        self.assertEqual(len(report["scenes"]), 6)
+        cases = set()
+        for scene in report["scenes"]:
+            metadata = json.loads((output / (scene["name"] + ".log")).read_bytes())
+            cases.add(metadata["case"])
+            self.assertEqual(metadata["ascend_launch_blocking"], "1")
+            self.assertIs(metadata["runtime_imported"], False)
+            self.assertIs(metadata["model_executed"], False)
+            self.assertIs(metadata["collective_executed"], False)
+            self.assertIs(metadata["operator_returned"], False)
+            self.assertIs(metadata["functional_worker_component_accepted"], False)
+        self.assertEqual(
+            cases,
+            {
+                "e64-k2-fp32",
+                "e384-k2-fp32",
+                "e384-k6-fp32",
+                "e64-k2-bf16",
+                "e384-k6-bf16",
+                "e384-k6-fp32-vision",
+            },
+        )
+
+    def test_native_and_router_diagnoses_are_mutually_exclusive(self):
+        result, output = self.run_cli(diagnose_native=True, diagnose_router=True)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn(b"not allowed with argument", result.stderr)
+        self.assertFalse(output.exists())
+
     def test_synchronous_environment_does_not_change_parent_or_default_children(self):
-        spec = importlib.util.spec_from_file_location("a5_debug_launcher", LAUNCHER)
-        launcher = importlib.util.module_from_spec(spec)
-        with patch.object(sys, "path", [str(LAUNCHER.parent), *sys.path]):
-            spec.loader.exec_module(launcher)
+        launcher = load_launcher()
         with patch.dict(os.environ, {"ASCEND_LAUNCH_BLOCKING": "0"}):
             before = dict(os.environ)
             diagnostic = launcher.runtime_environment(
@@ -155,6 +198,74 @@ class TestTransformerVendor(unittest.TestCase):
             self.assertEqual(dict(os.environ), before)
         self.assertEqual(diagnostic["ASCEND_LAUNCH_BLOCKING"], "1")
         self.assertEqual(normal["ASCEND_LAUNCH_BLOCKING"], "0")
+
+
+class TestRouterDiagnostics(unittest.TestCase):
+    def setUp(self):
+        temporary = tempfile.TemporaryDirectory(dir=ROOT / ".tmp")
+        self.addCleanup(temporary.cleanup)
+        self.directory = Path(temporary.name)
+        self.launcher = load_launcher()
+        self.args = SimpleNamespace(
+            run=True,
+            python=sys.executable,
+            _devices=(0, 1, 2, 3),
+            output_dir=self.directory,
+            timeout=10,
+        )
+
+    def test_child_exit_zero_without_operator_result_fails_diagnosis(self):
+        report = {"scenes": []}
+        with (
+            patch.object(
+                self.launcher.shared,
+                "run_bounded",
+                return_value={"success": True, "returncode": 0},
+            ),
+            patch.object(
+                self.launcher.shared,
+                "npu_snapshot",
+                return_value={"all_eight_idle": True},
+            ),
+            self.assertRaisesRegex(RuntimeError, "router cases failed"),
+        ):
+            self.launcher.diagnose_router(self.args, self.directory, {}, report)
+        self.assertEqual(len(report["scenes"]), 6)
+
+    def test_failed_child_keeps_other_results_after_idle_check(self):
+        def child_result(command, environment, snapshot, log, timeout):
+            case = command[command.index("--case") + 1]
+            output = Path(command[command.index("--output-dir") + 1])
+            output.mkdir()
+            success = case != "e64-k2-fp32"
+            (output / "result.json").write_text(
+                json.dumps(
+                    {
+                        "success": success,
+                        "operator_returned": success,
+                        "reference_matched": success,
+                        "diagnostic_only": True,
+                        "model_executed": False,
+                        "collective_executed": False,
+                    }
+                )
+            )
+            return {"success": success, "returncode": int(not success)}
+
+        report = {"scenes": []}
+        with (
+            patch.object(self.launcher.shared, "run_bounded", side_effect=child_result),
+            patch.object(
+                self.launcher.shared,
+                "npu_snapshot",
+                return_value={"all_eight_idle": True},
+            ),
+            self.assertRaisesRegex(RuntimeError, "router cases failed"),
+        ):
+            self.launcher.diagnose_router(self.args, self.directory, {}, report)
+        self.assertEqual(len(report["scenes"]), 6)
+        self.assertEqual(sum(s["result"]["success"] for s in report["scenes"]), 5)
+        self.assertTrue(all(s["npu_after"]["all_eight_idle"] for s in report["scenes"]))
 
 
 if __name__ == "__main__":
