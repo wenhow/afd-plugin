@@ -1,0 +1,16 @@
+{
+  "returncode": 0,
+  "counts": {
+    "tests": 290,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0
+  },
+  "native_state": {
+    "before": false,
+    "after": false,
+    "returncode": 0
+  },
+  "source_unchanged": true,
+  "scope": "CPU source-table preparation and protocol only; no NPU execution"
+}

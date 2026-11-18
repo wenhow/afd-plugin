@@ -1,0 +1,40 @@
+{
+  "check": {
+    "returncode": 0,
+    "report": {
+      "ok": true,
+      "files": 434,
+      "changes": 8,
+      "tasks": 109,
+      "source_objects": 56,
+      "skills": 3,
+      "phase": "implementation",
+      "upstreams_unchanged": true,
+      "validation_scope": "local plan checks; not official CLI or NPU qualification"
+    }
+  },
+  "guard": {
+    "returncode": 0,
+    "report": {
+      "ok": true,
+      "upstreams": [
+        "vllm",
+        "vllm_ascend",
+        "hccl_donor"
+      ],
+      "unchanged": true
+    }
+  },
+  "local_cli": {
+    "returncode": 0,
+    "tests": 17,
+    "failures": 0,
+    "errors": 0,
+    "raw_log": ".venv/Scripts/python.exe : .................\n\u6240\u5728\u4f4d\u7f6e \u884c:4 \u5b57\u7b26: 1\n+ .venv/Scripts/python.exe -B -S -m unittest tests.e2e.diagnostics.test ...\n+ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n    + CategoryInfo          : NotSpecified: (.................:String) [], RemoteException\n    + FullyQualifiedErrorId : NativeCommandError\n \n----------------------------------------------------------------------\nRan 17 tests in 10.079s\n\nOK\n"
+  },
+  "ruff": {
+    "returncode": 0,
+    "scope": "changed production, freeze tool, tests and evidence controllers"
+  },
+  "scope": "CPU/static and uploaded A5 U1/failure audit; U2 fix device effect pending"
+}

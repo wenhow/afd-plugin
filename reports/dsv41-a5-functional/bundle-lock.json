@@ -145,9 +145,9 @@
     "afd_plugin/v1/worker/npu/hccl_v41_graph_session.py": "98e816a495b47f49b46b641b42fec1f69fa11378862ce0646feab097b2a0a5fc",
     "afd_plugin/v1/worker/npu/hccl_v41_ubatch_runner.py": "776cb80fc0570e281d2bb7ef137acc3c254a272bfbd49d16069225f056c03050",
     "afd_plugin/v1/worker/npu/mla_graph.py": "96ad187cd1275f44e5d115277cb4d9c63b518eb96d46471ecfba97cf0f683f49",
-    "afd_plugin/v1/worker/npu/ubatch_runner.py": "7f82ffdb3a8ece8072dc67ca986cd75a637da2561e211d64defefe14567d95f2",
+    "afd_plugin/v1/worker/npu/ubatch_runner.py": "8279c2fc054ccb69d12f7fad3e806d0c5d6e91a946d1c18345008bb946cbd770",
     "afd_plugin/v1/worker/ubatch_wrapper.py": "72612fc48659d27ee70c821dbdd313c752965395a626217be4ce249e1b1f4457",
     "afd_plugin/validation.py": "c4b5315d95d1f7ee95e8b43f9f37f88b06d985d381ce90ca1afc394dec82f234"
   },
-  "runtime_source_sha256": "d0a32a80a5737f04b968e176cc61f7afa3af444658ecdfc93f6f937b359da521"
+  "runtime_source_sha256": "c11071793ca85dd7082556552a23cf1ab21e37d6ef612ddc1a13c079547b0fb6"
 }

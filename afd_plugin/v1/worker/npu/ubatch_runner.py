@@ -65,6 +65,11 @@ from afd_plugin.v1.worker.npu.mla_graph import (
 
 
 class NPUUBatchRunner(UBatchRunner):
+    # Native UBatchRunner owns child slicing/storage; this adapter creates
+    # independent Ascend builders and prepares V4.1 source tables as MRV2 does.
+    # Added keyword-only kernel_block_sizes and timeout_s select each builder's
+    # block geometry and bound the native child barrier. Remove these seams
+    # when upstream owns Ascend child builder initialization.
     def __init__(
         self,
         vllm_config: VllmConfig,
@@ -97,6 +102,10 @@ class NPUUBatchRunner(UBatchRunner):
         self._stage_rope_buffers: list[dict[str, dict[str, torch.Tensor]]] = [
             {} for _ in range(self.num_ubatches)
         ]
+        # Match native prepare_v41_source_rope's deferred import to avoid the
+        # model/cache registration cycle while the runner module is imported.
+        from vllm_ascend.attention.dsa_v41 import AscendDSAV41MetadataBuilder
+
         self.stage_attn_groups: list[list[list[AttentionGroup]]] = []
         with set_current_vllm_config(vllm_config):
             for _ in range(self.num_ubatches):
@@ -112,6 +121,15 @@ class NPUUBatchRunner(UBatchRunner):
                             kernel_block_size=kernel_block_sizes[group_idx],
                             num_metadata_builders=1,
                         )
+                        # ### PATCH START: initialize each V4.1 child source RoPE
+                        # Native MRV2 prepares only its parent attn_groups in
+                        # prepare_v41_source_rope (7e37e29a). These newly owned
+                        # builders need the same source tables before C2 build.
+                        # Keep eager metadata synchronous; do not enable tasks.
+                        for builder in group.metadata_builders:
+                            if isinstance(builder, AscendDSAV41MetadataBuilder):
+                                builder.prepare_source_rope()
+                        # ### PATCH END: initialize each V4.1 child source RoPE
                 self.stage_attn_groups.append(groups)
 
     # Ascend 8d4409d6 asserts ubatch_idx == 0 and always selects builder zero.

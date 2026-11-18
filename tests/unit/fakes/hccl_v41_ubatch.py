@@ -10,6 +10,7 @@ from vllm.config import CUDAGraphMode
 from vllm.forward_context import override_forward_context
 from vllm.v1.kv_cache_interface import KVCacheConfig, KVCacheGroupSpec
 from vllm.v1.worker.utils import AttentionGroup
+from vllm_ascend.attention import dsa_v41
 from vllm_ascend.attention.dsa_v41 import (
     AscendDSAV41MetadataBuilder,
     DeepseekV41CacheBackend,
@@ -21,11 +22,80 @@ from tests.unit.fakes.input_batch import (
     make_ascend_decode_batch,
     make_hccl_ubatch_seam,
 )
+from tests.unit.fakes.vllm_config import npu_vllm_config
 
 COMPRESSED_METADATA_RATIO = 128
 COMPRESSED_METADATA_QUERY_LEN = 3
 COMPRESSED_METADATA_REQUESTS = 2
 COMPRESSED_METADATA_HEAD_DIM = 4
+
+
+class SourceRopeCPUBuilder(AscendDSAV41MetadataBuilder):
+    """Native source-table preparation with allocation and consumers on CPU."""
+
+    def __init__(self, spec, layer_names, config, device):
+        # Only the native prepare_source_rope contract is under test. The
+        # full constructor's device buffers and operators are outside this seam.
+        self._build_compressor_metadata = True
+        self._cache_kind = "compressor_state"
+        self._c2_rope_layer_names = tuple(layer_names)
+        self._c2_full_source_rope = None
+
+    def source_rope_for_cpu_consumer(self):
+        if self._c2_full_source_rope is None:
+            raise RuntimeError("source RoPE was not prepared")
+        return self._c2_full_source_rope
+
+
+class SourceRopeCPUBackend(DeepseekV41CacheBackend):
+    @staticmethod
+    def get_builder_cls():
+        return SourceRopeCPUBuilder
+
+
+def make_source_rope_constructor_case(monkeypatch, runner_type, *, missing=None):
+    """Run the NPU adapter constructor above a CPU-only native allocation seam."""
+    config = npu_vllm_config(use_ubatching=True, num_ubatches=2)
+    config.model_config.hf_text_config.compress_ratios = [2, 2]
+    layer_names = ("source-0", "source-1")
+    tables = {
+        name: (torch.tensor([index + 1.0]), torch.tensor([index + 2.0]))
+        for index, name in enumerate(layer_names)
+        if name != missing
+    }
+    monkeypatch.setattr(
+        dsa_v41, "get_full_cos_and_sin_dsa_for_layer", tables.__getitem__
+    )
+
+    def cpu_allocation(runner, vllm_config, *args):
+        runner.vllm_config = vllm_config
+        runner.num_ubatches = vllm_config.parallel_config.num_ubatches
+
+    monkeypatch.setattr(runner_type.__bases__[0], "__init__", cpu_allocation)
+    spec = AscendMLAAttentionSpec(
+        block_size=COMPRESSED_METADATA_RATIO,
+        num_kv_heads=1,
+        head_size=COMPRESSED_METADATA_HEAD_DIM,
+        dtype=torch.bfloat16,
+        model_version="deepseek_v41",
+    )
+    groups = [
+        [AttentionGroup(SourceRopeCPUBackend, [name], spec, 0)] for name in layer_names
+    ]
+
+    def construct():
+        return runner_type(
+            config,
+            torch.device("cpu"),
+            None,
+            groups,
+            None,
+            2,
+            kernel_block_sizes=[COMPRESSED_METADATA_RATIO] * len(groups),
+            timeout_s=1,
+        )
+
+    return SimpleNamespace(construct=construct, tables=tables, layer_names=layer_names)
 
 
 class GraphUBatchOwner:

@@ -491,6 +491,39 @@ python -B tests/npu/dsv41_a5_functional_validation.py \
 [本次原始上传与独立核对](../../openspec/changes/afd-hccl-full-parity/evidence/a5-native-vendor-first-pass-20261118/README.md)
 记录源码身份、真实输入、六轮输出及清理；完整检查点/Engram/性能范围保持待验收。
 
+### AFD U1 通过，U2 首轮提示源 RoPE 未初始化
+
+`8c282423171142818bdacce74b45ed6a.zip`为U1 Attention，
+`6c4d6f688c8f4106a85897c3ff665742.zip`为U1 FFN和pair汇总：A/F均成功退出，
+六轮采样、取消A、B结束及追加C通过。独立对照此前保存的原生基线，
+A58+F21共79份参数身份和A/B/C输出全部一致；该结论限定于受控BF16 dummy场景。
+
+`89ceeac6f8f74cfcabe3aeeb86948d81.zip`的U2首轮在Attention的C2 metadata构建时报
+`Enable device metadata before building compressor metadata`。A/F握手已完成，但尚无计算消息。
+原因是AFD新建的子批次builder漏掉原生`prepare_source_rope()`准备；
+FFN随后报peer关闭是连带失败。修复对每个新建V4.1 child builder执行原生源表准备，
+不在eager中开启异步metadata，不修改上游或算子。新增三项CPU回归先失败后通过，
+相关290项CPU契约和17项入口检查通过；实际A5 U2修复效果仍待验证。
+
+更新后用全新目录重跑完整七场景，并回传整个目录：
+
+```bash
+git pull --ff-only origin feat/dsv41-flash-hccl-v030
+
+python -B tests/npu/dsv41_a5_functional_validation.py \
+  --model /home/models/DeepSeek-V4.1-Flash \
+  --transformer-vendor /usr/local/Ascend/ascend-toolkit/latest/opp/vendors/custom_transformer \
+  --devices 0,1,2,3 \
+  --preflight-timeout 900 \
+  --output-dir results/dsv41-a5-functional-u2-rope-20261118 \
+  --run
+```
+
+本轮局部上传没有整套summary/runtime预检，U1独立对照不补写原始equivalence字段。
+下一轮保留summary、snapshot和所有角色/进程结果；新冻结包仅更新一份生产初始化代码，
+七场景、U2/Graph/DSpark/PD以及训练检查点完整验收仍按真实结果判定。
+[本次证据、源码审查与CPU记录](../../openspec/changes/afd-hccl-full-parity/evidence/a5-u1-pass-u2-source-rope-20261118/README.md)。
+
 ## 4. 源码与实施边界
 
 交付源码见 [准备记录](../../reports/dsv41-a5-functional/preparation.json) 和

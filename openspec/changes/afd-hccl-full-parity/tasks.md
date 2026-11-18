@@ -1681,3 +1681,18 @@ logits `[8,64]`与bias `[64]`均连续、偏移0且全部有限；原生仍报50
 本轮确认vendor前置后的原生诊断路径通过；summary仍为diagnostic_only且仅一个场景。
 下一步完整七场景的原生/AFD参数及采样对照、U2/Graph/多流、DSpark/PD仍待A5执行；
 完整训练检查点、Engram与性能未验收，整项任务勾选保持不变。
+
+### 2026-11-18：AFD U1 通过与 U2 child 源 RoPE 初始化修复
+
+[三份上传、独立对照及CPU检查](evidence/a5-u1-pass-u2-source-rope-20261118/README.md)
+确认U1 A/F均退出0，六轮执行/采样、取消及随后请求和角色清理通过；
+对此前保存的原生诊断基线，A58+F21共79份canonical参数身份及A/B/C输出完全一致。
+本轮局部上传未含完整source/summary和U1外层监督报告，独立对照不改写原始报告标志。
+U2握手后、首轮计算前在C2 metadata缺完整源RoPE表；F侧peer closed/loop失败为连带错误。
+外层退出1，无超时、强杀或所属残留，失败与清理错误均保留。
+锁定上游只准备原生attn_groups，插件创建的独立child builder漏掉同一初始化。
+在子builder创建后调用原生prepare_source_rope，保留同步eager、FULL任务owner及stage状态隔离。
+新增三项CPU契约修复前均失败，修复后相关290项全部通过，NPU未初始化；
+本地17项入口检查、186Python编译、194Git身份、Ruff和规划/上游保全通过。
+冻结包仅更新该生产文件（另145份生产字节保持）及provenance/manifest；
+A5 U2修复效果、后续Graph/DSpark/PD及完整七场景仍待重跑，整项任务勾选保持不变。

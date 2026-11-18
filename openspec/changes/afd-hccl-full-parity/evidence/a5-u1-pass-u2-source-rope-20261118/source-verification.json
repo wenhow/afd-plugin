@@ -1,0 +1,16 @@
+{
+  "runtime_source_sha256": "c11071793ca85dd7082556552a23cf1ab21e37d6ef612ddc1a13c079547b0fb6",
+  "launcher_sha256": "5732cc4eb3709d660b51c778d236b46dedcc5347bdc110cd2d3d3931e1cfbe30",
+  "production_file_changed": "afd_plugin/v1/worker/npu/ubatch_runner.py",
+  "production_files_preserved": 145,
+  "changed_from_parent": [
+    "afd_plugin/v1/worker/npu/ubatch_runner.py",
+    "bundle-manifest.json",
+    "functional-source-provenance.json"
+  ],
+  "python_sources_compiled": 186,
+  "native_git_pins_verified": 194,
+  "cpu_green_matches_delivered_module_and_tests": true,
+  "preexisting_paths_preserved": 27,
+  "npu_fix_effect": "pending_on_A5"
+}

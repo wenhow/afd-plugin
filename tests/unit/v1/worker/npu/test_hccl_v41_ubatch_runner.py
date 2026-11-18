@@ -40,6 +40,7 @@ from tests.unit.fakes.hccl_v41_ubatch import (  # noqa: E402
     GraphParentModel,
     GraphUBatchOwner,
     make_native_compressed_metadata_case,
+    make_source_rope_constructor_case,
 )
 from tests.unit.fakes.input_batch import (  # noqa: E402
     make_ascend_batch,
@@ -70,6 +71,25 @@ def runner_factory(monkeypatch):
         )
 
     return build
+
+
+def test_new_child_builders_can_consume_native_source_rope_on_cpu(monkeypatch):
+    case = make_source_rope_constructor_case(monkeypatch, module.NPUUBatchRunner)
+    runner = case.construct()
+    for groups in runner.stage_attn_groups:
+        for name, group in zip(case.layer_names, groups, strict=True):
+            actual = group[0].get_metadata_builder().source_rope_for_cpu_consumer()
+            for table, expected in zip(actual, case.tables[name], strict=True):
+                torch.testing.assert_close(table, expected)
+
+
+@pytest.mark.parametrize("missing", ["source-0", "source-1"])
+def test_child_construction_preserves_native_missing_source_error(monkeypatch, missing):
+    case = make_source_rope_constructor_case(
+        monkeypatch, module.NPUUBatchRunner, missing=missing
+    )
+    with pytest.raises(KeyError, match=missing):
+        case.construct()
 
 
 def test_eager_staged_run_rejects_foreign_wire_before_native_producer(runner_factory):

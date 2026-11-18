@@ -28,10 +28,14 @@
     "afd_plugin/v1/worker/npu/ffn_worker.py": {
       "parent_sha256": "a05670efc7318681b91367a8185ca0fa4e0b0500c551d19701e43414418e5396",
       "sha256": "8965c3fd62663731b594c77871d5c98bf62c17c85b79c44b973d3dbd165983ac"
+    },
+    "afd_plugin/v1/worker/npu/ubatch_runner.py": {
+      "parent_sha256": "7f82ffdb3a8ece8072dc67ca986cd75a637da2561e211d64defefe14567d95f2",
+      "sha256": "8279c2fc054ccb69d12f7fad3e806d0c5d6e91a946d1c18345008bb946cbd770"
     }
   },
   "python_sources_compiled": 186,
-  "runtime_source_sha256": "d0a32a80a5737f04b968e176cc61f7afa3af444658ecdfc93f6f937b359da521",
+  "runtime_source_sha256": "c11071793ca85dd7082556552a23cf1ab21e37d6ef612ddc1a13c079547b0fb6",
   "source_count": 189,
   "status": "source_prepared_not_device_validated"
 }

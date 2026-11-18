@@ -1,0 +1,161 @@
+{
+  "uploads": {
+    "8c282423171142818bdacce74b45ed6a.zip": "2ae1b50dacf5bdcd1822ed1ca5f3f13d4130dcfb67382018126177fd62c85235",
+    "6c4d6f688c8f4106a85897c3ff665742.zip": "d1c8dcc1c87711655ef84ca810d391a85bd7b0aaf847a06b35c9bb33e37d7a87",
+    "89ceeac6f8f74cfcabe3aeeb86948d81.zip": "c4b85f4c5faad78d272e600dea0343a80b1ac73cbf76186cb8525745521b2e9a"
+  },
+  "npu_occupancy_excluded_per_user": true,
+  "u1": {
+    "pair_success": true,
+    "returncodes": {
+      "attention": 0,
+      "ffn": 0
+    },
+    "scope": "bounded BF16 dummy C2 normal Worker functional component",
+    "devices": [
+      "npu:0",
+      "npu:1"
+    ],
+    "geometry": {
+      "additional_config": {
+        "afd": {
+          "afd_process_group_timeout_s": 45,
+          "connector": "P2pHcclAFDConnector",
+          "connector_extra_config": {
+            "graph_exchange_order": "stage_serial",
+            "max_tokens": 16
+          },
+          "host": "127.0.0.1",
+          "num_attention_ranks": 1,
+          "num_ffn_ranks": 1,
+          "port": 31030,
+          "role": "attention"
+        },
+        "enable_cpu_binding": false
+      },
+      "capture_sizes": [],
+      "compress_ratios": [
+        0,
+        0,
+        2
+      ],
+      "enforce_eager": true,
+      "geometry_or_mode_mutated_after_construction": false,
+      "hc_mult": 4,
+      "head_size": 512,
+      "hf_override": "bounded_a5_c2_hf_config",
+      "hidden_size": 1024,
+      "index_head_dim": 128,
+      "index_n_heads": 32,
+      "kv_budget_bytes": 8388608,
+      "max_num_seqs": 2,
+      "mode": "eager-u1",
+      "n_routed_experts": 64,
+      "num_attention_heads": 64,
+      "num_experts_per_tok": 2,
+      "num_hidden_layers": 3,
+      "role": "attention",
+      "ubatch_size": 0
+    },
+    "request_rounds": 6,
+    "outputs": {
+      "functional-A": [
+        239,
+        14
+      ],
+      "functional-B": [
+        1140,
+        382,
+        3962,
+        2736
+      ],
+      "functional-C": [
+        1605,
+        3825
+      ]
+    },
+    "canonical_parameter_count": 79,
+    "matches_previous_native_parameters": true,
+    "matches_previous_native_outputs": true,
+    "native_comparison_scope": "Independent audit against saved diagnostic run",
+    "source_identity_limit": "Current suite source report not uploaded",
+    "supervisor_limit": "U1 supervisor report absent; role exits available",
+    "role_cleanup_failures": {
+      "attention": [],
+      "ffn": []
+    }
+  },
+  "u2": {
+    "success": false,
+    "process": {
+      "command": [
+        "/usr/local/python3.11.10/bin/python",
+        "-B",
+        "/home/z00569729/dsv41-afd/src/afd-plugin-dsv41-a5/results/dsv41-a5-functional-vendor-first-20261118-1/snapshot/tests/npu/dsv41_a5_functional_validation.py",
+        "--_pair",
+        "--_snapshot",
+        "/home/z00569729/dsv41-afd/src/afd-plugin-dsv41-a5/results/dsv41-a5-functional-vendor-first-20261118-1/snapshot",
+        "--_mode",
+        "eager-u2",
+        "--_port",
+        "31050",
+        "--model",
+        "/home/models/DeepSeek-V4.1-Flash",
+        "--output-dir",
+        "/home/z00569729/dsv41-afd/src/afd-plugin-dsv41-a5/results/dsv41-a5-functional-vendor-first-20261118-1/afd-eager-u2-streams",
+        "--devices",
+        "0,1,2,3",
+        "--python",
+        "/usr/local/python3.11.10/bin/python",
+        "--timeout",
+        "480",
+        "--run",
+        "--_overlap"
+      ],
+      "forced_killed_pids": [],
+      "owned_pid_start_ticks": {
+        "5697": "41377420",
+        "5698": "41377428",
+        "5699": "41377428",
+        "5848": "41377601",
+        "5849": "41377601",
+        "6353": "41378881"
+      },
+      "returncode": 1,
+      "surviving_owned_pids": [],
+      "timed_out": false
+    },
+    "attention_first_error": "Traceback (most recent call last):\n  File \"/home/z00569729/dsv41-afd/src/afd-plugin-dsv41-a5/results/dsv41-a5-functional-vendor-first-20261118-1/snapshot/tests/npu/dsv41_functional_worker_probe.py\", line 996, in main\n    run_worker(args, config, report)\n  File \"/home/z00569729/dsv41-afd/src/afd-plugin-dsv41-a5/results/dsv41-a5-functional-vendor-first-20261118-1/snapshot/tests/npu/dsv41_functional_worker_probe.py\", line 864, in run_worker\n    run_lifecycle(wrapper, report)\n  File \"/home/z00569729/dsv41-afd/src/afd-plugin-dsv41-a5/results/dsv41-a5-functional-vendor-first-20261118-1/snapshot/tests/npu/dsv41_functional_worker_probe.py\", line 681, in run_lifecycle\n    assert set(execute_step()) == {\"functional-A\", \"functional-B\"}\n               ^^^^^^^^^^^^^^\n  File \"/home/z00569729/dsv41-afd/src/afd-plugin-dsv41-a5/results/dsv41-a5-functional-vendor-first-20261118-1/snapshot/tests/npu/dsv41_functional_worker_probe.py\", line 587, in execute_step\n    result = wrapper.execute_model(step)\n             ^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/usr/local/python3.11.10/lib/python3.11/site-packages/vllm/v1/worker/worker_base.py\", line 375, in execute_model\n    return self.worker.execute_model(scheduler_output)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/opt/vllm-ascend/vllm_ascend/worker/worker.py\", line 791, in execute_model\n    output = self.model_runner.execute_model(scheduler_output, intermediate_tensors)\n             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/usr/local/python3.11.10/lib/python3.11/site-packages/torch/utils/_contextlib.py\", line 124, in decorate_context\n    return func(*args, **kwargs)\n           ^^^^^^^^^^^^^^^^^^^^^\n  File \"/home/z00569729/dsv41-afd/src/afd-plugin-dsv41-a5/results/dsv41-a5-functional-vendor-first-20261118-1/snapshot/afd_plugin/v1/worker/npu/attention_model_runner_v2.py\", line 977, in execute_model\n    return super().execute_model(\n           ^^^^^^^^^^^^^^^^^^^^^^\n  File \"/usr/local/python3.11.10/lib/python3.11/site-packages/torch/utils/_contextlib.py\", line 124, in decorate_context\n    return func(*args, **kwargs)\n           ^^^^^^^^^^^^^^^^^^^^^\n  File \"/opt/vllm-ascend/vllm_ascend/worker/v2/model_runner.py\", line 517, in execute_model\n    output = super().execute_model(\n             ^^^^^^^^^^^^^^^^^^^^^^\n  File \"/usr/local/python3.11.10/lib/python3.11/site-packages/torch/utils/_contextlib.py\", line 124, in decorate_context\n    return func(*args, **kwargs)\n           ^^^^^^^^^^^^^^^^^^^^^\n  File \"/usr/local/python3.11.10/lib/python3.11/site-packages/vllm/v1/worker/gpu/model_runner.py\", line 1790, in execute_model\n    ubatch_state = self.ubatch_runner.prepare(\n                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/home/z00569729/dsv41-afd/src/afd-plugin-dsv41-a5/results/dsv41-a5-functional-vendor-first-20261118-1/snapshot/afd_plugin/v1/worker/npu/hccl_v41_execution.py\", line 193, in prepare\n    state = original_prepare(\n            ^^^^^^^^^^^^^^^^^\n  File \"/home/z00569729/dsv41-afd/src/afd-plugin-dsv41-a5/results/dsv41-a5-functional-vendor-first-20261118-1/snapshot/afd_plugin/v1/worker/npu/hccl_v41_ubatch_runner.py\", line 246, in prepare\n    prepared = super().prepare(\n               ^^^^^^^^^^^^^^^^\n  File \"/home/z00569729/dsv41-afd/src/afd-plugin-dsv41-a5/results/dsv41-a5-functional-vendor-first-20261118-1/snapshot/afd_plugin/v1/worker/npu/ubatch_runner.py\", line 235, in prepare\n    prepared = super().prepare(\n               ^^^^^^^^^^^^^^^^\n  File \"/usr/local/python3.11.10/lib/python3.11/site-packages/vllm/v1/worker/gpu/ubatch_utils.py\", line 366, in prepare\n    self.model_state.prepare_attn(\n  File \"/home/z00569729/dsv41-afd/src/afd-plugin-dsv41-a5/results/dsv41-a5-functional-vendor-first-20261118-1/snapshot/afd_plugin/v1/worker/npu/ubatch_runner.py\", line 173, in _prepare_attn\n    metadata = build_attn_metadata(\n               ^^^^^^^^^^^^^^^^^^^^\n  File \"/opt/vllm-ascend/vllm_ascend/worker/v2/attn_utils.py\", line 576, in build_attn_metadata\n    metadata = attn_metadata_builder.build(\n               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/opt/vllm-ascend/vllm_ascend/attention/dsa_v41.py\", line 1302, in build\n    assert self._c2_full_source_rope is not None, (\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: Enable device metadata before building compressor metadata\n",
+    "ffn_followup_error": "Traceback (most recent call last):\n  File \"/home/z00569729/dsv41-afd/src/afd-plugin-dsv41-a5/results/dsv41-a5-functional-vendor-first-20261118-1/snapshot/afd_plugin/v1/worker/npu/ffn_worker.py\", line 361, in ffn_worker_loop\n    self._run_ffn_server_loop()\n  File \"/usr/local/python3.11.10/lib/python3.11/site-packages/torch/utils/_contextlib.py\", line 124, in decorate_context\n    return func(*args, **kwargs)\n           ^^^^^^^^^^^^^^^^^^^^^\n  File \"/home/z00569729/dsv41-afd/src/afd-plugin-dsv41-a5/results/dsv41-a5-functional-vendor-first-20261118-1/snapshot/afd_plugin/v1/worker/npu/ffn_worker.py\", line 479, in _run_ffn_server_loop\n    if not self.model_runner.execute_hccl_v41_step(\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/home/z00569729/dsv41-afd/src/afd-plugin-dsv41-a5/results/dsv41-a5-functional-vendor-first-20261118-1/snapshot/afd_plugin/v1/worker/npu/ffn_model_runner.py\", line 329, in execute_hccl_v41_step\n    if transport.receive_forward() is None:\n       ^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/home/z00569729/dsv41-afd/src/afd-plugin-dsv41-a5/results/dsv41-a5-functional-vendor-first-20261118-1/snapshot/afd_plugin/connectors/npu/hccl_staged_transport.py\", line 872, in receive_forward\n    message = self._recv_control(self.coordinator_rank)\n              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/home/z00569729/dsv41-afd/src/afd-plugin-dsv41-a5/results/dsv41-a5-functional-vendor-first-20261118-1/snapshot/tests/npu/dsv41_functional_worker_probe.py\", line 366, in observed_receive\n    message = receive(transport, rank)\n              ^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/home/z00569729/dsv41-afd/src/afd-plugin-dsv41-a5/results/dsv41-a5-functional-vendor-first-20261118-1/snapshot/afd_plugin/connectors/npu/hccl_staged_transport.py\", line 1261, in _recv_control\n    dist.recv(size, group_src=rank, group=self.control_group)\n  File \"/usr/local/python3.11.10/lib/python3.11/site-packages/torch/distributed/c10d_logger.py\", line 83, in wrapper\n    return func(*args, **kwargs)\n           ^^^^^^^^^^^^^^^^^^^^^\n  File \"/usr/local/python3.11.10/lib/python3.11/site-packages/torch/distributed/distributed_c10d.py\", line 2601, in recv\n    work.wait()\nRuntimeError: [/pytorch/third_party/gloo/gloo/transport/tcp/pair.cc:547] Connection closed by peer [fe80::5241:72ff:fea0:bb1c]:9609\n\nThe above exception was the direct cause of the following exception:\n\nTraceback (most recent call last):\n  File \"/home/z00569729/dsv41-afd/src/afd-plugin-dsv41-a5/results/dsv41-a5-functional-vendor-first-20261118-1/snapshot/tests/npu/dsv41_functional_worker_probe.py\", line 996, in main\n    run_worker(args, config, report)\n  File \"/home/z00569729/dsv41-afd/src/afd-plugin-dsv41-a5/results/dsv41-a5-functional-vendor-first-20261118-1/snapshot/tests/npu/dsv41_functional_worker_probe.py\", line 872, in run_worker\n    while worker.poll_hccl_ffn_service():\n          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/home/z00569729/dsv41-afd/src/afd-plugin-dsv41-a5/results/dsv41-a5-functional-vendor-first-20261118-1/snapshot/afd_plugin/v1/worker/npu/ffn_worker.py\", line 542, in poll_hccl_ffn_service\n    self.raise_ffn_loop_error_if_any()\n  File \"/home/z00569729/dsv41-afd/src/afd-plugin-dsv41-a5/results/dsv41-a5-functional-vendor-first-20261118-1/snapshot/afd_plugin/v1/worker/npu/ffn_worker.py\", line 536, in raise_ffn_loop_error_if_any\n    raise RuntimeError(\"AFD NPU FFN worker loop failed\") from error\nRuntimeError: AFD NPU FFN worker loop failed\n",
+    "control_kinds": {
+      "attention": [
+        "HELLO",
+        "HELLO"
+      ],
+      "ffn": [
+        "HELLO",
+        "HELLO"
+      ]
+    },
+    "inference_executed": false,
+    "cleanup_failures": {
+      "attention": [
+        {
+          "phase": "worker_shutdown",
+          "traceback": "Traceback (most recent call last):\n  File \"/home/z00569729/dsv41-afd/src/afd-plugin-dsv41-a5/results/dsv41-a5-functional-vendor-first-20261118-1/snapshot/tests/npu/dsv41_functional_worker_probe.py\", line 864, in run_worker\n    run_lifecycle(wrapper, report)\n  File \"/home/z00569729/dsv41-afd/src/afd-plugin-dsv41-a5/results/dsv41-a5-functional-vendor-first-20261118-1/snapshot/tests/npu/dsv41_functional_worker_probe.py\", line 681, in run_lifecycle\n    assert set(execute_step()) == {\"functional-A\", \"functional-B\"}\n               ^^^^^^^^^^^^^^\n  File \"/home/z00569729/dsv41-afd/src/afd-plugin-dsv41-a5/results/dsv41-a5-functional-vendor-first-20261118-1/snapshot/tests/npu/dsv41_functional_worker_probe.py\", line 587, in execute_step\n    result = wrapper.execute_model(step)\n             ^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/usr/local/python3.11.10/lib/python3.11/site-packages/vllm/v1/worker/worker_base.py\", line 375, in execute_model\n    return self.worker.execute_model(scheduler_output)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/opt/vllm-ascend/vllm_ascend/worker/worker.py\", line 791, in execute_model\n    output = self.model_runner.execute_model(scheduler_output, intermediate_tensors)\n             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/usr/local/python3.11.10/lib/python3.11/site-packages/torch/utils/_contextlib.py\", line 124, in decorate_context\n    return func(*args, **kwargs)\n           ^^^^^^^^^^^^^^^^^^^^^\n  File \"/home/z00569729/dsv41-afd/src/afd-plugin-dsv41-a5/results/dsv41-a5-functional-vendor-first-20261118-1/snapshot/afd_plugin/v1/worker/npu/attention_model_runner_v2.py\", line 977, in execute_model\n    return super().execute_model(\n           ^^^^^^^^^^^^^^^^^^^^^^\n  File \"/usr/local/python3.11.10/lib/python3.11/site-packages/torch/utils/_contextlib.py\", line 124, in decorate_context\n    return func(*args, **kwargs)\n           ^^^^^^^^^^^^^^^^^^^^^\n  File \"/opt/vllm-ascend/vllm_ascend/worker/v2/model_runner.py\", line 517, in execute_model\n    output = super().execute_model(\n             ^^^^^^^^^^^^^^^^^^^^^^\n  File \"/usr/local/python3.11.10/lib/python3.11/site-packages/torch/utils/_contextlib.py\", line 124, in decorate_context\n    return func(*args, **kwargs)\n           ^^^^^^^^^^^^^^^^^^^^^\n  File \"/usr/local/python3.11.10/lib/python3.11/site-packages/vllm/v1/worker/gpu/model_runner.py\", line 1790, in execute_model\n    ubatch_state = self.ubatch_runner.prepare(\n                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/home/z00569729/dsv41-afd/src/afd-plugin-dsv41-a5/results/dsv41-a5-functional-vendor-first-20261118-1/snapshot/afd_plugin/v1/worker/npu/hccl_v41_execution.py\", line 193, in prepare\n    state = original_prepare(\n            ^^^^^^^^^^^^^^^^^\n  File \"/home/z00569729/dsv41-afd/src/afd-plugin-dsv41-a5/results/dsv41-a5-functional-vendor-first-20261118-1/snapshot/afd_plugin/v1/worker/npu/hccl_v41_ubatch_runner.py\", line 246, in prepare\n    prepared = super().prepare(\n               ^^^^^^^^^^^^^^^^\n  File \"/home/z00569729/dsv41-afd/src/afd-plugin-dsv41-a5/results/dsv41-a5-functional-vendor-first-20261118-1/snapshot/afd_plugin/v1/worker/npu/ubatch_runner.py\", line 235, in prepare\n    prepared = super().prepare(\n               ^^^^^^^^^^^^^^^^\n  File \"/usr/local/python3.11.10/lib/python3.11/site-packages/vllm/v1/worker/gpu/ubatch_utils.py\", line 366, in prepare\n    self.model_state.prepare_attn(\n  File \"/home/z00569729/dsv41-afd/src/afd-plugin-dsv41-a5/results/dsv41-a5-functional-vendor-first-20261118-1/snapshot/afd_plugin/v1/worker/npu/ubatch_runner.py\", line 173, in _prepare_attn\n    metadata = build_attn_metadata(\n               ^^^^^^^^^^^^^^^^^^^^\n  File \"/opt/vllm-ascend/vllm_ascend/worker/v2/attn_utils.py\", line 576, in build_attn_metadata\n    metadata = attn_metadata_builder.build(\n               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/opt/vllm-ascend/vllm_ascend/attention/dsa_v41.py\", line 1302, in build\n    assert self._c2_full_source_rope is not None, (\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: Enable device metadata before building compressor metadata\n\nDuring handling of the above exception, another exception occurred:\n\nTraceback (most recent call last):\n  File \"/home/z00569729/dsv41-afd/src/afd-plugin-dsv41-a5/results/dsv41-a5-functional-vendor-first-20261118-1/snapshot/tests/npu/dsv41_functional_worker_probe.py\", line 902, in run_worker\n    callback()\n  File \"/usr/local/python3.11.10/lib/python3.11/site-packages/vllm/v1/worker/worker_base.py\", line 244, in shutdown\n    self.worker.shutdown()\n  File \"/home/z00569729/dsv41-afd/src/afd-plugin-dsv41-a5/results/dsv41-a5-functional-vendor-first-20261118-1/snapshot/afd_plugin/v1/worker/npu/attention_worker.py\", line 152, in shutdown\n    super().shutdown()\n  File \"/opt/vllm-ascend/vllm_ascend/worker/worker.py\", line 378, in shutdown\n    shutdown_fn()\n  File \"/home/z00569729/dsv41-afd/src/afd-plugin-dsv41-a5/results/dsv41-a5-functional-vendor-first-20261118-1/snapshot/afd_plugin/v1/worker/npu/attention_model_runner_v2.py\", line 1185, in shutdown\n    self.prepare_shutdown()\n  File \"/home/z00569729/dsv41-afd/src/afd-plugin-dsv41-a5/results/dsv41-a5-functional-vendor-first-20261118-1/snapshot/afd_plugin/v1/worker/npu/attention_model_runner_v2.py\", line 1154, in prepare_shutdown\n    raise RuntimeError(\"failed staged session requires worker supervision\")\nRuntimeError: failed staged session requires worker supervision\n"
+        }
+      ],
+      "ffn": [
+        {
+          "phase": "worker_shutdown",
+          "traceback": "Traceback (most recent call last):\n  File \"/home/z00569729/dsv41-afd/src/afd-plugin-dsv41-a5/results/dsv41-a5-functional-vendor-first-20261118-1/snapshot/afd_plugin/v1/worker/npu/ffn_worker.py\", line 361, in ffn_worker_loop\n    self._run_ffn_server_loop()\n  File \"/usr/local/python3.11.10/lib/python3.11/site-packages/torch/utils/_contextlib.py\", line 124, in decorate_context\n    return func(*args, **kwargs)\n           ^^^^^^^^^^^^^^^^^^^^^\n  File \"/home/z00569729/dsv41-afd/src/afd-plugin-dsv41-a5/results/dsv41-a5-functional-vendor-first-20261118-1/snapshot/afd_plugin/v1/worker/npu/ffn_worker.py\", line 479, in _run_ffn_server_loop\n    if not self.model_runner.execute_hccl_v41_step(\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/home/z00569729/dsv41-afd/src/afd-plugin-dsv41-a5/results/dsv41-a5-functional-vendor-first-20261118-1/snapshot/afd_plugin/v1/worker/npu/ffn_model_runner.py\", line 329, in execute_hccl_v41_step\n    if transport.receive_forward() is None:\n       ^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/home/z00569729/dsv41-afd/src/afd-plugin-dsv41-a5/results/dsv41-a5-functional-vendor-first-20261118-1/snapshot/afd_plugin/connectors/npu/hccl_staged_transport.py\", line 872, in receive_forward\n    message = self._recv_control(self.coordinator_rank)\n              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/home/z00569729/dsv41-afd/src/afd-plugin-dsv41-a5/results/dsv41-a5-functional-vendor-first-20261118-1/snapshot/tests/npu/dsv41_functional_worker_probe.py\", line 366, in observed_receive\n    message = receive(transport, rank)\n              ^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/home/z00569729/dsv41-afd/src/afd-plugin-dsv41-a5/results/dsv41-a5-functional-vendor-first-20261118-1/snapshot/afd_plugin/connectors/npu/hccl_staged_transport.py\", line 1261, in _recv_control\n    dist.recv(size, group_src=rank, group=self.control_group)\n  File \"/usr/local/python3.11.10/lib/python3.11/site-packages/torch/distributed/c10d_logger.py\", line 83, in wrapper\n    return func(*args, **kwargs)\n           ^^^^^^^^^^^^^^^^^^^^^\n  File \"/usr/local/python3.11.10/lib/python3.11/site-packages/torch/distributed/distributed_c10d.py\", line 2601, in recv\n    work.wait()\nRuntimeError: [/pytorch/third_party/gloo/gloo/transport/tcp/pair.cc:547] Connection closed by peer [fe80::5241:72ff:fea0:bb1c]:9609\n\nThe above exception was the direct cause of the following exception:\n\nTraceback (most recent call last):\n  File \"/home/z00569729/dsv41-afd/src/afd-plugin-dsv41-a5/results/dsv41-a5-functional-vendor-first-20261118-1/snapshot/tests/npu/dsv41_functional_worker_probe.py\", line 902, in run_worker\n    callback()\n  File \"/usr/local/python3.11.10/lib/python3.11/site-packages/vllm/v1/worker/worker_base.py\", line 244, in shutdown\n    self.worker.shutdown()\n  File \"/home/z00569729/dsv41-afd/src/afd-plugin-dsv41-a5/results/dsv41-a5-functional-vendor-first-20261118-1/snapshot/afd_plugin/v1/worker/npu/ffn_worker.py\", line 631, in shutdown\n    self.stop_ffn_server_loop()\n  File \"/home/z00569729/dsv41-afd/src/afd-plugin-dsv41-a5/results/dsv41-a5-functional-vendor-first-20261118-1/snapshot/afd_plugin/v1/worker/npu/ffn_worker.py\", line 570, in stop_ffn_server_loop\n    self.raise_ffn_loop_error_if_any()\n  File \"/home/z00569729/dsv41-afd/src/afd-plugin-dsv41-a5/results/dsv41-a5-functional-vendor-first-20261118-1/snapshot/afd_plugin/v1/worker/npu/ffn_worker.py\", line 536, in raise_ffn_loop_error_if_any\n    raise RuntimeError(\"AFD NPU FFN worker loop failed\") from error\nRuntimeError: AFD NPU FFN worker loop failed\n"
+        }
+      ]
+    }
+  },
+  "u2_fix_device_validated": false,
+  "seven_scene_suite_accepted": false,
+  "full_checkpoint_accepted": false,
+  "engram_accepted": false,
+  "performance_accepted": false
+}
