@@ -273,8 +273,29 @@ class AFDDeepseekV41RemoteMoE(RemoteFFNProxy):
         return hidden_states
 
 
+class AFDDeepseekV41Attention(native.DeepseekV41Attention):
+    """Select stage-local index handoff buffers for U2."""
+
+    @property
+    def shared_state(self):
+        stage_states = self.__dict__.get("_afd_stage_shared_states")
+        if stage_states is None:
+            return self._afd_shared_state
+
+        context = get_forward_context()
+        stage_idx = context.additional_kwargs.get("ubatch_idx", 0)
+        return stage_states[stage_idx]
+
+    @shared_state.setter
+    def shared_state(self, state):
+        # The native constructor and model initialization assign this field.
+        self._afd_shared_state = state
+
+
 class AFDDeepseekV41DecoderLayer(native.DeepseekV41DecoderLayer):
     """Native V4.1 layer with role-local Attention or MoE allocation."""
+
+    attention_cls = AFDDeepseekV41Attention
 
     # Upstream source: vllm-ascend rfc/vllm_cann,
     # DeepseekV41DecoderLayer.__init__.
@@ -419,6 +440,40 @@ class AFDDeepseekV41Model(native.DeepseekV41Model):
         self._window_global_mxfp_weights = None
         if self.afd_config.role == _ATTENTION_ROLE:
             super().__init__(vllm_config=vllm_config, prefix=prefix)
+
+            # ### PATCH START: isolate index handoff buffers by U2 stage.
+            num_stages = int(
+                self.afd_config.connector_extra_config.get("micro_batch_num", 1)
+            )
+            if num_stages > 1:
+                base = self.shared_attention_state
+                stage_states = [base]
+
+                for _ in range(1, num_stages):
+                    stage_states.append(
+                        native.DeepseekV41SharedAttentionState(
+                            topk_indices=torch.full_like(base.topk_indices, -1),
+                            candidates=torch.full_like(base.candidates, -1),
+                            candidate_lengths=(
+                                None
+                                if base.candidate_lengths is None
+                                else torch.zeros_like(base.candidate_lengths)
+                            ),
+                            topk_lengths=(
+                                None
+                                if base.topk_lengths is None
+                                else torch.zeros_like(base.topk_lengths)
+                            ),
+                        )
+                    )
+
+                self._afd_stage_shared_states = tuple(stage_states)
+                for layer in self.layers:
+                    if isinstance(layer, AFDDeepseekV41DecoderLayer):
+                        layer.self_attn._afd_stage_shared_states = (
+                            self._afd_stage_shared_states
+                        )
+            # ### PATCH END: isolate index handoff buffers by U2 stage.
             return
 
         # ### PATCH START: minimal connector-driven FFN model.
