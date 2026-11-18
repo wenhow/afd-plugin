@@ -10,10 +10,11 @@ storage, transfer-engine registration or execution.
 import threading
 from collections import deque
 from concurrent.futures import ThreadPoolExecutor
-from contextlib import suppress
+from contextlib import contextmanager, suppress
 from copy import deepcopy
 from dataclasses import replace
 from types import SimpleNamespace
+from uuid import uuid4
 
 import msgspec
 import torch
@@ -37,7 +38,10 @@ from afd_plugin.compat.npu.dspark_pd import (
     read_query_payload,
     source_request_payload,
 )
-from afd_plugin.compat.npu.kv_layout_connector import AFDMooncakeRecvingThread
+from afd_plugin.compat.npu.kv_layout_connector import (
+    AFDMooncakeRecvingThread,
+    AFDMooncakeSendingThread,
+)
 from afd_plugin.compat.npu.kv_layout_native import collect_deepseek_v41_kv_layout
 from tests.unit.fakes.dspark_pd import make_dspark_pd_loaded_case
 from tests.unit.fakes.kv_cache import make_native_kv_cache_case
@@ -609,6 +613,10 @@ class SenderSocketBoundary:
     def send_multipart(self, frames, **kwargs):
         self.response = frames[-1]
 
+    def setsockopt(self, option, value):
+        # Synchronous protocol tests do not execute a blocking socket.
+        pass
+
 
 def sender_request(sender, kind, payload):
     """Execute the actual sender dispatch at an explicit socket boundary."""
@@ -628,8 +636,15 @@ class _ControlledSendingThread(adapter.AFDMooncakeSendingThread):
         # dispatch are retained, and all protocol calls are synchronous CPU.
         self.ready_event.set()
 
+    def retire(self, *, timeout):
+        # This fixture excludes thread startup; live sender retirement is
+        # exercised separately with the real native run and ZMQ socket owner.
+        self.dspark_registry.close()
 
-def make_dspark_registration_case(monkeypatch, prefix_case, *, bind=True):
+
+def make_dspark_registration_case(
+    monkeypatch, prefix_case, *, bind=True, live_sender=False
+):
     """Real CPU layout/model binding; only NPU admission and TE/socket are leaves.
 
     ``prefix_case`` is the existing dspark_pd loaded-model builder with bind=False.
@@ -676,7 +691,11 @@ def make_dspark_registration_case(monkeypatch, prefix_case, *, bind=True):
         )
 
     monkeypatch.setattr(adapter, "_validate_layout_role", validate_cpu_layout)
-    monkeypatch.setattr(adapter, "AFDMooncakeSendingThread", _ControlledSendingThread)
+    monkeypatch.setattr(
+        adapter,
+        "AFDMooncakeSendingThread",
+        AFDMooncakeSendingThread if live_sender else _ControlledSendingThread,
+    )
     monkeypatch.setattr(
         native_mooncake, "get_pp_group", lambda: SimpleNamespace(rank_in_group=0)
     )
@@ -711,6 +730,53 @@ def make_dspark_registration_case(monkeypatch, prefix_case, *, bind=True):
     )
     if bind:
         bind_and_register()
+    return case
+
+
+def make_retiring_sender_case(monkeypatch, prefix_case):
+    """Real CPU sender thread/socket lifecycle; no TE or NPU execution."""
+    retire_sender = AFDMooncakeSendingThread.retire
+    context = zmq.Context()
+    endpoint = "inproc://dspark-sender-" + uuid4().hex
+
+    @contextmanager
+    def socket_owner(socket_type, path):
+        with context.socket(socket_type) as socket:
+            socket.bind(endpoint)
+            yield socket
+
+    monkeypatch.setattr(native_mooncake, "zmq_ctx", socket_owner)
+    case = make_dspark_registration_case(monkeypatch, prefix_case, live_sender=True)
+    case.sender = case.worker.kv_send_thread
+
+    def exchange(kind, payload):
+        with context.socket(zmq.REQ) as socket:
+            socket.setsockopt(zmq.RCVTIMEO, int(THREAD_TEST_TIMEOUT * 1000))
+            socket.setsockopt(zmq.SNDTIMEO, int(THREAD_TEST_TIMEOUT * 1000))
+            socket.setsockopt(zmq.LINGER, 0)
+            socket.connect(endpoint)
+            socket.send(msgspec.msgpack.encode((kind, payload)))
+            response = socket.recv()
+            return response if response == b"ACK" else msgspec.msgpack.decode(response)
+
+    def close():
+        try:
+            retire_sender(case.sender, timeout=THREAD_TEST_TIMEOUT)
+        except RuntimeError:
+            # A failed registry close is intentionally terminal. Test teardown
+            # stops only this host thread, retaining the production failure.
+            case.sender._retirement_requested.set()
+            case.sender.join(timeout=THREAD_TEST_TIMEOUT)
+        finally:
+            context.term()
+
+    case.exchange, case.close = exchange, close
+    case.request_ready = lambda query: exchange(
+        adapter.GET_DSPARK_READY_MSG, read_query_payload(query)
+    )
+    case.complete_read = lambda lease: exchange(
+        adapter.DONE_DSPARK_RECV_MSG, read_lease_payload(lease)
+    )
     return case
 
 

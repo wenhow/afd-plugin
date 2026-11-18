@@ -1,6 +1,6 @@
 {
   "baseline_archive_sha256": "af0c18647dc8f25bb42a901ae40a74bb0f796f75ceef23dc6259ca50964cebdd",
-  "launcher_sha256": "5732cc4eb3709d660b51c778d236b46dedcc5347bdc110cd2d3d3931e1cfbe30",
+  "launcher_sha256": "4f226ae2d736d7f1542b5baf5d930cf52c1f17d40921c57d752a3d261a3b35ac",
   "production_sources": {
     "afd_plugin/__init__.py": "8de4a19c7e5dbad62210b18632daca5a40d14509cff52301c6ac88552fabc941",
     "afd_plugin/async_cam_startup.py": "d46e7a6f221ee0ffc7c65f9691d6394fecf02e18030c7b18112d0723e9ececf0",
@@ -10,7 +10,7 @@
     "afd_plugin/compat/npu/feature_validation.py": "f953fd72cf37114a3d0ab1e256f1e17870db3111c97c11d419e6af8dc62c3fd5",
     "afd_plugin/compat/npu/forward_context.py": "257ba8190117dad672bd4a7f70c0d1fbd28cfb2cd1475764102c5f5763344478",
     "afd_plugin/compat/npu/kv_layout.py": "5c6d107ea3edbf1866ef966b7e0ee51458e8d738aa7cf51e6758cd9f140fa0c5",
-    "afd_plugin/compat/npu/kv_layout_connector.py": "8c6ef6392995d7c80b5fed5eb3f2b4d3b8e9bc8f94750e53f2c5f5bb2c53af0e",
+    "afd_plugin/compat/npu/kv_layout_connector.py": "430973da6495a5ee60257b9e6507a5ce98ca4e5ef27673cb21fe72ac7140c407",
     "afd_plugin/compat/npu/kv_layout_native.py": "50e683c599643b96f275a149be9729711c8b538e91f5805b67bd06752cb62348",
     "afd_plugin/compat/npu/kv_zeroing.py": "0a431e0ef9b3858c63d5990592e61681ce313c9e3898e484ed33f1e0d39b4757",
     "afd_plugin/compat/npu/ops.py": "5b82c5eba8a474502e13baf1ce7adf8d8bd390c6ead88da2ec916c1b91c5e168",
@@ -149,5 +149,5 @@
     "afd_plugin/v1/worker/ubatch_wrapper.py": "72612fc48659d27ee70c821dbdd313c752965395a626217be4ce249e1b1f4457",
     "afd_plugin/validation.py": "c4b5315d95d1f7ee95e8b43f9f37f88b06d985d381ce90ca1afc394dec82f234"
   },
-  "runtime_source_sha256": "c11071793ca85dd7082556552a23cf1ab21e37d6ef612ddc1a13c079547b0fb6"
+  "runtime_source_sha256": "5fa6ba3063159bbe3c5a9f73515d3355f97772f153d957e558c14f40b4051889"
 }

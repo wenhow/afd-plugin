@@ -41,6 +41,7 @@ PRODUCTION_OVERLAYS = (
     "afd_plugin/compat/npu/profiler.py",
     "afd_plugin/compat/npu/profiler_api.py",
     "afd_plugin/v1/worker/npu/ubatch_runner.py",
+    "afd_plugin/compat/npu/kv_layout_connector.py",
 )
 OUTPUT = "reports/dsv41-a5-functional"
 PRODUCTION_COUNT = 146

@@ -52,6 +52,7 @@ class TestTransformerVendor(unittest.TestCase):
         vendor=None,
         diagnose_native=False,
         diagnose_router=False,
+        dspark_only=False,
         ignore_npu_occupancy=False,
     ):
         output = self.directory / "result"
@@ -71,6 +72,8 @@ class TestTransformerVendor(unittest.TestCase):
             command.append("--diagnose-native")
         if diagnose_router:
             command.append("--diagnose-router")
+        if dspark_only:
+            command.append("--dspark-only")
         if ignore_npu_occupancy:
             command.append("--ignore-npu-occupancy")
         result = subprocess.run(
@@ -209,6 +212,24 @@ class TestTransformerVendor(unittest.TestCase):
 
     def test_native_and_router_diagnoses_are_mutually_exclusive(self):
         result, output = self.run_cli(diagnose_native=True, diagnose_router=True)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn(b"not allowed with argument", result.stderr)
+        self.assertFalse(output.exists())
+
+    def test_dspark_only_selects_two_components_without_accepting_suite(self):
+        result, output = self.run_cli(vendor=self.vendor, dspark_only=True)
+        self.assertEqual(result.returncode, 0, result.stderr.decode(errors="replace"))
+        report = json.loads((output / "summary.json").read_bytes())
+        self.assertEqual(
+            [scene["name"] for scene in report["scenes"]],
+            ["dspark-pd-reject-continue-ready", "dspark-pd-graph-u2-cancel-replace"],
+        )
+        self.assertTrue(report["dspark_only"])
+        self.assertEqual(report["npu_acceptance"], "pending_on_A5")
+        self.assertNotIn("native_afd_comparison", report)
+
+    def test_dspark_only_rejects_native_diagnosis(self):
+        result, output = self.run_cli(dspark_only=True, diagnose_native=True)
         self.assertNotEqual(result.returncode, 0)
         self.assertIn(b"not allowed with argument", result.stderr)
         self.assertFalse(output.exists())

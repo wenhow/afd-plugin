@@ -1,0 +1,114 @@
+{
+  "uploaded_archive_sha256": "41542f82cf6af1c25c42a65ea725dd72f343822a691be4207a70079c0743abb2",
+  "file_sha256": {
+    "afd-eager-u1-npu.log": "cc4b287e42c7027b471a8f037b9d5fcb192c427ecdf3d1fba60c23134c650264",
+    "afd-eager-u1.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "afd-eager-u1.process.json": "2ef0f46bb56bd9ad99a9150265e79df6340d4ef21e33944d11370f0dab6ffa15",
+    "afd-eager-u2-streams-npu.log": "542291731a56b28e08c646277b2bb491e42972667590cb3f09655a88f8b1e9de",
+    "afd-eager-u2-streams.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "afd-eager-u2-streams.process.json": "bd43d2ffdc49e4bd0f2a26286654688f69b457a70c60b885c56ab52c2015afbc",
+    "afd-graph-u1-npu.log": "8a54e27b43b72859a4b76623ac75afd68f81dd7c02344571b24fbede319a10b5",
+    "afd-graph-u1.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "afd-graph-u1.process.json": "764043bcadd4a209b75d59b579431ed18bcd0a32d8bede6cfb79564592fdf940",
+    "afd-graph-u2-streams-npu.log": "463c0bec951f79a7c706528c4374a094e84c055e3a0d3cbb6236fd4561d6d44b",
+    "afd-graph-u2-streams.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "afd-graph-u2-streams.process.json": "4bc925267732be5591a0fe7d9ab76d10733f2d373c2604b7022a613b4cf25d87",
+    "dspark-pd-reject-continue-ready/consumer-verified.json": "d10407f2b363a205b26a0f49071cedd2122401c5e071f45afeb4bde116c36629",
+    "dspark-pd-reject-continue-ready/ffn_consumer/checkpoint-config-original.json": "8be45ce0476004a3f529fd896115a4a2e800a129ad2d3ec05b16050f52e21879",
+    "dspark-pd-reject-continue-ready/ffn_consumer/controlled-model/config.json": "9e7ed0dc260b99557691817108ac9434d088f598d14accc0a5b67d0d39143bf8",
+    "dspark-pd-reject-continue-ready/ffn_consumer/controlled-model/provenance.json": "fda13da72ed246ea158fbcccc9119202a27bb342b6a145465cf7aa1f9ed966a7",
+    "dspark-pd-reject-continue-ready/ffn_consumer.json": "dc80e2d9547cd2444a01a9364dd1c446fad2012c68f2585e39c03d3ccbf8e14e",
+    "dspark-pd-reject-continue-ready/ffn_consumer.log": "7742367123902dc410c8b5fd08db9ed5703ebe19a68c06bdd50bb503bfa7d110",
+    "dspark-pd-reject-continue-ready/ffn_producer/checkpoint-config-original.json": "8be45ce0476004a3f529fd896115a4a2e800a129ad2d3ec05b16050f52e21879",
+    "dspark-pd-reject-continue-ready/ffn_producer/controlled-model/config.json": "9e7ed0dc260b99557691817108ac9434d088f598d14accc0a5b67d0d39143bf8",
+    "dspark-pd-reject-continue-ready/ffn_producer/controlled-model/provenance.json": "fda13da72ed246ea158fbcccc9119202a27bb342b6a145465cf7aa1f9ed966a7",
+    "dspark-pd-reject-continue-ready/ffn_producer.json": "9a0fe184322275f99abba40f2c863e96e0269a0965e9cd5cb997dbf09160733b",
+    "dspark-pd-reject-continue-ready/ffn_producer.log": "dfe50a020ec640154c58a5e6a6907381603a4acb98b79eba1f635321ec5b3021",
+    "dspark-pd-reject-continue-ready/kv_consumer/checkpoint-config-original.json": "8be45ce0476004a3f529fd896115a4a2e800a129ad2d3ec05b16050f52e21879",
+    "dspark-pd-reject-continue-ready/kv_consumer/controlled-model/config.json": "9e7ed0dc260b99557691817108ac9434d088f598d14accc0a5b67d0d39143bf8",
+    "dspark-pd-reject-continue-ready/kv_consumer/controlled-model/provenance.json": "fda13da72ed246ea158fbcccc9119202a27bb342b6a145465cf7aa1f9ed966a7",
+    "dspark-pd-reject-continue-ready/kv_consumer.json": "feac40caea115ef8a97cb960f4896d3edb47f4774a82fe4457cfbdb0d9cce739",
+    "dspark-pd-reject-continue-ready/kv_consumer.log": "1db6904d3527c37d41363c240973fe26fb85467c7cb7ca11c68bcb6728ebf107",
+    "dspark-pd-reject-continue-ready/kv_producer/checkpoint-config-original.json": "8be45ce0476004a3f529fd896115a4a2e800a129ad2d3ec05b16050f52e21879",
+    "dspark-pd-reject-continue-ready/kv_producer/controlled-model/config.json": "9e7ed0dc260b99557691817108ac9434d088f598d14accc0a5b67d0d39143bf8",
+    "dspark-pd-reject-continue-ready/kv_producer/controlled-model/provenance.json": "fda13da72ed246ea158fbcccc9119202a27bb342b6a145465cf7aa1f9ed966a7",
+    "dspark-pd-reject-continue-ready/kv_producer.json": "04bc92b5ca4b55b85db7161213cb2cfb332fbfb8b2345ec35c0fa7cac2e3ff25",
+    "dspark-pd-reject-continue-ready/kv_producer.log": "16a4c05b06b4124bd2d21cf6965f5a4b474b9a5fb2d4845571c73edd61a9aeb8",
+    "dspark-pd-reject-continue-ready/ownership.json": "4ccb3058f006f921e7342dc27d8be91bb022fb87be64b8ab83349ed103a9c5e9",
+    "dspark-pd-reject-continue-ready/producer-ready.json": "60a04f2ed10ec24869f8113ceac19abfbc5e58f313f711a3ec5b7eb8a767a721",
+    "dspark-pd-reject-continue-ready/summary.json": "8c4b860ee22b5ce241b2f5f25d3770137a5b83b3065968bebb7a82f39c34bcd2",
+    "dspark-pd-reject-continue-ready.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "dspark-pd-reject-continue-ready.process.json": "c2d801f31784bcde3598e4815db59d2ad4a0034b1ac19441adcf0e489902434b",
+    "native-eager-u1-npu.log": "4820974120a56bf08cdeb5d8cc6796e38deedd33c552cd88d03c2fb2e36555b8",
+    "native-eager-u1.log": "027afb2916b7d2b72495ed2ea7ee02e1763041e30376f764485def71464fe424",
+    "native-eager-u1.process.json": "55c524f8d3857147b187764f654e7b210907c2c4dfda77b818d9f9223c131835",
+    "native-runtime.json": "758582aa450b4aa251613c9334672f2ccbb42905d4db78beefddd42d92a05c5f",
+    "native-runtime.log": "922f9fabfc1cc715615da0240e5d2af8f0c6a9928ca594a195fac9e94bcb0898",
+    "native-runtime.process.json": "82ef85f713b2424ca85b3c6a4acd36d05d8a8fd036faf12212ea9f2a1498b9e0",
+    "npu-after.log": "c1e6dbc82675ca086aeddd710b0024d0066d02108f84191aa7f2ebb232a37455",
+    "npu-before.log": "1059c8fbd89febec0e03a38ec037a662330637b3469b1f4c5cd54cbf9c56d7ee",
+    "summary.json": "bcfd448ada99b83d611335b8c0aa95bfe83854ff0637f2c7684f6200064e9ee1"
+  },
+  "runtime_source_sha256": "c11071793ca85dd7082556552a23cf1ab21e37d6ef612ddc1a13c079547b0fb6",
+  "normal_scenes_independently_checked": {
+    "afd-eager-u1": {
+      "parameters": 79,
+      "outputs_match": true
+    },
+    "afd-eager-u2-streams": {
+      "parameters": 79,
+      "outputs_match": true
+    },
+    "afd-graph-u1": {
+      "parameters": 79,
+      "outputs_match": true
+    },
+    "afd-graph-u2-streams": {
+      "parameters": 79,
+      "outputs_match": true
+    }
+  },
+  "dspark_returncodes": {
+    "ffn_consumer": 0,
+    "ffn_producer": 0,
+    "kv_consumer": 0,
+    "kv_producer": -6
+  },
+  "dspark_component_observations_only": {
+    "ready_frontier": "passed",
+    "rejected_per_step": [
+      [
+        2
+      ],
+      [
+        1
+      ],
+      [
+        1
+      ]
+    ],
+    "sampled_per_step": [
+      [
+        [
+          7
+        ]
+      ],
+      [
+        [
+          7,
+          8
+        ]
+      ],
+      [
+        [
+          7,
+          8
+        ]
+      ]
+    ]
+  },
+  "overall_original_success": false,
+  "npu_occupancy_excluded_per_user": true,
+  "full_checkpoint_accepted": false,
+  "native_heap_corruption_root_cause": "unconfirmed without native crash stack"
+}

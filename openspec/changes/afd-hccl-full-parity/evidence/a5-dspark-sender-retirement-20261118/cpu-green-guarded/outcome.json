@@ -1,0 +1,5 @@
+{
+  "accepted": false,
+  "controller_exit_code": 1,
+  "reason": "remote command returned nonzero without a final CPU summary; excluded from proof"
+}

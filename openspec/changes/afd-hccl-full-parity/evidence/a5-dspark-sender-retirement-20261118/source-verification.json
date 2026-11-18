@@ -1,0 +1,16 @@
+{
+  "parent_runtime_sha256": "c11071793ca85dd7082556552a23cf1ab21e37d6ef612ddc1a13c079547b0fb6",
+  "new_runtime_sha256": "5fa6ba3063159bbe3c5a9f73515d3355f97772f153d957e558c14f40b4051889",
+  "launcher_sha256": "4f226ae2d736d7f1542b5baf5d930cf52c1f17d40921c57d752a3d261a3b35ac",
+  "changed_production": [
+    "afd_plugin/compat/npu/kv_layout_connector.py"
+  ],
+  "other_production_bytes_preserved": 145,
+  "source_delta": [
+    "afd_plugin/compat/npu/kv_layout_connector.py",
+    "bundle-manifest.json",
+    "functional-source-provenance.json",
+    "tests/npu/dsv41_a5_functional_validation.py"
+  ],
+  "scope": "source identity only; A5 effect pending"
+}

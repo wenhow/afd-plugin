@@ -103,6 +103,7 @@ DSPARK_SOURCE_PARAM = "afd_dspark_source_v1"
 DSPARK_PROTOCOL_VERSION = 1
 MAX_DSPARK_ERROR_LENGTH = 1024
 DSPARK_SHUTDOWN_TIMEOUT = 30.0
+DSPARK_SENDER_POLL_MILLISECONDS = 100
 
 
 class AttestedMooncakeAgentMetadata(MooncakeAgentMetadata, kw_only=True):
@@ -861,7 +862,8 @@ class MooncakeHybridConnector(MooncakeConnector):
     # runner/KV resources. Registered consumers, including target-only D, must
     # drain real read/DONE/ACK and retire receiver/executor before that release.
     # Preserve native pre-registration shutdown; partial registration fails
-    # closed. DSpark producers additionally drain leases. Signature is exact.
+    # closed. DSpark producers drain leases and join their native socket owner
+    # before runner/KV release. Signature is exact; engine registration is kept.
     # Remove when native owns request leases and cooperative receiver retirement.
     def shutdown(self):
         # ### PATCH START: drain consumers before native storage release
@@ -873,6 +875,11 @@ class MooncakeHybridConnector(MooncakeConnector):
                 worker.retire_receiver(timeout=DSPARK_SHUTDOWN_TIMEOUT)
             elif worker._dspark_enabled:
                 worker._dspark_registry.close()
+                if worker._registration_started:
+                    sender = worker.kv_send_thread
+                    if not isinstance(sender, AFDMooncakeSendingThread):
+                        raise RuntimeError("registered DSpark sender is required")
+                    sender.retire(timeout=DSPARK_SHUTDOWN_TIMEOUT)
         # ### PATCH END: drain consumers before native storage release
         return super().shutdown()
 
@@ -1245,6 +1252,47 @@ class AFDMooncakeSendingThread(KVCacheSendingThread):
         if self.ident is not None:
             raise RuntimeError("DSpark registry must bind before sender thread start")
         self.dspark_registry = registry
+        self._retirement_requested = threading.Event()
+        self._retirement_failed = threading.Event()
+        self._loop_returned = threading.Event()
+        self._retirement_lock = threading.Lock()
+
+    @property
+    def retired(self) -> bool:
+        """True only after the native socket context and thread have exited."""
+        return (
+            self._retirement_requested.is_set()
+            and not self._retirement_failed.is_set()
+            and self._loop_returned.is_set()
+            and self.ident is not None
+            and not self.is_alive()
+        )
+
+    def retire(self, *, timeout: float) -> None:
+        """Drain leases and join the socket owner; retain TE and registered KV."""
+        if isinstance(timeout, bool) or not math.isfinite(timeout) or timeout <= 0:
+            raise ValueError("sender retirement timeout must be finite and positive")
+        if self.ident is None or threading.current_thread() is self:
+            raise RuntimeError("retirement requires a started external sender")
+        deadline = time.monotonic() + timeout
+        if not self._retirement_lock.acquire(timeout=timeout):
+            raise TimeoutError("sender retirement lock did not drain")
+        try:
+            if self._retirement_failed.is_set():
+                raise RuntimeError("sender retirement retains an earlier failure")
+            self.dspark_registry.close()
+            self._retirement_requested.set()
+            self.join(timeout=max(0, deadline - time.monotonic()))
+            if self.is_alive():
+                raise TimeoutError("native sender socket owner did not exit")
+            if not self.retired:
+                raise RuntimeError("native sender socket loop did not retire cleanly")
+            logger.info("DSpark producer sender socket owner retired and joined")
+        except BaseException:
+            self._retirement_failed.set()
+            raise
+        finally:
+            self._retirement_lock.release()
 
     # Native 7e37e29a:324-330. Retired DSpark generations become native finished
     # requests only after their lease is acknowledged or a no-read cancellation.
@@ -1276,7 +1324,9 @@ class AFDMooncakeSendingThread(KVCacheSendingThread):
 
     # Native 7e37e29a:368-451, exact signature. Keep the native ROUTER owner and
     # GETMETA loop. Replace legacy DONE with strict lease-DONE; its handlers
-    # touch host records only. Remove when native exposes request-ready hooks.
+    # touch host records only. A bounded receive lets caller retirement return
+    # through the native run() socket context; no cross-thread socket close.
+    # Remove when native owns typed leases and cooperative sender retirement.
     def run_busy_loop(self, sock: zmq.Socket):  # type: ignore
         encoder = msgspec.msgpack.Encoder()
         encoded_data = encoder.encode(self.metadata)
@@ -1286,7 +1336,10 @@ class AFDMooncakeSendingThread(KVCacheSendingThread):
         )
 
         decoder = msgspec.msgpack.Decoder(type=tuple)
-        while True:
+        # ### PATCH START: cooperative native socket owner retirement
+        sock.setsockopt(zmq.RCVTIMEO, DSPARK_SENDER_POLL_MILLISECONDS)
+        while not self._retirement_requested.is_set():
+            # ### PATCH END: cooperative native socket owner retirement
             try:
                 frames = sock.recv_multipart()
                 if len(frames) < 2:
@@ -1381,6 +1434,13 @@ class AFDMooncakeSendingThread(KVCacheSendingThread):
                         msg[0] if msg else "empty",
                         msg,
                     )
+            # ### PATCH START: receive timeout is a retirement boundary
+            except zmq.Again:
+                continue
+            except zmq.ZMQError:
+                self._retirement_failed.set()
+                raise
+            # ### PATCH END: receive timeout is a retirement boundary
             except Exception as e:
                 logger.error(
                     "Connection listener encountered exception during "
@@ -1392,6 +1452,9 @@ class AFDMooncakeSendingThread(KVCacheSendingThread):
                     type(e).__name__,
                     e,
                 )
+        # ### PATCH START: native run still owns socket/context teardown
+        self._loop_returned.set()
+        # ### PATCH END: native run still owns socket/context teardown
 
 
 class AFDMooncakeRecvingThread(KVCacheRecvingThread):

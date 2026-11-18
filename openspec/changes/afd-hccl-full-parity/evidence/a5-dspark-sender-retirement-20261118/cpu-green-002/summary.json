@@ -1,0 +1,16 @@
+{
+  "returncode": 1,
+  "counts": {
+    "tests": 333,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0
+  },
+  "native_state": {
+    "before": false,
+    "after": true,
+    "returncode": 0
+  },
+  "source_unchanged": true,
+  "scope": "CPU ZMQ sender lifecycle and protocol only; no NPU execution"
+}

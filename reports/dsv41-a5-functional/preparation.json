@@ -9,6 +9,10 @@
       "parent_sha256": "943aec35a56dfd9e7256c3b33620937b5988ac6a30f6ffc1a6d1382362ed0897",
       "sha256": "f953fd72cf37114a3d0ab1e256f1e17870db3111c97c11d419e6af8dc62c3fd5"
     },
+    "afd_plugin/compat/npu/kv_layout_connector.py": {
+      "parent_sha256": "8c6ef6392995d7c80b5fed5eb3f2b4d3b8e9bc8f94750e53f2c5f5bb2c53af0e",
+      "sha256": "430973da6495a5ee60257b9e6507a5ce98ca4e5ef27673cb21fe72ac7140c407"
+    },
     "afd_plugin/compat/npu/profiler.py": {
       "parent_sha256": "4dcd664757a788f26efbdf1a3dfaf8acbf7a0a007f26bd2e53c1b6a896d1c117",
       "sha256": "92b418c949591c5f67f75c8ddfc4225944ce95446a48bf55697e3615f1516dc0"
@@ -35,7 +39,7 @@
     }
   },
   "python_sources_compiled": 186,
-  "runtime_source_sha256": "c11071793ca85dd7082556552a23cf1ab21e37d6ef612ddc1a13c079547b0fb6",
+  "runtime_source_sha256": "5fa6ba3063159bbe3c5a9f73515d3355f97772f153d957e558c14f40b4051889",
   "source_count": 189,
   "status": "source_prepared_not_device_validated"
 }

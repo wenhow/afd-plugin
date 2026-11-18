@@ -49,6 +49,8 @@ def runtime_environment(
     snapshot: Path, transformer_vendor: Path | None, *, diagnose_native: bool = False
 ) -> dict[str, str]:
     environment = shared.source_environment(snapshot)
+    environment["PYTHONFAULTHANDLER"] = "1"
+    environment["PYTHONUNBUFFERED"] = "1"
     if transformer_vendor is not None:
         # The dynamic loader must see these paths when each child starts,
         # before importing torch, custom_ops or the native CompressorV2 caller.
@@ -407,6 +409,11 @@ def main() -> int:
         action="store_true",
         help="six isolated hash-router cases; no Worker or model; diagnostic only",
     )
+    diagnosis.add_argument(
+        "--dspark-only",
+        action="store_true",
+        help="run only the two DSpark/PD components; no seven-scene acceptance",
+    )
     parser.add_argument(
         "--ignore-npu-occupancy",
         action="store_true",
@@ -476,6 +483,7 @@ def main() -> int:
         "success": False,
         "run_requested": args.run,
         "diagnostic_only": diagnostic,
+        "dspark_only": args.dspark_only,
         "router_diagnostic": args.diagnose_router,
         "npu_occupancy_excluded": args.ignore_npu_occupancy,
         "ascend_launch_blocking": environment.get("ASCEND_LAUNCH_BLOCKING"),
@@ -538,7 +546,7 @@ def main() -> int:
                 )
         if args.diagnose_router:
             diagnose_router(args, snapshot, environment, report)
-        normal_scenes = (
+        normal_scenes = () if args.dspark_only else (
             ()
             if args.diagnose_router
             else NORMAL_SCENES[:1]
@@ -586,7 +594,7 @@ def main() -> int:
                 item["npu_after"] = idle
                 if not idle["all_eight_idle"] and not args.ignore_npu_occupancy:
                     raise RuntimeError(f"devices not idle after {name}")
-        if args.run and not diagnostic:
+        if args.run and not diagnostic and not args.dspark_only:
             report["native_afd_comparison"] = compare_normal_scenes(report["scenes"])
             if not report["native_afd_comparison"]["success"]:
                 raise RuntimeError(
@@ -638,7 +646,13 @@ def main() -> int:
                     raise RuntimeError(f"devices not idle after {name}")
         report["success"] = True
         report["npu_acceptance"] = (
-            ("diagnostic_only" if diagnostic else "component_suite_passed")
+            (
+                "diagnostic_only"
+                if diagnostic
+                else "dspark_pd_components_passed"
+                if args.dspark_only
+                else "component_suite_passed"
+            )
             if args.run
             else "pending_on_A5"
         )

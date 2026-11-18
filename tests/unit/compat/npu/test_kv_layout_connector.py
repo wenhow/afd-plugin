@@ -52,6 +52,7 @@ from tests.unit.fakes.kv_layout_connector import (
     make_registration_case,
     make_retiring_dspark_read_case,
     make_retiring_receiver_case,
+    make_retiring_sender_case,
     make_scheduled_dspark_read_case,
     peer_is_published,
     publish_dspark_prefix,
@@ -1592,9 +1593,8 @@ def test_reused_native_request_reads_a_new_remote_prefix(  # long-test: two hand
     }
 
 
-@pytest.mark.parametrize("role", ["kv_producer", "kv_consumer"])
-def test_target_only_connector_keeps_native_noop_shutdown(monkeypatch, role):
-    case = make_registration_case(monkeypatch, role=role)
+def test_target_only_producer_keeps_native_noop_shutdown(monkeypatch):
+    case = make_registration_case(monkeypatch, role="kv_producer")
     case.worker.register_kv_caches(case.cache.caches)
     assert case.connector.shutdown() is None
 
@@ -1668,3 +1668,50 @@ def test_consumer_shutdown_requires_the_actual_typed_done_ack(
             pass
     finally:
         case.close()
+
+
+@pytest.fixture
+def retiring_sender_case(monkeypatch):
+    prefix = make_dspark_pd_prefix_case(monkeypatch, bind=False)
+    case = make_retiring_sender_case(monkeypatch, prefix)
+    try:
+        yield case
+    finally:
+        case.close()
+
+
+@pytest.mark.parametrize("published", [False, True])
+def test_producer_shutdown_joins_the_socket_owner(retiring_sender_case, published):
+    case = retiring_sender_case
+    if published:
+        lease = publish_dspark_prefix(case)
+        assert case.complete_read(lease) == b"ACK"
+    metadata = case.exchange(adapter.GET_META_MSG, None)
+    assert metadata["engine_id"] == case.worker.engine_id
+    assert case.connector.shutdown() is None
+    assert case.sender.retired
+    assert not case.sender.is_alive()
+    assert case.connector.shutdown() is None
+
+
+def test_failed_producer_shutdown_preserves_the_real_done_endpoint(
+    retiring_sender_case,
+):
+    case = retiring_sender_case
+    lease = publish_dspark_prefix(case)
+    with pytest.raises(RuntimeError, match="not drained"):
+        case.connector.shutdown()
+    assert case.sender.is_alive()
+    assert case.complete_read(lease) == b"ACK"
+    with pytest.raises(RuntimeError, match="not drained"):
+        case.connector.shutdown()
+    assert not case.sender.retired
+
+
+@pytest.mark.parametrize("timeout", [0, -1, True, float("nan"), float("inf")])
+def test_sender_retirement_rejects_invalid_timeout(retiring_sender_case, timeout):
+    sender = retiring_sender_case.sender
+    with pytest.raises(ValueError, match="finite and positive"):
+        sender.retire(timeout=timeout)
+    assert sender.is_alive()
+    assert not sender.retired

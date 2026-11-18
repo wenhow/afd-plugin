@@ -1,0 +1,88 @@
+{
+  "planning": {
+    "returncode": 0,
+    "command": [
+      "python",
+      "-B",
+      ".agents/dsv41/harness.py",
+      "check"
+    ]
+  },
+  "upstream_guard": {
+    "returncode": 0,
+    "command": [
+      "python",
+      "-B",
+      ".agents/dsv41/harness.py",
+      "guard"
+    ]
+  },
+  "ruff": {
+    "returncode": 0,
+    "command": [
+      ".venv/Scripts/python.exe",
+      "-B",
+      "-m",
+      "ruff",
+      "check",
+      "afd_plugin/compat/npu/kv_layout_connector.py",
+      "tests/unit/fakes/kv_layout_connector.py",
+      "tests/unit/compat/npu/test_kv_layout_connector.py",
+      "tests/npu/dsv41_a5_functional_validation.py",
+      "tests/e2e/diagnostics/test_dsv41_a5_functional_validation.py",
+      "tools/diagnostics/prepare_dsv41_a5_functional_bundle.py",
+      "openspec\\changes\\afd-hccl-full-parity\\evidence\\a5-dspark-sender-retirement-20261118\\assess_reports.py",
+      "openspec\\changes\\afd-hccl-full-parity\\evidence\\a5-dspark-sender-retirement-20261118\\run_cpu_validation.py",
+      "openspec\\changes\\afd-hccl-full-parity\\evidence\\a5-dspark-sender-retirement-20261118\\cpu_native_runner.py"
+    ]
+  },
+  "cpu": {
+    "returncode": 0,
+    "counts": {
+      "tests": 213,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "native_state": {
+      "before": false,
+      "after": false,
+      "returncode": 0
+    },
+    "source_unchanged": true,
+    "scope": "CPU ZMQ sender lifecycle and protocol only; no NPU execution"
+  },
+  "local_cli": {
+    "returncode": 0,
+    "tests": 19,
+    "failures": 0,
+    "errors": 0,
+    "scope": "observed stdlib unittest run after final frozen launcher update"
+  },
+  "source": {
+    "parent_runtime_sha256": "c11071793ca85dd7082556552a23cf1ab21e37d6ef612ddc1a13c079547b0fb6",
+    "new_runtime_sha256": "5fa6ba3063159bbe3c5a9f73515d3355f97772f153d957e558c14f40b4051889",
+    "launcher_sha256": "4f226ae2d736d7f1542b5baf5d930cf52c1f17d40921c57d752a3d261a3b35ac",
+    "changed_production": [
+      "afd_plugin/compat/npu/kv_layout_connector.py"
+    ],
+    "other_production_bytes_preserved": 145,
+    "source_delta": [
+      "afd_plugin/compat/npu/kv_layout_connector.py",
+      "bundle-manifest.json",
+      "functional-source-provenance.json",
+      "tests/npu/dsv41_a5_functional_validation.py"
+    ],
+    "scope": "source identity only; A5 effect pending"
+  },
+  "preexisting_work": {
+    "other_modified_paths_bytes_preserved": 23,
+    "scoped_document_and_test_paths": [
+      "docs/design/module/compatibility_and_patches.md",
+      "docs/npu/DSV41_A5_FUNCTIONAL_VALIDATION_ZH.md",
+      "openspec/changes/afd-hccl-full-parity/tasks.md",
+      "tests/unit/compat/npu/test_kv_layout_connector.py"
+    ]
+  },
+  "npu_heap_corruption_fix_verified": false
+}

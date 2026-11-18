@@ -527,3 +527,17 @@ Runtime refactor decisions in
 [#86](https://github.com/JiusiServe/afd-plugin/issues/86) may remove or relocate
 patches. The documentation RFC remains tracked by
 [#129](https://github.com/JiusiServe/afd-plugin/issues/129).
+
+
+### DSpark producer sender retirement (2026-11-18)
+
+Registered DSpark producer shutdown now closes source admission, requires every
+source/lease to have drained, and joins its sender before runner/KV release.
+The sender's existing native socket owner returns from its receive loop using a
+100ms receive timeout and an instance stop event. The calling thread never
+closes that socket. Registry/drain failure retains the serving endpoint for real
+DONE/ACK and remains terminal; repeated successful shutdown is safe. Engine
+ownership, registrations and target-only producer behavior are preserved.
+This extends the earlier receiver-only cleanup scope; it does not establish
+native TransferEngine shutdown or full native-extension process teardown.
+See the [A5 evidence and local patch review](../../../openspec/changes/afd-hccl-full-parity/evidence/a5-dspark-sender-retirement-20261118/README.md).
