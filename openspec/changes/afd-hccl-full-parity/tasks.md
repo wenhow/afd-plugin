@@ -32,6 +32,13 @@ AFD 因该参考的 `request_passed=false`、`clean_shutdown=false` 被拒绝，
 已增强参考失败报错并补充资源与参考成功条件，详见
 [本轮审阅](evidence/a5-native-resource-gate-20261119/README.md)，2.2/1.8 保持 pending。
 
+原生 `full-eager-u1-yj67qgqv` 随后通过预检和四项 A5 packed Attention probe，
+TP4 真实量化权重及 CPU Engram 载入完成，17:08:02 HTTP 应用启动完成。
+启动器未通过就绪检查或发送生成请求，17:20:13 用户手动中断；缺少 summary 和最终
+资源快照，不能认定原生参考或清理通过。已补齐直连服务、health.json 及等待进度；
+代理干扰在主机 HTTP 回归中可复现，但不是本包已证实根因。见
+[本轮证据](evidence/a5-native-readiness-20261119/README.md)，2.2/1.8 仍 pending。
+
 | 执行顺序 | 对应原任务 | 阶段边界与验收前置 |
 | --- | --- | --- |
 | 先完成真实权重 eager/U1 对照 | 2.2、1.8，关联 C2 | 原始量化 checkpoint、A 侧原生 CPU Engram、F 隔离；历史首 token 差异未闭合，单次请求成功不等于等价 |

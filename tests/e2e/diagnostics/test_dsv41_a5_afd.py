@@ -6,9 +6,14 @@ from __future__ import annotations
 import importlib
 import io
 import json
+import os
 import sys
 import tempfile
+import threading
 import unittest
+import urllib.request
+from contextlib import ExitStack, contextmanager
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from unittest.mock import patch
 
@@ -39,6 +44,105 @@ def completion(*, mismatch=None, prompt=(1, 2, 3)):
     }
 
 
+@contextmanager
+def validation_service(health_status=200):
+    class Handler(BaseHTTPRequestHandler):
+        def do_GET(self):
+            self.send_response(health_status)
+            self.end_headers()
+
+        def do_POST(self):
+            if health_status != 200:
+                self.send_error(health_status)
+                return
+            payload = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
+            response = completion()
+            if payload.get("kv_transfer_params", {}).get("do_remote_decode"):
+                response["kv_transfer_params"] = {
+                    "afd_engram_history_v1": "opaque-http-test-value"
+                }
+            body = (
+                b'data: {"choices":[{"text":"generated"}]}\n\n'
+                if payload["stream"]
+                else json.dumps(response).encode()
+            )
+            self.send_response(200)
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def log_message(self, *args):
+            pass
+
+    with ThreadingHTTPServer(("127.0.0.1", 0), Handler) as server:
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        try:
+            yield f"http://127.0.0.1:{server.server_port}"
+        finally:
+            server.shutdown()
+            thread.join()
+
+
+class TestValidationHttp(unittest.TestCase):
+    def setUp(self):
+        self.stack = ExitStack()
+        self.addCleanup(self.stack.close)
+        proxy = self.stack.enter_context(validation_service(403))
+        self.stack.enter_context(
+            patch.dict(
+                os.environ,
+                {
+                    "http_proxy": proxy,
+                    "https_proxy": proxy,
+                    "no_proxy": "",
+                    "NO_PROXY": "",
+                },
+            )
+        )
+        # Recreate urllib's default transport under the inherited proxy settings.
+        self.stack.enter_context(
+            patch("urllib.request._opener", urllib.request.build_opener())
+        )
+        self.directory = Path(self.stack.enter_context(tempfile.TemporaryDirectory()))
+        self.launcher = load_launcher()
+
+    def test_health_reaches_service_with_inherited_proxy(self):
+        with validation_service() as url:
+            self.assertTrue(self.launcher.health(url, directory=self.directory))
+        report = json.loads((self.directory / "health.json").read_bytes())
+        self.assertEqual(report["status_code"], 200)
+        self.assertIsNone(report["error"])
+
+    def test_unhealthy_service_keeps_http_failure_diagnostic(self):
+        with validation_service(503) as url:
+            self.assertFalse(self.launcher.health(url, directory=self.directory))
+        report = json.loads((self.directory / "health.json").read_bytes())
+        self.assertEqual(report["status_code"], 503)
+        self.assertIn("HTTPError", report["error"])
+        self.assertFalse(report["passed"])
+
+    def test_generation_and_cancellation_reach_service_with_inherited_proxy(self):
+        with validation_service() as url:
+            with patch.object(
+                sys, "path", [str(ROOT / "tools/diagnostics"), *sys.path]
+            ):
+                driver = importlib.import_module("run_dsv41_full_checkpoint")
+            report = driver.run_requests(
+                self.directory, None, spec_tokens=0, prefill_url=url, api_url=url
+            )
+        self.assertTrue(report["passed"])
+        self.assertEqual(len(report["requests"]), 5)
+        self.assertTrue((self.directory / "cancel-first-chunk.json").is_file())
+        prefill = json.loads(
+            (self.directory / "request-00/prefill-response.json").read_bytes()
+        )
+        self.assertEqual(
+            prefill["kv_transfer_params"]["afd_engram_history_v1"],
+            "opaque-http-test-value",
+        )
+
+
 class TestFullCheckpointPreflight(unittest.TestCase):
     def test_preflight_matches_locked_git_source_identities(self):
         launcher = load_launcher()
@@ -66,7 +170,7 @@ class TestFullCheckpointRequest(unittest.TestCase):
             reference.write_text(json.dumps(baseline), encoding="utf-8")
         reply = io.BytesIO(json.dumps(completion()).encode())
         reply.status = 200
-        with patch("urllib.request.urlopen", return_value=reply):
+        with patch("urllib.request.OpenerDirector.open", return_value=reply):
             return self.launcher.send_request(self.directory, reference)
 
     def comparison(self):
@@ -124,7 +228,7 @@ class TestFullCheckpointRequest(unittest.TestCase):
                 reply = io.BytesIO(json.dumps(completion()).encode())
                 reply.status = 200
                 with (
-                    patch("urllib.request.urlopen", return_value=reply),
+                    patch("urllib.request.OpenerDirector.open", return_value=reply),
                     self.assertRaisesRegex(RuntimeError, "reference"),
                 ):
                     self.launcher.send_request(self.directory, reference)

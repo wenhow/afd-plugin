@@ -27,6 +27,7 @@ from collections.abc import Callable
 from contextlib import suppress
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
+from http.client import HTTPResponse
 from pathlib import Path
 from types import FrameType
 from typing import IO
@@ -51,6 +52,8 @@ OUTER_SHUTDOWN_SECONDS = 240
 REQUEST_TIMEOUT_SECONDS = 300
 PACKED_ATTENTION_PROBE_SECONDS = 180
 POLL_SECONDS = 1
+HEALTH_TIMEOUT_SECONDS = 2
+READINESS_PROGRESS_SECONDS = 30
 TERM_GRACE_SECONDS = 10
 KILL_GRACE_SECONDS = 10
 MIN_HOST_BYTES = int(188.833133 * 1024**3)
@@ -487,14 +490,41 @@ def selected_devices_idle(
     )
 
 
-def health(api_url: str = f"http://127.0.0.1:{API_PORT}") -> bool:
+def open_service_request(
+    request: urllib.request.Request | str, *, timeout: float
+) -> HTTPResponse:
+    # Validation URLs identify the exact A/P/D service. Inherited HTTP proxies
+    # must not receive health checks, completions or original PD prompt history.
+    return urllib.request.build_opener(urllib.request.ProxyHandler({})).open(
+        request, timeout=timeout
+    )
+
+
+def health(
+    api_url: str = f"http://127.0.0.1:{API_PORT}", *, directory: Path | None = None
+) -> bool:
+    url = api_url.rstrip("/") + "/health"
+    passed = False
+    report: dict[str, JSONValue] = {
+        "utc": utc_now(),
+        "url": url,
+        "connection": "direct",
+        "status_code": None,
+        "error": None,
+        "passed": False,
+    }
     try:
-        with urllib.request.urlopen(
-            api_url.rstrip("/") + "/health", timeout=2
-        ) as reply:
-            return reply.status == 200
-    except (urllib.error.URLError, TimeoutError, OSError):
-        return False
+        with open_service_request(url, timeout=HEALTH_TIMEOUT_SECONDS) as reply:
+            passed = reply.status == 200
+            report.update(status_code=reply.status, passed=passed)
+    except urllib.error.HTTPError as error:
+        report.update(status_code=error.code, error=f"HTTPError: {error.reason}")
+        error.close()
+    except (urllib.error.URLError, TimeoutError, OSError) as error:
+        report["error"] = f"{type(error).__name__}: {error}"
+    if directory is not None:
+        save_json(directory / "health.json", report)
+    return passed
 
 
 def wait_ready(
@@ -506,6 +536,8 @@ def wait_ready(
     api_url: str = f"http://127.0.0.1:{API_PORT}",
 ) -> None:
     deadline = time.monotonic() + timeout
+    next_progress = 0.0
+    previous_state = None
     while time.monotonic() < deadline:
         owner.survivors()
         for child in (attention, ffn):
@@ -515,13 +547,34 @@ def wait_ready(
                 raise RuntimeError(
                     f"{child.role} exited during startup: {child.process.returncode}"
                 )
-        if (ffn is None or F_READY in ffn.text()) and health(api_url):
+        attention_ready = health(api_url, directory=owner.directory)
+        ffn_ready = ffn is None or F_READY in ffn.text()
+        if ffn_ready and attention_ready:
             owner.record(
                 "ready", attention_health=True, ffn_service_loop=ffn is not None
             )
             return
+        state = (attention_ready, ffn_ready)
+        now = time.monotonic()
+        if state != previous_state or now >= next_progress:
+            owner.record(
+                "waiting_for_ready",
+                attention_health=attention_ready,
+                ffn_service_loop=ffn is not None and ffn_ready,
+            )
+            print(
+                f"waiting for readiness: attention_health={attention_ready}, "
+                f"ffn_ready={ffn_ready}; latest HTTP result: "
+                f"{owner.directory / 'health.json'}",
+                flush=True,
+            )
+            previous_state = state
+            next_progress = now + READINESS_PROGRESS_SECONDS
         time.sleep(POLL_SECONDS)
-    raise RuntimeError("startup timed out; server logs retain the first failure")
+    raise RuntimeError(
+        "startup timed out; see health.json for the latest HTTP result and "
+        "server logs for startup failures"
+    )
 
 
 def compare_response_tokens(
@@ -605,7 +658,7 @@ def send_request(
     )
     started = time.monotonic()
     try:
-        with urllib.request.urlopen(request, timeout=REQUEST_TIMEOUT_SECONDS) as reply:
+        with open_service_request(request, timeout=REQUEST_TIMEOUT_SECONDS) as reply:
             body = reply.read()
             status = reply.status
     except urllib.error.HTTPError as error:

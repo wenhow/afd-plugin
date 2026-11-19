@@ -1,0 +1,78 @@
+[
+  {
+    "utc": "2026-11-19T09:02:31.013098+00:00",
+    "event": "spawned",
+    "role": "packed-attention-probe",
+    "pid": 1197
+  },
+  {
+    "utc": "2026-11-19T09:04:55.058423+00:00",
+    "event": "exited",
+    "role": "packed-attention-probe",
+    "exit_code": 0
+  },
+  {
+    "utc": "2026-11-19T09:05:00.375074+00:00",
+    "event": "packed_attention_probe_passed"
+  },
+  {
+    "utc": "2026-11-19T09:05:00.377351+00:00",
+    "event": "spawned",
+    "role": "attention",
+    "pid": 1441
+  },
+  {
+    "utc": "2026-11-19T09:20:13.562443+00:00",
+    "event": "failed",
+    "error": "KeyboardInterrupt: "
+  },
+  {
+    "utc": "2026-11-19T09:20:13.562696+00:00",
+    "event": "signal",
+    "role": "attention",
+    "signal": "SIGINT",
+    "target": "root"
+  },
+  {
+    "utc": "2026-11-19T09:20:25.556580+00:00",
+    "event": "forced_cleanup",
+    "signal": "SIGTERM",
+    "processes": [
+      {
+        "role": "attention",
+        "pid": 1441,
+        "start_ticks": 17908133,
+        "parent": 1163,
+        "session": 1441
+      },
+      {
+        "role": "attention",
+        "pid": 1556,
+        "start_ticks": 17909680,
+        "parent": 1441,
+        "session": 1441
+      },
+      {
+        "role": "attention",
+        "pid": 1557,
+        "start_ticks": 17909680,
+        "parent": 1441,
+        "session": 1441
+      },
+      {
+        "role": "attention",
+        "pid": 1632,
+        "start_ticks": 17910747,
+        "parent": 1557,
+        "session": 1441
+      },
+      {
+        "role": "attention",
+        "pid": 1634,
+        "start_ticks": 17910747,
+        "parent": 1557,
+        "session": 1441
+      }
+    ]
+  }
+]

@@ -67,6 +67,23 @@ full() {
 full --native-control --run
 ```
 
+等待就绪期间，启动器每 30 秒或状态变化时打印 `waiting for readiness`，并将最近一次
+`/health` 的 URL、HTTP 状态或连接/超时错误写入本次目录的 `health.json`。
+健康检查、生成、取消和 PD 的 HTTP 请求均直连指定服务，不继承 HTTP 代理。
+模型首次载权需要时间；日志出现 `Application startup complete` 后仍未进入请求时，
+在另一个终端查看本次 `health.json`，并对默认原生端口做只读检查：
+
+```bash
+curl --noproxy '*' --max-time 3 -i http://127.0.0.1:18031/health
+```
+
+2026-11-19 的 `full-eager-u1-yj67qgqv` 已通过预检、packed Attention probe，
+完成 TP4 真实权重及 CPU Engram 载入，并在 17:08:02 完成 HTTP 应用启动；
+但旧启动器未记录就绪或发送生成请求，17:20:13 被手动中断。
+旧包没有健康检查错误记录，无法确认具体 HTTP 原因；代理干扰仅为本机已复现的失败路径。
+此包缺少 `summary.json` 和最终资源快照，仍不能作为参考，见
+[就绪等待审阅](../../openspec/changes/afd-hccl-full-parity/evidence/a5-native-readiness-20261119/README.md)。
+
 先确认原生目录的 `summary.json` 中 `request_passed=true`、`clean_shutdown=true`，
 再将本次打印的原生目录赋给 `DSV41_NATIVE`。若为 false，先处理其中的 `error`；
 打印了 `results:` 仅表示创建目录。2026-11-19 的 `full-eager-u1-1g5_98ms`

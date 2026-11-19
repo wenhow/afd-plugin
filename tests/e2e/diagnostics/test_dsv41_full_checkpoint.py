@@ -217,7 +217,7 @@ class TestFullCheckpointRequests(unittest.TestCase):
                     stream.status = 200
                     return stream
 
-                with patch("urllib.request.urlopen", side_effect=reply):
+                with patch("urllib.request.OpenerDirector.open", side_effect=reply):
                     if accepted == [1, 0]:
                         with self.assertRaisesRegex(RuntimeError, "continuation"):
                             driver.run_requests(
@@ -255,7 +255,7 @@ class TestFullCheckpointRequests(unittest.TestCase):
                 stream.status = 200
                 return stream
 
-            with patch("urllib.request.urlopen", side_effect=reply):
+            with patch("urllib.request.OpenerDirector.open", side_effect=reply):
                 report = driver.run_requests(
                     directory, baseline, spec_tokens=0, prefill_url=None
                 )

@@ -241,7 +241,7 @@ def prefill_request(directory: Path, url: str, payload: dict) -> dict:
         "kv_transfer_params": {"do_remote_decode": True},
     }
     launch.save_json(directory / "prefill-request.json", request)
-    with urllib.request.urlopen(
+    with launch.open_service_request(
         urllib.request.Request(
             url.rstrip("/") + "/v1/completions",
             data=json.dumps(request).encode(),
@@ -359,7 +359,7 @@ def cancel_stream(
     if prefill_url:
         payload["kv_transfer_params"] = prefill_request(directory, prefill_url, payload)
     launch.save_json(directory / "cancel-request.json", payload)
-    with urllib.request.urlopen(
+    with launch.open_service_request(
         urllib.request.Request(
             api_url.rstrip("/") + "/v1/completions",
             data=json.dumps(payload).encode(),

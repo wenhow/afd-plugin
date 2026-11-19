@@ -1,0 +1,37 @@
+{
+  "scope": "Host-only CLI/HTTP verification; no model or NPU execution.",
+  "test_methods_passed": 17,
+  "xml_note": "JUnit has 17 testcase elements. The suite total 37 includes 20 passing unittest subtests.",
+  "checks": [
+    {
+      "name": "host_tests",
+      "command": ".venv/Scripts/python.exe -B -X utf8 -m pytest tests/e2e/diagnostics/test_dsv41_a5_afd.py tests/e2e/diagnostics/test_dsv41_full_checkpoint.py -q -p no:cacheprovider --junitxml=openspec/changes/afd-hccl-full-parity/evidence/a5-native-readiness-20261119/host-tests.xml",
+      "exit_code": 0,
+      "output": ".................                                    [100%]\r\n"
+    },
+    {
+      "name": "ruff",
+      "command": ".venv/Scripts/ruff.exe check tools/diagnostics/run_dsv41_a5_afd.py tools/diagnostics/run_dsv41_full_checkpoint.py tests/e2e/diagnostics/test_dsv41_a5_afd.py tests/e2e/diagnostics/test_dsv41_full_checkpoint.py",
+      "exit_code": 0,
+      "output": "All checks passed!\n"
+    },
+    {
+      "name": "format",
+      "command": ".venv/Scripts/ruff.exe format --check tools/diagnostics/run_dsv41_a5_afd.py tools/diagnostics/run_dsv41_full_checkpoint.py tests/e2e/diagnostics/test_dsv41_a5_afd.py tests/e2e/diagnostics/test_dsv41_full_checkpoint.py",
+      "exit_code": 0,
+      "output": "4 files already formatted\n"
+    },
+    {
+      "name": "harness_check",
+      "command": "python -B -X utf8 .agents/dsv41/harness.py check",
+      "exit_code": 0,
+      "output": "{\r\n  \"ok\": true,\r\n  \"files\": 434,\r\n  \"changes\": 8,\r\n  \"tasks\": 109,\r\n  \"source_objects\": 56,\r\n  \"skills\": 3,\r\n  \"phase\": \"implementation\",\r\n  \"upstreams_unchanged\": true,\r\n  \"validation_scope\": \"local plan checks; not official CLI or NPU qualification\"\r\n}\r\n"
+    },
+    {
+      "name": "upstream_guard",
+      "command": "python -B -X utf8 .agents/dsv41/harness.py guard",
+      "exit_code": 0,
+      "output": "{\r\n  \"ok\": true,\r\n  \"upstreams\": [\r\n    \"vllm\",\r\n    \"vllm_ascend\",\r\n    \"hccl_donor\"\r\n  ],\r\n  \"unchanged\": true\r\n}\r\n"
+    }
+  ]
+}

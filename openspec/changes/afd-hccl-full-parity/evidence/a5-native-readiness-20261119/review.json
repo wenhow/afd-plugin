@@ -1,0 +1,91 @@
+{
+  "input_file": "01052bc8ff084a74965b94e01b68f9e9.gz",
+  "input_sha256": "1e72adcd3e76f3e89c1267471a15888a618ec9c584fba46b45374e2eaec61a88",
+  "scope": "Offline archive review. No A5/A3 connection or device actions. HTTP proxy interference is a reproduced host failure mode, not a confirmed cause of this archived stall.",
+  "run": "full-eager-u1-yj67qgqv",
+  "plugin_head": "5087fa022c70f237857842cc928ad1021fb50060",
+  "python": {
+    "executable": "/usr/local/python3.11.10/bin/python",
+    "version": "3.11.10 (main, Oct 12 2026, 02:41:10) [GCC 12.3.1 (openEuler 12.3.1-110.oe2403sp4)]"
+  },
+  "packages": {
+    "torch": "2.10.0",
+    "torch-npu": "2.10.0.post4",
+    "vllm": "0.30.0+empty",
+    "vllm-ascend": "0.19.1rc2.dev637+g2db8549c5",
+    "fastapi": "0.123.10",
+    "vllm-afd-plugin": "0.1.dev750+g5087fa022"
+  },
+  "native_control": true,
+  "selected_devices": [
+    0,
+    1,
+    2,
+    3
+  ],
+  "api_url": "http://127.0.0.1:18031",
+  "preflight_passed": true,
+  "source_count": 25,
+  "sources_match": true,
+  "packed_attention_probe_passed": true,
+  "packed_attention_case_count": 4,
+  "timeline_local_Asia_Shanghai": {
+    "probe_spawned": "2026-11-19 17:02:31",
+    "probe_passed": "2026-11-19 17:05:00",
+    "native_server_spawned": "2026-11-19 17:05:00",
+    "all_tp_weights_loaded": "2026-11-19 17:07:36",
+    "http_application_startup_complete": "2026-11-19 17:08:02",
+    "manual_keyboard_interrupt": "2026-11-19 17:20:13",
+    "post_stop_engine_dead_error": "2026-11-19 17:20:25"
+  },
+  "observed_stage": "wait_ready did not record ready; application startup complete does not prove /health returned 200",
+  "http_error_recorded": false,
+  "proxy_environment_recorded": false,
+  "generation_request_sent": false,
+  "native_reference_accepted": false,
+  "summary_present": false,
+  "clean_shutdown_accepted": false,
+  "full_model_qualification": false,
+  "original_files": {
+    "attention-server.log": {
+      "bytes": 54579,
+      "sha256": "8ad26762664cc07924960845b8e61286e602ff0d50c43b8c26ffa003f4e68ac5"
+    },
+    "launch-plan.json": {
+      "bytes": 5256,
+      "sha256": "cd21e2b94d10929a955989a166b3af1f271da9fb344a2fd0161a847297e75fb7"
+    },
+    "lifecycle.json": {
+      "bytes": 1634,
+      "sha256": "9353a363f242050806472d2f8b4c078aafbe4121329bbbdb00c23026e9f7605a"
+    },
+    "npu-after-packed-probe.log": {
+      "bytes": 5733,
+      "sha256": "01da087d289b7d6ff2f6fe70d2f845b1b4b705deac3bc652a24e05c5f25cdba8"
+    },
+    "npu-before.log": {
+      "bytes": 5733,
+      "sha256": "3956ea3e7cd3ff83a7007de7177b47c94bf694249205fbc901dd2d8d4090f26f"
+    },
+    "operator-probe.log": {
+      "bytes": 71,
+      "sha256": "ff891cee792699bda93a58cbedade103ebcce0382d2c89e40d17c46fd8241d51"
+    },
+    "packed-attention-probe-server.log": {
+      "bytes": 16585,
+      "sha256": "be362e9129cb9c5163a2e67f0a2bf1a4361c0d518570241949242f574c016599"
+    },
+    "packed-attention-probe.json": {
+      "bytes": 4333,
+      "sha256": "77f7d30d47a8a17a2162fceb3a0905e5a55ba9bf3bd575b53bd2565da2cde504"
+    },
+    "preflight.json": {
+      "bytes": 23539,
+      "sha256": "2232464e24307a04eb5dc6917c0e5524a51492bff282c3ce89250ffcab8aaf05"
+    },
+    "resources.json": {
+      "bytes": 311,
+      "sha256": "b04a60fb16295e07279dbb7d79593c7e852efb3f3644f4cd766bbd333a684824"
+    }
+  }
+}
