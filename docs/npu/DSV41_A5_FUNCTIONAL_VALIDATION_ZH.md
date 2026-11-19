@@ -584,3 +584,31 @@ python -B tests/npu/dsv41_a5_functional_validation.py \
 
 回传顶层 `summary.json`、预检与源码身份 JSON，以及失败场景的 JSON/log；
 此前普通五场景无需重新打包。保留原始 SIGABRT，不能转为通过。
+
+### 2026-11-19：reject 已通过，Graph/U2 观察点继续修正
+
+[本次两场景与顶层 summary 分析](../../openspec/changes/afd-hccl-full-parity/evidence/a5-dspark-stage-observer-20261119/README.md)
+核对冻结包 SHA 匹配 04da709。`dspark-pd-reject-continue-ready` 的顶层功能校验
+已通过，四角色退出码全为 0，无强制终止或存活子进程；P sender join 已返回。
+其 ZIP 缺少详细 P/D 最终报告，具体 token 接受/拒绝计数无法从该 ZIP 独立复算。
+
+失败的是 Graph/U2。第一个 eager 返回后 embedding 只调用一次、6 行；同批次
+host diagnostics 已记录两层各 stage0/1 的 compute_returned。原生 MRV2 可以先
+为整个父批次生成 embeds，再由 stage 使用切片；embedding 也可能在 replay
+准备阶段运行。上轮按 stage 统计 embedding 的观察点遗漏了这条真实输入路径。
+
+本次改为观察受控 target 首层 Attention forward：仍严格要求 U2 eager 两次、
+U1 eager 一次、replay 零次，每个 eager stage 3 行；原数值/KV/报文/取消检查保持。
+新增断言前的最后返回批次记录。146 份生产源码不变，21 项本地 host/CLI 检查
+通过；Graph replay、取消替换及四角色正常退出仍待 A5。原始 D 堆损坏/-6 保留。
+
+```bash
+git pull --ff-only origin feat/dsv41-flash-hccl-v030
+python -B tests/npu/dsv41_a5_functional_validation.py \
+  --model /home/models/DeepSeek-V4.1-Flash \
+  --transformer-vendor /usr/local/Ascend/ascend-toolkit/latest/opp/vendors/custom_transformer \
+  --devices 0,1,2,3 --preflight-timeout 900 --dspark-only \
+  --output-dir results/dsv41-a5-dspark-stage-observer-20261119 --run
+```
+
+回传顶层 summary 和失败场景 JSON/log，普通五场景不用重跑。

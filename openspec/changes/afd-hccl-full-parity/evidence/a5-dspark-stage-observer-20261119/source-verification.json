@@ -1,0 +1,15 @@
+{
+  "parent_commit": "04da709946fc044ebf299f3d273e560e38a38d21",
+  "parent_sha256": "1bdf52cdfc3eb5f7f6250111e4bcb462cda9e1565910ea202c2c92466ff34d49",
+  "runtime_source_sha256": "c576f79af0732bfcedc3deab35d8e0edac34a0f56e4475a0e61a5193d2212379",
+  "changed_members": [
+    "bundle-manifest.json",
+    "functional-source-provenance.json",
+    "tests/npu/hccl_native_attention_pd_dspark_graph_probe.py"
+  ],
+  "production_files_byte_identical": 146,
+  "native_identity_byte_identical": true,
+  "source_count": 189,
+  "python_count": 186,
+  "helper_sha256": "dc9c5f9b82380a108d4128d7160bc22f5a62bcef06a4573d3487c75f4a6cbf10"
+}

@@ -1,0 +1,218 @@
+{
+  "input_sha256": {
+    "graph-input.zip": "6c3071f397e8a61a22867a6daac345fcf1fdf8ba47bfec45efbafc491c8a7196",
+    "reject-input.zip": "c2386f8bf8acd0d4e6cb2089d4db31074ef40886c693616fd598a8f076103bf1",
+    "outer-summary.json": "f2ef11dcf7f9a2a6d15635045faef3e8fbc0cdb30effdcdd27176eed5b5f15bc"
+  },
+  "reported_runtime_source_sha256": "1bdf52cdfc3eb5f7f6250111e4bcb462cda9e1565910ea202c2c92466ff34d49",
+  "matches_04da709_frozen_archive": true,
+  "runtime_preflight_success": true,
+  "outer_success": false,
+  "outer_traceback": "Traceback (most recent call last):\n  File \"/home/z00569729/dsv41-afd/src/afd-plugin-dsv41-a5/tests/npu/dsv41_a5_functional_validation.py\", line 629, in main\n    raise RuntimeError(f\"DSpark/PD scene failed: {scene}\")\nRuntimeError: DSpark/PD scene failed: graph-u2-cancel-replace\n",
+  "reject": {
+    "run_id": "0df182ec30c04214bd232911eab05b22",
+    "outer_scene": {
+      "functional_verification": {
+        "accepted": true,
+        "original_summary_sha256": "11eb493225e358ee51bf05f53d082920a2ad0de432b6ea8317c03f1167966fd5",
+        "role_exit_codes": {
+          "ffn_consumer": 0,
+          "ffn_producer": 0,
+          "kv_consumer": 0,
+          "kv_producer": 0
+        }
+      },
+      "name": "dspark-pd-reject-continue-ready",
+      "npu_after": {
+        "all_eight_idle": true,
+        "idle_devices": [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7
+        ],
+        "returncode": 0
+      },
+      "process": {
+        "command": [
+          "/usr/local/python3.11.10/bin/python",
+          "-B",
+          "/home/z00569729/dsv41-afd/src/afd-plugin-dsv41-a5/results/dsv41-a5-dspark-graph-observer-20261118/snapshot/tests/npu/hccl_native_attention_pd_dspark_decode_probe.py",
+          "--model",
+          "/home/models/DeepSeek-V4.1-Flash",
+          "--output-dir",
+          "/home/z00569729/dsv41-afd/src/afd-plugin-dsv41-a5/results/dsv41-a5-dspark-graph-observer-20261118/dspark-pd-reject-continue-ready",
+          "--devices",
+          "0,1,2,3",
+          "--timeout",
+          "480",
+          "--target-logits-policy",
+          "reject-second-verification-row",
+          "--continue-after-rejection",
+          "--observe-ready-frontier",
+          "--run"
+        ],
+        "elapsed_seconds": 76.53329297300661,
+        "forced_killed_pids": [],
+        "owned_pid_start_ticks": {
+          "29451": "42451313",
+          "29452": "42451320",
+          "29453": "42451320",
+          "29454": "42451320",
+          "29455": "42451320",
+          "29752": "42451486",
+          "29762": "42451488",
+          "29774": "42451490",
+          "29777": "42451490",
+          "30725": "42452975",
+          "31195": "42454397",
+          "31282": "42454716",
+          "31730": "42454855",
+          "31731": "42454855",
+          "31824": "42455620",
+          "31825": "42455620",
+          "31891": "42456862"
+        },
+        "returncode": 0,
+        "success": true,
+        "surviving_owned_pids": [],
+        "timed_out": false
+      }
+    },
+    "supplied_ffn_producer_success": true,
+    "detailed_missing_reports": [
+      "summary.json",
+      "kv_consumer.json",
+      "kv_producer.json"
+    ],
+    "numerical_acceptance_counts_reaudit": "not_in_supplied_role_reports"
+  },
+  "graph": {
+    "inner_summary": {
+      "afd_pair_world_size": 2,
+      "continue_after_rejection_requested": false,
+      "eager_stream_overlap_requested": false,
+      "elapsed_seconds": 53.13335250003729,
+      "forced_killed_pids": [
+        31955,
+        31954,
+        31952
+      ],
+      "graph_all_axes_requested": true,
+      "graph_compute_overlap_requested": true,
+      "graph_exchange_order_requested": "cross_layer_v1",
+      "independent_afd_pair_count": 2,
+      "native_tp_world_size_per_process": 1,
+      "run_id": "24d698d379344c7a8ef541279205964b",
+      "success": false,
+      "target_cancel_replace_requested": true,
+      "target_graph_requested": true,
+      "target_logits_policy": "constant7",
+      "target_u2_requested": true,
+      "timed_out": false,
+      "traceback": "Traceback (most recent call last):\n  File \"/home/z00569729/dsv41-afd/src/afd-plugin-dsv41-a5/results/dsv41-a5-dspark-graph-observer-20261118/snapshot/tests/npu/hccl_native_attention_pd_dspark_decode_probe.py\", line 1230, in supervise\n    raise RuntimeError(f\"live native decode worker failed: {failures}\")\nRuntimeError: live native decode worker failed: {'kv_consumer': -6}\n"
+    },
+    "first_recorded_exception": "Traceback (most recent call last):\n  File \"/home/z00569729/dsv41-afd/src/afd-plugin-dsv41-a5/results/dsv41-a5-dspark-graph-observer-20261118/snapshot/tests/npu/hccl_native_attention_pd_dspark_decode_probe.py\", line 963, in run_worker\n    lifecycle_probe.run_decode_cancel_replace(\n  File \"/home/z00569729/dsv41-afd/src/afd-plugin-dsv41-a5/results/dsv41-a5-dspark-graph-observer-20261118/snapshot/tests/npu/hccl_native_attention_pd_dspark_lifecycle_probe.py\", line 321, in run_decode_cancel_replace\n    raw, detail = execute_decode_step(\n                  ^^^^^^^^^^^^^^^^^^^^\n  File \"/home/z00569729/dsv41-afd/src/afd-plugin-dsv41-a5/results/dsv41-a5-dspark-graph-observer-20261118/snapshot/tests/npu/hccl_native_attention_pd_dspark_u2_probe.py\", line 497, in execute_decode_step\n    assert owner.execute_model(step) is None\n           ^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/home/z00569729/dsv41-afd/src/afd-plugin-dsv41-a5/results/dsv41-a5-dspark-graph-observer-20261118/snapshot/tests/npu/hccl_native_attention_pd_dspark_graph_probe.py\", line 347, in observed_execute\n    assert entry[\"python_target_calls\"] == python_calls\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError\n",
+    "observed_python_entrypoint": "language_model.model.embed_input_ids",
+    "observed_python_calls": [
+      {
+        "execute_ordinal": 2,
+        "token_rows": 6
+      }
+    ],
+    "expected_target_batches": [
+      [
+        2,
+        "eager",
+        2
+      ],
+      [
+        2,
+        "replay",
+        0
+      ],
+      [
+        1,
+        "replay",
+        0
+      ],
+      [
+        1,
+        "eager",
+        1
+      ],
+      [
+        1,
+        "replay",
+        0
+      ]
+    ],
+    "last_parent_returned": {
+      "boundary": "host_control",
+      "boundary_api": "native_eager_scope",
+      "configured.AFD_HCCL_EAGER_U2_STREAM_OVERLAP": false,
+      "configured.AFD_HCCL_FFN_COMPUTE_SYNC_DIAGNOSTICS": false,
+      "configured.AFD_HCCL_GRAPH_U2_ATTENTION_THREE_STREAM": true,
+      "configured.AFD_HCCL_GRAPH_U2_COMPUTE_OVERLAP": true,
+      "configured.AFD_HCCL_GRAPH_U2_FFN_CROSS_LAYER": true,
+      "configured.AFD_HCCL_GRAPH_U2_FFN_RECV_STREAM": true,
+      "configured.AFD_HCCL_GRAPH_U2_HYBRID_DAG": true,
+      "configured.AFD_HCCL_STAGE_DIAGNOSTICS": true,
+      "decision_digest": "5f72d2756c2d94d4058ac8494e284401f819eebe5e67ba090711687bdb719219",
+      "event": "graph_parent_scope_returned",
+      "key_digest": "",
+      "key_present": false,
+      "local_device": 1,
+      "mode": "target",
+      "num_stages": 2,
+      "outcome": "returned",
+      "phase": "eager",
+      "reason": "requested",
+      "role": "attention",
+      "role_rank": 0,
+      "transaction_id": "native-graph-8",
+      "world_rank": 1
+    },
+    "compute_returned_host_records": [
+      {
+        "event": "compute_returned",
+        "layer": 0,
+        "stage": 0,
+        "phase": "eager"
+      },
+      {
+        "event": "compute_returned",
+        "layer": 0,
+        "stage": 1,
+        "phase": "eager"
+      },
+      {
+        "event": "compute_returned",
+        "layer": 1,
+        "stage": 0,
+        "phase": "eager"
+      },
+      {
+        "event": "compute_returned",
+        "layer": 1,
+        "stage": 1,
+        "phase": "eager"
+      }
+    ],
+    "native_capture_completed": true,
+    "capture_kv_bytes_unchanged": true,
+    "capture_physical_pages_unchanged": true,
+    "replay_observed": false,
+    "heap_corruption_also_observed": true,
+    "native_groups_destroyed": true,
+    "cancel_replace_completed": false,
+    "full_model_accepted": false
+  },
+  "verdict": "reject_passed_in_outer_summary_graph_observer_failed_then_abort",
+  "NPU_occupancy": "excluded_from_diagnosis_per_user",
+  "A5_replay_cancel_replace_and_clean_exit_after_fix": "pending"
+}

@@ -22,7 +22,15 @@ def load_observer():
     return module
 
 
+class Attention:
+    def forward(self, positions, hidden_states, scaling=None):
+        return hidden_states
+
+
 class Target:
+    def __init__(self):
+        self.layers = [SimpleNamespace(self_attn=Attention())]
+
     def embed_input_ids(self, input_ids):
         return input_ids
 
@@ -41,12 +49,16 @@ class Connector:
 
 
 class Owner:
-    def __init__(self, records, *, requests, eager_calls, replay_calls):
+    def __init__(
+        self, records, *, requests, eager_calls, replay_calls, prepare_embeds, rows
+    ):
         self.model = Wrapper()
         self.records = records
         self.requests = requests
         self.eager_calls = eager_calls
         self.replay_calls = replay_calls
+        self.prepare_embeds = prepare_embeds
+        self.rows = rows
         self.kv_connector = SimpleNamespace(kv_connector=Connector())
         self.hccl_v41_graph_coordinator = SimpleNamespace(
             control=SimpleNamespace(cache=SimpleNamespace(closed=False)),
@@ -58,11 +70,17 @@ class Owner:
         )
 
     def execute_model(self, step, intermediate_tensors=None):
+        target = self.model.language_model.model
+        if self.prepare_embeds:
+            # Native MRV2 prepares the parent embeddings before eager or replay.
+            target.embed_input_ids(SimpleNamespace(numel=lambda: 3 * self.requests))
         calls = self.eager_calls if step.phase == "eager" else self.replay_calls
         for _ in range(calls):
-            self.model.language_model.model.embed_input_ids(
-                SimpleNamespace(numel=lambda: 3)
+            positions = SimpleNamespace(numel=lambda: self.rows)
+            hidden = (
+                positions if self.prepare_embeds else target.embed_input_ids(positions)
             )
+            target.layers[0].self_attn.forward(positions, hidden)
         self.records.append(
             {
                 "event": "graph_parent_finish_returned",
@@ -77,13 +95,17 @@ class Owner:
         return None
 
 
-def scenario(requests, *, eager_calls=None, replay_calls=0):
+def scenario(
+    requests, *, eager_calls=None, replay_calls=0, prepare_embeds=True, rows=3
+):
     records = []
     owner = Owner(
         records,
         requests=requests,
         eager_calls=requests if eager_calls is None else eager_calls,
         replay_calls=replay_calls,
+        prepare_embeds=prepare_embeds,
+        rows=rows,
     )
     report = {
         "native_live_owner": {
@@ -137,9 +159,11 @@ def execute_pair(observer, owner, report, storage, requests):
 class TestGraphObserver(unittest.TestCase):
     def test_staged_eager_and_replay_are_observed_without_wrapper_forward(self):
         observer = load_observer()
-        for requests in (1, 2):
-            with self.subTest(requests=requests):
-                owner, report, storage = scenario(requests)
+        for requests, prepare_embeds in ((1, True), (2, True), (1, False), (2, False)):
+            with self.subTest(requests=requests, prepare_embeds=prepare_embeds):
+                owner, report, storage = scenario(
+                    requests, prepare_embeds=prepare_embeds
+                )
                 execute_pair(observer, owner, report, storage, requests)
                 result = report["target_graph_decode"]
                 self.assertTrue(result["accepted"])
@@ -147,22 +171,37 @@ class TestGraphObserver(unittest.TestCase):
                     [row["python_target_calls"] for row in result["executions"]],
                     [requests, 0],
                 )
+                self.assertEqual(
+                    [row["python_target_rows"] for row in result["executions"]],
+                    [[3] * requests, []],
+                )
                 self.assertNotIn(
-                    "embed_input_ids", vars(owner.model.language_model.model)
+                    "forward",
+                    vars(owner.model.language_model.model.layers[0].self_attn),
                 )
 
     def test_missing_eager_or_python_execution_during_replay_is_rejected(self):
         observer = load_observer()
-        for eager_calls, replay_calls in ((0, 0), (1, 0), (2, 1)):
-            with self.subTest(eager_calls=eager_calls, replay_calls=replay_calls):
+        cases = ((0, 0, 3), (1, 0, 3), (2, 1, 3), (2, 0, 6))
+        for eager_calls, replay_calls, rows in cases:
+            with self.subTest(
+                eager_calls=eager_calls, replay_calls=replay_calls, rows=rows
+            ):
                 owner, report, storage = scenario(
-                    2, eager_calls=eager_calls, replay_calls=replay_calls
+                    2, eager_calls=eager_calls, replay_calls=replay_calls, rows=rows
                 )
                 with self.assertRaises(AssertionError):
                     execute_pair(observer, owner, report, storage, 2)
                 self.assertFalse(report["target_graph_decode"]["accepted"])
+                self.assertEqual(
+                    report["target_graph_decode"]["last_returned_execution"][
+                        "python_target_calls"
+                    ],
+                    replay_calls if replay_calls else eager_calls,
+                )
                 self.assertNotIn(
-                    "embed_input_ids", vars(owner.model.language_model.model)
+                    "forward",
+                    vars(owner.model.language_model.model.layers[0].self_attn),
                 )
 
 

@@ -1,0 +1,42 @@
+--- parent/tests/npu/hccl_native_attention_pd_dspark_graph_probe.py
++++ successor/tests/npu/hccl_native_attention_pd_dspark_graph_probe.py
+@@ -266 +266 @@
+-    model = owner.model.language_model.model
++    model = owner.model.language_model.model.layers[0].self_attn
+@@ -283 +283 @@
+-        "python_target_entrypoint": "language_model.model.embed_input_ids",
++        "python_target_entrypoint": "language_model.model.layers[0].self_attn.forward",
+@@ -290 +290 @@
+-    assert "embed_input_ids" not in model.__dict__
++    assert "forward" not in model.__dict__
+@@ -292 +292 @@
+-    embed = model.embed_input_ids
++    forward = model.forward
+@@ -301 +301 @@
+-    def observed_embed(input_ids):
++    def observed_forward(positions, hidden_states, scaling=None):
+@@ -305 +305 @@
+-                "token_rows": input_ids.numel(),
++                "token_rows": positions.numel(),
+@@ -308 +308 @@
+-        return embed(input_ids)
++        return forward(positions, hidden_states, scaling)
+@@ -336,0 +337,4 @@
++            "python_target_rows": [
++                call["token_rows"]
++                for call in detail["python_target_calls"][before_calls:]
++            ],
+@@ -338,0 +343 @@
++        detail["last_returned_execution"] = entry
+@@ -347 +352,4 @@
+-            assert entry["python_target_calls"] == python_calls
++            assert entry["python_target_calls"] == python_calls, entry
++            assert entry["python_target_rows"] == (
++                [TARGET_ROWS] * python_calls
++            ), entry
+@@ -378 +386 @@
+-        model.embed_input_ids = observed_embed
++        model.forward = observed_forward
+@@ -394 +402 @@
+-        del model.embed_input_ids
++        del model.forward

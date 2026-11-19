@@ -1,0 +1,14 @@
+{
+  "command": [
+    "D:\\openSource\\afd-plugin-dsv41-flash-v030\\.venv\\Scripts\\python.exe",
+    "-B",
+    "-S",
+    "-m",
+    "unittest",
+    "tests.e2e.diagnostics.test_dsv41_a5_graph_observer",
+    "tests.e2e.diagnostics.test_dsv41_a5_functional_validation"
+  ],
+  "returncode": 0,
+  "stdout": "",
+  "stderr": ".....................\n----------------------------------------------------------------------\nRan 21 tests in 10.365s\n\nOK\n"
+}

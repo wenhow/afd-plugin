@@ -1,0 +1,211 @@
+{
+  "ascend_launch_blocking": null,
+  "diagnostic_only": false,
+  "dspark_only": true,
+  "engram_accepted": false,
+  "full_checkpoint_accuracy_accepted": false,
+  "npu_acceptance": "failed",
+  "npu_after": {
+    "all_eight_idle": false,
+    "idle_devices": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7
+    ],
+    "returncode": 0
+  },
+  "npu_before": {
+    "all_eight_idle": true,
+    "idle_devices": [
+      0,
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7
+    ],
+    "returncode": 0
+  },
+  "npu_occupancy_excluded": false,
+  "physical_overlap_or_performance_accepted": false,
+  "preflight_timeout_seconds": 900,
+  "production_files": 146,
+  "router_diagnostic": false,
+  "run_requested": true,
+  "runtime_environment": {
+    "ASCEND_CUSTOM_OPP_PATH": "/usr/local/Ascend/cann-9.2.0/opp/vendors/custom_transformer:/usr/local/python3.11.10/lib/python3.11/site-packages/fla_npu/opp/vendors/fla_npu_transformer:/usr/local/python3.11.10/lib/python3.11/site-packages/fla_npu/opp/vendors/fla_npu_transformer/op_api/lib",
+    "LD_LIBRARY_PATH": "/usr/local/Ascend/cann-9.2.0/opp/vendors/custom_transformer/op_api/lib:/usr/local/Ascend/nnal/atb/latest/atb/cxx_abi_1/lib:/usr/local/Ascend/nnal/atb/latest/atb/cxx_abi_1/examples:/usr/local/Ascend/nnal/atb/latest/atb/cxx_abi_1/tests/atbopstest:/usr/local/Ascend/ascend-toolkit/latest/tools/aml/lib64:/usr/local/Ascend/ascend-toolkit/latest/tools/aml/lib64/plugin:/usr/local/Ascend/ascend-toolkit/latest/lib64:/usr/local/Ascend/ascend-toolkit/latest/lib64/plugin/opskernel:/usr/local/Ascend/ascend-toolkit/latest/lib64/plugin/nnengine:/usr/local/Ascend/ascend-toolkit/latest/opp/built-in/op_impl/ai_core/tbe/op_tiling:/usr/local/Ascend/driver/lib64/common/:/usr/local/Ascend/driver/lib64/driver/:/usr/local/lib::/usr/local/Ascend/ascend-toolkit/latest/aarch64-linux/devlib:/usr/lib64"
+  },
+  "runtime_preflight": {
+    "command": [
+      "/usr/local/python3.11.10/bin/python",
+      "-B",
+      "/home/z00569729/dsv41-afd/src/afd-plugin-dsv41-a5/results/dsv41-a5-dspark-graph-observer-20261118/snapshot/tests/npu/dsv41_dspark_a5_validation.py",
+      "--_inspect-runtime",
+      "/home/z00569729/dsv41-afd/src/afd-plugin-dsv41-a5/results/dsv41-a5-dspark-graph-observer-20261118/native-runtime.json",
+      "--_snapshot",
+      "/home/z00569729/dsv41-afd/src/afd-plugin-dsv41-a5/results/dsv41-a5-dspark-graph-observer-20261118/snapshot",
+      "--devices",
+      "0,1,2,3"
+    ],
+    "elapsed_seconds": 37.42449687200133,
+    "forced_killed_pids": [],
+    "owned_pid_start_ticks": {
+      "29101": "42447570",
+      "29176": "42447741",
+      "29428": "42450452",
+      "29442": "42450532"
+    },
+    "returncode": 0,
+    "success": true,
+    "surviving_owned_pids": [],
+    "timed_out": false
+  },
+  "runtime_source_sha256": "1bdf52cdfc3eb5f7f6250111e4bcb462cda9e1565910ea202c2c92466ff34d49",
+  "scenes": [
+    {
+      "functional_verification": {
+        "accepted": true,
+        "original_summary_sha256": "11eb493225e358ee51bf05f53d082920a2ad0de432b6ea8317c03f1167966fd5",
+        "role_exit_codes": {
+          "ffn_consumer": 0,
+          "ffn_producer": 0,
+          "kv_consumer": 0,
+          "kv_producer": 0
+        }
+      },
+      "name": "dspark-pd-reject-continue-ready",
+      "npu_after": {
+        "all_eight_idle": true,
+        "idle_devices": [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7
+        ],
+        "returncode": 0
+      },
+      "process": {
+        "command": [
+          "/usr/local/python3.11.10/bin/python",
+          "-B",
+          "/home/z00569729/dsv41-afd/src/afd-plugin-dsv41-a5/results/dsv41-a5-dspark-graph-observer-20261118/snapshot/tests/npu/hccl_native_attention_pd_dspark_decode_probe.py",
+          "--model",
+          "/home/models/DeepSeek-V4.1-Flash",
+          "--output-dir",
+          "/home/z00569729/dsv41-afd/src/afd-plugin-dsv41-a5/results/dsv41-a5-dspark-graph-observer-20261118/dspark-pd-reject-continue-ready",
+          "--devices",
+          "0,1,2,3",
+          "--timeout",
+          "480",
+          "--target-logits-policy",
+          "reject-second-verification-row",
+          "--continue-after-rejection",
+          "--observe-ready-frontier",
+          "--run"
+        ],
+        "elapsed_seconds": 76.53329297300661,
+        "forced_killed_pids": [],
+        "owned_pid_start_ticks": {
+          "29451": "42451313",
+          "29452": "42451320",
+          "29453": "42451320",
+          "29454": "42451320",
+          "29455": "42451320",
+          "29752": "42451486",
+          "29762": "42451488",
+          "29774": "42451490",
+          "29777": "42451490",
+          "30725": "42452975",
+          "31195": "42454397",
+          "31282": "42454716",
+          "31730": "42454855",
+          "31731": "42454855",
+          "31824": "42455620",
+          "31825": "42455620",
+          "31891": "42456862"
+        },
+        "returncode": 0,
+        "success": true,
+        "surviving_owned_pids": [],
+        "timed_out": false
+      }
+    },
+    {
+      "name": "dspark-pd-graph-u2-cancel-replace",
+      "process": {
+        "command": [
+          "/usr/local/python3.11.10/bin/python",
+          "-B",
+          "/home/z00569729/dsv41-afd/src/afd-plugin-dsv41-a5/results/dsv41-a5-dspark-graph-observer-20261118/snapshot/tests/npu/hccl_native_attention_pd_dspark_decode_probe.py",
+          "--model",
+          "/home/models/DeepSeek-V4.1-Flash",
+          "--output-dir",
+          "/home/z00569729/dsv41-afd/src/afd-plugin-dsv41-a5/results/dsv41-a5-dspark-graph-observer-20261118/dspark-pd-graph-u2-cancel-replace",
+          "--devices",
+          "0,1,2,3",
+          "--timeout",
+          "480",
+          "--target-logits-policy",
+          "constant7",
+          "--target-graph",
+          "--target-u2",
+          "--target-cancel-replace",
+          "--run",
+          "--graph-compute-overlap",
+          "--graph-all-axes",
+          "--graph-exchange-order",
+          "cross_layer_v1"
+        ],
+        "elapsed_seconds": 53.30388525297167,
+        "forced_killed_pids": [],
+        "owned_pid_start_ticks": {
+          "31951": "42459554",
+          "31952": "42459561",
+          "31953": "42459562",
+          "31954": "42459562",
+          "31955": "42459562",
+          "32252": "42459731",
+          "32254": "42459732",
+          "32262": "42459733",
+          "32272": "42459734",
+          "32274": "42459734",
+          "32284": "42459734",
+          "32285": "42459734",
+          "32294": "42459740",
+          "32531": "42460495",
+          "32595": "42460550",
+          "33123": "42460775",
+          "33280": "42461357",
+          "34237": "42461758",
+          "34238": "42461759",
+          "34255": "42461764",
+          "34256": "42461765",
+          "34346": "42462459",
+          "34347": "42462460",
+          "34348": "42462460",
+          "34369": "42462564",
+          "34385": "42462567"
+        },
+        "returncode": 1,
+        "success": false,
+        "surviving_owned_pids": [],
+        "timed_out": false
+      }
+    }
+  ],
+  "source_files": 189,
+  "success": false,
+  "traceback": "Traceback (most recent call last):\n  File \"/home/z00569729/dsv41-afd/src/afd-plugin-dsv41-a5/tests/npu/dsv41_a5_functional_validation.py\", line 629, in main\n    raise RuntimeError(f\"DSpark/PD scene failed: {scene}\")\nRuntimeError: DSpark/PD scene failed: graph-u2-cancel-replace\n",
+  "transformer_vendor": "/usr/local/Ascend/cann-9.2.0/opp/vendors/custom_transformer"
+}

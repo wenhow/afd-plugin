@@ -1,0 +1,23 @@
+[
+  {
+    "package": "vllm",
+    "commit": "ced6857afa0ea7b2e3f0846a62e1394e90f15607",
+    "path": "vllm/v1/worker/gpu/model_runner.py",
+    "line_start": 1825,
+    "excerpt": "        inputs_embeds = None\n        ec_connector_output = None\n        if self.uses_inputs_embeds and self.is_first_pp_rank:\n            # Prepare inputs_embeds (MM encoder outputs and/or prompt_embeds\n            # overlay). Only first PP rank prepares them.\n            if dummy_run:\n                # Obtain embeddings of correct shape for compiled model.\n                inputs_embeds = self.model_state.dummy_inputs_embeds(\n                    input_batch.num_tokens_after_padding\n                )\n            else:\n                scheduled_encoder_inputs = scheduler_output.scheduled_encoder_inputs\n                if self.supports_mm_inputs and self.lora_config is not None:\n                    set_active_mm_loras(\n                        model=self.model,\n                        lora_manager=self.lora_manager,\n                        encoder_cache=self.encoder_cache,\n                        req_id_to_index=self.req_states.req_id_to_index,\n                        lora_state=self.lora_state,\n                        scheduled_encoder_inputs=scheduled_encoder_inputs,\n                    )\n                with self.ec_connector.maybe_get_output(\n                    scheduler_output\n                ) as ec_connector_output:\n                    inputs_embeds = self.model_state.prepare_inputs_embeds(\n                        scheduled_encoder_inputs, input_batch, self.req_states\n                    )\n            if inputs_embeds is not None and not requires_raw_input_tokens(self.model):\n                input_ids = None\n\n        model_inputs = {\n            \"input_ids\": input_ids,\n            \"positions\": input_batch.positions,\n            \"inputs_embeds\": inputs_embeds,\n            \"intermediate_tensors\": None,\n            # NOTE: Values returned by `prepare_inputs` will override the default"
+  },
+  {
+    "package": "vllm",
+    "commit": "ced6857afa0ea7b2e3f0846a62e1394e90f15607",
+    "path": "vllm/v1/worker/gpu/model_states/default.py",
+    "line_start": 121,
+    "excerpt": "            input_embeddings = self.model.embed_input_ids(input_ids_unpadded)\n            self.inputs_embeds[: input_embeddings.shape[0]] = input_embeddings\n            inputs_embeds = self.inputs_embeds\n\n        if self.prompt_embeds_state is not None:\n            self.prompt_embeds_state.apply(\n                input_batch, req_states.num_computed_tokens.gpu, inputs_embeds\n            )\n\n        return inputs_embeds[: input_batch.num_tokens_after_padding]"
+  },
+  {
+    "package": "vllm_ascend",
+    "commit": "7e37e29a7803d6897a7113088e2b771f83205bc0",
+    "path": "vllm_ascend/models/deepseek_v41/model.py",
+    "line_start": 1138,
+    "excerpt": "    def embed_input_ids(self, input_ids):\n        return self.embed_tokens(input_ids)"
+  }
+]

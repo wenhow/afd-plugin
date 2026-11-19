@@ -104,10 +104,11 @@ def add_local_helpers(root: Path, files: dict[str, bytes]) -> None:
 def staged_graph_observer(raw: bytes) -> bytes:
     """Retarget the exact reviewed observer to the shared U1/U2 stage entry.
 
-    HcclV41UBatchRunner.run_staged bypasses the wrapper's forward. This raw-token
-    component calls the core embedding once per nonempty eager stage; graph
-    replay calls neither Python entry. Preserve expected counts and numerical,
-    KV, proposal, replay-storage and transport checks in the original helper.
+    HcclV41UBatchRunner.run_staged bypasses the wrapper's forward. Native input
+    preparation can embed the whole parent before both eager and replay, so
+    embedding cannot distinguish target execution. The controlled first-layer
+    Attention forward runs once per nonempty eager stage, and never in replay.
+    Preserve expected counts and numerical/KV/proposal/storage/transport checks.
     """
     if digest(raw) != GRAPH_PROBE_PARENT_SHA256:
         raise ValueError("reviewed Graph observer parent differs")
@@ -118,38 +119,55 @@ def staged_graph_observer(raw: bytes) -> bytes:
             "on the D owner.",
             "Observe public execution and Python target stage entry on the D owner.",
         ),
-        ("    model = owner.model\n", "    model = owner.model.language_model.model\n"),
+        (
+            "    model = owner.model\n",
+            "    model = owner.model.language_model.model.layers[0].self_attn\n",
+        ),
         (
             '        "python_target_calls": [],\n',
             '        "python_target_calls": [],\n'
             '        "python_target_entrypoint": '
-            '"language_model.model.embed_input_ids",\n',
+            '"language_model.model.layers[0].self_attn.forward",\n',
         ),
         (
             '    assert "forward" not in owner.model.__dict__\n',
-            '    assert "embed_input_ids" not in model.__dict__\n',
+            '    assert "forward" not in model.__dict__\n',
         ),
-        ("    forward = model.forward\n", "    embed = model.embed_input_ids\n"),
         (
             "    def observed_forward(*args, **kwargs):\n",
-            "    def observed_embed(input_ids):\n",
+            "    def observed_forward(positions, hidden_states, scaling=None):\n",
         ),
         (
             '{"execute_ordinal": len(detail["executions"])}\n',
             '{\n'
             '                "execute_ordinal": len(detail["executions"]),\n'
-            '                "token_rows": input_ids.numel(),\n'
+            '                "token_rows": positions.numel(),\n'
             '            }\n',
         ),
         (
             "        return forward(*args, **kwargs)\n",
-            "        return embed(input_ids)\n",
+            "        return forward(positions, hidden_states, scaling)\n",
         ),
         (
-            "        model.forward = observed_forward\n",
-            "        model.embed_input_ids = observed_embed\n",
+            '            "host_records": observed,\n',
+            '            "python_target_rows": [\n'
+            '                call["token_rows"]\n'
+            '                for call in detail["python_target_calls"][before_calls:]\n'
+            '            ],\n'
+            '            "host_records": observed,\n',
         ),
-        ("        del model.forward\n", "        del model.embed_input_ids\n"),
+        (
+            '        if step.total_num_scheduled_tokens:\n',
+            '        detail["last_returned_execution"] = entry\n'
+            '        if step.total_num_scheduled_tokens:\n',
+        ),
+        (
+            '            assert entry["python_target_calls"] == python_calls\n',
+            '            assert entry["python_target_calls"] == python_calls, entry\n'
+            '            assert entry["python_target_rows"] == (\n'
+            '                [TARGET_ROWS] * python_calls\n'
+            '            ), entry\n',
+        ),
     )
     for before, after in replacements:
         if source.count(before) != 1:
@@ -231,7 +249,7 @@ def main() -> int:
                 "source": GRAPH_PROBE,
                 "parent_sha256": GRAPH_PROBE_PARENT_SHA256,
                 "sha256": digest(files[GRAPH_PROBE]),
-                "entrypoint": "language_model.model.embed_input_ids",
+                "entrypoint": "language_model.model.layers[0].self_attn.forward",
             },
             "paused_old_v4_mtp_included": False,
         }

@@ -1721,3 +1721,19 @@ HCCL U2 使用直接 stage 路径，观察器改为 core embedding 入口，不�
 pin 核对通过。本地 host fixture 不证明 NPU stage、replay 或多流正确性。
 原始后续 heap corruption、D=-6 和三个 forced kill 保留为未解决设备失败。
 Graph/U2 replay/取消/替换及正常退出仍待 A5；1.3/1.8 等整项状态保持不变。
+
+### 2026-11-19：reject 成功确认与 Graph/U2 stage 观察器修正
+
+[当前两 ZIP、顶层 summary 与修正验证](evidence/a5-dspark-stage-observer-20261119/README.md)
+确认 source SHA 匹配 04da709：reject process=0、functional accepted=true、
+四角色 exit=0，无强制终止/存活子进程。P sender socket owner join 已返回。
+详细 P/D 最终报告未随 reject ZIP 提供，具体提案/接受拒绝计数不从本包独立复算。
+整批失败来自 Graph/U2 run `24d698d379344c7a8ef541279205964b`：capture/KV
+保持已返回，第一轮 eager 后 embedding 计数 1、token_rows=6，而两层 stage0/1
+的 host compute_returned 均存在。上轮观察器遗漏 native MRV2 父批次 prepare
+embeds 分支；此入口亦可在 replay 前运行，不能作为 stage 执行计数。
+仅修改冻结 helper 观察点为受控首层 Attention forward，保留 eager U2=2/U1=1、
+replay=0 和原检查，新增逐 stage 3 行校验及断言前最后批次记录。146 份生产及
+native identity 字节保持，194 pins 核对、186 Python 编译、确定性重建和 21 项
+标准库 host/入口检查通过。原始 heap corruption、D=-6、内部三个 forced kill
+保持失败；Graph replay/取消替换/正常退出待 A5，1.3/1.8 等整项不提前勾选。
