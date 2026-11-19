@@ -1,0 +1,163 @@
+{
+  "input_file": "b583d09c3a0f484dbd6d2419075dbcfd.gz",
+  "input_sha256": "e35a780b44e644bbaac4e9a1bdcdc8903abab7f749d310219b2e85e0c8b278c1",
+  "scope": "Offline review only. Process occupancy and PIDs refer to the archived snapshot, not current machine state.",
+  "run": "full-eager-u1-1g5_98ms",
+  "plugin_head": "5087fa022c70f237857842cc928ad1021fb50060",
+  "python": {
+    "executable": "/usr/local/python3.11.10/bin/python",
+    "version": "3.11.10 (main, Oct 12 2026, 02:41:10) [GCC 12.3.1 (openEuler 12.3.1-110.oe2403sp4)]"
+  },
+  "native_control": true,
+  "selected_devices": [
+    0,
+    1,
+    2,
+    3
+  ],
+  "preflight_passed": true,
+  "source_count": 25,
+  "sources_match": true,
+  "packages": {
+    "torch": "2.10.0",
+    "torch-npu": "2.10.0.post4",
+    "vllm": "0.30.0+empty",
+    "vllm-ascend": "0.19.1rc2.dev637+g2db8549c5",
+    "fastapi": "0.123.10",
+    "vllm-afd-plugin": "0.1.dev750+g5087fa022"
+  },
+  "summary": {
+    "request_passed": false,
+    "clean_shutdown": false,
+    "hardware_acceptance": false,
+    "error": "RuntimeError: selected idle devices were not confirmed; see npu-before.log",
+    "forced_cleanup": false,
+    "survivors": [],
+    "exit_codes": {},
+    "npu_after": {
+      "exit_code": 0,
+      "idle_devices": [],
+      "all_eight_idle": false
+    },
+    "finished_utc": "2026-11-19T06:47:39.058018+00:00",
+    "exit_code": 1
+  },
+  "preexisting_processes_before_launch": [
+    {
+      "device": 0,
+      "host_pid": 1172140,
+      "container_pid": 403394,
+      "name": "VLLM::Worker_DP",
+      "process_memory_mb": 76934
+    },
+    {
+      "device": 0,
+      "host_pid": 1158718,
+      "container_pid": 402475,
+      "name": "VLLM::EngineCor",
+      "process_memory_mb": 400
+    },
+    {
+      "device": 1,
+      "host_pid": 1172092,
+      "container_pid": 403382,
+      "name": "VLLM::Worker_DP",
+      "process_memory_mb": 76913
+    },
+    {
+      "device": 1,
+      "host_pid": 1149164,
+      "container_pid": 401058,
+      "name": "VLLM::EngineCor",
+      "process_memory_mb": 400
+    },
+    {
+      "device": 2,
+      "host_pid": 1172136,
+      "container_pid": 403390,
+      "name": "VLLM::Worker_DP",
+      "process_memory_mb": 76933
+    },
+    {
+      "device": 2,
+      "host_pid": 1148623,
+      "container_pid": 400730,
+      "name": "VLLM::EngineCor",
+      "process_memory_mb": 400
+    },
+    {
+      "device": 3,
+      "host_pid": 1172043,
+      "container_pid": 403376,
+      "name": "VLLM::Worker_DP",
+      "process_memory_mb": 76934
+    },
+    {
+      "device": 3,
+      "host_pid": 1148288,
+      "container_pid": 400521,
+      "name": "VLLM::EngineCor",
+      "process_memory_mb": 400
+    },
+    {
+      "device": 4,
+      "host_pid": 1148532,
+      "container_pid": 400723,
+      "name": "VLLM::EngineCor",
+      "process_memory_mb": 400
+    },
+    {
+      "device": 4,
+      "host_pid": 1171923,
+      "container_pid": 403373,
+      "name": "VLLM::Worker_DP",
+      "process_memory_mb": 76914
+    },
+    {
+      "device": 5,
+      "host_pid": 1148131,
+      "container_pid": 400452,
+      "name": "VLLM::EngineCor",
+      "process_memory_mb": 400
+    },
+    {
+      "device": 5,
+      "host_pid": 1172090,
+      "container_pid": 403381,
+      "name": "VLLM::Worker_DP",
+      "process_memory_mb": 76894
+    },
+    {
+      "device": 6,
+      "host_pid": 1172139,
+      "container_pid": 403393,
+      "name": "VLLM::Worker_DP",
+      "process_memory_mb": 76893
+    },
+    {
+      "device": 6,
+      "host_pid": 1148420,
+      "container_pid": 400622,
+      "name": "VLLM::EngineCor",
+      "process_memory_mb": 400
+    },
+    {
+      "device": 7,
+      "host_pid": 1149155,
+      "container_pid": 401051,
+      "name": "VLLM::EngineCor",
+      "process_memory_mb": 400
+    },
+    {
+      "device": 7,
+      "host_pid": 1172133,
+      "container_pid": 403387,
+      "name": "VLLM::Worker_DP",
+      "process_memory_mb": 76913
+    }
+  ],
+  "diagnosis": "Native TP4 stopped at selected-device availability: all eight cards already had vLLM processes. No owned probe/server was started and no request ran. AFD then rejected the failed native reference before model execution.",
+  "action": "Stop the existing service through its own normal lifecycle if these devices are intended for this validation, recheck live device occupancy, then run native TP4 and use a new successful reference.",
+  "hardware_acceptance": false,
+  "new_device_work_performed_by_reviewer": false
+}

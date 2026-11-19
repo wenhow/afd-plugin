@@ -26,6 +26,12 @@ FFN 启动前角色校验及 PD 原始历史声明，详见
 已补充同 Python、无依赖解析/下载、跳过算子编译的 editable 注册及只读核验步骤；
 详见[归档审阅](evidence/a5-full-checkpoint-plugin-registration-20261119/README.md)。
 
+随后原生 `full-eager-u1-1g5_98ms` 的插件/25 份源码/checkpoint 预检通过，但
+设备资源检查发现卡 0–7 的现存 vLLM 进程，未启动 probe/服务或发送请求。
+AFD 因该参考的 `request_passed=false`、`clean_shutdown=false` 被拒绝，未进入模型执行。
+已增强参考失败报错并补充资源与参考成功条件，详见
+[本轮审阅](evidence/a5-native-resource-gate-20261119/README.md)，2.2/1.8 保持 pending。
+
 | 执行顺序 | 对应原任务 | 阶段边界与验收前置 |
 | --- | --- | --- |
 | 先完成真实权重 eager/U1 对照 | 2.2、1.8，关联 C2 | 原始量化 checkpoint、A 侧原生 CPU Engram、F 隔离；历史首 token 差异未闭合，单次请求成功不等于等价 |

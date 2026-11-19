@@ -1,0 +1,12 @@
+{
+  "npu": {
+    "exit_code": 0,
+    "idle_devices": [],
+    "all_eight_idle": false
+  },
+  "memory_bytes": {
+    "MemTotal": 1616401756160,
+    "MemAvailable": 879921549312
+  },
+  "engram_host_table_lower_bound_bytes": 202758032659
+}

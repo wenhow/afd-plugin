@@ -129,6 +129,59 @@ class TestFullCheckpointPlans(unittest.TestCase):
             )
 
 
+class TestFullCheckpointReference(unittest.TestCase):
+    def setUp(self):
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        self.directory = Path(temporary.name)
+        self.reference = self.directory / "native"
+        self.reference.mkdir()
+        self.error = "RuntimeError: selected idle devices were not confirmed"
+        for name, report in (
+            ("launch-plan.json", {"native_control": True}),
+            (
+                "summary.json",
+                {"request_passed": False, "clean_shutdown": False, "error": self.error},
+            ),
+        ):
+            (self.reference / name).write_text(json.dumps(report))
+
+    def test_failed_native_reference_reports_original_failure_before_afd_start(self):
+        driver = load_driver()
+        argv = [
+            "run_dsv41_full_checkpoint.py",
+            "--model",
+            str(self.directory / "model"),
+            "--transformer-vendor",
+            str(self.directory / "vendor"),
+            "--output-root",
+            str(self.directory / "output"),
+            "--reference-run",
+            str(self.reference),
+            "--run",
+        ]
+        with (
+            patch.object(sys, "argv", argv),
+            patch.object(sys, "platform", "linux"),
+            patch.object(
+                driver.launch, "collect_preflight", return_value={"passed": True}
+            ),
+            patch.object(
+                driver.launch,
+                "run_candidate",
+                side_effect=RuntimeError("unexpected service start"),
+            ),
+            self.assertRaises(ValueError) as raised,
+        ):
+            driver.main()
+
+        message = str(raised.exception)
+        self.assertIn(str(self.reference), message)
+        self.assertIn("request_passed=False", message)
+        self.assertIn(self.error, message)
+        self.assertIn("AFD services were not started", message)
+
+
 class TestFullCheckpointRequests(unittest.TestCase):
     def test_dspark_requires_a_later_step_after_rejection(self):
         driver = load_driver()

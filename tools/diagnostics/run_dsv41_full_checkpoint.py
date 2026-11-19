@@ -468,7 +468,14 @@ def main() -> int:
             or not reference_summary["request_passed"]
             or not reference_summary["clean_shutdown"]
         ):
-            raise ValueError("reference must be a successful native TP4 control run")
+            raise ValueError(
+                f"native TP4 reference {args.reference_run} is unusable: "
+                f"native_control={reference_plan['native_control']}, "
+                f"request_passed={reference_summary['request_passed']}, "
+                f"clean_shutdown={reference_summary['clean_shutdown']}; "
+                f"reference error={reference_summary.get('error', 'none')}. "
+                "See its summary.json; AFD services were not started."
+            )
     request_runner = (
         partial(hold_producer, stop_file=args.producer_stop_file.resolve())
         if args.pd_role == "producer"

@@ -53,6 +53,11 @@ PY
 
 注册检查通过后，定义入口并先运行原生：
 
+运行前用 `npu-smi info` 确认选定卡的进程表为空。默认原生使用 0–3，AFD 使用
+0–7；若已有服务占用，先通过该服务自己的启动/管理终端正常停止，再核对资源。
+本脚本只清理自己启动的进程，不会停止已有服务；也不能把旧快照中的 PID
+当作当前停止目标。
+
 ```bash
 full() {
   "$DSV41_PY" -B tools/diagnostics/run_dsv41_full_checkpoint.py \
@@ -62,7 +67,12 @@ full() {
 full --native-control --run
 ```
 
-将本次打印的原生目录赋给 `DSV41_NATIVE`。原生也保留 TP4、量化和 Engram，
+先确认原生目录的 `summary.json` 中 `request_passed=true`、`clean_shutdown=true`，
+再将本次打印的原生目录赋给 `DSV41_NATIVE`。若为 false，先处理其中的 `error`；
+打印了 `results:` 仅表示创建目录。2026-11-19 的 `full-eager-u1-1g5_98ms`
+因选定设备已被现存 vLLM 服务占用而在启动前退出，不能作为参考，详见
+[资源检查回传](../../openspec/changes/afd-hccl-full-parity/evidence/a5-native-resource-gate-20261119/README.md)。
+原生也保留 TP4、量化和 Engram，
 避免继续用不同 DP/EP 拓扑的旧结果作为等价基线。
 
 ```bash
