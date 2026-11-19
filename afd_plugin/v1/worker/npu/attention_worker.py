@@ -21,6 +21,7 @@ from afd_plugin.model_executor.models.model_utils import get_afd_model_config
 from afd_plugin.v1.worker.npu.attention_model_runner_v2 import (
     AFDNPUAttentionModelRunnerV2,
 )
+from afd_plugin.v1.worker.npu.window_dspark import configure_window_dspark_draft
 from afd_plugin.validation import (
     NPU_ATTENTION_WORKER_FQCN,
     assert_compatible_afd_stack,
@@ -70,17 +71,7 @@ class AFDNPUAttentionWorker(NPUWorker):
         spec = self.vllm_config.speculative_config
         if spec is not None and window_dspark:
             draft = spec.draft_model_config
-            target = self.vllm_config.model_config
-            if draft.model == target.model:
-                # vLLM keeps dict-based HF overrides on the target only.
-                # An embedded draft must see the same checkpoint view.
-                draft.hf_text_config.n_routed_experts = (
-                    target.hf_text_config.n_routed_experts
-                )
-                draft.hf_text_config.num_hidden_layers = (
-                    target.hf_text_config.num_hidden_layers
-                )
-            draft.hf_config.architectures = ["AFDDeepseekV41DSparkModel"]
+            configure_window_dspark_draft(self.vllm_config.model_config, draft)
             spec.update_arch_()
         self.model_runner = AFDNPUAttentionModelRunnerV2(
             self.vllm_config,

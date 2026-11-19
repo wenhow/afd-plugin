@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Target verification graph geometry for the two Window transport slots."""
+"""Window DSpark draft configuration and verification graph geometry."""
 
 from __future__ import annotations
 
@@ -10,10 +10,29 @@ from dataclasses import replace
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
+    from vllm.config import ModelConfig
     from vllm.v1.worker.gpu.cudagraph_utils import BatchExecutionDescriptor
     from vllm_ascend.worker.v2.spec_decode.dspark.speculator import (
         AscendDSparkSpeculator,
     )
+
+
+def configure_window_dspark_draft(target: ModelConfig, draft: ModelConfig) -> None:
+    """Resolve the checkpoint's draft MoE dimensions for the native Ascend loader."""
+    text = draft.hf_text_config
+    if draft.model == target.model:
+        # The embedded checkpoint describes two MoEs. Only the layer numbering
+        # follows the backbone depth; the drafter has its own router and weights.
+        text.n_routed_experts = text.dspark_n_routed_experts
+        text.num_experts_per_tok = text.dspark_num_experts_per_tok
+        text.num_hidden_layers = target.hf_text_config.num_hidden_layers
+    else:
+        # A standalone draft may already use the native MoE field names.
+        if hasattr(text, "dspark_n_routed_experts"):
+            text.n_routed_experts = text.dspark_n_routed_experts
+        if hasattr(text, "dspark_num_experts_per_tok"):
+            text.num_experts_per_tok = text.dspark_num_experts_per_tok
+    draft.hf_config.architectures = ["AFDDeepseekV41DSparkModel"]
 
 
 @contextmanager
