@@ -1,0 +1,25 @@
+{
+  "success": true,
+  "original_executed_bundle_sha256": "c576f79af0732bfcedc3deab35d8e0edac34a0f56e4475a0e61a5193d2212379",
+  "parent_bundle_sha256": "61859508bc2acbf18c12e097a14b27d3fa9204f93a817efbe91514183a7cf9e2",
+  "successor_bundle_sha256": "cca676b103a913917e64377ad1fb772270a328ba4ed77625fead496f69ed9d9d",
+  "changed_members": [
+    "bundle-manifest.json",
+    "functional-source-provenance.json",
+    "tests/npu/hccl_native_attention_pd_dspark_cross_layer_probe.py",
+    "tests/npu/hccl_native_attention_pd_dspark_decode_probe.py",
+    "tests/npu/hccl_native_attention_pd_dspark_graph_probe.py",
+    "tests/npu/hccl_native_attention_pd_dspark_lifecycle_probe.py",
+    "tests/npu/hccl_native_attention_pd_dspark_overlap_probe.py",
+    "tests/npu/hccl_native_attention_pd_dspark_u2_probe.py"
+  ],
+  "six_audit_parents_match_original_executed_snapshot": true,
+  "production_byte_identical": 146,
+  "native_identity_byte_identical": true,
+  "python_compiled": 186,
+  "deterministic_rebuild": {
+    "runtime-source.tar.gz": true,
+    "bundle-lock.json": true,
+    "preparation.json": true
+  }
+}

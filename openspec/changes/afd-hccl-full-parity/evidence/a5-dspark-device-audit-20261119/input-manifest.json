@@ -1,0 +1,18 @@
+{
+  "ffn_consumer.json": {
+    "bytes": 16580741,
+    "sha256": "18aa4f7a7746475a112ef5b9e5f0efd310a10364c1e43d0ed5e828c38e16c105"
+  },
+  "kv_consumer.json": {
+    "bytes": 4517584,
+    "sha256": "1a929750ba516d0ccedc14488f8b74f4b0910678cf0e2e78410e03eda7755707"
+  },
+  "kv_producer.json": {
+    "bytes": 1422153,
+    "sha256": "4a81a110ba657c878d85ec3bdbf7e670f0528303559ad09e6358c62e9254c641"
+  },
+  "summary.json": {
+    "bytes": 26744748,
+    "sha256": "0db510296085252164e73c3b6f49ff7024495e9980b3501271da804bc3278def"
+  }
+}

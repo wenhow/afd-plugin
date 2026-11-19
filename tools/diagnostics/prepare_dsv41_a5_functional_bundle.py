@@ -176,6 +176,174 @@ def staged_graph_observer(raw: bytes) -> bytes:
     return source.encode("utf-8")
 
 
+def graph_device_audit_successors(
+    files: dict[str, bytes],
+) -> dict[str, dict[str, str]]:
+    """Audit host and pipeline devices against the supervisor's role placement.
+
+    Only frozen diagnostic validators change. Keep every observed device check;
+    the independent expected value comes from --devices, never from a record.
+    Pin all six parents before threading the required keyword through callers.
+    """
+    parents = {
+        "decode": "4d859ac89ea63274fa1a8323e9c0d437e657179bcab7c2f998514f09c854f3ea",
+        "graph": "dc9c5f9b82380a108d4128d7160bc22f5a62bcef06a4573d3487c75f4a6cbf10",
+        "u2": "b855a090969cc5e5394c11db27233f7bf74a9b5931b171a82dd9ab4bb9420ffd",
+        "lifecycle": "1c0f058526a3536e46f8b69f88a069671f4a8c54dec2859289db7a488294e37c",
+        "overlap": "71adb248cb11cb9aa2628874100f5a27b105b36c86eda02047285f0bd58f2150",
+        "cross_layer": (
+            "3180750cddfa12b4663367683e2ff5922380566bc495de360c85dd51bebd7213"
+        ),
+    }
+    replacements = {
+        "decode": [
+            (
+                "    children, owned = {}, {}\n",
+                "    children, owned = {}, {}\n"
+                "    local_devices = {\n"
+                '        "attention": args.devices[ROLES.index("kv_consumer")],\n'
+                '        "ffn": args.devices[ROLES.index("ffn_consumer")],\n'
+                "    }\n",
+            ),
+            (
+                '        "run_id": run_id,\n',
+                '        "run_id": run_id,\n        "local_devices": local_devices,\n',
+            ),
+            (
+                "                            graph_all_axes=args.graph_all_axes,\n",
+                "                            local_devices=local_devices,\n"
+                "                            graph_all_axes=args.graph_all_axes,\n",
+            ),
+        ],
+        "graph": [
+            (
+                "    records, parents, *, role, graph_compute_overlap=False, "
+                "graph_all_axes=False\n",
+                "    records,\n    parents,\n    *,\n    role,\n    local_device,\n"
+                "    graph_compute_overlap=False,\n    graph_all_axes=False,\n",
+            ),
+            (
+                '            assert record["local_device"] == '
+                '(2 if role == "attention" else 6)\n',
+                '            assert record["local_device"] == local_device, (\n'
+                '                role, record["local_device"], local_device\n'
+                "            )\n",
+            ),
+            (
+                "def verify_graph_decode(attention, ffn):\n",
+                "def verify_graph_decode(attention, ffn, *, local_devices):\n",
+            ),
+            (
+                '        role="attention",\n    )\n',
+                '        role="attention",\n'
+                '        local_device=local_devices["attention"],\n    )\n',
+            ),
+            (
+                '    verify_graph_host_records(ffn["native_ffn"]["host_records"], '
+                'parents, role="ffn")\n',
+                "    verify_graph_host_records(\n"
+                '        ffn["native_ffn"]["host_records"], parents, role="ffn",\n'
+                '        local_device=local_devices["ffn"],\n    )\n',
+            ),
+        ],
+        "u2": [
+            (
+                "def verify_graph_decode_requests(attention, ffn):\n",
+                "def verify_graph_decode_requests(attention, ffn, *, local_devices):\n",
+            ),
+            (
+                "        verify_graph_host_records(records, parents, role=role)\n",
+                "        verify_graph_host_records(\n"
+                "            records, parents, role=role,\n"
+                "            local_device=local_devices[role],\n        )\n",
+            ),
+        ],
+        "lifecycle": [
+            (
+                "    *,\n    graph_compute_overlap=False,\n",
+                "    *,\n    local_devices,\n    graph_compute_overlap=False,\n",
+            ),
+            (
+                "            role=role,\n",
+                "            role=role,\n"
+                "            local_device=local_devices[role],\n",
+            ),
+        ],
+        "overlap": [
+            (
+                "    attention, ffn, *, graph_all_axes=False, "
+                'graph_exchange_order="stage_serial"\n',
+                "    attention, ffn, *, local_devices, graph_all_axes=False,\n"
+                '    graph_exchange_order="stage_serial",\n',
+            ),
+            (
+                "        ffn,\n        graph_compute_overlap=True,\n",
+                "        ffn,\n        local_devices=local_devices,\n"
+                "        graph_compute_overlap=True,\n",
+            ),
+            (
+                "                device=2,\n",
+                '                device=local_devices["attention"],\n',
+            ),
+            (
+                "                device=6,\n",
+                '                device=local_devices["ffn"],\n',
+            ),
+            (
+                '        role="ffn",\n',
+                '        role="ffn",\n        local_device=local_devices["ffn"],\n',
+            ),
+        ],
+        "cross_layer": [
+            (
+                "def verify_cross_layer_lifecycle(attention, ffn):\n",
+                "def verify_cross_layer_lifecycle(attention, ffn, *, local_devices):\n",
+            ),
+            (
+                "        attention, ffn, graph_all_axes=True, "
+                'graph_exchange_order="cross_layer_v1"\n',
+                "        attention, ffn, local_devices=local_devices,\n"
+                '        graph_all_axes=True, graph_exchange_order="cross_layer_v1",\n',
+            ),
+        ],
+    }
+    for function in (
+        "verify_cross_layer_lifecycle",
+        "verify_decode_cancel_replace",
+        "verify_graph_decode_requests",
+        "verify_graph_decode",
+    ):
+        before = (
+            f'{function}(\n                        consumer, report["workers"]'
+            '["ffn_consumer"]\n                    )'
+        )
+        after = (
+            f"{function}(\n                        consumer,\n"
+            '                        report["workers"]["ffn_consumer"],\n'
+            "                        local_devices=local_devices,\n"
+            "                    )"
+        )
+        replacements["decode"].append((before, after))
+    result = {}
+    for suffix, expected in parents.items():
+        name = f"tests/npu/hccl_native_attention_pd_dspark_{suffix}_probe.py"
+        raw = files[name]
+        if digest(raw) != expected:
+            raise ValueError(f"reviewed Graph device audit parent differs: {name}")
+        source = raw.decode("utf-8").replace("\r\n", "\n")
+        for before, after in replacements[suffix]:
+            if source.count(before) != 1:
+                raise ValueError(
+                    f"Graph device replacement count differs: {name}: {before}"
+                )
+            source = source.replace(before, after)
+        if b"\r\n" in raw:
+            source = source.replace("\n", "\r\n")
+        files[name] = source.encode("utf-8")
+        result[name] = {"parent_sha256": expected, "sha256": digest(files[name])}
+    return result
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output-dir", type=Path, default=Path(OUTPUT))
@@ -192,6 +360,7 @@ def main() -> int:
     for name in (A5_RUNTIME, "tests/npu/dsv41_dspark_speculator_probe.py"):
         files[name] = successors[name]
     files[GRAPH_PROBE] = staged_graph_observer(files[GRAPH_PROBE])
+    device_audit = graph_device_audit_successors(files)
     original_production = {
         name: digest(raw)
         for name, raw in files.items()
@@ -245,6 +414,7 @@ def main() -> int:
             "worker_parent_sha256": WORKER_SHA256,
             "production_delta_from_dspark": delta,
             "production_overlays_from_worker": list(PRODUCTION_OVERLAYS),
+            "graph_device_audit_successors": device_audit,
             "graph_observer_successor": {
                 "source": GRAPH_PROBE,
                 "parent_sha256": GRAPH_PROBE_PARENT_SHA256,

@@ -1,0 +1,32 @@
+{
+  "success": false,
+  "scope": "read_only_post_run_audit_of_recorded_NPU_component",
+  "new_NPU_execution": false,
+  "original_run_id": "9ead09c9335949019bf137a913ff0774",
+  "original_success": false,
+  "original_traceback": "Traceback (most recent call last):\n  File \"/home/z00569729/dsv41-afd/src/afd-plugin-dsv41-a5/results/dsv41-a5-dspark-stage-observer-20261119/snapshot/tests/npu/hccl_native_attention_pd_dspark_decode_probe.py\", line 1286, in supervise\n    report[\"pair_protocols\"][\"consumer\"] = verify_cross_layer_lifecycle(\n                                           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/home/z00569729/dsv41-afd/src/afd-plugin-dsv41-a5/results/dsv41-a5-dspark-stage-observer-20261119/snapshot/tests/npu/hccl_native_attention_pd_dspark_cross_layer_probe.py\", line 162, in verify_cross_layer_lifecycle\n    protocol = verify_graph_compute_lifecycle(\n               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/home/z00569729/dsv41-afd/src/afd-plugin-dsv41-a5/results/dsv41-a5-dspark-stage-observer-20261119/snapshot/tests/npu/hccl_native_attention_pd_dspark_overlap_probe.py\", line 95, in verify_graph_compute_lifecycle\n    protocol = verify_decode_cancel_replace(\n               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/home/z00569729/dsv41-afd/src/afd-plugin-dsv41-a5/results/dsv41-a5-dspark-stage-observer-20261119/snapshot/tests/npu/hccl_native_attention_pd_dspark_lifecycle_probe.py\", line 849, in verify_decode_cancel_replace\n    verify_graph_host_records(\n  File \"/home/z00569729/dsv41-afd/src/afd-plugin-dsv41-a5/results/dsv41-a5-dspark-stage-observer-20261119/snapshot/tests/npu/hccl_native_attention_pd_dspark_graph_probe.py\", line 613, in verify_graph_host_records\n    assert record[\"local_device\"] == (2 if role == \"attention\" else 6)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError\n",
+  "original_summary_sha256": "0db510296085252164e73c3b6f49ff7024495e9980b3501271da804bc3278def",
+  "role_exit_codes": {
+    "ffn_consumer": 0,
+    "ffn_producer": 0,
+    "kv_consumer": 0,
+    "kv_producer": 0
+  },
+  "expected_local_devices": {
+    "attention": 1,
+    "ffn": 3
+  },
+  "expected_devices_source": "outer scene --devices role placement",
+  "bundle_sha256": "c576f79af0732bfcedc3deab35d8e0edac34a0f56e4475a0e61a5193d2212379",
+  "recorded_graph_observer_accepted": true,
+  "producer_protocol": {
+    "transaction_ids": [
+      "afd-0",
+      "afd-1",
+      "afd-2"
+    ],
+    "bidirectional_codec_records_match": true
+  },
+  "audit_traceback": "Traceback (most recent call last):\n  File \"D:\\openSource\\afd-plugin-dsv41-flash-v030\\openspec\\changes\\afd-hccl-full-parity\\evidence\\a5-dspark-device-audit-20261119\\audit_existing.py\", line 124, in main\n    result[\"consumer_protocol\"] = cross.verify_cross_layer_lifecycle(\n                                  ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^\n        consumer, workers[\"ffn_consumer\"], **arguments\n        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n    )\n    ^\n  File \"D:\\openSource\\afd-plugin-dsv41-flash-v030\\.tmp\\dspark-report-audit-z39_8vnn\\tests\\npu\\hccl_native_attention_pd_dspark_cross_layer_probe.py\", line 162, in verify_cross_layer_lifecycle\n  File \"D:\\openSource\\afd-plugin-dsv41-flash-v030\\.tmp\\dspark-report-audit-z39_8vnn\\tests\\npu\\hccl_native_attention_pd_dspark_overlap_probe.py\", line 95, in verify_graph_compute_lifecycle\n  File \"D:\\openSource\\afd-plugin-dsv41-flash-v030\\.tmp\\dspark-report-audit-z39_8vnn\\tests\\npu\\hccl_native_attention_pd_dspark_lifecycle_probe.py\", line 849, in verify_decode_cancel_replace\n  File \"D:\\openSource\\afd-plugin-dsv41-flash-v030\\.tmp\\dspark-report-audit-z39_8vnn\\tests\\npu\\hccl_native_attention_pd_dspark_graph_probe.py\", line 613, in verify_graph_host_records\nAssertionError\n",
+  "native_runtime_imports": []
+}

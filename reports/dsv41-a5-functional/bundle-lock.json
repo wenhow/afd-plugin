@@ -149,5 +149,5 @@
     "afd_plugin/v1/worker/ubatch_wrapper.py": "72612fc48659d27ee70c821dbdd313c752965395a626217be4ce249e1b1f4457",
     "afd_plugin/validation.py": "c4b5315d95d1f7ee95e8b43f9f37f88b06d985d381ce90ca1afc394dec82f234"
   },
-  "runtime_source_sha256": "61859508bc2acbf18c12e097a14b27d3fa9204f93a817efbe91514183a7cf9e2"
+  "runtime_source_sha256": "cca676b103a913917e64377ad1fb772270a328ba4ed77625fead496f69ed9d9d"
 }

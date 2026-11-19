@@ -629,3 +629,17 @@ summary 及三个角色最终 JSON，实际内层异常待补，不能从顶层�
 请提供既有运行中的
 `results/dsv41-a5-dspark-stage-observer-20261119/dspark-pd-graph-u2-cancel-replace/summary.json`。
 无需重跑设备；若它已包含完整 workers，通常不必再单独提供三个角色 JSON。
+
+### 2026-11-19：Graph/U2 最终失败来自固定卡号审计，既有报告复核通过
+
+[补齐报告、修复及离线复核](../../openspec/changes/afd-hccl-full-parity/evidence/a5-dspark-device-audit-20261119/README.md)
+确认本次四角色均 success=true、退出码 0，无超时或强制终止；Graph/U2、取消替换
+和退出检查已完成。最终 supervisor 审计将 Attention/FFN 卡号写死为 2/6，
+而 `--devices 0,1,2,3` 对应本次消费端的 1/3；pipeline 审计也有同类常量。
+现统一从实际启动参数按角色传递期望卡号，保持全部原有数值、KV、报文和状态校验。
+
+修正后使用这批真实设备报告完成整条离线审计，结果通过；错误卡号仍被拒绝，
+25 项本地标准库检查通过，146 份生产代码字节保持。本项无需为复核再次执行 NPU。
+原始运行的失败 summary 保持原样，另存事后复核结果；新入口产生成功顶层 summary
+尚无新设备运行。本结果限于受控非 Engram 组件组合，完整训练权重推理、Engram、
+物理重叠和性能验收范围不变。

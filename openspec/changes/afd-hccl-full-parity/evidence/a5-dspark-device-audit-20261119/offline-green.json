@@ -1,0 +1,288 @@
+{
+  "success": true,
+  "scope": "read_only_post_run_audit_of_recorded_NPU_component",
+  "new_NPU_execution": false,
+  "original_run_id": "9ead09c9335949019bf137a913ff0774",
+  "original_success": false,
+  "original_traceback": "Traceback (most recent call last):\n  File \"/home/z00569729/dsv41-afd/src/afd-plugin-dsv41-a5/results/dsv41-a5-dspark-stage-observer-20261119/snapshot/tests/npu/hccl_native_attention_pd_dspark_decode_probe.py\", line 1286, in supervise\n    report[\"pair_protocols\"][\"consumer\"] = verify_cross_layer_lifecycle(\n                                           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/home/z00569729/dsv41-afd/src/afd-plugin-dsv41-a5/results/dsv41-a5-dspark-stage-observer-20261119/snapshot/tests/npu/hccl_native_attention_pd_dspark_cross_layer_probe.py\", line 162, in verify_cross_layer_lifecycle\n    protocol = verify_graph_compute_lifecycle(\n               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/home/z00569729/dsv41-afd/src/afd-plugin-dsv41-a5/results/dsv41-a5-dspark-stage-observer-20261119/snapshot/tests/npu/hccl_native_attention_pd_dspark_overlap_probe.py\", line 95, in verify_graph_compute_lifecycle\n    protocol = verify_decode_cancel_replace(\n               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/home/z00569729/dsv41-afd/src/afd-plugin-dsv41-a5/results/dsv41-a5-dspark-stage-observer-20261119/snapshot/tests/npu/hccl_native_attention_pd_dspark_lifecycle_probe.py\", line 849, in verify_decode_cancel_replace\n    verify_graph_host_records(\n  File \"/home/z00569729/dsv41-afd/src/afd-plugin-dsv41-a5/results/dsv41-a5-dspark-stage-observer-20261119/snapshot/tests/npu/hccl_native_attention_pd_dspark_graph_probe.py\", line 613, in verify_graph_host_records\n    assert record[\"local_device\"] == (2 if role == \"attention\" else 6)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError\n",
+  "original_summary_sha256": "0db510296085252164e73c3b6f49ff7024495e9980b3501271da804bc3278def",
+  "role_exit_codes": {
+    "ffn_consumer": 0,
+    "ffn_producer": 0,
+    "kv_consumer": 0,
+    "kv_producer": 0
+  },
+  "expected_local_devices": {
+    "attention": 1,
+    "ffn": 3
+  },
+  "expected_devices_source": "outer scene --devices role placement",
+  "bundle_sha256": "cca676b103a913917e64377ad1fb772270a328ba4ed77625fead496f69ed9d9d",
+  "recorded_graph_observer_accepted": true,
+  "producer_protocol": {
+    "transaction_ids": [
+      "afd-0",
+      "afd-1",
+      "afd-2"
+    ],
+    "bidirectional_codec_records_match": true
+  },
+  "consumer_protocol": {
+    "parents": [
+      {
+        "transaction_id": "native-graph-1",
+        "phase": "eager",
+        "mode": "warmup",
+        "reason": "cache_miss",
+        "key_digest": "",
+        "decision_digest": "9f9db562bacd9886e3cc8bdffac5ba3e1ce80c39ac16870532d5c1cb8908189f",
+        "valid_tokens": [
+          0
+        ],
+        "padded_tokens": [
+          0
+        ]
+      },
+      {
+        "transaction_id": "native-graph-2",
+        "phase": "warmup",
+        "mode": "warmup",
+        "reason": "requested",
+        "key_digest": "04be0ad48ee11d6c7e6b65006c5b09e6819270a7899844361d304d6088ee08f7",
+        "decision_digest": "4a39246b223a0408e9b90b5ed2dbe6f5ae9bef6190fb05d989781ffcb189dc6c",
+        "valid_tokens": [
+          0
+        ],
+        "padded_tokens": [
+          6
+        ]
+      },
+      {
+        "transaction_id": "native-graph-3",
+        "phase": "capture",
+        "mode": "warmup",
+        "reason": "requested",
+        "key_digest": "04be0ad48ee11d6c7e6b65006c5b09e6819270a7899844361d304d6088ee08f7",
+        "decision_digest": "e51db291ee250cd4f2f43ae8c88e91c014caaf6ab2c570c2698482f17ee03411",
+        "valid_tokens": [
+          0
+        ],
+        "padded_tokens": [
+          6
+        ]
+      },
+      {
+        "transaction_id": "native-graph-4",
+        "phase": "warmup",
+        "mode": "warmup",
+        "reason": "requested",
+        "key_digest": "412a588463b0e35e8047e3966f05db35ca71166c07c6398791c5683d465c1536",
+        "decision_digest": "416661c52b57f3dc4df9159d77f40b3a6fa9fa5b7fa88c118ed4d5342d897cb6",
+        "valid_tokens": [
+          0,
+          0
+        ],
+        "padded_tokens": [
+          3,
+          3
+        ]
+      },
+      {
+        "transaction_id": "native-graph-5",
+        "phase": "capture",
+        "mode": "warmup",
+        "reason": "requested",
+        "key_digest": "412a588463b0e35e8047e3966f05db35ca71166c07c6398791c5683d465c1536",
+        "decision_digest": "58992d82d1722aa1e10a2e574ae2f552b17efbd91335c94a583dfa320dd15e8a",
+        "valid_tokens": [
+          0,
+          0
+        ],
+        "padded_tokens": [
+          3,
+          3
+        ]
+      },
+      {
+        "transaction_id": "native-graph-6",
+        "phase": "eager",
+        "mode": "target",
+        "reason": "requested",
+        "key_digest": "",
+        "decision_digest": "cac4f0cb4ec16bc7200eb8b97aea6d1992370b330269976462e542e3270acf27",
+        "valid_tokens": [
+          0
+        ],
+        "padded_tokens": [
+          0
+        ]
+      },
+      {
+        "transaction_id": "native-graph-7",
+        "phase": "eager",
+        "mode": "target",
+        "reason": "requested",
+        "key_digest": "",
+        "decision_digest": "842df63324bb39419fe247ff45978a901b385584e925e1c8c0ab179bc3668731",
+        "valid_tokens": [
+          0
+        ],
+        "padded_tokens": [
+          0
+        ]
+      },
+      {
+        "transaction_id": "native-graph-8",
+        "phase": "eager",
+        "mode": "target",
+        "reason": "requested",
+        "key_digest": "",
+        "decision_digest": "5f72d2756c2d94d4058ac8494e284401f819eebe5e67ba090711687bdb719219",
+        "valid_tokens": [
+          3,
+          3
+        ],
+        "padded_tokens": [
+          3,
+          3
+        ]
+      },
+      {
+        "transaction_id": "native-graph-9",
+        "phase": "replay",
+        "mode": "target",
+        "reason": "requested",
+        "key_digest": "412a588463b0e35e8047e3966f05db35ca71166c07c6398791c5683d465c1536",
+        "decision_digest": "bc8b8be36b30f1584edfb0cb7ec78461febf8b3f0e32272c7c34fa2dccd623a3",
+        "valid_tokens": [
+          3,
+          3
+        ],
+        "padded_tokens": [
+          3,
+          3
+        ]
+      },
+      {
+        "transaction_id": "native-graph-10",
+        "phase": "replay",
+        "mode": "target",
+        "reason": "requested",
+        "key_digest": "04be0ad48ee11d6c7e6b65006c5b09e6819270a7899844361d304d6088ee08f7",
+        "decision_digest": "e9210bcd1ce5833601340bbe826266665ccaf4b76472a41d00de4876c7df3dfe",
+        "valid_tokens": [
+          3
+        ],
+        "padded_tokens": [
+          6
+        ]
+      },
+      {
+        "transaction_id": "native-graph-11",
+        "phase": "eager",
+        "mode": "target",
+        "reason": "requested",
+        "key_digest": "",
+        "decision_digest": "edf2fa8545f63f2a77776cbcc3fdf3760cd32c5c6baef9f0d3f771c3aa45160c",
+        "valid_tokens": [
+          0
+        ],
+        "padded_tokens": [
+          0
+        ]
+      },
+      {
+        "transaction_id": "native-graph-12",
+        "phase": "eager",
+        "mode": "target",
+        "reason": "requested",
+        "key_digest": "",
+        "decision_digest": "f68edb07cf7d0830a15db95208c16cc270f6835852dec4c322876aa5847e21e4",
+        "valid_tokens": [
+          0
+        ],
+        "padded_tokens": [
+          0
+        ]
+      },
+      {
+        "transaction_id": "native-graph-13",
+        "phase": "eager",
+        "mode": "target",
+        "reason": "requested",
+        "key_digest": "",
+        "decision_digest": "ecca7ea8536a4a5eeaa3cd14d5457b338c0f1f1ab5f3949976756c69f96df7b6",
+        "valid_tokens": [
+          0
+        ],
+        "padded_tokens": [
+          0
+        ]
+      },
+      {
+        "transaction_id": "native-graph-14",
+        "phase": "eager",
+        "mode": "target",
+        "reason": "requested",
+        "key_digest": "",
+        "decision_digest": "16b666fe57d7d64b0b5dc4b47b8c03dd01c6e889a804abffa957f9fc3fbc0581",
+        "valid_tokens": [
+          3
+        ],
+        "padded_tokens": [
+          3
+        ]
+      },
+      {
+        "transaction_id": "native-graph-15",
+        "phase": "replay",
+        "mode": "target",
+        "reason": "requested",
+        "key_digest": "04be0ad48ee11d6c7e6b65006c5b09e6819270a7899844361d304d6088ee08f7",
+        "decision_digest": "6d8143446c89be8209a30938a814d6b73e1e49745a6427cb5cad9ab884bed5d1",
+        "valid_tokens": [
+          3
+        ],
+        "padded_tokens": [
+          6
+        ]
+      },
+      {
+        "transaction_id": "native-graph-16",
+        "phase": "eager",
+        "mode": "target",
+        "reason": "requested",
+        "key_digest": "",
+        "decision_digest": "3301a9f5eaa00c4ffc9cdaf911adbb7c42ebfb31c71e14893df348b15b6429d5",
+        "valid_tokens": [
+          0
+        ],
+        "padded_tokens": [
+          0
+        ]
+      }
+    ],
+    "bidirectional_codec_records_match": true,
+    "native_dspark_request_lifecycle_component_accepted": true,
+    "actual_request_count": 2,
+    "actual_query_rows_per_request": 3,
+    "distinct_destination_requests": 3,
+    "request_slot_reuse_observed": true,
+    "physical_block_reuse_guaranteed": false,
+    "full_model_accepted": false,
+    "u2_accepted": false,
+    "native_target_graph_component_accepted": true,
+    "native_target_graph_u2_component_accepted": true,
+    "native_dspark_graph_compute_lifecycle_component_accepted": true,
+    "native_dspark_graph_all_axes_lifecycle_component_accepted": true,
+    "graph_compute_overlap_requested": true,
+    "graph_all_axes_requested": true,
+    "graph_exchange_order_requested": "cross_layer_v1",
+    "physical_overlap_accepted": false,
+    "performance_accepted": false,
+    "native_dspark_graph_cross_layer_lifecycle_component_accepted": true,
+    "host_action_order_observed": true,
+    "device_timeline_accepted": false
+  },
+  "native_runtime_imports": []
+}

@@ -1,0 +1,81 @@
+{
+  "success": true,
+  "scope": "recorded_NPU_component_post_run_audit_plus_local_checks",
+  "new_NPU_execution": false,
+  "checks": [
+    {
+      "name": "red_original_report",
+      "command": ".venv/Scripts/python.exe -B -S openspec/changes/afd-hccl-full-parity/evidence/a5-dspark-device-audit-20261119/audit_existing.py --bundle openspec/changes/afd-hccl-full-parity/evidence/a5-dspark-graph-final-audit-20261119/parent-runtime-source.tar.gz --legacy-device-audit --output openspec/changes/afd-hccl-full-parity/evidence/a5-dspark-device-audit-20261119/offline-red.json",
+      "chunk_id": "87b580",
+      "wall_time_seconds": 1.8527008999999999,
+      "exit_code": 1,
+      "original_token_count": 26,
+      "output": "{\"success\": false, \"expected_local_devices\": {\"attention\": 1, \"ffn\": 3}, \"native_runtime_imports\": []}\r\n",
+      "expected_exit_code": 1
+    },
+    {
+      "name": "green_original_report",
+      "command": ".venv/Scripts/python.exe -B -S openspec/changes/afd-hccl-full-parity/evidence/a5-dspark-device-audit-20261119/audit_existing.py --output openspec/changes/afd-hccl-full-parity/evidence/a5-dspark-device-audit-20261119/offline-green.json",
+      "chunk_id": "909460",
+      "wall_time_seconds": 1.7994324000000002,
+      "exit_code": 0,
+      "original_token_count": 26,
+      "output": "{\"success\": true, \"expected_local_devices\": {\"attention\": 1, \"ffn\": 3}, \"native_runtime_imports\": []}\r\n",
+      "expected_exit_code": 0
+    },
+    {
+      "name": "negative_wrong_devices",
+      "command": ".venv/Scripts/python.exe -B -S openspec/changes/afd-hccl-full-parity/evidence/a5-dspark-device-audit-20261119/audit_existing.py --expected-devices 2,6 --output openspec/changes/afd-hccl-full-parity/evidence/a5-dspark-device-audit-20261119/offline-negative.json",
+      "chunk_id": "4cb05c",
+      "wall_time_seconds": 1.7552604,
+      "exit_code": 1,
+      "original_token_count": 26,
+      "output": "{\"success\": false, \"expected_local_devices\": {\"attention\": 2, \"ffn\": 6}, \"native_runtime_imports\": []}\r\n",
+      "expected_exit_code": 1
+    },
+    {
+      "name": "ruff",
+      "command": ".venv/Scripts/python.exe -B -m ruff check tools/diagnostics/prepare_dsv41_a5_functional_bundle.py tests/e2e/diagnostics/test_dsv41_a5_graph_observer.py openspec/changes/afd-hccl-full-parity/evidence/a5-dspark-device-audit-20261119/audit_existing.py openspec/changes/afd-hccl-full-parity/evidence/a5-dspark-device-audit-20261119/verify_sources.py",
+      "chunk_id": "bbff98",
+      "wall_time_seconds": 0.827374,
+      "exit_code": 0,
+      "original_token_count": 5,
+      "output": "All checks passed!\n",
+      "expected_exit_code": 0
+    },
+    {
+      "name": "planning_check",
+      "command": ".venv/Scripts/python.exe -B .agents/dsv41/harness.py check",
+      "chunk_id": "679917",
+      "wall_time_seconds": 10.0129437,
+      "original_token_count": 0,
+      "output": "{\"ok\":true,\"files\":434,\"changes\":8,\"tasks\":109,\"source_objects\":56,\"skills\":3,\"phase\":\"implementation\",\"upstreams_unchanged\":true,\"validation_scope\":\"local plan checks; not official CLI or NPU qualification\"}",
+      "exit_code": 0,
+      "expected_exit_code": 0
+    },
+    {
+      "name": "upstream_guard",
+      "command": ".venv/Scripts/python.exe -B .agents/dsv41/harness.py guard",
+      "chunk_id": "3d2562",
+      "wall_time_seconds": 10.0127968,
+      "original_token_count": 0,
+      "output": "{\"ok\":true,\"upstreams\":[\"vllm\",\"vllm_ascend\",\"hccl_donor\"],\"unchanged\":true}",
+      "exit_code": 0,
+      "expected_exit_code": 0
+    },
+    {
+      "name": "host_and_launcher_regressions",
+      "command": ".venv/Scripts/python.exe -B -S -m unittest tests.e2e.diagnostics.test_dsv41_a5_graph_observer tests.e2e.diagnostics.test_dsv41_a5_functional_validation",
+      "exit_code": 0,
+      "expected_exit_code": 0,
+      "output": "Ran 25 tests in 10.442s\nOK"
+    },
+    {
+      "name": "source_verification",
+      "command": ".venv/Scripts/python.exe -B -S openspec/changes/afd-hccl-full-parity/evidence/a5-dspark-device-audit-20261119/verify_sources.py",
+      "exit_code": 0,
+      "expected_exit_code": 0,
+      "output_file": "source-verification.json"
+    }
+  ]
+}

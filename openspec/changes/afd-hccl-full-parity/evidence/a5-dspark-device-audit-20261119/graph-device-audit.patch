@@ -1,0 +1,100 @@
+--- parent/tests/npu/hccl_native_attention_pd_dspark_cross_layer_probe.py
++++ successor/tests/npu/hccl_native_attention_pd_dspark_cross_layer_probe.py
+@@ -148 +148 @@
+-def verify_cross_layer_lifecycle(attention, ffn):
++def verify_cross_layer_lifecycle(attention, ffn, *, local_devices):
+@@ -163 +163,2 @@
+-        attention, ffn, graph_all_axes=True, graph_exchange_order="cross_layer_v1"
++        attention, ffn, local_devices=local_devices,
++        graph_all_axes=True, graph_exchange_order="cross_layer_v1",
+--- parent/tests/npu/hccl_native_attention_pd_dspark_decode_probe.py
++++ successor/tests/npu/hccl_native_attention_pd_dspark_decode_probe.py
+@@ -1132,0 +1133,4 @@
++    local_devices = {
++        "attention": args.devices[ROLES.index("kv_consumer")],
++        "ffn": args.devices[ROLES.index("ffn_consumer")],
++    }
+@@ -1135,0 +1140 @@
++        "local_devices": local_devices,
+@@ -1287 +1292,3 @@
+-                        consumer, report["workers"]["ffn_consumer"]
++                        consumer,
++                        report["workers"]["ffn_consumer"],
++                        local_devices=local_devices,
+@@ -1301,0 +1309 @@
++                            local_devices=local_devices,
+@@ -1315 +1323,3 @@
+-                        consumer, report["workers"]["ffn_consumer"]
++                        consumer,
++                        report["workers"]["ffn_consumer"],
++                        local_devices=local_devices,
+@@ -1327 +1337,3 @@
+-                        consumer, report["workers"]["ffn_consumer"]
++                        consumer,
++                        report["workers"]["ffn_consumer"],
++                        local_devices=local_devices,
+@@ -1335 +1347,3 @@
+-                        consumer, report["workers"]["ffn_consumer"]
++                        consumer,
++                        report["workers"]["ffn_consumer"],
++                        local_devices=local_devices,
+--- parent/tests/npu/hccl_native_attention_pd_dspark_graph_probe.py
++++ successor/tests/npu/hccl_native_attention_pd_dspark_graph_probe.py
+@@ -575 +575,7 @@
+-    records, parents, *, role, graph_compute_overlap=False, graph_all_axes=False
++    records,
++    parents,
++    *,
++    role,
++    local_device,
++    graph_compute_overlap=False,
++    graph_all_axes=False,
+@@ -613 +619,3 @@
+-            assert record["local_device"] == (2 if role == "attention" else 6)
++            assert record["local_device"] == local_device, (
++                role, record["local_device"], local_device
++            )
+@@ -736 +744 @@
+-def verify_graph_decode(attention, ffn):
++def verify_graph_decode(attention, ffn, *, local_devices):
+@@ -786,0 +795 @@
++        local_device=local_devices["attention"],
+@@ -788 +797,4 @@
+-    verify_graph_host_records(ffn["native_ffn"]["host_records"], parents, role="ffn")
++    verify_graph_host_records(
++        ffn["native_ffn"]["host_records"], parents, role="ffn",
++        local_device=local_devices["ffn"],
++    )
+--- parent/tests/npu/hccl_native_attention_pd_dspark_lifecycle_probe.py
++++ successor/tests/npu/hccl_native_attention_pd_dspark_lifecycle_probe.py
+@@ -758,0 +759 @@
++    local_devices,
+@@ -852,0 +854 @@
++            local_device=local_devices[role],
+--- parent/tests/npu/hccl_native_attention_pd_dspark_overlap_probe.py
++++ successor/tests/npu/hccl_native_attention_pd_dspark_overlap_probe.py
+@@ -76 +76,2 @@
+-    attention, ffn, *, graph_all_axes=False, graph_exchange_order="stage_serial"
++    attention, ffn, *, local_devices, graph_all_axes=False,
++    graph_exchange_order="stage_serial",
+@@ -97,0 +99 @@
++        local_devices=local_devices,
+@@ -123 +125 @@
+-                device=2,
++                device=local_devices["attention"],
+@@ -130 +132 @@
+-                device=6,
++                device=local_devices["ffn"],
+@@ -145,0 +148 @@
++        local_device=local_devices["ffn"],
+--- parent/tests/npu/hccl_native_attention_pd_dspark_u2_probe.py
++++ successor/tests/npu/hccl_native_attention_pd_dspark_u2_probe.py
+@@ -933 +933 @@
+-def verify_graph_decode_requests(attention, ffn):
++def verify_graph_decode_requests(attention, ffn, *, local_devices):
+@@ -1017 +1017,4 @@
+-        verify_graph_host_records(records, parents, role=role)
++        verify_graph_host_records(
++            records, parents, role=role,
++            local_device=local_devices[role],
++        )

@@ -3,6 +3,8 @@
 
 from __future__ import annotations
 
+import json
+import sys
 import tarfile
 import unittest
 from pathlib import Path
@@ -10,16 +12,30 @@ from types import ModuleType, SimpleNamespace
 from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[3]
-HELPER = "tests/npu/hccl_native_attention_pd_dspark_graph_probe.py"
 
 
-def load_observer():
+def load_observer(suffix="graph"):
     bundle = ROOT / "reports/dsv41-a5-functional/runtime-source.tar.gz"
+    helper = f"tests/npu/hccl_native_attention_pd_dspark_{suffix}_probe.py"
     with tarfile.open(bundle) as archive:
-        source = archive.extractfile(HELPER).read()
+        source = archive.extractfile(helper).read()
     module = ModuleType("frozen_graph_observer")
-    exec(compile(source, HELPER, "exec"), module.__dict__)
+    exec(compile(source, helper, "exec"), module.__dict__)
     return module
+
+
+def recorded_device_audit():
+    directory = ROOT / (
+        "openspec/changes/afd-hccl-full-parity/evidence/a5-dspark-device-audit-20261119"
+    )
+    with tarfile.open(directory / "inner-reports.tar.gz") as archive:
+        workers = json.load(archive.extractfile("summary.json"))["workers"]
+    audit = json.loads((directory / "offline-green.json").read_text("utf-8"))
+    return (
+        workers,
+        audit["consumer_protocol"]["parents"],
+        audit["expected_local_devices"],
+    )
 
 
 class Attention:
@@ -203,6 +219,73 @@ class TestGraphObserver(unittest.TestCase):
                     "forward",
                     vars(owner.model.language_model.model.layers[0].self_attn),
                 )
+
+
+class TestGraphDeviceAudit(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.workers, cls.parents, cls.local_devices = recorded_device_audit()
+
+    def test_host_records_require_the_requested_device_for_each_role(self):
+        observer = load_observer()
+        service = self.workers["ffn_consumer"]["native_ffn"]
+        records = {
+            "attention": self.workers["kv_consumer"]["native_live_owner"][
+                "target_graph"
+            ]["host_records"],
+            "ffn": [*service["host_records"], *service["body_records"]],
+        }
+        for role, values in records.items():
+            with self.subTest(role=role):
+                options = {
+                    "role": role,
+                    "graph_compute_overlap": True,
+                    "graph_all_axes": True,
+                }
+                observer.verify_graph_host_records(
+                    values,
+                    self.parents,
+                    local_device=self.local_devices[role],
+                    **options,
+                )
+                with self.assertRaises(AssertionError):
+                    observer.verify_graph_host_records(
+                        values,
+                        self.parents,
+                        local_device=2 if role == "attention" else 6,
+                        **options,
+                    )
+
+    def test_pipeline_storage_requires_the_requested_device_for_each_role(self):
+        observer = load_observer("overlap")
+        cross = load_observer("cross_layer")
+        attention = self.workers["kv_consumer"]["target_graph_decode"]["storage_before"]
+        ffn = self.workers["ffn_consumer"]["native_ffn"]["captured_entries"]
+        for role, entries in (("attention", attention["entries"]), ("ffn", ffn)):
+            pipeline = next(
+                item["pipeline_storage"]
+                for item in entries
+                if item["pipeline_storage"] is not None
+            )
+            options = {
+                "bank": pipeline["bank"],
+                "graph_all_axes": True,
+                "graph_exchange_order": "cross_layer_v1",
+            }
+            with (
+                self.subTest(role=role),
+                patch.dict(
+                    sys.modules,
+                    {"hccl_native_attention_pd_dspark_cross_layer_probe": cross},
+                ),
+            ):
+                observer.verify_pipeline_storage(
+                    pipeline, device=self.local_devices[role], **options
+                )
+                with self.assertRaises(AssertionError):
+                    observer.verify_pipeline_storage(
+                        pipeline, device=2 if role == "attention" else 6, **options
+                    )
 
 
 if __name__ == "__main__":

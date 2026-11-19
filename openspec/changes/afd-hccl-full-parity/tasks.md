@@ -1750,3 +1750,19 @@ process=1。该标记早于 observer 及 supervisor 的最终验证；不能判�
 传递内层 traceback/退出码/角色错误并保持原失败。23 项标准库检查、冻结编译/
 pins/确定性及本地 harness 通过，146 份生产与 Graph helper 字节保持。
 当前 Graph/U2 验收和根因仍待缺失报告，1.3/1.8 等整项状态不变。
+
+### 2026-11-19：补齐 Graph/U2 内层报告，修正设备映射审计并离线复核
+
+[原始报告、完整复核与修复](evidence/a5-dspark-device-audit-20261119/README.md)
+确认 run `9ead09c9335949019bf137a913ff0774` 四角色 success=true、exit=0，
+无超时/强制终止，Graph/U2 eager/replay、取消替换及正常退出的驱动检查均已返回。
+最终失败为离线校验写死 A3 Attention/FFN 卡号 2/6，本次启动参数实际为 1/3；
+pipeline 审计亦有同类常量。六份冻结 helper 改由 supervisor 启动参数按角色传递
+必填期望卡号，保留原协议/数值/KV/host/pipeline 全部校验，146 份生产及 native
+identity 字节保持。旧实际执行快照复现同一失败；修正后真实既有报告完整事后复核
+通过，错误期望卡号仍拒绝。25 项本地标准库检查、186 Python 编译、194 pins、
+确定性重建与 Ruff 通过；本地规划/只读保护结果随证据保存。
+原始失败 summary 不改写，无新 NPU 执行；本项定位与既有报告复核无需重跑。
+受控非 Engram Graph/U2/PD/DSpark 组件组合已有真实设备记录及独立事后审计，
+新版本入口生成成功顶层 summary 尚待后续自然运行，完整权重/Engram/物理重叠/
+性能及 1.3/1.8 等更大组合任务不提前勾选。
