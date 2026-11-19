@@ -6,17 +6,22 @@
 ## 范围、依赖与源码
 
 依赖 C2/C3/C4/C5/C6，闭合 H12–H15 并审计 H01–H11。
-2026-11-12 开发顺序按[总计划优先级](../../ROADMAP_ZH.md#engram-priority)：先完成
-DSpark/PD、U2/Graph/多流和运维的非 Engram 实现、审查及独立组件，其他 DSV4.1
-功能具备后才开始中优先级 Engram 专项。上述依赖是最终模型验收依赖，不阻止可独立
-推进的开发。Engram 专项归属 [tasks 2.1–2.7](tasks.md#engram-medium)，混合任务保持
-pending，不通过关闭 Engram 或放宽拒绝条件替代真实验收。旧 MTP 后续开发继续暂停。
+2026-11-19 开发顺序按[总计划优先级](../../ROADMAP_ZH.md#engram-priority)：先复用原生
+Engram 完成真实权重 eager/U1 对照；Graph/U1、DSpark/U1、PD/U1 按各自依赖复核验证，
+不等待 U2 先完成。当前 vLLM 的拒绝条件是 Engram 层存在且 `use_ubatching` 为真，
+没有直接禁止上述 U1 组合，但也不证明它们在 Ascend/AFD 已支持。
+新增 Engram 准入、stage/图/历史缺口仍是中优先级，先完成契约与架构审查再实施；
+Engram+U2/DBO 保留为最终适配目标，不能仅删校验或调整启动参数视作实现。
+上述依赖是逐场景模型验收前置，不阻止独立组件和 CPU 工作。Engram 工作归属
+[tasks 2.1–2.7](tasks.md#engram-medium)，原生 U1 复用验证与新增适配分阶段记录；
+混合任务仍满足全部条件才勾选。旧 MTP 后续开发继续暂停。
 D03/D04 的普通 MTP、D12/D13 的 PD patch、D14/D15 的 recipe 是语义参考，不能直接复制旧 v0.23 API。
 本阶段是必交付，不把 PD、Graph+DSpark 再列为无主延期项。
 
 ## DSpark 和普通 MTP 映射
 
-V4.1 使用 RFC DeepseekV41DSparkModel，完整 draft 留 A，target Graph/U2 + eager draft 必须可用；
+V4.1 使用 RFC DeepseekV41DSparkModel，完整 draft 留 A，target Graph/U2 + eager draft 是最终必验目标；
+近期先核对和验证 DSpark/U1 的真实 proposal/接受拒绝及 Engram history，Graph/U2 组合待新增适配闭合。
 若目标原生提供可捕获 draft，再按该接口验证，不伪造旧远程 MTP。
 每 stage 在正确入口采集 target aux 并归并，draft 不发布 F 工作、不覆盖 target Graph 状态。
 microbatch、block size、proposal、draft stage 数和远程 MoE 次数分开。

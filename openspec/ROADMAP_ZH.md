@@ -1,25 +1,55 @@
 # DSV4.1-Flash AFD 适配计划（v0.30 主线，完整迁移 HCCL 能力）
 
-## 整体进度总览（2026-11-17）
+## 整体进度总览（2026-11-19）
 
 **总目标仍是完成 DSV4.1-Flash 的 AFD 开发与验证，并迁移供体完整 HCCL 能力：
 eager/U1/U2、DBO、Graph 捕获/回放/回退、多流/拓扑、DSpark、PD、诊断和性能验收。**
 当前已有基础适配和多项 CPU/NPU 组件证据；**完整 AFD 模型输出等价尚未通过，项目未完成。**
 
-**2026-11-17最新安排：先收口暂不含Engram的组合功能开发与CPU检查，再交付精简的A5
-整体验证入口和指导。** A3第二轮metadata失败的原因仍未确认，可能包含环境差异；
-保留既有证据，暂停追加A3设备定位，不以此阻塞本轮组合功能开发。Engram、性能和
-服务启停专项继续后置，A5实际验证通过前保留验收pending。
+**2026-11-19 目标澄清：近期先闭合保留原生 Engram 的真实权重 eager/U1 正确性，
+再按依赖验证 U1 下的 Graph、DSpark 和 PD；Engram+U2/DBO 列为新增适配。**
+此前“Engram 后置”仅约束新增适配，不表示所有含 Engram 的场景都不支持或都要等待。
+无 Engram 的 dummy/BF16 组件证据继续保留，不能替代原始量化 checkpoint 的验收。
+
+### 模型能力与当前交付目标
+
+原始 checkpoint 配有 Engram，完整模型验收保留其层、权重和原生历史语义；CPU offload
+只改变表的存储位置。A 拥有 Engram，F 构造前隔离。U1 指不拆 microbatch，不限定卡数。
+
+| 真实权重场景（均保留 Engram） | 已知边界 | 计划目标 |
+| --- | --- | --- |
+| eager/U1 | 已有原生路径及 AFD 资格入口；历史 AFD 与原生从首 token 起不同 | 当前首要验收目标：固定 checkpoint、软件、输入/采样及可比拓扑，定位差异并验证连续请求 |
+| Graph/U1 | DBO/microbatch 限制没有直接禁止它；不据此推定 Ascend/AFD 已支持 | U1 正确性基线后，复核锁定图接口并验证 capture/replay/fallback 与 Engram 生命周期 |
+| DSpark/U1、PD/U1 | 该条限制没有直接禁止它们；仍需分别核对 proposal/接受拒绝、history 与 P→D 接入 | 按独立依赖逐项验证；发现新增 Engram 缺口后归入 C7 专项，不等待 U2 先完成 |
+| eager/U2、DBO 及 Graph/U2、含 U2 的 DSpark/PD | 当前锁定 vLLM 明确拒绝 Engram+microbatch | 保留最终目标；作为插件新增适配，先评估契约、审查实现，再做真实模型联合验收 |
+
+上游依据为 [Engram limitations](https://github.com/vllm-project/vllm/blob/main/docs/features/engram.md#limitations)
+和锁定 vLLM `ced6857a` 的
+[`_resolve_and_verify_engram_config`](https://github.com/vllm-project/vllm/blob/ced6857afa0ea7b2e3f0846a62e1394e90f15607/vllm/config/vllm.py#L1220)：
+配置了 Engram 层且 `use_ubatching` 为真时直接拒绝。锁定 Ascend `7e37e29a` 的
+[`platform.py`](https://github.com/vllm-project/vllm-ascend/blob/7e37e29a7803d6897a7113088e2b771f83205bc0/vllm_ascend/platform.py#L1014)
+也会在普通路径归零 DBO/ubatch 参数。main 文档不是 NPU 支持声明，也不改变源码锁。
+
+近期交付与完整迁移分别报告：U1 精确场景验收通过后可独立记录，U2 的未完成项仍保留，
+不得将阶段交付称为 H01–H15 全部完成。当前完整模型输出等价、完整组合和性能仍 pending。
+本次仅调整计划与工作流，不实施运行时补丁或启动 NPU 实验。
+
+2026-11-17 的非 Engram 组件收口安排和已交付入口保留。A3 metadata 原因未确认，
+暂停追加 A3 设备定位；性能和服务启停专项继续后置，测试必要清理保留。
 
 | 总览     | 当前进度                                                                                                                                                                                                                                                                                             |
 | ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | 任务清单   | **109 项：已完成 54 项，未完成 55 项；勾选比例 49.5%**                                                                                                                                                                                                                                                           |
-| 实现状态   | 角色模型、HCCL、U2、Graph、多流、DSpark/PD已有实现；本轮补齐非Engram组合资格入口并完成源码/CPU检查，A5设备与完整模型验收仍待                                                                                                                                                                                                                                     |
+| 实现状态 | 角色模型、HCCL、U2、Graph、多流、DSpark/PD 已有实现和有限组件证据；逐项以 C7 原始记录为准，完整权重支持不由组件结果推定 |
 | 完整模型验收 | A5 受控 AFD eager/U1 请求已运行成功，但与原生基线从首 token 起不同，**输出等价未通过**                                                                                                                                                                                                                                        |
 | 性能验收   | 尚未完成；依赖功能、数值和状态正确性先通过                                                                                                                                                                                                                                                                            |
-| 当前工作位置 | **C7 非 Engram 功能：普通 PD、U2/Graph/多流与正常入口。DSpark设备验证在A5。** A3正常Worker/加载/三层首C2 KV及AFD首prefill/sample721已完成，首hidden与原生逐字节一致；原生两轮输出721、14并正常退役，AFD第二轮C2 metadata失败，原因未确认，暂缓追加A3设备定位。完整检查点输出等价仍待；同TP4 MoE及DSpark两场景已推送待A5。profiler、启停和性能后置。详见 [C7 证据记录](changes/afd-hccl-full-parity/tasks.md#4-历史实施与证据记录保留原范围) |
+| 当前工作位置 | **C7：原生 Engram eager/U1 真实权重对照与首 token 差异收口；U1 组合按依赖推进，U2 新增适配单列。** 具体任务及历史证据见 [C7](changes/afd-hccl-full-parity/tasks.md)；A5 由用户手工验证，profiler、启停和性能后置 |
 
-本轮统一入口见 [A5 非 Engram 最小功能验证](../docs/npu/DSV41_A5_FUNCTIONAL_VALIDATION_ZH.md)：
+当前真实权重入口见 [A5 完整 checkpoint 验证](../docs/npu/DSV41_A5_FULL_CHECKPOINT_VALIDATION_ZH.md)，
+以 eager/U1、原始量化权重和 A 侧原生 CPU Engram 为边界。下述 11-17 组件交付记录保留，
+其后实际 A5 报告及事后审计以 [C7 证据记录](changes/afd-hccl-full-parity/tasks.md)为准。
+
+11-17 的组件统一入口见 [A5 非 Engram 最小功能验证](../docs/npu/DSV41_A5_FUNCTIONAL_VALIDATION_ZH.md)：
 一条命令顺序运行7场景，正常原生对照 + AFD四模式（含多流）+ DSpark/PD两组合。
 默认关闭的正常Worker组合资格入口、Graph/U2跨层PD及后台异常归属已完成本轮源码收口；
 真实CPU检查342P/0F/E/S，9个首次EngineArgs配置（原生1、A4、F4）通过且NPU均未初始化。
@@ -151,26 +181,29 @@ C7 的任务较大：即使某部分代码和组件已通过，只要整项包�
 | --- | ---: | --- |
 | 高优先级功能实现与独立验证 | 4 | 1.3、1.5、1.6、1.10：DSpark/PD、功能配置、并发/取消/随后请求；1.10 的服务启停/重启部分后置 |
 | 后置 profiler 专项 | 1 | 1.7：管理入口、采集启停与 trace；不阻塞功能推进 |
-| Engram 专项 | 7 | 2.1–2.7：准入、U1/U2、Graph、多流、DSpark/PD 历史与生命周期；按既定排期后置 |
+| Engram 专项 | 7 | 2.1–2.7：复用原生 U1 的验证纳入当前目标；新增准入、U2/Graph、多流及 DSpark/PD 缺口仍按中优先级审查实施 |
 | 完整模型与最终交付验收 | 4 | 1.8、1.9、1.11、1.12：standalone、五种 PD 组合、性能、H01–H15 审计 |
 | 分支映射及暂停的旧 V4 MTP | 2 | 1.1 是混合映射任务，1.4 为旧 MTP 后续开发；旧 MTP 保持暂停，不阻塞 Engram 开始 |
 
 上表是任务归属统计；C0–C6 的未完成项与 C7 有依赖和联合验收，不能把 55 项理解为
 55 个相互独立、尚未编码的功能。实际继续开发按以下顺序：
 
-1. **先完成 DSV4.1 功能开发与验证。** 当前先做真实 DSpark/PD Ready 交接、proposal、
-   接受/拒绝、KV/采样历史及随后请求，再验证 U2/Graph/多流的输出与状态正确性。
-   配置和异常传播只围绕功能缺口推进；profiler、性能、服务启停/重启专项后置。
-2. **定位 AFD 模型输出差异。** A5 单层原生 TP1/TP4 的 gate logits 一致，但 MoE 相对
-   L2 差异约 0.44%，仍不能解释完整 AFD 首 token 差异。下一次有区分度的对照应固定
-   同 TP4，比较 native 与真实 AFD F 层构造/载权/计算边界。已准备
-   [一个新 A5 场景](../docs/npu/DSV41_A5_AFD_MOE_PARITY_ZH.md)，无需重复 TP1；
-   完整 F 构造、runner、传输不在此组件范围。
-3. **再做 Engram 专项 7 项。** 其他高优先级实现/审查/独立验证具备后启动；保留现有
-   原生 Engram 与 A/F 隔离，不等完整模型矩阵先通过，也不提前放宽门禁。
-4. **最后集中做完整验收。** standalone eager/U1/U2、Graph/U1/U2、DSpark 与五种 PD
-   组合的输出/状态/稳定性通过后，再测性能、审计能力矩阵并交付。A3 执行适合的组件
-   验证；需要 A5 的场景另给最小操作包，不用组件成功替代完整模型验收。
+1. **先闭合真实权重 eager/U1 正确性。** 保留原生 Engram，以
+   [完整权重指导](../docs/npu/DSV41_A5_FULL_CHECKPOINT_VALIDATION_ZH.md)收集新锁下的
+   载权、输入/输出、连续请求和正常清理证据。历史首 token 差异仍是阻断项；同 TP4
+   [MoE 对照](../docs/npu/DSV41_A5_AFD_MOE_PARITY_ZH.md)只用于定位，不代替整模型结果。
+2. **按依赖扩展 U1 验证。** 逐项核对 Graph/U1、DSpark/U1、PD/U1 的锁定接口，
+   在各自基线和准入满足后验证图执行、接受/拒绝、history/handoff 与随后请求。
+   这些路径不被 Engram+microbatch 的拒绝条件一并排除，也不因未被禁止就算已支持。
+3. **收口独立组件的实际缺口。** 保留非 Engram 的 U2/Graph/多流及 DSpark/PD 证据，
+   修复必要的正常接入和错误传播，不反复重跑已有组件以代替完整模型验收。
+4. **评估并实施新增 Engram 适配。** 高优先级可独立工作具备后，按 C7 2.1–2.6
+   复核实际缺口：U2 准入、父 producer、stage 视图、buffer/event、Graph 与历史交接。
+   新增补丁先架构审查，保留非 AFD 原生拒绝；未闭合时 U2 完整模型仍 pending。
+   U1 数值基线是 U2 完整模型对照的前置，不要求完整 U2 矩阵先通过才允许开展设计。
+5. **逐格验收及交付。** 已通过的 U1 精确场景可独立记录；原定 U2/Graph/DSpark/PD、
+   拓扑及 H01–H15 最终范围保留，全部满足才报告完整迁移。性能和启停专项最后安排。
+   需要用户手工 A5 验证时先交付最小指导，等待期间继续不依赖设备结果的审查和 CPU 工作。
 
 最新补齐 **正常 F factory→worker daemon→runner→Graph service 的真实 A3 组件**：
 五轴全关/全开各完成 23 个 parent（4 warmup、4 capture、12 replay、3 eager 回退），
@@ -446,15 +479,16 @@ Engram 基于原始 token 与历史状态增强特征；shared-KV/index 拓扑�
 
 <a id="engram-priority"></a>
 
-## 后续开发优先级（2026-11-16，保留 11-12 的 Engram 后置安排）
+## 后续开发优先级（2026-11-19，区分原生 U1 与新增 Engram 适配）
 
-按用户11-16调整，优先功能开发与功能验证，降低profiler、性能和服务启停专项优先级。
-11-12确定的 Engram 中优先级后置安排保留；完整 HCCL 迁移范围和最终验收标准保持。
+本次澄清“Engram 后置”的对象是新增适配。已有原生 Engram/U1 的复用、真实权重
+正确性和可独立开展的 U1 验证不等待 U2；11-12 的新增适配中优先级安排保留。
+功能和正确性优先，profiler、性能和启停专项后置；完整 HCCL 最终范围保持。
 
 | 优先级 | 后续工作 | 开始与完成边界 |
 | --- | --- | --- |
-| 高 | DSpark proposal/采样、接受拒绝、连续轮次及功能异常传播；PD/KV/index与请求接入；U2 continuation/归并、Graph 协调/回退、多流功能的非 Engram 部分 | 沿用 C2–C7 实现，优先真实输出、token/KV/请求状态和组合正确性；每次测试保留必要清理 |
-| 中，后置 | Engram 配置准入、角色/组与 U1 生命周期缺口，U2 lookup/history/buffer/event，Graph producer/replay，以及 DSpark/PD 的 Engram 组合 | 高优先级 DSV4.1 工作具备后，按 [C7 Engram 专项任务](changes/afd-hccl-full-parity/tasks.md#engram-medium)开始；当前不新增专项实现或专项设备实验 |
+| 高，当前 | 原始量化 checkpoint + 原生 Engram 的 eager/U1 输出差异、连续请求及清理；按依赖复核 Graph/U1、DSpark/U1、PD/U1；独立非 Engram 组件实际缺口 | 复用已有能力和资格入口，先固定对照条件；U1 不等待 Engram/U2 开发完成；未验收的组合不提前放行 |
+| 中，新增适配 | Engram+U2/DBO 准入、父 producer 与 stage 视图、buffer/event；U1/Graph/DSpark/PD 复核发现的新增 Engram 缺口 | 按 [C7 2.1–2.7](changes/afd-hccl-full-parity/tasks.md#engram-medium)审查实施；U1 复用验证与新增代码分别记录，不能仅移除校验 |
 | 低，功能后 | profiler 控制/trace、服务启动/停止/退出/重启专项及性能/timeline评测 | 已有代码和证据保留，不作为功能推进或 Engram 开始条件；功能验证中的必要清理仍执行 |
 | 最终收口 | 原生与 AFD 完整模型、全部 U1/U2/Graph/DSpark/PD 组合及最终交付 | 等对应功能前置满足，逐格收口；性能和运维专项按降低后的优先级补齐 |
 
@@ -463,13 +497,14 @@ Engram 基于原始 token 与历史状态增强特征；shared-KV/index 拓扑�
 的完整模型任务勾完，避免形成循环依赖。普通旧 V4 MTP 后续开发继续暂停，不作为
 开始 DSV4.1 Engram 专项的前提。
 
-已有原生 Engram、A 侧所有权、F 构造前隔离、权重及证据均保留。已有可运行基线可
-继续使用原生 Engram；一旦需要新增 Engram 修复、准入放宽或专项探针，登记到中优先级
-任务后转做其他高优先级工作。不得通过删除 Engram 层、修改 checkpoint 或绕过配置拒绝
-宣称完整模型通过；不把受控组件、CPU fake 或无 Engram 结果扩展为原 checkpoint 验收。
+已有原生 Engram、A 侧所有权、F 构造前隔离、权重及证据均保留。U1 的真实权重验证
+是当前工作，设备验证由用户按最小指导执行；若需新增 Engram 修复或准入放宽，先登记
+具体契约和依赖，按中优先级审查实施，不因此暂停其他可独立进行的 U1 验证。
+不得通过删除 Engram 层、修改 checkpoint 或绕过配置拒绝宣称完整模型通过；
+不把受控组件、CPU fake 或无 Engram 结果扩展为原 checkpoint 验收。
 
 各 tasks.md 用“高/待中”标识混合任务：非 Engram 部分先做，整项依赖中优先级时仍不勾选。
-纯 Engram 待办标为“中：后置”；既有勾选和历史记录不改写。恢复开发先读本节和 active
+原生 U1 复用验证与新增 Engram 适配在同一任务内分阶段记录；既有勾选和历史记录不改写。恢复开发先读本节和 active
 change 的优先级说明，不机械地将首个未勾选项视为当前可执行任务。届时重新比较锁定源码
 与上游能力，优先复用可用接口；不自动升级源码锁，也不把上游 GPU DBO 支持当成 NPU AFD 验收。
 
@@ -487,9 +522,11 @@ change 的优先级说明，不机械地将首个未勾选项视为当前可执�
 | C7 | [afd-hccl-full-parity](changes/afd-hccl-full-parity/proposal.md) | DSpark×U2×Graph×PD、旧 MTP 回归、诊断与完整支持矩阵 | 迁移矩阵每行有可审阅实现/等价映射与对应验收，无无主延期项 |
 
 C0/C1 的历史完成状态仅覆盖当时 eager/U1 组件范围，新增范围通过追加未完成任务追踪。
-完整模型验收的依赖仍为 C0/C1 → C2 → C4 → C5 → C6 → C7；C3 的硬件基线依赖 C2。
-开发排期按上节执行：C2–C7 非 Engram 的实现和独立组件可先推进，随后集中完成 Engram
-专项，最后补齐上述完整模型依赖链。C6 的 eager/Graph 组件分别依赖 C4/C5 对应组件，
+eager/U1 完整模型验收依赖 C0/C1 → C2；Graph/U1、DSpark/U1、PD/U1 分别核对其
+C5、C3、C7 对应契约，不机械等待 C4/U2 整项闭合。最终包含 U2 的完整矩阵仍需
+C4 → C5 → C6 → C7 的相应联合验收；C3 的硬件基线依赖 C2。
+开发排期按上节执行：原生 Engram eager/U1 正确性先收口，U1 组合按各自依赖验证，
+独立组件可并行推进，再补新增 Engram 适配和最终完整模型依赖链。C6 的 eager/Graph 组件分别依赖 C4/C5 对应组件，
 不要求提前完成其 Engram 整体验收；未满足真实前置语义时仍不能打开生产优化开关。
 每个 change 的 tasks.md 是唯一任务进度表；[session.json](../.agents/dsv41/session.json) 保留当前阶段指针，不重置已完成记录。
 

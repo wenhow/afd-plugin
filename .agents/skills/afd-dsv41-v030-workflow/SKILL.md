@@ -11,11 +11,14 @@ The first milestone is V2, text, eager, U1, P2pHcclAFDConnector, FFN-side gate, 
 Keep v0.30 V2 ownership and interfaces. Migrate the locked donor's HCCL execution capabilities through V2 equivalents; old V1 classes/APIs need not be copied.
 Final scope includes U2/DBO, eager streams, FULL_DECODE_ONLY Graph/replay/fallback, Graph multi-stream/cross-layer, peer topologies, DSpark/PD and diagnostics.
 Use the [capability matrix](../../../openspec/HCCL_CAPABILITY_MIGRATION_ZH.md) to avoid treating eager/U1 as final delivery.
-Scheduling update 2026-11-12: follow the [priority order](../../../openspec/ROADMAP_ZH.md#engram-priority).
-Finish other DSV4.1 non-Engram implementation, review and independent validation first; retain DSpark priority.
-Engram adaptation is medium priority and starts only after those functions are ready, using C7 tasks section 2.
-Preserve existing native Engram and A/F isolation. Do not add Engram-specific fixes, admission bypasses or device probes during the high-priority phase.
-Mixed tasks may advance their non-Engram parts, but full-model acceptance stays pending until all dependencies pass; do not require that acceptance before starting Engram work.
+Scheduling clarification 2026-11-19: follow the [priority order](../../../openspec/ROADMAP_ZH.md#engram-priority).
+Prioritize real-checkpoint eager/U1 correctness while reusing native Engram and A/F isolation.
+Review and validate Graph/U1, DSpark/U1 and PD/U1 under their own prerequisites; do not wait for U2 merely because these modes include Engram.
+The pinned native Engram+DBO/microbatch rejection does not prohibit every U1 mode, and absence of that rejection does not establish NPU support.
+New Engram adaptation remains medium priority after independent high-priority work is ready; use C7 tasks section 2 for actual admission, history, producer/event or graph gaps.
+Preserve the full HCCL goal including U2. Review new compatibility patches before implementation; configuration admission alone is not runtime support.
+Retain independent non-Engram component evidence without promoting it to real-checkpoint acceptance. U1 stages may be reported separately; full migration stays pending until its full matrix passes.
+Do not require the Engram-dependent full matrix to pass before starting its adaptation, or make U1 reuse validation wait for that new work.
 Ordinary old-V4 MTP follow-up remains paused and is not an Engram start prerequisite.
 U2 requires stage-local V4.1 continuation/pre_mix, Engram producer/events and shared attention state; a MoE-only substitution is not sufficient for every asynchronous mode.
 V4.1 uses delayed pre_mix, native Engram history and shared cache state. Preserve the native forward, split at MoE construction, and prove router-input precision.

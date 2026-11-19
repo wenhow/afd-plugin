@@ -20,8 +20,9 @@ The local harness is not official OpenSpec validation, a runtime package check, 
 For DSpark record actual proposed/accepted tokens and rejection/fallback behavior; do not force acceptance or reuse old V4 numbers as V4.1 evidence.
 
 Retain unsupported combinations as explicitly pending. Diagnose supplied errors using the matching request/log chain rather than healthcheck success.
-Follow the [2026-11-12 priority order](../../../openspec/ROADMAP_ZH.md#engram-priority): Engram adaptation and dedicated device probes are medium priority, after other DSV4.1 functions are ready.
-Preserve prior Engram evidence; independent non-Engram components may progress first. Their results cannot close Engram-dependent full-model or performance tasks.
+Follow the [2026-11-19 priority clarification](../../../openspec/ROADMAP_ZH.md#engram-priority): real-checkpoint eager/U1 validation reuses native Engram now; new Engram adaptation remains medium priority.
+Distinguish the explicit native Engram+DBO/microbatch rejection from unvalidated Graph/U1, DSpark/U1 or PD/U1 combinations. The restriction is not evidence that all Engram modes fail or that all U1 combinations work.
+Preserve prior Engram and independent non-Engram component evidence. Record real-checkpoint U1 stages separately from new U2 adaptation and final HCCL acceptance; dummy/BF16/no-Engram results cannot close full-model or performance tasks.
 State remaining blockers with their exact scope; do not imply FastAPI solver conflicts are resolved by --no-deps.
 The user accepted the deployed container FastAPI on 2026-11-06 (verified 0.123.10). Continue development and runtime validation in that environment; the declared requirement mismatch remains a recorded fact, not a blocker. Keep resolver results separate from actual runtime evidence.
 Do not launch services or consume hardware merely because a report is being written.

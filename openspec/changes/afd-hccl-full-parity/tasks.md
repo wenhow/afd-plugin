@@ -2,10 +2,26 @@
 
 只有实现、审查和验证证据齐全后勾选。任务状态只维护在本文件，既有勾选和历史证据保留。
 
-## 当前排期（2026-11-17）
+## 当前排期（2026-11-19）
 
-遵循[总计划优先级](../../ROADMAP_ZH.md#engram-priority)：高优先级先完成其他
-DSV4.1 功能，继续优先 DSpark 提案、接受/拒绝、KV/采样历史与连续请求，再补 PD/KV/index、U2/Graph/多流功能正确性。按用户11-16调整，profiler、性能及服务启停/退出/重启专项后置，不作为功能推进前提；每轮必要资源清理仍执行。1.10优先请求取消/随后请求和影响功能的错误传播，服务启停部分后置。已有1.3接口/CPU和1.6/1.7运维证据保留，不重复开发，不提前启动Engram专项。
+遵循[总计划优先级](../../ROADMAP_ZH.md#engram-priority)：当前先复用已有原生 Engram
+闭合真实权重 eager/U1 输出正确性，Graph/U1、DSpark/U1 和 PD/U1 按各自依赖推进。
+锁定 vLLM 明确拒绝 Engram+DBO/microbatch，U2 真实模型属于新增适配；不把该限制
+扩大成所有 Engram 场景都不支持。新增 Engram 适配仍按中优先级审查实施。
+profiler、性能及服务启停/重启专项后置；必要资源清理、取消/随后请求和错误传播保留。
+已有实现、接口/CPU 和 NPU 组件证据按原范围保留，本次不增加完成勾选。
+
+| 执行顺序 | 对应原任务 | 阶段边界与验收前置 |
+| --- | --- | --- |
+| 先完成真实权重 eager/U1 对照 | 2.2、1.8，关联 C2 | 原始量化 checkpoint、A 侧原生 CPU Engram、F 隔离；历史首 token 差异未闭合，单次请求成功不等于等价 |
+| 再按依赖验证 U1 组合 | 2.4–2.6 的 U1 部分、1.3、1.5、1.8–1.10 | 核对 Graph/U1、DSpark/U1、PD/U1 的原生接口及准入；分别验证 replay/fallback、接受拒绝与 history/handoff，不等待 U2 先完成 |
+| 收口独立组件实际缺口 | 1.3、1.5、1.6、1.10 | 保留 dummy/BF16/无 Engram 组件结果，不替代真实量化模型；不重复已完成组件来累计模型验收 |
+| 审查实施新增 Engram 能力 | 2.1–2.6 的新增部分 | 高优先级独立工作具备后处理 U2 准入、父 producer/stage 视图及图/历史缺口；原生拒绝之外的插件扩展需审查和实际对照 |
+| 完整矩阵与交付 | 2.7、1.8–1.12 | 已通过 U1 精确场景可单列；U2 与 H01–H15 最终范围保留，未完成格子仍 pending，性能/启停专项最后安排 |
+
+当前真实权重入口为 [完整 checkpoint 指导](../../../docs/npu/DSV41_A5_FULL_CHECKPOINT_VALIDATION_ZH.md)。
+A5 设备由用户手工执行；等待报告时继续独立审查和 CPU 工作。本轮仅修订计划与工作流。
+以下 11-16/11-17 安排保留为背景，具体执行顺序以上表为准。
 
 用户11-16随后调整验证分工：**DSpark相关设备功能验证改在A5，A3推进非DSpark功能**。
 用户11-17进一步明确：**先完成暂不含Engram的组合功能开发，再集中到A5整体验证，场景尽量精简**。
@@ -18,7 +34,10 @@ A3设备定位。先核对实际正常入口和组合代码缺口，完成必要
 按最新要求暂缓追加A3设备定位。
 A5同TP4单层MoE及DSpark两场景已提交推送至`feat/dsv41-flash-hccl-v030@6b4d6c5`，设备结果待用户回传；以上增量不提前勾选依赖完整组合验收的任务。
 
-第 2 节 Engram 专项为**中优先级，其他 DSV4.1 功能具备后才开始**，不因它是完整验收的前置条件而提前实施或运行专项探针。开始条件是所有高优先级非 Engram实现/审查/可独立验证部分具备，余项已明确为 Engram 或依赖其接入的收口；不要求先勾完 1.8–1.12，避免循环依赖。普通旧 V4 MTP 后续开发继续暂停。
+第 2 节区分**当前原生 U1 复用验证**与**中优先级新增适配**。前者不等待 Engram/U2，
+后者在高优先级独立实现/审查/验证具备后开始；不要求先勾完依赖它的 1.8–1.12，
+避免循环依赖。U1 数值基线是 U2 完整模型对照的前置，不阻止先做独立设计和 CPU 检查。
+普通旧 V4 MTP 后续开发继续暂停。
 
 “高/待中”任务先做非 Engram 部分，完整勾选仍等第 2 节对应依赖和原有验收；
 原生 Engram 行为、A 所有权/F 隔离及已完成适配保留，不通过删层、改 checkpoint或绕过配置拒绝宣称完成。各 change 原有任务仍负责本阶段整体验收，本节只集中管理Engram 新增适配的执行进度，不在其他 tasks.md 重复登记同一专项的完成状态。
@@ -30,24 +49,28 @@ A5同TP4单层MoE及DSpark两场景已提交推送至`feat/dsv41-flash-hccl-v030
 - [ ] 1.6 迁移 recipe/preflight/capture-size/拓扑校验和所有 overlap/诊断值记录，保留显式 0 覆盖。
 - [ ] 1.7 【低：功能后】对齐 A/F profiler 控制与 F 管理 RPC，验证启停/step/trace 不阻塞业务（H14）；已有实现保留，不阻塞功能开发验证。
 - [ ] 1.10 【高/待中；启停后置】优先并发/取消/随后请求及影响功能的错误传播；STOP专项/故障退出/新进程重启降低优先级，测试必要清理仍执行。Engram retire/history 联合验证待 2.2/2.5/2.6，旧 MTP 恢复后单列结果。
-- [ ] 1.8 【收口：待中】在 NPU 验证 standalone eager/U1/U2、Graph/U1/U2，含 DSpark 开/关、代表拓扑和长运行（H15）；独立组件和已有原生 Engram 下的资格候选可先按原边界验证，完整矩阵待 2.1–2.5/2.7。
-- [ ] 1.9 【收口：待中】在 NPU 验证五种 PD 组合，同 checkpoint/tokenizer，覆盖 prefix、KV/index 和 Engram history；PD 非 Engram 组件先做，完整模型验收待 2.6–2.7。
+- [ ] 1.8 【当前 U1；完整矩阵待中】在 NPU 验证 standalone eager/U1/U2、Graph/U1/U2，含 DSpark 开/关、代表拓扑和长运行（H15）；先完成原生 Engram eager/U1 数值对照，按依赖验证 U1 组合并单列证据，完整 U2 矩阵待 2.1–2.5/2.7，整项不提前勾选。
+- [ ] 1.9 【按依赖验证 U1；完整矩阵待中】在 NPU 验证五种 PD 组合，同 checkpoint/tokenizer，覆盖 prefix、KV/index 和 Engram history；先核对 PD/U1 的原生历史接入并在条件满足时验证，不等待 U2；新增 handoff 缺口及完整 U2 组合待 2.6–2.7。
 - [ ] 1.11 【低：功能后；待中】按同条件完整矩阵采集输出/接受率/timeline/冷启动/HBM 与卡数归一化性能，等 Engram 及其他前置功能验收后执行，不用当前组件数字填充。
 - [ ] 1.12 【收口：待中】审计 H01–H15 实现/等价映射/证据及运行说明；Engram 依赖与未验收格子保持 pending，满足完整条件才报告完成，旧 MTP 暂停状态继续单列。
 - [x] 1.2 审查目标 PD 与 shared cache/index/Engram handoff 及旧 patch 差异，明确需补齐接口（H13）。
 
 <a id="engram-medium"></a>
 
-## 2. 中优先级：Engram 专项（其他 DSV4.1 功能具备后开始）
+## 2. Engram 工作：原生 U1 复用验证与中优先级新增适配
 
-本节为 2026-11-12 排期新增待办，当前不启动。已有 Engram 实现和证据保留，不是将其回滚重做；复核完成后只补实际缺口。恢复时优先复用可用上游接口，锁定版本变更另行评估，不自动跟随 main；补丁需注明成本、作用域与移除条件。
+2026-11-19 澄清原编号 2.1–2.7 的执行边界：已有原生 Engram/U1 验证是当前目标，
+新增 Engram 代码和 U2 准入仍按中优先级审查实施。已有实现和证据保留，只补复核后的
+实际缺口。main 文档的 microbatch 限制不代表所有 U1 组合都不支持；未被该条禁止也
+不代表已在 NPU 验收。锁定版本变更另行评估，不自动跟随 main；补丁注明成本、作用域
+与移除条件。各任务中的 U1 及 U2 证据分阶段记录，全部原条件满足才勾选整项。
 
-- [ ] 2.1 【中：后置】高优先级 DSV4.1 工作具备后，复核锁定 vLLM/Ascend 的 Engram、DBO/microbatch 准入与配置重建/worker 校验链，设计插件内最小兼容接入并完成架构审查；保留非 AFD 拒绝语义与上游只读边界，不以单纯删除校验放行。
-- [ ] 2.2 【中：后置】补齐原生 Engram/U1 在 A/F 初始化、组/权重归属、请求结束/复用、chunk/dummy/空步、异常 retire 和资源回收上的缺口；用真实历史与设备对照收口 C2 1.8/1.12，保留已验证的 A 所有权和 F 构造前隔离。
+- [ ] 2.1 【中：新增 U2 准入】高优先级独立工作具备后，复核锁定 vLLM/Ascend 对 Engram+DBO/microbatch 的明确拒绝、配置重建及 worker 校验链，设计插件内最小兼容接入并完成架构审查；保留非 AFD 拒绝语义与上游只读边界，不以单纯删除校验放行。
+- [ ] 2.2 【当前：原生 U1 复用验证；新增修复按中优先级】先保留原生 Engram 完成真实权重 eager/U1 的可比基线、输出差异和连续请求验证；复核 A/F 初始化、组/权重归属、请求结束/复用、chunk/dummy/空步、异常 retire 与资源回收，新增缺口登记后按中优先级审查修复；以真实历史和设备对照收口 C2 1.8/1.12，保留 A 所有权及 F 构造前隔离。
 - [ ] 2.3 【中：后置】补齐 eager/U2 父级一次 producer、lookup/mask 子视图、lookback 请求坐标、buffer lifetime 和双 consumer event 契约；含切分跨请求/跨 chunk、odd/empty、多轮及与 HC/pre_mix/shared-KV 的联合 NPU 对照，闭合 C4 1.7/1.10 的 Engram 依赖。
-- [ ] 2.4 【中：后置】补齐 Graph/U1/U2 Engram producer、稳定输入更新、事件 prime/refill/retire、capture/replay/miss→eager 和多流消费者生命周期；验证请求/bucket 切换，完成 patch 审查及真实设备对照，闭合 C5 1.8 与 C6 的 Engram 依赖。
-- [ ] 2.5 【中：后置】补齐 DSpark 接受/拒绝/bonus/回退后 Engram history 与下一轮 lookback，覆盖同 worker 连续轮次、取消/结束后的槽复用及 U1/U2/Graph 组合；真实 target/proposal/采样和设备结果对应，闭合 C3 1.8/2.1 与 C7 1.3 的 Engram 依赖。
-- [ ] 2.6 【中：后置】补齐 Prefill→Decode 的 Engram 历史、请求/token 坐标和 prefix/缓存接入，验证 PD 五组合与取消/随后请求；F 不拥有该历史，不以 KV 到达替代 Engram 正确性，闭合 C7 1.5/1.9 的 Engram 依赖。
+- [ ] 2.4 【按依赖复核 Graph/U1；新增适配按中优先级】U1 基线后复核并验证原生 Engram 图路径；补齐实际 producer、稳定输入、事件 prime/refill/retire、capture/replay/miss→eager 及多流消费者缺口，U2 另依赖 2.1/2.3；验证请求/bucket 切换，完成 patch 审查及真实设备对照，闭合 C5 1.8 与 C6 的 Engram 依赖。
+- [ ] 2.5 【按依赖复核 DSpark/U1；新增适配按中优先级】先核对及验证 U1 的接受/拒绝/bonus/回退后 Engram history 与下一轮 lookback，再补实际缺口及 U2/Graph 组合；覆盖同 worker 连续轮次、取消/结束后的槽复用，真实 target/proposal/采样和设备结果对应，闭合 C3 1.8/2.1 与 C7 1.3 的 Engram 依赖。
+- [ ] 2.6 【按依赖复核 PD/U1；新增适配按中优先级】先核对及验证 U1 Prefill→Decode 的原生 Engram 历史、请求/token 坐标和 prefix/缓存接入；补实际 handoff 缺口及 U2 等 PD 五组合，覆盖取消/随后请求；F 不拥有该历史，不以 KV 到达替代 Engram 正确性，闭合 C7 1.5/1.9 的 Engram 依赖。
 - [ ] 2.7 【中：后置】在前六项实际缺口闭合后，记录 Engram 对各模式的 NPU 对照/生命周期证据、资源成本与兼容补丁保留/移除结论，更新精确支持边界，作为原 1.8–1.12 完整矩阵验收的输入；不提前报告性能或全量交付通过。
 
 ## 3. 分支映射与普通旧 V4 MTP（保持原暂停策略）
@@ -1780,3 +1803,18 @@ identity 字节保持。旧实际执行快照复现同一失败；修正后真�
 生产代码、七场景冻结包及 Engram/U2/Graph 准入保持；没有新 NPU 执行。
 当前待用户按新指导回传实际载权/短请求/正常退出和原生参考；历史首 token 差异
 及完整数值/连续请求仍未闭合，1.3/1.8 等整项勾选不变。
+
+### 2026-11-19：澄清 Engram 原生 U1 与新增 U2 目标，修订计划
+
+用户此前将 Engram 理解为所有场景均不支持；本轮依据官方
+[limitations](https://github.com/vllm-project/vllm/blob/main/docs/features/engram.md#limitations)
+及锁定 vLLM `ced6857a` 的
+[配置拒绝](https://github.com/vllm-project/vllm/blob/ced6857afa0ea7b2e3f0846a62e1394e90f15607/vllm/config/vllm.py#L1220)
+明确：原始模型保留 Engram，原生明确限制的是 DBO/microbatch。当前先复用已有路径
+验证真实权重 eager/U1，历史首 token 差异仍待解决；Graph/U1、DSpark/U1、PD/U1
+按各自前置复核验证，未被该条禁止不等于已支持。U2/DBO 保留最终目标，新增准入、
+producer/stage、图及 history 缺口按中优先级审查实施。阶段 U1 可单列，不替代 H01–H15。
+
+本次同步总计划、能力矩阵、C7 proposal/design/tasks、工作流/证据技能及会话范围指针。
+原任务编号、完成勾选、源码锁、原始证据和未提交实现保留；本轮只有计划/工作流改动，
+未运行模型或设备实验。校验仅证明规划一致及上游只读保护，不计模型或 NPU 验收。

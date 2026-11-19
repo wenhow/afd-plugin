@@ -1,26 +1,32 @@
 # feat/dsv4-afd HCCL 完整能力迁移矩阵
 
-修订日期：2026-11-12。供体锁定 feat/dsv4-afd@4ddd69a391dfb5b3e362c7601399e538a31de702。
+修订日期：2026-11-19。供体锁定 feat/dsv4-afd@4ddd69a391dfb5b3e362c7601399e538a31de702。
 目标实现以 v0.30 + RFC/V4.1 的契约重建，允许改变类/文件组织；不允许以 eager/U1 通过代替全能力交付。
 本表是范围/覆盖表，任务进度仍只在各 change 的 tasks.md；表中“供体存在”不等于当前目标 NPU 已验收。
 本次审视起点 HEAD 为 c1f9ccc7fd7e5ba09f243ce37824af90bb0030ea；I01–I07 固定到该提交作为可重现的缺口证据。
 工作区存在同时推进的 C3 改动，不能假定当前文件全部等于该 HEAD。核查基于锁定 Git 对象和起点工作区，本次修订未编辑运行时，也未使用历史性能数据证明新能力。
 
-## 当前排期：Engram 中优先级后置
+## 当前排期：先验证原生 Engram/U1，新增 Engram 适配单列
 
-按 [2026-11-12 开发顺序](ROADMAP_ZH.md#engram-priority)，先补齐其他 DSV4.1 功能的
-实现、审查和独立组件验证，之后再开始 Engram 新增适配。以下矩阵保留最终能力和
-验收范围，不代表每行当前都可开展完整模型实验。既有实现与证据保留。
+按 [2026-11-19 目标澄清](ROADMAP_ZH.md#engram-priority)，近期先闭合原始量化 checkpoint
+保留原生 Engram 的 eager/U1 正确性，再按依赖验证 Graph/U1、DSpark/U1 和 PD/U1。
+新增 Engram 适配仍按中优先级审查实施，原有独立组件证据保留。
 
-| 能力范围 | 先做的高优先级部分 | 后置的中优先级依赖 |
+当前锁定 vLLM 明确拒绝 Engram+DBO/microbatch，Ascend 普通路径也归零相关参数；
+因此 U2 真实模型是新增适配目标。该限制不直接禁止 Graph/U1、DSpark/U1 或 PD/U1，
+但这些路径仍需各自的锁定接口、状态及 NPU 证据，不直接判为支持。
+U1 不限定卡数，CPU offload 不关闭 Engram，dummy/BF16/无 Engram 组件不能代表完整权重。
+
+| 能力范围 | 当前复用验证与独立组件 | 需要审查实施的新增 Engram 依赖 |
 | --- | --- | --- |
-| H01–H04：协议、拓扑、U2、continuation | 消息/布局、HC/pre_mix、独立 FP32/IDs、非 Engram shared state 与归并 | Engram 准入、父 producer、stage lookup/history/event，见 C7 2.1–2.3 |
-| H05–H11：多流与 Graph | 控制/缓存/key、buffer、通信图、attention 更新、流依赖与组件 timeline | Engram 图输入、producer/event、replay/fallback，见 C7 2.3–2.4 |
-| H12–H13：DSpark/PD | target-only、采样/接受拒绝、请求/KV/index 接入和异常生命周期 | DSpark lookback 与 PD Engram 历史/请求坐标，见 C7 2.5–2.6 |
-| H14–H15：运维、完整验收 | 配置、profiler、取消/退出/重启、可独立运行的资格候选 | 依赖 Engram 的完整模型与性能收口，见 C7 2.7 及原 1.8–1.12 |
+| H01–H04：协议、拓扑、U2、continuation | 原生 Engram eager/U1 真实权重对照、A/F 权重与状态；原有非 Engram U2 组件 | Engram+U2 准入、父 producer、stage lookup/history/event，见 C7 2.1–2.3 |
+| H05–H11：多流与 Graph | 复核及验证 Graph/U1 的原生 Engram 接口；保留非 Engram U2/图/流组件 | U1 复核发现的实际图缺口，以及 U2 图输入、producer/event、replay/fallback，见 C7 2.3–2.4 |
+| H12–H13：DSpark/PD | 在各自前置满足后验证 DSpark/U1、PD/U1 的真实历史和请求链；保留组件结果 | 新增 history/handoff 缺口及 U2 组合，见 C7 2.5–2.6；U1 不等待 U2 先完成 |
+| H14–H15：运维、完整验收 | 按精确 U1 场景记录正确性及必要清理；profiler/启停/性能专项后置 | U2 完整模型、最终组合与性能收口，见 C7 2.7 及原 1.8–1.12 |
 
-上述 Engram 待办的唯一专项清单是 [C7 第 2 节](changes/afd-hccl-full-parity/tasks.md#engram-medium)。
-混合任务非 Engram 部分可先完成，整项仍保持未勾选；不得用无 Engram/受控计算替代原
+上述 Engram 待办的唯一专项清单是 [C7 第 2 节](changes/afd-hccl-full-parity/tasks.md#engram-medium)，
+复用验证与新增适配分别记录。阶段 U1 交付不等于完整 H01–H15 迁移；最终 U2、Graph、
+DSpark/PD 范围保持，混合任务满足全部条件才勾选。不得用关闭 Engram/受控计算替代原
 checkpoint 的数值、历史或性能验收。普通旧 V4 MTP 保持暂停，恢复时单列回归。
 
 ## 一、上一版遗漏的实质
@@ -102,6 +108,10 @@ U2 有两套独立 stage 状态；某 stage 的等待间隙可以推进另一 st
 保留模式隔离和依赖条件，允许有经审查证明的 V2 等价实现。
 
 ## 六、最终验收格子与完成定义
+
+以下是最终目标矩阵，按“真实权重 eager/U1 → 各自依赖满足的 U1 组合 → 新增
+Engram/U2 适配与联合验收”逐格推进，不表示当前已开放全部组合。原生不支持的
+Engram+microbatch 是待解决的适配边界；未解决时保持 pending，不降低完整迁移定义。
 
 | 组 | 必测模式 | 重点 |
 | --- | --- | --- |
