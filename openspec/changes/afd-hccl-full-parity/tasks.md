@@ -39,6 +39,11 @@ TP4 真实量化权重及 CPU Engram 载入完成，17:08:02 HTTP 应用启动�
 代理干扰在主机 HTTP 回归中可复现，但不是本包已证实根因。见
 [本轮证据](evidence/a5-native-readiness-20261119/README.md)，2.2/1.8 仍 pending。
 
+按用户要求，随后将就绪检查切换为直接调用 `curl --disable --noproxy '*'`，保留
+health.json 和等待进度；HTTP 200 与 curl exit 0 同时满足才通过，生成/取消/PD 继续
+使用无代理 opener。缺少 curl 会立即报错，连接/HTTP/超时错误保留在报告中。
+见[主机验证](evidence/a5-curl-readiness-cpu-20261119/README.md)，不改变 A5 任务状态。
+
 | 执行顺序 | 对应原任务 | 阶段边界与验收前置 |
 | --- | --- | --- |
 | 先完成真实权重 eager/U1 对照 | 2.2、1.8，关联 C2 | 原始量化 checkpoint、A 侧原生 CPU Engram、F 隔离；历史首 token 差异未闭合，单次请求成功不等于等价 |

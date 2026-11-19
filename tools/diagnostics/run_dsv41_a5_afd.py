@@ -53,6 +53,7 @@ REQUEST_TIMEOUT_SECONDS = 300
 PACKED_ATTENTION_PROBE_SECONDS = 180
 POLL_SECONDS = 1
 HEALTH_TIMEOUT_SECONDS = 2
+CURL_EXIT_GRACE_SECONDS = 1
 READINESS_PROGRESS_SECONDS = 30
 TERM_GRACE_SECONDS = 10
 KILL_GRACE_SECONDS = 10
@@ -509,21 +510,52 @@ def health(
         "utc": utc_now(),
         "url": url,
         "connection": "direct",
+        "client": "curl",
+        "exit_code": None,
         "status_code": None,
         "error": None,
         "passed": False,
     }
     try:
-        with open_service_request(url, timeout=HEALTH_TIMEOUT_SECONDS) as reply:
-            passed = reply.status == 200
-            report.update(status_code=reply.status, passed=passed)
-    except urllib.error.HTTPError as error:
-        report.update(status_code=error.code, error=f"HTTPError: {error.reason}")
-        error.close()
-    except (urllib.error.URLError, TimeoutError, OSError) as error:
+        reply = subprocess.run(
+            [
+                "curl",
+                "--disable",
+                "--noproxy",
+                "*",
+                "--silent",
+                "--show-error",
+                "--max-time",
+                str(HEALTH_TIMEOUT_SECONDS),
+                "--output",
+                os.devnull,
+                "--write-out",
+                "%{http_code}",
+                url,
+            ],
+            capture_output=True,
+            text=True,
+            timeout=HEALTH_TIMEOUT_SECONDS + CURL_EXIT_GRACE_SECONDS,
+        )
+        status = reply.stdout.strip()
+        status_code = int(status) if status.isdecimal() and int(status) else None
+        passed = reply.returncode == 0 and status_code == 200
+        report.update(
+            exit_code=reply.returncode, status_code=status_code, passed=passed
+        )
+        if not passed:
+            report["error"] = (
+                f"curl exit {reply.returncode}, HTTP {status or 'unknown'}: "
+                f"{reply.stderr.strip()}"
+            )
+    except subprocess.TimeoutExpired as error:
         report["error"] = f"{type(error).__name__}: {error}"
-    if directory is not None:
-        save_json(directory / "health.json", report)
+    except OSError as error:
+        report["error"] = f"{type(error).__name__}: {error}"
+        raise RuntimeError(f"cannot execute curl for readiness: {error}") from error
+    finally:
+        if directory is not None:
+            save_json(directory / "health.json", report)
     return passed
 
 

@@ -68,8 +68,11 @@ full --native-control --run
 ```
 
 等待就绪期间，启动器每 30 秒或状态变化时打印 `waiting for readiness`，并将最近一次
-`/health` 的 URL、HTTP 状态或连接/超时错误写入本次目录的 `health.json`。
-健康检查、生成、取消和 PD 的 HTTP 请求均直连指定服务，不继承 HTTP 代理。
+`/health` 的 URL、curl 退出码、HTTP 状态或连接/超时错误写入本次目录的 `health.json`。
+就绪检查直接调用 `curl --disable --noproxy '*'`，禁用 `.curlrc` 并忽略代理；只有 curl
+退出码为 0 且 HTTP 为 200 才就绪。环境需提供 curl；无法执行时立即报错并进入本轮清理。
+生成、取消和 PD 的 HTTP 请求使用 Python 的无代理 opener，同样直连指定服务。
+可以保留用于更新代码的代理配置，无需手动 unset 或修改系统代理。
 模型首次载权需要时间；日志出现 `Application startup complete` 后仍未进入请求时，
 在另一个终端查看本次 `health.json`，并对默认原生端口做只读检查：
 

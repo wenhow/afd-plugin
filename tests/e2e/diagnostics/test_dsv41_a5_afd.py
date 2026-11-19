@@ -7,6 +7,7 @@ import importlib
 import io
 import json
 import os
+import subprocess
 import sys
 import tempfile
 import threading
@@ -111,6 +112,8 @@ class TestValidationHttp(unittest.TestCase):
         with validation_service() as url:
             self.assertTrue(self.launcher.health(url, directory=self.directory))
         report = json.loads((self.directory / "health.json").read_bytes())
+        self.assertEqual(report["client"], "curl")
+        self.assertEqual(report["exit_code"], 0)
         self.assertEqual(report["status_code"], 200)
         self.assertIsNone(report["error"])
 
@@ -119,8 +122,39 @@ class TestValidationHttp(unittest.TestCase):
             self.assertFalse(self.launcher.health(url, directory=self.directory))
         report = json.loads((self.directory / "health.json").read_bytes())
         self.assertEqual(report["status_code"], 503)
-        self.assertIn("HTTPError", report["error"])
+        self.assertIn("503", report["error"])
         self.assertFalse(report["passed"])
+
+    def test_missing_curl_preserves_error_and_fails_without_waiting_for_startup(self):
+        with (
+            patch("subprocess.run", side_effect=FileNotFoundError("curl not found")),
+            self.assertRaisesRegex(RuntimeError, "curl"),
+        ):
+            self.launcher.health(directory=self.directory)
+        report = json.loads((self.directory / "health.json").read_bytes())
+        self.assertFalse(report["passed"])
+        self.assertIn("curl not found", report["error"])
+
+    def test_curl_timeout_preserves_error_and_does_not_pass_readiness(self):
+        with patch(
+            "subprocess.run",
+            side_effect=subprocess.TimeoutExpired(["curl"], 3),
+        ):
+            self.assertFalse(self.launcher.health(directory=self.directory))
+        report = json.loads((self.directory / "health.json").read_bytes())
+        self.assertFalse(report["passed"])
+        self.assertIn("TimeoutExpired", report["error"])
+
+    def test_incomplete_curl_transfer_cannot_pass_on_http_status_alone(self):
+        reply = subprocess.CompletedProcess(
+            ["curl"], 28, stdout="200", stderr="transfer timed out"
+        )
+        with patch("subprocess.run", return_value=reply):
+            self.assertFalse(self.launcher.health(directory=self.directory))
+        report = json.loads((self.directory / "health.json").read_bytes())
+        self.assertEqual(report["exit_code"], 28)
+        self.assertEqual(report["status_code"], 200)
+        self.assertIn("transfer timed out", report["error"])
 
     def test_generation_and_cancellation_reach_service_with_inherited_proxy(self):
         with validation_service() as url:
