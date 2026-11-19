@@ -26,6 +26,140 @@ def graph_round():
     return make_graph_control_round()
 
 
+@pytest.fixture
+def eager_pipeline_capabilities(capabilities):
+    return replace(
+        capabilities,
+        attention_size=2,
+        ffn_size=2,
+        native_tp_size=2,
+        eager_pipeline_version=1,
+    )
+
+
+@pytest.mark.parametrize("version", [0, 1])
+@pytest.mark.parametrize("native_tp", [1, 2, 4])
+@pytest.mark.parametrize("local_counts_version", [0, 1])
+def test_eager_pipeline_hello_roundtrips_selected_session_family(
+    eager_pipeline_capabilities, version, native_tp, local_counts_version
+):
+    cap = replace(
+        eager_pipeline_capabilities,
+        eager_pipeline_version=version,
+        attention_size=native_tp,
+        ffn_size=native_tp,
+        native_tp_size=native_tp,
+        local_counts_version=local_counts_version,
+    )
+    message = HcclPlanMessage(
+        "HELLO", role="attention", world_rank=native_tp, capabilities=cap
+    )
+    encoded = encode_hccl_plan_message(message)
+    assert decode_hccl_plan_message(encoded) == message
+    payload = json.loads(encoded)["capabilities"]
+    assert payload.get("eager_pipeline_version", 0) == version
+    assert ("eager_pipeline_version" in payload) == bool(version)
+    assert cap.negotiate(cap) == cap
+
+
+@pytest.mark.parametrize("version", [True, False, None, -1, 2, 1.0, "1", [], {}])
+@pytest.mark.parametrize("through_wire", [False, True])
+def test_eager_pipeline_rejects_invalid_version_values(
+    eager_pipeline_capabilities, version, through_wire
+):
+    cap = eager_pipeline_capabilities
+    with pytest.raises(ValueError, match="eager_pipeline_version"):
+        if through_wire:
+            wire = json.loads(
+                encode_hccl_plan_message(
+                    HcclPlanMessage("HELLO", role="ffn", world_rank=0, capabilities=cap)
+                )
+            )
+            wire["capabilities"]["eager_pipeline_version"] = version
+            decode_hccl_plan_message(json.dumps(wire).encode())
+        else:
+            replace(cap, eager_pipeline_version=version).validate()
+
+
+@pytest.mark.parametrize(
+    "change",
+    [
+        {"graph_execution_version": 1, "local_counts_version": 1},
+        {"max_stages": 1},
+        {"attention_size": 1, "ffn_size": 2, "native_tp_size": 1},
+        {"attention_size": 2, "ffn_size": 1, "native_tp_size": 1},
+        {"attention_size": 2, "ffn_size": 2, "native_tp_size": 1},
+        {"attention_size": 1, "ffn_size": 1, "native_tp_size": 2},
+        {"attention_size": 3, "ffn_size": 3, "native_tp_size": 3},
+    ],
+)
+def test_eager_pipeline_rejects_incompatible_session_geometry(
+    eager_pipeline_capabilities, change
+):
+    with pytest.raises(ValueError, match="eager_pipeline_version=1"):
+        replace(eager_pipeline_capabilities, **change).validate()
+
+
+@pytest.mark.parametrize("local_version", [0, 1])
+def test_eager_pipeline_peers_require_the_same_selected_family(
+    eager_pipeline_capabilities, local_version
+):
+    local = replace(eager_pipeline_capabilities, eager_pipeline_version=local_version)
+    peer = replace(local, eager_pipeline_version=1 - local_version)
+    with pytest.raises(ValueError, match="peer eager_pipeline_version does not match"):
+        local.negotiate(peer)
+
+
+@pytest.mark.parametrize("local_stages,peer_stages", [(1, 2), (2, 1)])
+def test_eager_pipeline_peers_cannot_reduce_the_required_stage_count(
+    eager_pipeline_capabilities, local_stages, peer_stages
+):
+    local = replace(eager_pipeline_capabilities, max_stages=local_stages)
+    peer = replace(eager_pipeline_capabilities, max_stages=peer_stages)
+    with pytest.raises(ValueError, match="eager_pipeline_version=1"):
+        local.negotiate(peer)
+
+
+def test_eager_pipeline_peers_bound_capacity_without_changing_the_family(
+    eager_pipeline_capabilities,
+):
+    local = eager_pipeline_capabilities
+    peer = replace(local, max_tokens=4)
+    assert local.negotiate(peer) == peer
+    assert peer.negotiate(local) == peer
+
+
+def test_eager_pipeline_zero_accepts_legacy_and_explicit_zero_hello(capabilities):
+    message = HcclPlanMessage(
+        "HELLO", role="attention", world_rank=2, capabilities=capabilities
+    )
+    legacy = encode_hccl_plan_message(message)
+    wire = json.loads(legacy)
+    wire["capabilities"]["eager_pipeline_version"] = 0
+    decoded = decode_hccl_plan_message(json.dumps(wire).encode())
+    assert decoded == message
+    assert decoded.capabilities.eager_pipeline_version == 0
+    assert encode_hccl_plan_message(decoded) == legacy
+
+
+def test_eager_pipeline_decoder_rejects_extra_capability_fields(
+    eager_pipeline_capabilities,
+):
+    wire = json.loads(
+        encode_hccl_plan_message(
+            HcclPlanMessage(
+                "HELLO",
+                role="ffn",
+                world_rank=0,
+                capabilities=eager_pipeline_capabilities,
+            )
+        )
+    )
+    wire["capabilities"]["supports_eager_pipeline"] = True
+    with pytest.raises(ValueError, match="missing or unexpected"):
+        decode_hccl_plan_message(json.dumps(wire).encode())
+
+
 @pytest.mark.parametrize(
     "kind", ["GRAPH_QUERY", "GRAPH_REPORT", "GRAPH_DECISION", "GRAPH_ACK", "FORWARD"]
 )
@@ -108,7 +242,7 @@ def test_graph_exchange_order_rejects_unknown_or_non_string_wire_values(
     [
         {"graph_execution_version": 0},
         {"max_stages": 1},
-        {"native_tp_size": 4, "attention_size": 4, "ffn_size": 4},
+        {"native_tp_size": 3, "attention_size": 3, "ffn_size": 3},
     ],
 )
 @pytest.mark.parametrize("order", ["bulk_v1", "cross_layer_v1"])
@@ -133,10 +267,11 @@ def test_target_query_len_one_preserves_the_original_hello_bytes(capabilities):
     assert encode_hccl_plan_message(message) == expected
     assert decode_hccl_plan_message(expected) == message
     assert capabilities.target_query_len == 1
+    assert capabilities.eager_pipeline_version == 0
 
 
 @pytest.mark.parametrize("query_len", [1, 2, 3, 8])
-@pytest.mark.parametrize("native_tp", [1, 2])
+@pytest.mark.parametrize("native_tp", [1, 2, 4])
 @pytest.mark.parametrize("order", ["stage_serial", "bulk_v1", "cross_layer_v1"])
 def test_target_query_len_roundtrips_explicit_target_session(
     graph_round, query_len, native_tp, order
@@ -184,7 +319,7 @@ def test_target_query_len_rejects_invalid_or_over_capacity_values(
     [
         {"graph_execution_version": 0},
         {"local_counts_version": 0},
-        {"native_tp_size": 4, "attention_size": 4, "ffn_size": 4},
+        {"native_tp_size": 3, "attention_size": 3, "ffn_size": 3},
         {"native_tp_size": 1},
         {"attention_size": 1},
         {"ffn_size": 1},

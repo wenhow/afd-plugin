@@ -34,6 +34,9 @@ from afd_plugin.model_executor.models.npu.deepseek_v41 import (
     HCCL_V41_PARENT_FORWARD_KEY,
     AFDDeepseekV41AttentionForCausalLM,
 )
+from afd_plugin.model_executor.models.npu.deepseek_v41_engram import (
+    AFDDeepseekV41EngramModelState,
+)
 from afd_plugin.model_executor.models.npu.deepseek_v41_graph import (
     DeepseekV41GraphParent,
     DeepseekV41GraphStages,
@@ -104,7 +107,15 @@ class HcclV41GraphExecution:
             raise ValueError(
                 "native FULL owner requires this session's graph endpoints"
             )
-        if native.has_engram and not native.can_capture_engram_producer():
+        self.external_engram = (
+            isinstance(model_state, AFDDeepseekV41EngramModelState)
+            and model_state.uses_external_engram_graph_producer
+        )
+        if (
+            native.has_engram
+            and not native.can_capture_engram_producer()
+            and not self.external_engram
+        ):
             self.fail()
             raise ValueError(
                 "unsupported Engram producer must select eager before preparation"
@@ -164,7 +175,8 @@ class HcclV41GraphExecution:
                     tuple(stage.token_slice for stage in ubatch_state.slices),
                     self.bank,
                     pipeline=self.pipeline,
-                )
+                ),
+                external_engram=self.external_engram,
             )
             context = create_forward_context(
                 None,

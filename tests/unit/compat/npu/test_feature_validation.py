@@ -26,6 +26,7 @@ from tests.unit.fakes.vllm_config import (
     v41_dspark_config,
     v41_dummy_qualification_config,
     v41_eager_qualification_config,
+    v41_full_qualification_config,
     v41_functional_qualification_config,
 )
 
@@ -40,6 +41,7 @@ def clear_v41_qualification_environment(monkeypatch):
     monkeypatch.delenv("AFD_DSV41_EAGER_QUALIFICATION", raising=False)
     monkeypatch.delenv("AFD_DSV41_DUMMY_QUALIFICATION", raising=False)
     monkeypatch.delenv("AFD_DSV41_FUNCTIONAL_QUALIFICATION", raising=False)
+    monkeypatch.delenv("AFD_DSV41_FULL_QUALIFICATION", raising=False)
 
 
 @pytest.mark.parametrize(
@@ -137,6 +139,66 @@ def v41_eager_candidate():
         return config
 
     return build
+
+
+@pytest.fixture
+def v41_full_candidate():
+    torch = pytest.importorskip("torch")
+    pytest.importorskip("vllm")
+    from vllm.config import CompilationMode, CUDAGraphMode
+
+    def build(**options):
+        return v41_full_qualification_config(
+            dtype=torch.bfloat16,
+            compilation_mode=CompilationMode.NONE,
+            cudagraph_mode=(
+                CUDAGraphMode.FULL_DECODE_ONLY
+                if options.get("graph")
+                else CUDAGraphMode.NONE
+            ),
+            **options,
+        )
+
+    return build
+
+
+@pytest.mark.parametrize("role", ["attention", "ffn"])
+@pytest.mark.parametrize("graph,stages", [(False, 1), (False, 2), (True, 1), (True, 2)])
+@pytest.mark.parametrize(
+    "dspark,pd", [(False, False), (True, False), (False, True), (True, True)]
+)
+def test_full_checkpoint_candidate_preserves_weights_and_a_owned_history(
+    monkeypatch, v41_full_candidate, role, graph, stages, dspark, pd
+):
+    source = v41_full_candidate(
+        role=role, graph=graph, stages=stages, dspark=dspark, pd=pd
+    )
+    original = deepcopy(source)
+    config = get_npu_ffn_config(source) if role == "ffn" else source
+    before = deepcopy(config)
+    monkeypatch.setenv("AFD_DSV41_FULL_QUALIFICATION", "1")
+
+    fail_if_unsupported_npu_afd_features(config)
+
+    assert config == before
+    assert source == original
+    assert source.engram_config.cpu_offload is True
+    assert source.model_config.hf_text_config.engram_layer_ids == [1, 14]
+    if role == "ffn":
+        assert (
+            config.engram_config
+            is config.speculative_config
+            is config.kv_transfer_config
+            is None
+        )
+
+
+@pytest.mark.parametrize("other", ["EAGER", "DUMMY", "FUNCTIONAL"])
+def test_full_checkpoint_candidate_cannot_mix_qualification_modes(monkeypatch, other):
+    monkeypatch.setenv("AFD_DSV41_FULL_QUALIFICATION", "1")
+    monkeypatch.setenv(f"AFD_DSV41_{other}_QUALIFICATION", "1")
+    with pytest.raises(ValueError, match="mutually exclusive"):
+        fail_if_unsupported_npu_afd_features(v41_dspark_config())
 
 
 @pytest.mark.parametrize("role", ["attention", "ffn"])

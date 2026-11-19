@@ -289,7 +289,9 @@ def test_rejected_parent_cannot_partially_update_count_storage(change):
     assert [count.tolist() for count in bank.valid_counts] == [[1], [1]]
 
 
-@pytest.mark.parametrize("native_tp_size,role_rank", [(2, 0), (2, 1)])
+@pytest.mark.parametrize(
+    "native_tp_size,role_rank", [(2, 0), (2, 1), (4, 0), (4, 1), (4, 2), (4, 3)]
+)
 @pytest.mark.parametrize("role", ["attention", "ffn"])
 def test_paired_native_tp_binds_distinct_role_coordinates(
     native_tp_size, role_rank, role

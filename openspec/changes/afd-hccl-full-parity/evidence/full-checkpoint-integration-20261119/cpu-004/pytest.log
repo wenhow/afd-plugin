@@ -1,0 +1,989 @@
+.........FFFFFFFFFFFF................................................... [  5%]
+........................................................................ [ 10%]
+........................................................................ [ 15%]
+........................................................................ [ 20%]
+........................................................................ [ 25%]
+........................................................................ [ 30%]
+........................................................................ [ 35%]
+........................................................................ [ 40%]
+........................................................................ [ 45%]
+........................................................................ [ 50%]
+........................................................................ [ 55%]
+........................................................................ [ 60%]
+........................................................................ [ 65%]
+........................................................................ [ 70%]
+........................................................................ [ 75%]
+........................................................................ [ 80%]
+........................................................................ [ 85%]
+........................................................................ [ 90%]
+........................................................................ [ 95%]
+.................................................................        [100%]
+=================================== FAILURES ===================================
+_ test_ffn_full_candidate_preserves_a_owned_modes_before_worker_isolation[True-False-1-False] _
+
+ffn_config = namespace(use_v2_model_runner=True, additional_config={'afd': {'role': 'ffn', 'connector': 'P2pHcclAFDConnector', 'asy...>), load_config=namespace(load_format='safetensors'), device_config=namespace(device_type='npu'), shutdown_timeout=180)
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0xfffb9115c3b0>
+graph = False, stages = 1, dspark = True, pd = False
+
+    @pytest.mark.parametrize("graph", [False, True])
+    @pytest.mark.parametrize("stages", [1, 2])
+    @pytest.mark.parametrize("dspark,pd", [(True, False), (False, True), (True, True)])
+    def test_ffn_full_candidate_preserves_a_owned_modes_before_worker_isolation(
+        ffn_config, monkeypatch, graph, stages, dspark, pd
+    ):
+        source = v41_full_qualification_config(
+            dtype=torch.bfloat16,
+            compilation_mode=CompilationMode.NONE,
+            cudagraph_mode=CUDAGraphMode.FULL_DECODE_ONLY if graph else CUDAGraphMode.NONE,
+            role="ffn",
+            graph=graph,
+            stages=stages,
+            dspark=dspark,
+            pd=pd,
+        )
+        source.parallel_config.distributed_executor_backend = "mp"
+        source.parallel_config.data_parallel_size_local = 1
+        source.parallel_config.nnodes = 1
+        source.parallel_config.node_rank = 0
+        original = (
+            source.engram_config,
+            source.speculative_config,
+            source.kv_transfer_config,
+        )
+        monkeypatch.setenv("AFD_DSV41_EAGER_QUALIFICATION", "0")
+        monkeypatch.setenv("AFD_DSV41_FULL_QUALIFICATION", "1")
+    
+>       npu_ffn.validate_ffn_configuration(source)
+
+tests/unit/entrypoints/test_npu_ffn.py:103: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+vllm_config = namespace(use_v2_model_runner=True, additional_config={'afd': {'role': 'ffn', 'connector': 'P2pHcclAFDConnector', 'asy...v41_eager_qualification_config.<locals>.<lambda> at 0xfffb7d187560>), load_config=namespace(load_format='safetensors'))
+
+    def validate_ffn_configuration(vllm_config: VllmConfig) -> None:
+        """Reject other roles and unsupported layouts before creating processes."""
+        afd_config = parse_afd_config(vllm_config, expected_role="ffn")
+        if afd_config.connector != HCCL_P2P_CONNECTOR:
+            raise ValueError("standalone NPU FFN requires P2pHcclAFDConnector")
+        parallel = vllm_config.parallel_config
+        if (
+            parallel.distributed_executor_backend != "mp"
+            or parallel.data_parallel_size != 1
+            or parallel.data_parallel_size_local != 1
+            or parallel.data_parallel_rank != 0
+            or parallel.nnodes != 1
+            or parallel.node_rank != 0
+        ):
+            raise ValueError("standalone NPU FFN requires one local DP1 mp engine")
+        if os.environ.get(V41_FULL_QUALIFICATION_ENV) != "1" and (
+            vllm_config.speculative_config is not None
+            or vllm_config.kv_transfer_config is not None
+        ):
+            raise ValueError("standalone NPU FFN qualification requires DSpark/PD off")
+        # Validate the original target before isolating A-owned DSpark/PD. The
+        # runner retains its target shape; F must not construct a draft or Engram.
+        if os.environ.get(V41_FULL_QUALIFICATION_ENV) == "1":
+            validate_deepseek_v41_graph_speculation(vllm_config)
+            speculative = vllm_config.speculative_config
+            if speculative is not None and (
+                type(speculative.num_speculative_tokens) is not int
+                or speculative.num_speculative_tokens not in (1, 2)
+            ):
+                raise ValueError("full-checkpoint FFN requires DSpark N=1/2")
+        validate_npu_model_runner_v2_config(
+            vllm_config,
+            expected_role="ffn",
+>           device_type=vllm_config.device_config.device_type,
+        )
+E       AttributeError: 'types.SimpleNamespace' object has no attribute 'device_config'
+
+afd_plugin/entrypoints/npu_ffn.py:90: AttributeError
+_ test_ffn_full_candidate_preserves_a_owned_modes_before_worker_isolation[True-False-1-True] _
+
+ffn_config = namespace(use_v2_model_runner=True, additional_config={'afd': {'role': 'ffn', 'connector': 'P2pHcclAFDConnector', 'asy...>), load_config=namespace(load_format='safetensors'), device_config=namespace(device_type='npu'), shutdown_timeout=180)
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0xfffb911481a0>
+graph = True, stages = 1, dspark = True, pd = False
+
+    @pytest.mark.parametrize("graph", [False, True])
+    @pytest.mark.parametrize("stages", [1, 2])
+    @pytest.mark.parametrize("dspark,pd", [(True, False), (False, True), (True, True)])
+    def test_ffn_full_candidate_preserves_a_owned_modes_before_worker_isolation(
+        ffn_config, monkeypatch, graph, stages, dspark, pd
+    ):
+        source = v41_full_qualification_config(
+            dtype=torch.bfloat16,
+            compilation_mode=CompilationMode.NONE,
+            cudagraph_mode=CUDAGraphMode.FULL_DECODE_ONLY if graph else CUDAGraphMode.NONE,
+            role="ffn",
+            graph=graph,
+            stages=stages,
+            dspark=dspark,
+            pd=pd,
+        )
+        source.parallel_config.distributed_executor_backend = "mp"
+        source.parallel_config.data_parallel_size_local = 1
+        source.parallel_config.nnodes = 1
+        source.parallel_config.node_rank = 0
+        original = (
+            source.engram_config,
+            source.speculative_config,
+            source.kv_transfer_config,
+        )
+        monkeypatch.setenv("AFD_DSV41_EAGER_QUALIFICATION", "0")
+        monkeypatch.setenv("AFD_DSV41_FULL_QUALIFICATION", "1")
+    
+>       npu_ffn.validate_ffn_configuration(source)
+
+tests/unit/entrypoints/test_npu_ffn.py:103: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+vllm_config = namespace(use_v2_model_runner=True, additional_config={'afd': {'role': 'ffn', 'connector': 'P2pHcclAFDConnector', 'asy...v41_eager_qualification_config.<locals>.<lambda> at 0xfffb7d187a60>), load_config=namespace(load_format='safetensors'))
+
+    def validate_ffn_configuration(vllm_config: VllmConfig) -> None:
+        """Reject other roles and unsupported layouts before creating processes."""
+        afd_config = parse_afd_config(vllm_config, expected_role="ffn")
+        if afd_config.connector != HCCL_P2P_CONNECTOR:
+            raise ValueError("standalone NPU FFN requires P2pHcclAFDConnector")
+        parallel = vllm_config.parallel_config
+        if (
+            parallel.distributed_executor_backend != "mp"
+            or parallel.data_parallel_size != 1
+            or parallel.data_parallel_size_local != 1
+            or parallel.data_parallel_rank != 0
+            or parallel.nnodes != 1
+            or parallel.node_rank != 0
+        ):
+            raise ValueError("standalone NPU FFN requires one local DP1 mp engine")
+        if os.environ.get(V41_FULL_QUALIFICATION_ENV) != "1" and (
+            vllm_config.speculative_config is not None
+            or vllm_config.kv_transfer_config is not None
+        ):
+            raise ValueError("standalone NPU FFN qualification requires DSpark/PD off")
+        # Validate the original target before isolating A-owned DSpark/PD. The
+        # runner retains its target shape; F must not construct a draft or Engram.
+        if os.environ.get(V41_FULL_QUALIFICATION_ENV) == "1":
+            validate_deepseek_v41_graph_speculation(vllm_config)
+            speculative = vllm_config.speculative_config
+            if speculative is not None and (
+                type(speculative.num_speculative_tokens) is not int
+                or speculative.num_speculative_tokens not in (1, 2)
+            ):
+                raise ValueError("full-checkpoint FFN requires DSpark N=1/2")
+        validate_npu_model_runner_v2_config(
+            vllm_config,
+            expected_role="ffn",
+>           device_type=vllm_config.device_config.device_type,
+        )
+E       AttributeError: 'types.SimpleNamespace' object has no attribute 'device_config'
+
+afd_plugin/entrypoints/npu_ffn.py:90: AttributeError
+_ test_ffn_full_candidate_preserves_a_owned_modes_before_worker_isolation[True-False-2-False] _
+
+ffn_config = namespace(use_v2_model_runner=True, additional_config={'afd': {'role': 'ffn', 'connector': 'P2pHcclAFDConnector', 'asy...>), load_config=namespace(load_format='safetensors'), device_config=namespace(device_type='npu'), shutdown_timeout=180)
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0xfffb7dbdadb0>
+graph = False, stages = 2, dspark = True, pd = False
+
+    @pytest.mark.parametrize("graph", [False, True])
+    @pytest.mark.parametrize("stages", [1, 2])
+    @pytest.mark.parametrize("dspark,pd", [(True, False), (False, True), (True, True)])
+    def test_ffn_full_candidate_preserves_a_owned_modes_before_worker_isolation(
+        ffn_config, monkeypatch, graph, stages, dspark, pd
+    ):
+        source = v41_full_qualification_config(
+            dtype=torch.bfloat16,
+            compilation_mode=CompilationMode.NONE,
+            cudagraph_mode=CUDAGraphMode.FULL_DECODE_ONLY if graph else CUDAGraphMode.NONE,
+            role="ffn",
+            graph=graph,
+            stages=stages,
+            dspark=dspark,
+            pd=pd,
+        )
+        source.parallel_config.distributed_executor_backend = "mp"
+        source.parallel_config.data_parallel_size_local = 1
+        source.parallel_config.nnodes = 1
+        source.parallel_config.node_rank = 0
+        original = (
+            source.engram_config,
+            source.speculative_config,
+            source.kv_transfer_config,
+        )
+        monkeypatch.setenv("AFD_DSV41_EAGER_QUALIFICATION", "0")
+        monkeypatch.setenv("AFD_DSV41_FULL_QUALIFICATION", "1")
+    
+>       npu_ffn.validate_ffn_configuration(source)
+
+tests/unit/entrypoints/test_npu_ffn.py:103: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+vllm_config = namespace(use_v2_model_runner=True, additional_config={'afd': {'role': 'ffn', 'connector': 'P2pHcclAFDConnector', 'asy...v41_eager_qualification_config.<locals>.<lambda> at 0xfffb7dd24180>), load_config=namespace(load_format='safetensors'))
+
+    def validate_ffn_configuration(vllm_config: VllmConfig) -> None:
+        """Reject other roles and unsupported layouts before creating processes."""
+        afd_config = parse_afd_config(vllm_config, expected_role="ffn")
+        if afd_config.connector != HCCL_P2P_CONNECTOR:
+            raise ValueError("standalone NPU FFN requires P2pHcclAFDConnector")
+        parallel = vllm_config.parallel_config
+        if (
+            parallel.distributed_executor_backend != "mp"
+            or parallel.data_parallel_size != 1
+            or parallel.data_parallel_size_local != 1
+            or parallel.data_parallel_rank != 0
+            or parallel.nnodes != 1
+            or parallel.node_rank != 0
+        ):
+            raise ValueError("standalone NPU FFN requires one local DP1 mp engine")
+        if os.environ.get(V41_FULL_QUALIFICATION_ENV) != "1" and (
+            vllm_config.speculative_config is not None
+            or vllm_config.kv_transfer_config is not None
+        ):
+            raise ValueError("standalone NPU FFN qualification requires DSpark/PD off")
+        # Validate the original target before isolating A-owned DSpark/PD. The
+        # runner retains its target shape; F must not construct a draft or Engram.
+        if os.environ.get(V41_FULL_QUALIFICATION_ENV) == "1":
+            validate_deepseek_v41_graph_speculation(vllm_config)
+            speculative = vllm_config.speculative_config
+            if speculative is not None and (
+                type(speculative.num_speculative_tokens) is not int
+                or speculative.num_speculative_tokens not in (1, 2)
+            ):
+                raise ValueError("full-checkpoint FFN requires DSpark N=1/2")
+        validate_npu_model_runner_v2_config(
+            vllm_config,
+            expected_role="ffn",
+>           device_type=vllm_config.device_config.device_type,
+        )
+E       AttributeError: 'types.SimpleNamespace' object has no attribute 'device_config'
+
+afd_plugin/entrypoints/npu_ffn.py:90: AttributeError
+_ test_ffn_full_candidate_preserves_a_owned_modes_before_worker_isolation[True-False-2-True] _
+
+ffn_config = namespace(use_v2_model_runner=True, additional_config={'afd': {'role': 'ffn', 'connector': 'P2pHcclAFDConnector', 'asy...>), load_config=namespace(load_format='safetensors'), device_config=namespace(device_type='npu'), shutdown_timeout=180)
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0xfffb7dd7f050>
+graph = True, stages = 2, dspark = True, pd = False
+
+    @pytest.mark.parametrize("graph", [False, True])
+    @pytest.mark.parametrize("stages", [1, 2])
+    @pytest.mark.parametrize("dspark,pd", [(True, False), (False, True), (True, True)])
+    def test_ffn_full_candidate_preserves_a_owned_modes_before_worker_isolation(
+        ffn_config, monkeypatch, graph, stages, dspark, pd
+    ):
+        source = v41_full_qualification_config(
+            dtype=torch.bfloat16,
+            compilation_mode=CompilationMode.NONE,
+            cudagraph_mode=CUDAGraphMode.FULL_DECODE_ONLY if graph else CUDAGraphMode.NONE,
+            role="ffn",
+            graph=graph,
+            stages=stages,
+            dspark=dspark,
+            pd=pd,
+        )
+        source.parallel_config.distributed_executor_backend = "mp"
+        source.parallel_config.data_parallel_size_local = 1
+        source.parallel_config.nnodes = 1
+        source.parallel_config.node_rank = 0
+        original = (
+            source.engram_config,
+            source.speculative_config,
+            source.kv_transfer_config,
+        )
+        monkeypatch.setenv("AFD_DSV41_EAGER_QUALIFICATION", "0")
+        monkeypatch.setenv("AFD_DSV41_FULL_QUALIFICATION", "1")
+    
+>       npu_ffn.validate_ffn_configuration(source)
+
+tests/unit/entrypoints/test_npu_ffn.py:103: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+vllm_config = namespace(use_v2_model_runner=True, additional_config={'afd': {'role': 'ffn', 'connector': 'P2pHcclAFDConnector', 'asy...v41_eager_qualification_config.<locals>.<lambda> at 0xfffb7dd24720>), load_config=namespace(load_format='safetensors'))
+
+    def validate_ffn_configuration(vllm_config: VllmConfig) -> None:
+        """Reject other roles and unsupported layouts before creating processes."""
+        afd_config = parse_afd_config(vllm_config, expected_role="ffn")
+        if afd_config.connector != HCCL_P2P_CONNECTOR:
+            raise ValueError("standalone NPU FFN requires P2pHcclAFDConnector")
+        parallel = vllm_config.parallel_config
+        if (
+            parallel.distributed_executor_backend != "mp"
+            or parallel.data_parallel_size != 1
+            or parallel.data_parallel_size_local != 1
+            or parallel.data_parallel_rank != 0
+            or parallel.nnodes != 1
+            or parallel.node_rank != 0
+        ):
+            raise ValueError("standalone NPU FFN requires one local DP1 mp engine")
+        if os.environ.get(V41_FULL_QUALIFICATION_ENV) != "1" and (
+            vllm_config.speculative_config is not None
+            or vllm_config.kv_transfer_config is not None
+        ):
+            raise ValueError("standalone NPU FFN qualification requires DSpark/PD off")
+        # Validate the original target before isolating A-owned DSpark/PD. The
+        # runner retains its target shape; F must not construct a draft or Engram.
+        if os.environ.get(V41_FULL_QUALIFICATION_ENV) == "1":
+            validate_deepseek_v41_graph_speculation(vllm_config)
+            speculative = vllm_config.speculative_config
+            if speculative is not None and (
+                type(speculative.num_speculative_tokens) is not int
+                or speculative.num_speculative_tokens not in (1, 2)
+            ):
+                raise ValueError("full-checkpoint FFN requires DSpark N=1/2")
+        validate_npu_model_runner_v2_config(
+            vllm_config,
+            expected_role="ffn",
+>           device_type=vllm_config.device_config.device_type,
+        )
+E       AttributeError: 'types.SimpleNamespace' object has no attribute 'device_config'
+
+afd_plugin/entrypoints/npu_ffn.py:90: AttributeError
+_ test_ffn_full_candidate_preserves_a_owned_modes_before_worker_isolation[False-True-1-False] _
+
+ffn_config = namespace(use_v2_model_runner=True, additional_config={'afd': {'role': 'ffn', 'connector': 'P2pHcclAFDConnector', 'asy...>), load_config=namespace(load_format='safetensors'), device_config=namespace(device_type='npu'), shutdown_timeout=180)
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0xfffb9114aba0>
+graph = False, stages = 1, dspark = False, pd = True
+
+    @pytest.mark.parametrize("graph", [False, True])
+    @pytest.mark.parametrize("stages", [1, 2])
+    @pytest.mark.parametrize("dspark,pd", [(True, False), (False, True), (True, True)])
+    def test_ffn_full_candidate_preserves_a_owned_modes_before_worker_isolation(
+        ffn_config, monkeypatch, graph, stages, dspark, pd
+    ):
+        source = v41_full_qualification_config(
+            dtype=torch.bfloat16,
+            compilation_mode=CompilationMode.NONE,
+            cudagraph_mode=CUDAGraphMode.FULL_DECODE_ONLY if graph else CUDAGraphMode.NONE,
+            role="ffn",
+            graph=graph,
+            stages=stages,
+            dspark=dspark,
+            pd=pd,
+        )
+        source.parallel_config.distributed_executor_backend = "mp"
+        source.parallel_config.data_parallel_size_local = 1
+        source.parallel_config.nnodes = 1
+        source.parallel_config.node_rank = 0
+        original = (
+            source.engram_config,
+            source.speculative_config,
+            source.kv_transfer_config,
+        )
+        monkeypatch.setenv("AFD_DSV41_EAGER_QUALIFICATION", "0")
+        monkeypatch.setenv("AFD_DSV41_FULL_QUALIFICATION", "1")
+    
+>       npu_ffn.validate_ffn_configuration(source)
+
+tests/unit/entrypoints/test_npu_ffn.py:103: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+vllm_config = namespace(use_v2_model_runner=True, additional_config={'afd': {'role': 'ffn', 'connector': 'P2pHcclAFDConnector', 'asy...v41_eager_qualification_config.<locals>.<lambda> at 0xfffb7d187a60>), load_config=namespace(load_format='safetensors'))
+
+    def validate_ffn_configuration(vllm_config: VllmConfig) -> None:
+        """Reject other roles and unsupported layouts before creating processes."""
+        afd_config = parse_afd_config(vllm_config, expected_role="ffn")
+        if afd_config.connector != HCCL_P2P_CONNECTOR:
+            raise ValueError("standalone NPU FFN requires P2pHcclAFDConnector")
+        parallel = vllm_config.parallel_config
+        if (
+            parallel.distributed_executor_backend != "mp"
+            or parallel.data_parallel_size != 1
+            or parallel.data_parallel_size_local != 1
+            or parallel.data_parallel_rank != 0
+            or parallel.nnodes != 1
+            or parallel.node_rank != 0
+        ):
+            raise ValueError("standalone NPU FFN requires one local DP1 mp engine")
+        if os.environ.get(V41_FULL_QUALIFICATION_ENV) != "1" and (
+            vllm_config.speculative_config is not None
+            or vllm_config.kv_transfer_config is not None
+        ):
+            raise ValueError("standalone NPU FFN qualification requires DSpark/PD off")
+        # Validate the original target before isolating A-owned DSpark/PD. The
+        # runner retains its target shape; F must not construct a draft or Engram.
+        if os.environ.get(V41_FULL_QUALIFICATION_ENV) == "1":
+            validate_deepseek_v41_graph_speculation(vllm_config)
+            speculative = vllm_config.speculative_config
+            if speculative is not None and (
+                type(speculative.num_speculative_tokens) is not int
+                or speculative.num_speculative_tokens not in (1, 2)
+            ):
+                raise ValueError("full-checkpoint FFN requires DSpark N=1/2")
+        validate_npu_model_runner_v2_config(
+            vllm_config,
+            expected_role="ffn",
+>           device_type=vllm_config.device_config.device_type,
+        )
+E       AttributeError: 'types.SimpleNamespace' object has no attribute 'device_config'
+
+afd_plugin/entrypoints/npu_ffn.py:90: AttributeError
+_ test_ffn_full_candidate_preserves_a_owned_modes_before_worker_isolation[False-True-1-True] _
+
+ffn_config = namespace(use_v2_model_runner=True, additional_config={'afd': {'role': 'ffn', 'connector': 'P2pHcclAFDConnector', 'asy...>), load_config=namespace(load_format='safetensors'), device_config=namespace(device_type='npu'), shutdown_timeout=180)
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0xfffb9115cf80>
+graph = True, stages = 1, dspark = False, pd = True
+
+    @pytest.mark.parametrize("graph", [False, True])
+    @pytest.mark.parametrize("stages", [1, 2])
+    @pytest.mark.parametrize("dspark,pd", [(True, False), (False, True), (True, True)])
+    def test_ffn_full_candidate_preserves_a_owned_modes_before_worker_isolation(
+        ffn_config, monkeypatch, graph, stages, dspark, pd
+    ):
+        source = v41_full_qualification_config(
+            dtype=torch.bfloat16,
+            compilation_mode=CompilationMode.NONE,
+            cudagraph_mode=CUDAGraphMode.FULL_DECODE_ONLY if graph else CUDAGraphMode.NONE,
+            role="ffn",
+            graph=graph,
+            stages=stages,
+            dspark=dspark,
+            pd=pd,
+        )
+        source.parallel_config.distributed_executor_backend = "mp"
+        source.parallel_config.data_parallel_size_local = 1
+        source.parallel_config.nnodes = 1
+        source.parallel_config.node_rank = 0
+        original = (
+            source.engram_config,
+            source.speculative_config,
+            source.kv_transfer_config,
+        )
+        monkeypatch.setenv("AFD_DSV41_EAGER_QUALIFICATION", "0")
+        monkeypatch.setenv("AFD_DSV41_FULL_QUALIFICATION", "1")
+    
+>       npu_ffn.validate_ffn_configuration(source)
+
+tests/unit/entrypoints/test_npu_ffn.py:103: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+vllm_config = namespace(use_v2_model_runner=True, additional_config={'afd': {'role': 'ffn', 'connector': 'P2pHcclAFDConnector', 'asy...v41_eager_qualification_config.<locals>.<lambda> at 0xfffb7dd245e0>), load_config=namespace(load_format='safetensors'))
+
+    def validate_ffn_configuration(vllm_config: VllmConfig) -> None:
+        """Reject other roles and unsupported layouts before creating processes."""
+        afd_config = parse_afd_config(vllm_config, expected_role="ffn")
+        if afd_config.connector != HCCL_P2P_CONNECTOR:
+            raise ValueError("standalone NPU FFN requires P2pHcclAFDConnector")
+        parallel = vllm_config.parallel_config
+        if (
+            parallel.distributed_executor_backend != "mp"
+            or parallel.data_parallel_size != 1
+            or parallel.data_parallel_size_local != 1
+            or parallel.data_parallel_rank != 0
+            or parallel.nnodes != 1
+            or parallel.node_rank != 0
+        ):
+            raise ValueError("standalone NPU FFN requires one local DP1 mp engine")
+        if os.environ.get(V41_FULL_QUALIFICATION_ENV) != "1" and (
+            vllm_config.speculative_config is not None
+            or vllm_config.kv_transfer_config is not None
+        ):
+            raise ValueError("standalone NPU FFN qualification requires DSpark/PD off")
+        # Validate the original target before isolating A-owned DSpark/PD. The
+        # runner retains its target shape; F must not construct a draft or Engram.
+        if os.environ.get(V41_FULL_QUALIFICATION_ENV) == "1":
+            validate_deepseek_v41_graph_speculation(vllm_config)
+            speculative = vllm_config.speculative_config
+            if speculative is not None and (
+                type(speculative.num_speculative_tokens) is not int
+                or speculative.num_speculative_tokens not in (1, 2)
+            ):
+                raise ValueError("full-checkpoint FFN requires DSpark N=1/2")
+        validate_npu_model_runner_v2_config(
+            vllm_config,
+            expected_role="ffn",
+>           device_type=vllm_config.device_config.device_type,
+        )
+E       AttributeError: 'types.SimpleNamespace' object has no attribute 'device_config'
+
+afd_plugin/entrypoints/npu_ffn.py:90: AttributeError
+_ test_ffn_full_candidate_preserves_a_owned_modes_before_worker_isolation[False-True-2-False] _
+
+ffn_config = namespace(use_v2_model_runner=True, additional_config={'afd': {'role': 'ffn', 'connector': 'P2pHcclAFDConnector', 'asy...>), load_config=namespace(load_format='safetensors'), device_config=namespace(device_type='npu'), shutdown_timeout=180)
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0xfffb7dbdb470>
+graph = False, stages = 2, dspark = False, pd = True
+
+    @pytest.mark.parametrize("graph", [False, True])
+    @pytest.mark.parametrize("stages", [1, 2])
+    @pytest.mark.parametrize("dspark,pd", [(True, False), (False, True), (True, True)])
+    def test_ffn_full_candidate_preserves_a_owned_modes_before_worker_isolation(
+        ffn_config, monkeypatch, graph, stages, dspark, pd
+    ):
+        source = v41_full_qualification_config(
+            dtype=torch.bfloat16,
+            compilation_mode=CompilationMode.NONE,
+            cudagraph_mode=CUDAGraphMode.FULL_DECODE_ONLY if graph else CUDAGraphMode.NONE,
+            role="ffn",
+            graph=graph,
+            stages=stages,
+            dspark=dspark,
+            pd=pd,
+        )
+        source.parallel_config.distributed_executor_backend = "mp"
+        source.parallel_config.data_parallel_size_local = 1
+        source.parallel_config.nnodes = 1
+        source.parallel_config.node_rank = 0
+        original = (
+            source.engram_config,
+            source.speculative_config,
+            source.kv_transfer_config,
+        )
+        monkeypatch.setenv("AFD_DSV41_EAGER_QUALIFICATION", "0")
+        monkeypatch.setenv("AFD_DSV41_FULL_QUALIFICATION", "1")
+    
+>       npu_ffn.validate_ffn_configuration(source)
+
+tests/unit/entrypoints/test_npu_ffn.py:103: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+vllm_config = namespace(use_v2_model_runner=True, additional_config={'afd': {'role': 'ffn', 'connector': 'P2pHcclAFDConnector', 'asy...v41_eager_qualification_config.<locals>.<lambda> at 0xfffb7dd24180>), load_config=namespace(load_format='safetensors'))
+
+    def validate_ffn_configuration(vllm_config: VllmConfig) -> None:
+        """Reject other roles and unsupported layouts before creating processes."""
+        afd_config = parse_afd_config(vllm_config, expected_role="ffn")
+        if afd_config.connector != HCCL_P2P_CONNECTOR:
+            raise ValueError("standalone NPU FFN requires P2pHcclAFDConnector")
+        parallel = vllm_config.parallel_config
+        if (
+            parallel.distributed_executor_backend != "mp"
+            or parallel.data_parallel_size != 1
+            or parallel.data_parallel_size_local != 1
+            or parallel.data_parallel_rank != 0
+            or parallel.nnodes != 1
+            or parallel.node_rank != 0
+        ):
+            raise ValueError("standalone NPU FFN requires one local DP1 mp engine")
+        if os.environ.get(V41_FULL_QUALIFICATION_ENV) != "1" and (
+            vllm_config.speculative_config is not None
+            or vllm_config.kv_transfer_config is not None
+        ):
+            raise ValueError("standalone NPU FFN qualification requires DSpark/PD off")
+        # Validate the original target before isolating A-owned DSpark/PD. The
+        # runner retains its target shape; F must not construct a draft or Engram.
+        if os.environ.get(V41_FULL_QUALIFICATION_ENV) == "1":
+            validate_deepseek_v41_graph_speculation(vllm_config)
+            speculative = vllm_config.speculative_config
+            if speculative is not None and (
+                type(speculative.num_speculative_tokens) is not int
+                or speculative.num_speculative_tokens not in (1, 2)
+            ):
+                raise ValueError("full-checkpoint FFN requires DSpark N=1/2")
+        validate_npu_model_runner_v2_config(
+            vllm_config,
+            expected_role="ffn",
+>           device_type=vllm_config.device_config.device_type,
+        )
+E       AttributeError: 'types.SimpleNamespace' object has no attribute 'device_config'
+
+afd_plugin/entrypoints/npu_ffn.py:90: AttributeError
+_ test_ffn_full_candidate_preserves_a_owned_modes_before_worker_isolation[False-True-2-True] _
+
+ffn_config = namespace(use_v2_model_runner=True, additional_config={'afd': {'role': 'ffn', 'connector': 'P2pHcclAFDConnector', 'asy...>), load_config=namespace(load_format='safetensors'), device_config=namespace(device_type='npu'), shutdown_timeout=180)
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0xfffb7de15e20>
+graph = True, stages = 2, dspark = False, pd = True
+
+    @pytest.mark.parametrize("graph", [False, True])
+    @pytest.mark.parametrize("stages", [1, 2])
+    @pytest.mark.parametrize("dspark,pd", [(True, False), (False, True), (True, True)])
+    def test_ffn_full_candidate_preserves_a_owned_modes_before_worker_isolation(
+        ffn_config, monkeypatch, graph, stages, dspark, pd
+    ):
+        source = v41_full_qualification_config(
+            dtype=torch.bfloat16,
+            compilation_mode=CompilationMode.NONE,
+            cudagraph_mode=CUDAGraphMode.FULL_DECODE_ONLY if graph else CUDAGraphMode.NONE,
+            role="ffn",
+            graph=graph,
+            stages=stages,
+            dspark=dspark,
+            pd=pd,
+        )
+        source.parallel_config.distributed_executor_backend = "mp"
+        source.parallel_config.data_parallel_size_local = 1
+        source.parallel_config.nnodes = 1
+        source.parallel_config.node_rank = 0
+        original = (
+            source.engram_config,
+            source.speculative_config,
+            source.kv_transfer_config,
+        )
+        monkeypatch.setenv("AFD_DSV41_EAGER_QUALIFICATION", "0")
+        monkeypatch.setenv("AFD_DSV41_FULL_QUALIFICATION", "1")
+    
+>       npu_ffn.validate_ffn_configuration(source)
+
+tests/unit/entrypoints/test_npu_ffn.py:103: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+vllm_config = namespace(use_v2_model_runner=True, additional_config={'afd': {'role': 'ffn', 'connector': 'P2pHcclAFDConnector', 'asy...v41_eager_qualification_config.<locals>.<lambda> at 0xfffb7dd251c0>), load_config=namespace(load_format='safetensors'))
+
+    def validate_ffn_configuration(vllm_config: VllmConfig) -> None:
+        """Reject other roles and unsupported layouts before creating processes."""
+        afd_config = parse_afd_config(vllm_config, expected_role="ffn")
+        if afd_config.connector != HCCL_P2P_CONNECTOR:
+            raise ValueError("standalone NPU FFN requires P2pHcclAFDConnector")
+        parallel = vllm_config.parallel_config
+        if (
+            parallel.distributed_executor_backend != "mp"
+            or parallel.data_parallel_size != 1
+            or parallel.data_parallel_size_local != 1
+            or parallel.data_parallel_rank != 0
+            or parallel.nnodes != 1
+            or parallel.node_rank != 0
+        ):
+            raise ValueError("standalone NPU FFN requires one local DP1 mp engine")
+        if os.environ.get(V41_FULL_QUALIFICATION_ENV) != "1" and (
+            vllm_config.speculative_config is not None
+            or vllm_config.kv_transfer_config is not None
+        ):
+            raise ValueError("standalone NPU FFN qualification requires DSpark/PD off")
+        # Validate the original target before isolating A-owned DSpark/PD. The
+        # runner retains its target shape; F must not construct a draft or Engram.
+        if os.environ.get(V41_FULL_QUALIFICATION_ENV) == "1":
+            validate_deepseek_v41_graph_speculation(vllm_config)
+            speculative = vllm_config.speculative_config
+            if speculative is not None and (
+                type(speculative.num_speculative_tokens) is not int
+                or speculative.num_speculative_tokens not in (1, 2)
+            ):
+                raise ValueError("full-checkpoint FFN requires DSpark N=1/2")
+        validate_npu_model_runner_v2_config(
+            vllm_config,
+            expected_role="ffn",
+>           device_type=vllm_config.device_config.device_type,
+        )
+E       AttributeError: 'types.SimpleNamespace' object has no attribute 'device_config'
+
+afd_plugin/entrypoints/npu_ffn.py:90: AttributeError
+_ test_ffn_full_candidate_preserves_a_owned_modes_before_worker_isolation[True-True-1-False] _
+
+ffn_config = namespace(use_v2_model_runner=True, additional_config={'afd': {'role': 'ffn', 'connector': 'P2pHcclAFDConnector', 'asy...>), load_config=namespace(load_format='safetensors'), device_config=namespace(device_type='npu'), shutdown_timeout=180)
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0xfffb7de14e00>
+graph = False, stages = 1, dspark = True, pd = True
+
+    @pytest.mark.parametrize("graph", [False, True])
+    @pytest.mark.parametrize("stages", [1, 2])
+    @pytest.mark.parametrize("dspark,pd", [(True, False), (False, True), (True, True)])
+    def test_ffn_full_candidate_preserves_a_owned_modes_before_worker_isolation(
+        ffn_config, monkeypatch, graph, stages, dspark, pd
+    ):
+        source = v41_full_qualification_config(
+            dtype=torch.bfloat16,
+            compilation_mode=CompilationMode.NONE,
+            cudagraph_mode=CUDAGraphMode.FULL_DECODE_ONLY if graph else CUDAGraphMode.NONE,
+            role="ffn",
+            graph=graph,
+            stages=stages,
+            dspark=dspark,
+            pd=pd,
+        )
+        source.parallel_config.distributed_executor_backend = "mp"
+        source.parallel_config.data_parallel_size_local = 1
+        source.parallel_config.nnodes = 1
+        source.parallel_config.node_rank = 0
+        original = (
+            source.engram_config,
+            source.speculative_config,
+            source.kv_transfer_config,
+        )
+        monkeypatch.setenv("AFD_DSV41_EAGER_QUALIFICATION", "0")
+        monkeypatch.setenv("AFD_DSV41_FULL_QUALIFICATION", "1")
+    
+>       npu_ffn.validate_ffn_configuration(source)
+
+tests/unit/entrypoints/test_npu_ffn.py:103: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+vllm_config = namespace(use_v2_model_runner=True, additional_config={'afd': {'role': 'ffn', 'connector': 'P2pHcclAFDConnector', 'asy...v41_eager_qualification_config.<locals>.<lambda> at 0xfffb7dd253a0>), load_config=namespace(load_format='safetensors'))
+
+    def validate_ffn_configuration(vllm_config: VllmConfig) -> None:
+        """Reject other roles and unsupported layouts before creating processes."""
+        afd_config = parse_afd_config(vllm_config, expected_role="ffn")
+        if afd_config.connector != HCCL_P2P_CONNECTOR:
+            raise ValueError("standalone NPU FFN requires P2pHcclAFDConnector")
+        parallel = vllm_config.parallel_config
+        if (
+            parallel.distributed_executor_backend != "mp"
+            or parallel.data_parallel_size != 1
+            or parallel.data_parallel_size_local != 1
+            or parallel.data_parallel_rank != 0
+            or parallel.nnodes != 1
+            or parallel.node_rank != 0
+        ):
+            raise ValueError("standalone NPU FFN requires one local DP1 mp engine")
+        if os.environ.get(V41_FULL_QUALIFICATION_ENV) != "1" and (
+            vllm_config.speculative_config is not None
+            or vllm_config.kv_transfer_config is not None
+        ):
+            raise ValueError("standalone NPU FFN qualification requires DSpark/PD off")
+        # Validate the original target before isolating A-owned DSpark/PD. The
+        # runner retains its target shape; F must not construct a draft or Engram.
+        if os.environ.get(V41_FULL_QUALIFICATION_ENV) == "1":
+            validate_deepseek_v41_graph_speculation(vllm_config)
+            speculative = vllm_config.speculative_config
+            if speculative is not None and (
+                type(speculative.num_speculative_tokens) is not int
+                or speculative.num_speculative_tokens not in (1, 2)
+            ):
+                raise ValueError("full-checkpoint FFN requires DSpark N=1/2")
+        validate_npu_model_runner_v2_config(
+            vllm_config,
+            expected_role="ffn",
+>           device_type=vllm_config.device_config.device_type,
+        )
+E       AttributeError: 'types.SimpleNamespace' object has no attribute 'device_config'
+
+afd_plugin/entrypoints/npu_ffn.py:90: AttributeError
+_ test_ffn_full_candidate_preserves_a_owned_modes_before_worker_isolation[True-True-1-True] _
+
+ffn_config = namespace(use_v2_model_runner=True, additional_config={'afd': {'role': 'ffn', 'connector': 'P2pHcclAFDConnector', 'asy...>), load_config=namespace(load_format='safetensors'), device_config=namespace(device_type='npu'), shutdown_timeout=180)
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0xfffb7de150d0>
+graph = True, stages = 1, dspark = True, pd = True
+
+    @pytest.mark.parametrize("graph", [False, True])
+    @pytest.mark.parametrize("stages", [1, 2])
+    @pytest.mark.parametrize("dspark,pd", [(True, False), (False, True), (True, True)])
+    def test_ffn_full_candidate_preserves_a_owned_modes_before_worker_isolation(
+        ffn_config, monkeypatch, graph, stages, dspark, pd
+    ):
+        source = v41_full_qualification_config(
+            dtype=torch.bfloat16,
+            compilation_mode=CompilationMode.NONE,
+            cudagraph_mode=CUDAGraphMode.FULL_DECODE_ONLY if graph else CUDAGraphMode.NONE,
+            role="ffn",
+            graph=graph,
+            stages=stages,
+            dspark=dspark,
+            pd=pd,
+        )
+        source.parallel_config.distributed_executor_backend = "mp"
+        source.parallel_config.data_parallel_size_local = 1
+        source.parallel_config.nnodes = 1
+        source.parallel_config.node_rank = 0
+        original = (
+            source.engram_config,
+            source.speculative_config,
+            source.kv_transfer_config,
+        )
+        monkeypatch.setenv("AFD_DSV41_EAGER_QUALIFICATION", "0")
+        monkeypatch.setenv("AFD_DSV41_FULL_QUALIFICATION", "1")
+    
+>       npu_ffn.validate_ffn_configuration(source)
+
+tests/unit/entrypoints/test_npu_ffn.py:103: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+vllm_config = namespace(use_v2_model_runner=True, additional_config={'afd': {'role': 'ffn', 'connector': 'P2pHcclAFDConnector', 'asy...v41_eager_qualification_config.<locals>.<lambda> at 0xfffb7dd25800>), load_config=namespace(load_format='safetensors'))
+
+    def validate_ffn_configuration(vllm_config: VllmConfig) -> None:
+        """Reject other roles and unsupported layouts before creating processes."""
+        afd_config = parse_afd_config(vllm_config, expected_role="ffn")
+        if afd_config.connector != HCCL_P2P_CONNECTOR:
+            raise ValueError("standalone NPU FFN requires P2pHcclAFDConnector")
+        parallel = vllm_config.parallel_config
+        if (
+            parallel.distributed_executor_backend != "mp"
+            or parallel.data_parallel_size != 1
+            or parallel.data_parallel_size_local != 1
+            or parallel.data_parallel_rank != 0
+            or parallel.nnodes != 1
+            or parallel.node_rank != 0
+        ):
+            raise ValueError("standalone NPU FFN requires one local DP1 mp engine")
+        if os.environ.get(V41_FULL_QUALIFICATION_ENV) != "1" and (
+            vllm_config.speculative_config is not None
+            or vllm_config.kv_transfer_config is not None
+        ):
+            raise ValueError("standalone NPU FFN qualification requires DSpark/PD off")
+        # Validate the original target before isolating A-owned DSpark/PD. The
+        # runner retains its target shape; F must not construct a draft or Engram.
+        if os.environ.get(V41_FULL_QUALIFICATION_ENV) == "1":
+            validate_deepseek_v41_graph_speculation(vllm_config)
+            speculative = vllm_config.speculative_config
+            if speculative is not None and (
+                type(speculative.num_speculative_tokens) is not int
+                or speculative.num_speculative_tokens not in (1, 2)
+            ):
+                raise ValueError("full-checkpoint FFN requires DSpark N=1/2")
+        validate_npu_model_runner_v2_config(
+            vllm_config,
+            expected_role="ffn",
+>           device_type=vllm_config.device_config.device_type,
+        )
+E       AttributeError: 'types.SimpleNamespace' object has no attribute 'device_config'
+
+afd_plugin/entrypoints/npu_ffn.py:90: AttributeError
+_ test_ffn_full_candidate_preserves_a_owned_modes_before_worker_isolation[True-True-2-False] _
+
+ffn_config = namespace(use_v2_model_runner=True, additional_config={'afd': {'role': 'ffn', 'connector': 'P2pHcclAFDConnector', 'asy...>), load_config=namespace(load_format='safetensors'), device_config=namespace(device_type='npu'), shutdown_timeout=180)
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0xfffb7de16a50>
+graph = False, stages = 2, dspark = True, pd = True
+
+    @pytest.mark.parametrize("graph", [False, True])
+    @pytest.mark.parametrize("stages", [1, 2])
+    @pytest.mark.parametrize("dspark,pd", [(True, False), (False, True), (True, True)])
+    def test_ffn_full_candidate_preserves_a_owned_modes_before_worker_isolation(
+        ffn_config, monkeypatch, graph, stages, dspark, pd
+    ):
+        source = v41_full_qualification_config(
+            dtype=torch.bfloat16,
+            compilation_mode=CompilationMode.NONE,
+            cudagraph_mode=CUDAGraphMode.FULL_DECODE_ONLY if graph else CUDAGraphMode.NONE,
+            role="ffn",
+            graph=graph,
+            stages=stages,
+            dspark=dspark,
+            pd=pd,
+        )
+        source.parallel_config.distributed_executor_backend = "mp"
+        source.parallel_config.data_parallel_size_local = 1
+        source.parallel_config.nnodes = 1
+        source.parallel_config.node_rank = 0
+        original = (
+            source.engram_config,
+            source.speculative_config,
+            source.kv_transfer_config,
+        )
+        monkeypatch.setenv("AFD_DSV41_EAGER_QUALIFICATION", "0")
+        monkeypatch.setenv("AFD_DSV41_FULL_QUALIFICATION", "1")
+    
+>       npu_ffn.validate_ffn_configuration(source)
+
+tests/unit/entrypoints/test_npu_ffn.py:103: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+vllm_config = namespace(use_v2_model_runner=True, additional_config={'afd': {'role': 'ffn', 'connector': 'P2pHcclAFDConnector', 'asy...v41_eager_qualification_config.<locals>.<lambda> at 0xfffb7d187ce0>), load_config=namespace(load_format='safetensors'))
+
+    def validate_ffn_configuration(vllm_config: VllmConfig) -> None:
+        """Reject other roles and unsupported layouts before creating processes."""
+        afd_config = parse_afd_config(vllm_config, expected_role="ffn")
+        if afd_config.connector != HCCL_P2P_CONNECTOR:
+            raise ValueError("standalone NPU FFN requires P2pHcclAFDConnector")
+        parallel = vllm_config.parallel_config
+        if (
+            parallel.distributed_executor_backend != "mp"
+            or parallel.data_parallel_size != 1
+            or parallel.data_parallel_size_local != 1
+            or parallel.data_parallel_rank != 0
+            or parallel.nnodes != 1
+            or parallel.node_rank != 0
+        ):
+            raise ValueError("standalone NPU FFN requires one local DP1 mp engine")
+        if os.environ.get(V41_FULL_QUALIFICATION_ENV) != "1" and (
+            vllm_config.speculative_config is not None
+            or vllm_config.kv_transfer_config is not None
+        ):
+            raise ValueError("standalone NPU FFN qualification requires DSpark/PD off")
+        # Validate the original target before isolating A-owned DSpark/PD. The
+        # runner retains its target shape; F must not construct a draft or Engram.
+        if os.environ.get(V41_FULL_QUALIFICATION_ENV) == "1":
+            validate_deepseek_v41_graph_speculation(vllm_config)
+            speculative = vllm_config.speculative_config
+            if speculative is not None and (
+                type(speculative.num_speculative_tokens) is not int
+                or speculative.num_speculative_tokens not in (1, 2)
+            ):
+                raise ValueError("full-checkpoint FFN requires DSpark N=1/2")
+        validate_npu_model_runner_v2_config(
+            vllm_config,
+            expected_role="ffn",
+>           device_type=vllm_config.device_config.device_type,
+        )
+E       AttributeError: 'types.SimpleNamespace' object has no attribute 'device_config'
+
+afd_plugin/entrypoints/npu_ffn.py:90: AttributeError
+_ test_ffn_full_candidate_preserves_a_owned_modes_before_worker_isolation[True-True-2-True] _
+
+ffn_config = namespace(use_v2_model_runner=True, additional_config={'afd': {'role': 'ffn', 'connector': 'P2pHcclAFDConnector', 'asy...>), load_config=namespace(load_format='safetensors'), device_config=namespace(device_type='npu'), shutdown_timeout=180)
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0xfffb7dd7e600>
+graph = True, stages = 2, dspark = True, pd = True
+
+    @pytest.mark.parametrize("graph", [False, True])
+    @pytest.mark.parametrize("stages", [1, 2])
+    @pytest.mark.parametrize("dspark,pd", [(True, False), (False, True), (True, True)])
+    def test_ffn_full_candidate_preserves_a_owned_modes_before_worker_isolation(
+        ffn_config, monkeypatch, graph, stages, dspark, pd
+    ):
+        source = v41_full_qualification_config(
+            dtype=torch.bfloat16,
+            compilation_mode=CompilationMode.NONE,
+            cudagraph_mode=CUDAGraphMode.FULL_DECODE_ONLY if graph else CUDAGraphMode.NONE,
+            role="ffn",
+            graph=graph,
+            stages=stages,
+            dspark=dspark,
+            pd=pd,
+        )
+        source.parallel_config.distributed_executor_backend = "mp"
+        source.parallel_config.data_parallel_size_local = 1
+        source.parallel_config.nnodes = 1
+        source.parallel_config.node_rank = 0
+        original = (
+            source.engram_config,
+            source.speculative_config,
+            source.kv_transfer_config,
+        )
+        monkeypatch.setenv("AFD_DSV41_EAGER_QUALIFICATION", "0")
+        monkeypatch.setenv("AFD_DSV41_FULL_QUALIFICATION", "1")
+    
+>       npu_ffn.validate_ffn_configuration(source)
+
+tests/unit/entrypoints/test_npu_ffn.py:103: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+vllm_config = namespace(use_v2_model_runner=True, additional_config={'afd': {'role': 'ffn', 'connector': 'P2pHcclAFDConnector', 'asy...v41_eager_qualification_config.<locals>.<lambda> at 0xfffb7dd25580>), load_config=namespace(load_format='safetensors'))
+
+    def validate_ffn_configuration(vllm_config: VllmConfig) -> None:
+        """Reject other roles and unsupported layouts before creating processes."""
+        afd_config = parse_afd_config(vllm_config, expected_role="ffn")
+        if afd_config.connector != HCCL_P2P_CONNECTOR:
+            raise ValueError("standalone NPU FFN requires P2pHcclAFDConnector")
+        parallel = vllm_config.parallel_config
+        if (
+            parallel.distributed_executor_backend != "mp"
+            or parallel.data_parallel_size != 1
+            or parallel.data_parallel_size_local != 1
+            or parallel.data_parallel_rank != 0
+            or parallel.nnodes != 1
+            or parallel.node_rank != 0
+        ):
+            raise ValueError("standalone NPU FFN requires one local DP1 mp engine")
+        if os.environ.get(V41_FULL_QUALIFICATION_ENV) != "1" and (
+            vllm_config.speculative_config is not None
+            or vllm_config.kv_transfer_config is not None
+        ):
+            raise ValueError("standalone NPU FFN qualification requires DSpark/PD off")
+        # Validate the original target before isolating A-owned DSpark/PD. The
+        # runner retains its target shape; F must not construct a draft or Engram.
+        if os.environ.get(V41_FULL_QUALIFICATION_ENV) == "1":
+            validate_deepseek_v41_graph_speculation(vllm_config)
+            speculative = vllm_config.speculative_config
+            if speculative is not None and (
+                type(speculative.num_speculative_tokens) is not int
+                or speculative.num_speculative_tokens not in (1, 2)
+            ):
+                raise ValueError("full-checkpoint FFN requires DSpark N=1/2")
+        validate_npu_model_runner_v2_config(
+            vllm_config,
+            expected_role="ffn",
+>           device_type=vllm_config.device_config.device_type,
+        )
+E       AttributeError: 'types.SimpleNamespace' object has no attribute 'device_config'
+
+afd_plugin/entrypoints/npu_ffn.py:90: AttributeError
+=============================== warnings summary ===============================
+tests/unit/compat/npu/test_kv_layout_connector.py::test_engram_pd_exports_original_history_after_native_prefill_truncation
+  /mnt/workspace/code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/torch_npu/utils/storage.py:55: UserWarning: TypedStorage is deprecated. It will be removed in the future and UntypedStorage will be the only storage class. This should only matter to you if you are using storages directly.  To access UntypedStorage directly, use tensor.untyped_storage() instead of tensor.storage()
+    if self.device.type != 'cpu':
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+- generated xml file: /mnt/workspace/tmp/afd-c0-20261104.hVgsIf/full-checkpoint-cpu-20261119.1fJten/results/junit.xml -
+=========================== short test summary info ============================
+FAILED tests/unit/entrypoints/test_npu_ffn.py::test_ffn_full_candidate_preserves_a_owned_modes_before_worker_isolation[True-False-1-False]
+FAILED tests/unit/entrypoints/test_npu_ffn.py::test_ffn_full_candidate_preserves_a_owned_modes_before_worker_isolation[True-False-1-True]
+FAILED tests/unit/entrypoints/test_npu_ffn.py::test_ffn_full_candidate_preserves_a_owned_modes_before_worker_isolation[True-False-2-False]
+FAILED tests/unit/entrypoints/test_npu_ffn.py::test_ffn_full_candidate_preserves_a_owned_modes_before_worker_isolation[True-False-2-True]
+FAILED tests/unit/entrypoints/test_npu_ffn.py::test_ffn_full_candidate_preserves_a_owned_modes_before_worker_isolation[False-True-1-False]
+FAILED tests/unit/entrypoints/test_npu_ffn.py::test_ffn_full_candidate_preserves_a_owned_modes_before_worker_isolation[False-True-1-True]
+FAILED tests/unit/entrypoints/test_npu_ffn.py::test_ffn_full_candidate_preserves_a_owned_modes_before_worker_isolation[False-True-2-False]
+FAILED tests/unit/entrypoints/test_npu_ffn.py::test_ffn_full_candidate_preserves_a_owned_modes_before_worker_isolation[False-True-2-True]
+FAILED tests/unit/entrypoints/test_npu_ffn.py::test_ffn_full_candidate_preserves_a_owned_modes_before_worker_isolation[True-True-1-False]
+FAILED tests/unit/entrypoints/test_npu_ffn.py::test_ffn_full_candidate_preserves_a_owned_modes_before_worker_isolation[True-True-1-True]
+FAILED tests/unit/entrypoints/test_npu_ffn.py::test_ffn_full_candidate_preserves_a_owned_modes_before_worker_isolation[True-True-2-False]
+FAILED tests/unit/entrypoints/test_npu_ffn.py::test_ffn_full_candidate_preserves_a_owned_modes_before_worker_isolation[True-True-2-True]

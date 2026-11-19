@@ -1,0 +1,144 @@
+{
+  "recorded_at": "2026-11-19T04:19:28.433421+00:00",
+  "git_head": "d881d782cbb94f47b284523f1eba7a6420aebff4",
+  "branch": "feat/dsv41-flash-hccl-v030",
+  "working_tree_changes_committed_or_pushed_by_this_task": false,
+  "production_vs_cpu005": {
+    "checked": 152,
+    "changed": []
+  },
+  "snapshot_vs_config007": {
+    "checked": 409,
+    "changed": [
+      "tests/unit/model_executor/models/npu/test_deepseek_v41_engram.py",
+      "tests/unit/model_executor/models/npu/test_deepseek_v41_graph.py"
+    ]
+  },
+  "final_test_files_vs_host009": {
+    "checked": 2,
+    "changed": []
+  },
+  "checks": {
+    "plan_consistency": {
+      "command": [
+        "D:\\Programs\\python314\\python.exe",
+        "-B",
+        "-X",
+        "utf8",
+        ".agents/dsv41/harness.py",
+        "check"
+      ],
+      "exit_code": 0,
+      "stdout": "{\n  \"ok\": true,\n  \"files\": 434,\n  \"changes\": 8,\n  \"tasks\": 109,\n  \"source_objects\": 56,\n  \"skills\": 3,\n  \"phase\": \"implementation\",\n  \"upstreams_unchanged\": true,\n  \"validation_scope\": \"local plan checks; not official CLI or NPU qualification\"\n}\n",
+      "stderr": ""
+    },
+    "upstream_preservation": {
+      "command": [
+        "D:\\Programs\\python314\\python.exe",
+        "-B",
+        "-X",
+        "utf8",
+        ".agents/dsv41/harness.py",
+        "guard"
+      ],
+      "exit_code": 0,
+      "stdout": "{\n  \"ok\": true,\n  \"upstreams\": [\n    \"vllm\",\n    \"vllm_ascend\",\n    \"hccl_donor\"\n  ],\n  \"unchanged\": true\n}\n",
+      "stderr": ""
+    },
+    "whitespace": {
+      "command": [
+        "git",
+        "-c",
+        "core.whitespace=blank-at-eol,blank-at-eof,space-before-tab,cr-at-eol",
+        "diff",
+        "--check"
+      ],
+      "exit_code": 0,
+      "stdout": "",
+      "stderr": "warning: in the working copy of 'tests/npu/hccl_staged_probe.py', CRLF will be replaced by LF the next time Git touches it\nwarning: in the working copy of 'tests/unit/connectors/npu/test_hccl_eager_pipeline.py', CRLF will be replaced by LF the next time Git touches it\nwarning: in the working copy of 'tests/unit/connectors/npu/test_hccl_graph_stage.py', CRLF will be replaced by LF the next time Git touches it\nwarning: in the working copy of 'tests/unit/connectors/npu/test_p2p_hccl.py', CRLF will be replaced by LF the next time Git touches it\nwarning: in the working copy of 'tests/unit/distributed/test_hccl_plan.py', CRLF will be replaced by LF the next time Git touches it\nwarning: in the working copy of 'tests/unit/v1/worker/npu/test_hccl_v41_ffn_eager.py', CRLF will be replaced by LF the next time Git touches it\nwarning: in the working copy of 'tools/diagnostics/run_dsv41_a5_afd.py', CRLF will be replaced by LF the next time Git touches it\n"
+    },
+    "ruff": {
+      "command": [
+        "D:\\openSource\\afd-plugin-dsv41-flash-v030\\.venv\\Scripts\\ruff.exe",
+        "check",
+        "afd_plugin/compat/npu/engram_history.py",
+        "afd_plugin/compat/npu/feature_validation.py",
+        "afd_plugin/compat/npu/kv_layout_connector.py",
+        "afd_plugin/compat/patches/npu/ubatching_config.py",
+        "afd_plugin/connectors/npu/hccl_eager_pipeline.py",
+        "afd_plugin/distributed/hccl_plan.py",
+        "afd_plugin/entrypoints/npu_ffn.py",
+        "afd_plugin/model_executor/models/npu/deepseek_v41.py",
+        "afd_plugin/model_executor/models/npu/deepseek_v41_engram.py",
+        "afd_plugin/model_executor/models/npu/deepseek_v41_graph.py",
+        "afd_plugin/v1/worker/npu/hccl_v41_ffn_eager.py",
+        "afd_plugin/v1/worker/npu/hccl_v41_graph_coordinator.py",
+        "afd_plugin/v1/worker/npu/hccl_v41_graph_execution.py",
+        "tests/e2e/diagnostics/test_dsv41_full_checkpoint.py",
+        "tests/unit/compat/npu/test_engram_history.py",
+        "tests/unit/compat/npu/test_feature_validation.py",
+        "tests/unit/compat/npu/test_kv_layout_connector.py",
+        "tests/unit/compat/patches/npu/test_ubatching_config.py",
+        "tests/unit/compat/patches/test_signatures.py",
+        "tests/unit/connectors/npu/test_hccl_eager_pipeline.py",
+        "tests/unit/connectors/npu/test_hccl_graph_stage.py",
+        "tests/unit/distributed/test_hccl_plan.py",
+        "tests/unit/entrypoints/test_npu_ffn.py",
+        "tests/unit/fakes/engram.py",
+        "tests/unit/fakes/hccl_v41_graph_coordinator.py",
+        "tests/unit/fakes/vllm_config.py",
+        "tests/unit/model_executor/models/npu/test_deepseek_v41_engram.py",
+        "tests/unit/model_executor/models/npu/test_deepseek_v41_graph.py",
+        "tests/unit/v1/worker/npu/test_hccl_v41_ffn_eager.py",
+        "tests/unit/v1/worker/npu/test_hccl_v41_graph_coordinator.py",
+        "tests/unit/v1/worker/npu/test_hccl_v41_graph_execution.py",
+        "tools/diagnostics/check_dsv41_full_checkpoint_config.py",
+        "tools/diagnostics/check_dsv41_full_checkpoint_cpu.py",
+        "tools/diagnostics/run_dsv41_a5_afd.py",
+        "tools/diagnostics/run_dsv41_full_checkpoint.py"
+      ],
+      "exit_code": 0,
+      "stdout": "All checks passed!\n",
+      "stderr": ""
+    }
+  },
+  "cpu_results": {
+    "cpu-005": {
+      "tests": 1433,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "host-008": {
+      "tests": 5,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "host-009": {
+      "tests": 73,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "host-tests": {
+      "tests": 312,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    }
+  },
+  "hardware_acceptance": false,
+  "eager_u1_first_token_difference_resolved": false,
+  "config007": {
+    "passed": true,
+    "scenarios": 55,
+    "native_revalidated": 55,
+    "npu_initialized_before": false,
+    "npu_initialized_after": false,
+    "checkpoint_config_sha256": "8be45ce0476004a3f529fd896115a4a2e800a129ad2d3ec05b16050f52e21879",
+    "checkpoint_config_unchanged": true,
+    "weight_loading": false,
+    "model_construction": false
+  }
+}

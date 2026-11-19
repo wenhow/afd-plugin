@@ -14,6 +14,7 @@ primary_code_paths:
   - "afd_plugin/compat/npu/runtime.py"
   - "afd_plugin/compat/npu/runtime_config.py"
   - "afd_plugin/compat/npu/dspark_pd.py"
+  - "afd_plugin/compat/npu/engram_history.py"
   - "afd_plugin/compat/npu/stream.py"
   - "afd_plugin/compat/npu/profiler_api.py"
   - "afd_plugin/compat/npu/profiler_control.py"
@@ -541,3 +542,17 @@ ownership, registrations and target-only producer behavior are preserved.
 This extends the earlier receiver-only cleanup scope; it does not establish
 native TransferEngine shutdown or full native-extension process teardown.
 See the [A5 evidence and local patch review](../../../openspec/changes/afd-hccl-full-parity/evidence/a5-dspark-sender-retirement-20261118/README.md).
+
+### Full-checkpoint Engram qualification (2026-11-19)
+
+The default-off `AFD_DSV41_FULL_QUALIFICATION=1` candidate retains TP4,
+real `deepseek_v4_fp8` weights and A-owned CPU Engram. Its U2 resolver patch
+preserves the pinned native model/parallel/load validation and non-AFD
+rejection. FFN entry validation checks the original target declaration before
+validating its isolated role view. It never transfers draft or Engram ownership
+to F. PD carries a constant-size original-prompt digest and source identity;
+D checks its original token IDs before admitting remote KV, then reconstructs
+slotless Engram lookback through native ModelState. This declaration is neither
+authentication nor a replacement for Ready/DONE. See the
+[contract review and CPU evidence](../../../openspec/changes/afd-hccl-full-parity/evidence/full-checkpoint-integration-20261119/README.md)
+for scope, costs, removal conditions and pending A5 acceptance.

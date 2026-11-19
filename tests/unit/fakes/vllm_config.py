@@ -178,6 +178,8 @@ def v41_eager_qualification_config(
     role="attention",
     rank=0,
     tensor_parallel_size=4,
+    dspark=False,
+    num_ubatches=1,
 ):
     """Original target config before the FFN worker removes A-owned state."""
     config = hccl_vllm_config(
@@ -186,6 +188,8 @@ def v41_eager_qualification_config(
         cudagraph_mode=cudagraph_mode,
         role=role,
         tensor_parallel_size=tensor_parallel_size,
+        dspark=dspark,
+        num_ubatches=num_ubatches,
     )
     config.parallel_config.rank = rank
     config.model_config.quantization = "deepseek_v4_fp8"
@@ -199,6 +203,38 @@ def v41_eager_qualification_config(
     config.engram_config = SimpleNamespace(
         cpu_offload=True, dp_shared_memory=False, embedding_across_dp=False
     )
+    return config
+
+
+def v41_full_qualification_config(
+    *,
+    dtype,
+    compilation_mode,
+    cudagraph_mode,
+    role="attention",
+    graph=False,
+    stages=1,
+    dspark=False,
+    pd=False,
+):
+    config = v41_eager_qualification_config(
+        dtype=dtype,
+        compilation_mode=compilation_mode,
+        cudagraph_mode=cudagraph_mode,
+        role=role,
+        dspark=dspark,
+        num_ubatches=stages,
+    )
+    config.model_config.enforce_eager = not graph
+    config.scheduler_config.max_num_seqs = 2
+    config.model_config.hf_text_config.engram_layer_ids = [1, 14]
+    if dspark:
+        config.speculative_config.num_speculative_tokens = 2
+    if pd:
+        config.kv_transfer_config = pd_kv_transfer_config(tp_size=4)
+        config.kv_transfer_config.kv_connector_module_path = (
+            "afd_plugin.compat.npu.kv_layout_connector"
+        )
     return config
 
 
@@ -551,6 +587,19 @@ def _configure_native_dbo_boundary(config, boundary):
         config.model_config.multimodal_config.mm_encoder_only = True
     else:
         raise ValueError(f"Unknown native DBO config boundary: {boundary}")
+
+
+def native_v41_engram_dbo_config(**options):
+    from vllm.config import EngramConfig, LoadConfig
+
+    config = native_v41_dbo_config(**options)
+    config.model_config.architecture = "DeepseekV41ForCausalLM"
+    config.model_config.hf_text_config.engram_layer_ids = [1, 14]
+    config.engram_config = EngramConfig(
+        cpu_offload=True, embedding_across_dp=False, dp_shared_memory=False
+    )
+    config.load_config = LoadConfig(load_format="safetensors")
+    return config
 
 
 def native_dbo_config_snapshot(config):

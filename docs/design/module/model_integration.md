@@ -20,6 +20,10 @@ validation_paths:
   - "tests/npu/v41_stage_state_probe.py"
   - "tests/npu/dsv41_moe_parity_probe.py"
   - "tools/diagnostics/run_dsv41_a5_moe_parity.py"
+  - "tools/diagnostics/check_dsv41_full_checkpoint_cpu.py"
+  - "tools/diagnostics/check_dsv41_full_checkpoint_config.py"
+  - "tools/diagnostics/run_dsv41_full_checkpoint.py"
+  - "tests/e2e/diagnostics/test_dsv41_full_checkpoint.py"
   - "tests/e2e/models/**"
   - "tests/e2e/accuracy/**"
 upstream_refs:
@@ -401,6 +405,16 @@ load evidence. A unit-only boundary such as the current CUDA DeepSeek V4 path
 must not be described as hardware-validated without new E2E evidence.
 
 ## Limitations and open issues
+
+The V4.1 A-side EngramModelState subclass retains native committed-token
+history and failure retirement. Paired TP4 graphs run one native Engram
+producer before replay, wait for its ordinary events on the parent stream,
+and capture only stable lookup/mask buffers. U2 consumes token-aligned views
+from this same parent; no child gathers its own history or resets a shared
+ExternalEvent. This adds a producer dependency per replay, not a performance
+guarantee. Native capture remains available when the backend supports it.
+The [full-checkpoint review](../../../openspec/changes/afd-hccl-full-parity/evidence/full-checkpoint-integration-20261119/README.md)
+records CPU boundaries separately from pending quantized-model A5 acceptance.
 
 The common metadata and transfer-state contracts remain DeepSeek-oriented.
 Qwen3 MoE reuses only their existing remote-FFN boundary and does not expand

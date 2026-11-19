@@ -23,6 +23,7 @@ import tempfile
 import time
 import urllib.error
 import urllib.request
+from collections.abc import Callable
 from contextlib import suppress
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -444,8 +445,10 @@ def check_resources(directory: Path, plan: dict[str, JSONValue]) -> None:
             "engram_host_table_lower_bound_bytes": MIN_HOST_BYTES,
         },
     )
-    if not snapshot["all_eight_idle"]:
-        raise RuntimeError("eight idle devices were not confirmed; see npu-before.log")
+    if not selected_devices_idle(snapshot, plan):
+        raise RuntimeError(
+            "selected idle devices were not confirmed; see npu-before.log"
+        )
     if memory["MemAvailable"] < MIN_HOST_BYTES:
         raise RuntimeError(
             "host memory available is below the Engram table lower bound"
@@ -476,10 +479,18 @@ def probe_library(directory: Path, environment: dict[str, str], vendor: Path) ->
         raise RuntimeError("CompressorV2 library probe failed; see operator-probe.log")
 
 
-def health() -> bool:
+def selected_devices_idle(
+    snapshot: dict[str, JSONValue], plan: dict[str, JSONValue]
+) -> bool:
+    return snapshot["exit_code"] == 0 and set(plan["physical_devices"]).issubset(
+        snapshot["idle_devices"]
+    )
+
+
+def health(api_url: str = f"http://127.0.0.1:{API_PORT}") -> bool:
     try:
         with urllib.request.urlopen(
-            f"http://127.0.0.1:{API_PORT}/health", timeout=2
+            api_url.rstrip("/") + "/health", timeout=2
         ) as reply:
             return reply.status == 200
     except (urllib.error.URLError, TimeoutError, OSError):
@@ -487,18 +498,27 @@ def health() -> bool:
 
 
 def wait_ready(
-    owner: Supervision, attention: OwnedProcess, ffn: OwnedProcess, timeout: int
+    owner: Supervision,
+    attention: OwnedProcess,
+    ffn: OwnedProcess | None,
+    timeout: int,
+    *,
+    api_url: str = f"http://127.0.0.1:{API_PORT}",
 ) -> None:
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         owner.survivors()
         for child in (attention, ffn):
+            if child is None:
+                continue
             if child.process.poll() is not None:
                 raise RuntimeError(
                     f"{child.role} exited during startup: {child.process.returncode}"
                 )
-        if F_READY in ffn.text() and health():
-            owner.record("ready", attention_health=True, ffn_service_loop=True)
+        if (ffn is None or F_READY in ffn.text()) and health(api_url):
+            owner.record(
+                "ready", attention_health=True, ffn_service_loop=ffn is not None
+            )
             return
         time.sleep(POLL_SECONDS)
     raise RuntimeError("startup timed out; server logs retain the first failure")
@@ -559,8 +579,14 @@ def compare_response_tokens(
     return result
 
 
-def send_request(directory: Path, reference: Path | None) -> dict[str, JSONValue]:
-    payload = {
+def send_request(
+    directory: Path,
+    reference: Path | None,
+    *,
+    payload: dict[str, JSONValue] | None = None,
+    api_url: str = f"http://127.0.0.1:{API_PORT}",
+) -> dict[str, JSONValue]:
+    payload = payload or {
         "model": "dsv41-afd",
         "prompt": "Explain how to keep a simple daily work log.",
         "temperature": 0,
@@ -573,7 +599,7 @@ def send_request(directory: Path, reference: Path | None) -> dict[str, JSONValue
     }
     save_json(directory / "request.json", payload)
     request = urllib.request.Request(
-        f"http://127.0.0.1:{API_PORT}/v1/completions",
+        api_url.rstrip("/") + "/v1/completions",
         data=json.dumps(payload).encode(),
         headers={"Content-Type": "application/json"},
     )
@@ -635,6 +661,8 @@ def run_candidate(
     vendor: Path,
     startup_timeout: int,
     reference: Path | None,
+    *,
+    request_runner: Callable[[Path, Path | None], dict[str, JSONValue]] | None = None,
 ) -> int:
     owner = Supervision(directory)
     result: dict[str, JSONValue] = {
@@ -676,22 +704,31 @@ def run_candidate(
         )
         if not result["packed_attention_probe"]["passed"] or owner.survivors():
             raise RuntimeError("packed attention probe did not finish successfully")
-        if not npu_snapshot(directory, "npu-after-packed-probe.log")["all_eight_idle"]:
+        if not selected_devices_idle(
+            npu_snapshot(directory, "npu-after-packed-probe.log"), plan
+        ):
             raise RuntimeError("NPU processes remain after packed attention probe")
         owner.record("packed_attention_probe_passed")
         # A and F must enter connector construction concurrently. F readiness
         # before starting A would deadlock the paired HCCL rendezvous.
-        ffn = owner.start(
-            "ffn", roles["ffn"]["argv"], roles["ffn"]["environment"], repo
-        )
+        if "ffn" in roles:
+            ffn = owner.start(
+                "ffn", roles["ffn"]["argv"], roles["ffn"]["environment"], repo
+            )
         attention = owner.start(
             "attention",
             roles["attention"]["argv"],
             roles["attention"]["environment"],
             repo,
         )
-        wait_ready(owner, attention, ffn, startup_timeout)
-        result["request"] = send_request(directory, reference)
+        wait_ready(
+            owner,
+            attention,
+            ffn,
+            startup_timeout,
+            api_url=plan.get("api_url", f"http://127.0.0.1:{API_PORT}"),
+        )
+        result["request"] = (request_runner or send_request)(directory, reference)
         result["request_passed"] = True
         owner.record("request_completed")
     except (Exception, KeyboardInterrupt) as error:
@@ -748,11 +785,18 @@ def run_candidate(
                 and not result["survivors"]
                 and "shutdown_error" not in result
             )
+        elif attention is not None:
+            result["clean_shutdown"] = (
+                attention.process.returncode == 0
+                and not owner.forced_cleanup
+                and not result["survivors"]
+                and "shutdown_error" not in result
+            )
         try:
             result["npu_after"] = after = npu_snapshot(directory, "npu-after.log")
-            result["clean_shutdown"] = (
-                result["clean_shutdown"] and after["all_eight_idle"]
-            )
+            result["clean_shutdown"] = result[
+                "clean_shutdown"
+            ] and selected_devices_idle(after, plan)
         except (OSError, subprocess.TimeoutExpired) as error:
             result["npu_after_error"] = str(error)
             result["clean_shutdown"] = False

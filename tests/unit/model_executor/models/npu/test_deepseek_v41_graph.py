@@ -36,6 +36,27 @@ def make_body(case, *, pipeline=None):
     )
 
 
+@pytest.mark.parametrize("split", [(5,), (2, 3), (0, 3), (3, 0)])
+def test_tp_graph_parent_uses_ready_parent_rows_without_reproducing_history(split):
+    case = make_graph_model_case(split)
+    case.model.can_capture_engram_producer = lambda: False
+
+    def unsupported_tp_capture(*args):
+        raise RuntimeError("TP collective producer cannot be captured")
+
+    case.model.captured_engram_inputs = unsupported_tp_capture
+    expected = case.model(**case.parent_inputs)
+    inputs = {
+        **case.graph_inputs,
+        "engram_lookups": case.parent_inputs["engram_lookups"],
+        "engram_mask": case.parent_inputs["engram_mask"],
+    }
+
+    actual = DeepseekV41GraphParent(make_body(case), external_engram=True)(inputs)
+
+    torch.testing.assert_close(actual, expected, rtol=0, atol=0)
+
+
 @pytest.mark.parametrize("split", [(2, 3), (0, 3), (3, 0), (5,)])
 @pytest.mark.parametrize("engram", [False, True])
 def test_cross_layer_parent_preserves_three_layer_hc_aux_mtp_and_one_engram_producer(

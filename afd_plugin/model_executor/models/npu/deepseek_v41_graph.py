@@ -487,8 +487,11 @@ class DeepseekV41GraphParent:
     can then be waited by both children without ExternalEvent resets.
     """
 
-    def __init__(self, stages: DeepseekV41GraphStages) -> None:
+    def __init__(
+        self, stages: DeepseekV41GraphStages, *, external_engram: bool = False
+    ) -> None:
         self.stages = stages
+        self.external_engram = external_engram
 
     def __call__(
         self, model_inputs: dict[str, Any]
@@ -520,6 +523,21 @@ class DeepseekV41GraphParent:
         ):
             raise ValueError("V4.1 graph parent must cover retained padded tokens")
         if model.has_engram:
+            if self.external_engram:
+                # The A-owned ModelState joins its TP lookup producer on the
+                # parent stream before replay. Capture consumes only stable
+                # addresses, with no child event reset or duplicate producer.
+                engram = DeepseekV41EngramInputs(
+                    model_inputs["engram_lookups"], model_inputs["engram_mask"]
+                )
+                if (
+                    model_inputs.get("engram_pending")
+                    or model_inputs.get("engram_mask_ready_event") is not None
+                ):
+                    raise ValueError(
+                        "external Engram inputs must be ready on the parent"
+                    )
+                return self._run(model_inputs, engram)
             if not model.can_capture_engram_producer():
                 raise ValueError(
                     "unsupported Engram producer must select eager before preparation"

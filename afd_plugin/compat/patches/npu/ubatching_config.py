@@ -7,11 +7,16 @@ Upstream: vllm/config/vllm.py at ced6857afa0ea7b2e3f0846a62e1394e90f15607.
 
 from __future__ import annotations
 
+import os
+
 from vllm import envs
 from vllm.config import VllmConfig
 from vllm.config.compilation import CUDAGraphMode
+from vllm.config.engram import EngramConfig, model_has_engram_layers
+from vllm.config.vllm import logger
 from vllm.platforms import current_platform
 
+from afd_plugin.compat.npu.feature_validation import V41_FULL_QUALIFICATION_ENV
 from afd_plugin.compat.npu.runtime_config import (
     is_deepseek_v41_model,
     resolve_deepseek_v41_target_shape,
@@ -49,8 +54,10 @@ def _uses_afd_text_ubatching(config: VllmConfig) -> bool:
                 or speculative.enable_adaptive_verification
             )
         )
-        or config.engram_config is not None
-        or model.hf_text_config.engram_layer_ids
+        or (
+            (config.engram_config is not None or model.hf_text_config.engram_layer_ids)
+            and os.environ.get(V41_FULL_QUALIFICATION_ENV) != "1"
+        )
         or config.lora_config is not None
         or parallel.pipeline_parallel_size > 1
         or parallel.decode_context_parallel_size > 1
@@ -148,3 +155,46 @@ def get_dbo_unsupported_features(self) -> list[str]:
 def apply_afd_dspark_ubatching_config_patch() -> None:
     """Install the NPU-scoped method before native config validation runs."""
     VllmConfig._get_dbo_unsupported_features = get_dbo_unsupported_features
+    VllmConfig._resolve_and_verify_engram_config = resolve_and_verify_engram_config
+
+
+# Upstream: VllmConfig._resolve_and_verify_engram_config @ ced6857a.
+# Reason: native excludes Engram U2 even when AFD owns one parent producer and
+# token-aligned lookup views. Functionality: retain model/parallel/load checks
+# and the native rejection outside the explicit AFD full-checkpoint candidate.
+# Signature matches upstream. Cost: host validation only, no config mutation
+# beyond native defaults. Remove when native supports AFD parent preparation.
+def resolve_and_verify_engram_config(self) -> None:
+    """Resolve defaults and validate n-gram embedding settings."""
+    from vllm.platforms import current_platform
+
+    model_config = self.model_config
+    speculative_config = self.speculative_config
+    # Draft configs inherit the target's communication groups and settings.
+    # Validate the target because the draft may disable n-gram embeddings.
+    if (
+        speculative_config is not None
+        and model_config is speculative_config.draft_model_config
+    ):
+        model_config = speculative_config.target_model_config
+    if (
+        model_config is not None
+        and model_config.architecture == "DeepseekV41ForCausalLM"
+        and getattr(model_config.hf_text_config, "engram_layer_ids", None)
+        and self.parallel_config.use_ubatching
+        # ### PATCH START: parent-owned AFD Engram U2 candidate
+        and not _uses_afd_text_ubatching(self)
+        # ### PATCH END: parent-owned AFD Engram U2 candidate
+    ):
+        raise ValueError(
+            "DeepSeek V4.1 Engram does not support DBO or microbatching. "
+            "Disable --enable-dbo and set --ubatch-size to 0."
+        )
+    if self.engram_config is None:
+        if not current_platform.is_cuda() or not model_has_engram_layers(model_config):
+            return
+        self.engram_config = EngramConfig()
+    self.engram_config.verify_model_config(model_config)
+    self.engram_config.verify_parallel_config(self.parallel_config)
+    self.engram_config.verify_load_config(self.load_config)
+    logger.info_once("Resolved Engram configuration: %s", str(self.engram_config))

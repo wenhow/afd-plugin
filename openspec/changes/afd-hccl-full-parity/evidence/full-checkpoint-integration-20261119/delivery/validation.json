@@ -1,0 +1,93 @@
+{
+  "recorded_at": "2026-11-19T04:49:48.481435+00:00",
+  "base_commit": "d881d782cbb94f47b284523f1eba7a6420aebff4",
+  "code_candidate_tree": "742dc744c49165f695cc78ef88a64d6619035c09",
+  "branch": "feat/dsv41-flash-hccl-v030",
+  "remote": "origin",
+  "intended_remote_ref": "refs/heads/feat/dsv41-flash-hccl-v030",
+  "source_manifest": "candidate-manifest.json",
+  "scope": "Full-checkpoint TP4 candidates, native CPU Engram, U1/U2 eager/graph, DSpark N=0/1/2, configurable PD; paused ordinary V4 MTP remains local.",
+  "production_python_files": 148,
+  "checks": {
+    "plan_consistency": {
+      "command": [
+        "python",
+        "-B",
+        "-X",
+        "utf8",
+        ".agents/dsv41/harness.py",
+        "check"
+      ],
+      "exit_code": 0,
+      "stdout": "{\n  \"ok\": true,\n  \"files\": 434,\n  \"changes\": 8,\n  \"tasks\": 109,\n  \"source_objects\": 56,\n  \"skills\": 3,\n  \"phase\": \"implementation\",\n  \"upstreams_unchanged\": true,\n  \"validation_scope\": \"local plan checks; not official CLI or NPU qualification\"\n}\n",
+      "stderr": ""
+    },
+    "upstream_preservation": {
+      "command": [
+        "python",
+        "-B",
+        "-X",
+        "utf8",
+        ".agents/dsv41/harness.py",
+        "guard"
+      ],
+      "exit_code": 0,
+      "stdout": "{\n  \"ok\": true,\n  \"upstreams\": [\n    \"vllm\",\n    \"vllm_ascend\",\n    \"hccl_donor\"\n  ],\n  \"unchanged\": true\n}\n",
+      "stderr": ""
+    },
+    "staged_whitespace": {
+      "command": [
+        "git",
+        "-c",
+        "core.whitespace=blank-at-eol,blank-at-eof,space-before-tab,cr-at-eol",
+        "diff",
+        "--cached",
+        "--check",
+        "--",
+        "afd_plugin",
+        "tests",
+        "tools",
+        "docs",
+        ".agents",
+        "openspec/ROADMAP_ZH.md",
+        "openspec/changes/afd-hccl-full-parity/tasks.md",
+        "openspec\\changes\\afd-hccl-full-parity\\evidence\\full-checkpoint-integration-20261119\\README.md"
+      ],
+      "scope": "Staged code and documentation; raw evidence logs and JUnit retain original bytes. Existing CRLF is accepted.",
+      "exit_code": 0,
+      "stdout": "",
+      "stderr": ""
+    },
+    "ruff": {
+      "exit_code": 0,
+      "scope": "All staged Python files from the independently exported code candidate; checked before artifact assembly."
+    }
+  },
+  "cpu_results": {
+    "junit.xml": {
+      "tests": 1433,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "delivery-host-tests.xml": {
+      "tests": 312,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    }
+  },
+  "config_scenarios": 55,
+  "config_native_revalidated": 55,
+  "npu_initialized_before": false,
+  "npu_initialized_after": false,
+  "weight_loading": false,
+  "model_construction": false,
+  "hardware_acceptance": false,
+  "eager_u1_first_token_difference_resolved": false,
+  "remote_delivery": "Commit and push are performed after this record; verify the remote SHA separately.",
+  "evidence_artifacts": {
+    "raw_logs_preserved": true,
+    "source_archives_in_commit": false
+  }
+}

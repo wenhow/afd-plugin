@@ -20,6 +20,7 @@ from afd_plugin.connectors.metadata import AFDForwardContextMetadata
 from afd_plugin.connectors.npu.hccl_diagnostics import HcclStageDiagnosticRun
 from afd_plugin.connectors.npu.hccl_eager_pipeline import HcclEagerPipeline
 from afd_plugin.connectors.npu.hccl_staged_transport import HcclStagedTransport
+from afd_plugin.distributed.hccl_plan import PAIRED_NATIVE_TP_SIZES
 from afd_plugin.v1.worker.ffn_metadata import _set_moe_layer_index
 
 if TYPE_CHECKING:
@@ -97,7 +98,7 @@ def execute_hccl_v41_eager_parent(
                 or parallel.prefill_context_parallel_size != 1
                 or parallel.decode_context_parallel_size != 1
                 or parallel.use_sequence_parallel_moe
-                or parallel.tensor_parallel_size not in (1, 2)
+                or parallel.tensor_parallel_size not in PAIRED_NATIVE_TP_SIZES
                 or not (
                     caps.attention_size
                     == caps.ffn_size
@@ -107,7 +108,7 @@ def execute_hccl_v41_eager_parent(
                 or parallel.rank != transport.role_rank
             ):
                 raise ValueError(
-                    "eager FFN requires paired native TP1/TP2, matching rank, "
+                    "eager FFN requires paired native TP1/TP2/TP4, matching rank, "
                     "DP1/PP1/CP1 and non-SP"
                 )
             plan.validate(caps)

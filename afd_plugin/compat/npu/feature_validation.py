@@ -54,10 +54,12 @@ V41_FUNCTIONAL_HIDDEN_SIZE = 1024
 V41_FUNCTIONAL_EXPERT_COUNT = 64
 V41_FUNCTIONAL_MAX_SEQUENCES = 2
 V41_FUNCTIONAL_MAX_SPECULATIVE_TOKENS = 2
+V41_FULL_QUALIFICATION_ENV = "AFD_DSV41_FULL_QUALIFICATION"
+V41_FULL_MAX_SEQUENCES = 2
 
 
 def _validate_v41_eager_qualification(
-    vllm_config: VllmConfig, afd_config: AFDConfig
+    vllm_config: VllmConfig, afd_config: AFDConfig, *, full: bool = False
 ) -> None:
     """Admit one explicit hardware qualification candidate, not model support.
 
@@ -68,16 +70,52 @@ def _validate_v41_eager_qualification(
     """
     # Worker/backend isolation: the HCCL validator imports torch and native
     # compilation enums. Unsupported/default V4.1 stays CPU-importable.
-    from afd_plugin.connectors.npu.hccl_config import validate_hccl_runtime
+    from afd_plugin.compat.npu.runtime_config import (
+        validate_deepseek_v41_graph_speculation,
+    )
+    from afd_plugin.connectors.npu.hccl_config import (
+        uses_staged_hccl_runtime,
+        validate_hccl_runtime,
+        validate_staged_hccl_runtime,
+    )
 
     if async_cam_layered_gmm_enabled():
         raise ValueError("V4.1 eager qualification requires Async CAM layered GMM off")
-    if vllm_config.speculative_config is not None:
+    if not full and vllm_config.speculative_config is not None:
         raise ValueError("V4.1 eager qualification requires speculation off")
-    if vllm_config.kv_transfer_config is not None:
+    if not full and vllm_config.kv_transfer_config is not None:
         raise ValueError("V4.1 eager qualification requires KV transfer/PD off")
     parallel = vllm_config.parallel_config
-    validate_hccl_runtime(vllm_config, afd_config, role_rank=parallel.rank)
+    if full:
+        validate_deepseek_v41_graph_speculation(vllm_config)
+        speculative = vllm_config.speculative_config
+        if speculative is not None and (
+            speculative.enforce_eager is not True
+            or speculative.enable_adaptive_verification
+            or type(speculative.num_speculative_tokens) is not int
+            or not 0
+            < speculative.num_speculative_tokens
+            <= V41_FUNCTIONAL_MAX_SPECULATIVE_TOKENS
+        ):
+            raise ValueError(
+                "V4.1 full qualification requires fixed eager DSpark N=1/2"
+            )
+        transfer = vllm_config.kv_transfer_config
+        if transfer is not None and (
+            transfer.kv_connector_module_path != HCCL_ATTESTED_PD_MODULE
+        ):
+            raise ValueError(
+                "V4.1 full qualification requires the attested PD connector"
+            )
+    if full and uses_staged_hccl_runtime(vllm_config, afd_config):
+        validate_staged_hccl_runtime(
+            vllm_config,
+            afd_config,
+            role_rank=parallel.rank,
+            graph=not vllm_config.model_config.enforce_eager,
+        )
+    else:
+        validate_hccl_runtime(vllm_config, afd_config, role_rank=parallel.rank)
     if parallel.tensor_parallel_size != V41_EAGER_QUALIFICATION_TP_SIZE:
         raise ValueError("V4.1 eager qualification requires A4/F4 with native TP4")
     model = vllm_config.model_config
@@ -99,7 +137,12 @@ def _validate_v41_eager_qualification(
             "V4.1 eager qualification requires real auto/safetensors loading"
         )
     scheduler = vllm_config.scheduler_config
-    if scheduler.max_num_seqs != 1 or scheduler.async_scheduling is not False:
+    max_sequences = V41_FULL_MAX_SEQUENCES if full else 1
+    if (
+        type(scheduler.max_num_seqs) is not int
+        or not 0 < scheduler.max_num_seqs <= max_sequences
+        or scheduler.async_scheduling is not False
+    ):
         raise ValueError(
             "V4.1 eager qualification requires one sequence and sync scheduling"
         )
@@ -460,10 +503,19 @@ def fail_if_unsupported_npu_afd_features(
         functional_qualification = os.environ.get(V41_FUNCTIONAL_QUALIFICATION_ENV, "0")
         if functional_qualification not in ("0", "1"):
             raise ValueError(f"{V41_FUNCTIONAL_QUALIFICATION_ENV} must be 0 or 1")
-        if (qualification, dummy_qualification, functional_qualification).count(
-            "1"
-        ) > 1:
+        full_qualification = os.environ.get(V41_FULL_QUALIFICATION_ENV, "0")
+        if full_qualification not in ("0", "1"):
+            raise ValueError(f"{V41_FULL_QUALIFICATION_ENV} must be 0 or 1")
+        if (
+            qualification,
+            dummy_qualification,
+            functional_qualification,
+            full_qualification,
+        ).count("1") > 1:
             raise ValueError("V4.1 qualification candidates are mutually exclusive")
+        if full_qualification == "1":
+            _validate_v41_eager_qualification(vllm_config, afd_config, full=True)
+            return
         if functional_qualification == "1":
             _validate_v41_dummy_qualification(vllm_config, afd_config, functional=True)
             return

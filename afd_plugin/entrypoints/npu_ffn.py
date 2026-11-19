@@ -10,6 +10,7 @@ without exposing an HTTP generation service or sending scheduled requests.
 
 from __future__ import annotations
 
+import os
 import signal
 from collections.abc import Sequence
 from types import FrameType
@@ -24,9 +25,13 @@ from vllm.v1.engine.utils import CoreEngineProcManager
 from vllm.v1.executor import Executor
 
 from afd_plugin.compat.npu.feature_validation import (
+    V41_FULL_QUALIFICATION_ENV,
     fail_if_unsupported_npu_afd_features,
 )
-from afd_plugin.compat.npu.runtime_config import get_npu_ffn_config
+from afd_plugin.compat.npu.runtime_config import (
+    get_npu_ffn_config,
+    validate_deepseek_v41_graph_speculation,
+)
 from afd_plugin.config import HCCL_P2P_CONNECTOR, parse_afd_config
 from afd_plugin.validation import validate_npu_model_runner_v2_config
 
@@ -64,19 +69,30 @@ def validate_ffn_configuration(vllm_config: VllmConfig) -> None:
         or parallel.node_rank != 0
     ):
         raise ValueError("standalone NPU FFN requires one local DP1 mp engine")
-    if (
+    if os.environ.get(V41_FULL_QUALIFICATION_ENV) != "1" and (
         vllm_config.speculative_config is not None
         or vllm_config.kv_transfer_config is not None
     ):
         raise ValueError("standalone NPU FFN qualification requires DSpark/PD off")
+    # Validate the original target before isolating A-owned DSpark/PD. The
+    # runner retains its target shape; F must not construct a draft or Engram.
+    if os.environ.get(V41_FULL_QUALIFICATION_ENV) == "1":
+        validate_deepseek_v41_graph_speculation(vllm_config)
+        speculative = vllm_config.speculative_config
+        if speculative is not None and (
+            type(speculative.num_speculative_tokens) is not int
+            or speculative.num_speculative_tokens not in (1, 2)
+        ):
+            raise ValueError("full-checkpoint FFN requires DSpark N=1/2")
+    ffn_config = get_npu_ffn_config(vllm_config)
     validate_npu_model_runner_v2_config(
-        vllm_config,
+        ffn_config,
         expected_role="ffn",
-        device_type=vllm_config.device_config.device_type,
+        device_type=ffn_config.device_config.device_type,
     )
     # Use the worker's existing private role view for preflight. Preserve the
     # original configuration so FFNWorker still performs its native isolation.
-    fail_if_unsupported_npu_afd_features(get_npu_ffn_config(vllm_config))
+    fail_if_unsupported_npu_afd_features(ffn_config)
 
 
 def run_ffn(vllm_config: VllmConfig, *, log_stats: bool) -> int:

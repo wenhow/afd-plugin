@@ -45,7 +45,9 @@ def run(case, *, progress=None):
     )
 
 
-@pytest.mark.parametrize("tp,role_rank", [(1, 0), (2, 0), (2, 1)])
+@pytest.mark.parametrize(
+    "tp,role_rank", [(1, 0), (2, 0), (2, 1), (4, 0), (4, 1), (4, 2), (4, 3)]
+)
 @pytest.mark.parametrize(
     "rows,valid", [((2, 3), (2, 1)), ((0, 3), (0, 0)), ((2, 0), (0, 0))]
 )

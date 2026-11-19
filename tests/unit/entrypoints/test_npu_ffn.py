@@ -14,7 +14,10 @@ from vllm.config import CompilationMode, CUDAGraphMode
 
 from afd_plugin.entrypoints import npu_ffn
 from tests.unit.fakes.engine_client import FFNProcessManager, FFNServiceClient
-from tests.unit.fakes.vllm_config import v41_eager_qualification_config
+from tests.unit.fakes.vllm_config import (
+    v41_eager_qualification_config,
+    v41_full_qualification_config,
+)
 
 
 @pytest.fixture
@@ -67,6 +70,44 @@ def test_ffn_entrypoint_rejects_dspark_pd_before_isolation(ffn_config, field):
 
     with pytest.raises(ValueError, match="DSpark/PD off"):
         npu_ffn.validate_ffn_configuration(ffn_config)
+
+
+@pytest.mark.parametrize("graph", [False, True])
+@pytest.mark.parametrize("stages", [1, 2])
+@pytest.mark.parametrize("dspark,pd", [(True, False), (False, True), (True, True)])
+def test_ffn_full_candidate_preserves_a_owned_modes_before_worker_isolation(
+    ffn_config, monkeypatch, graph, stages, dspark, pd
+):
+    source = v41_full_qualification_config(
+        dtype=torch.bfloat16,
+        compilation_mode=CompilationMode.NONE,
+        cudagraph_mode=CUDAGraphMode.FULL_DECODE_ONLY if graph else CUDAGraphMode.NONE,
+        role="ffn",
+        graph=graph,
+        stages=stages,
+        dspark=dspark,
+        pd=pd,
+    )
+    source.parallel_config.distributed_executor_backend = "mp"
+    source.parallel_config.data_parallel_size_local = 1
+    source.parallel_config.nnodes = 1
+    source.parallel_config.node_rank = 0
+    source.device_config = ffn_config.device_config
+    original = (
+        source.engram_config,
+        source.speculative_config,
+        source.kv_transfer_config,
+    )
+    monkeypatch.setenv("AFD_DSV41_EAGER_QUALIFICATION", "0")
+    monkeypatch.setenv("AFD_DSV41_FULL_QUALIFICATION", "1")
+
+    npu_ffn.validate_ffn_configuration(source)
+
+    assert (
+        source.engram_config,
+        source.speculative_config,
+        source.kv_transfer_config,
+    ) == original
 
 
 @pytest.mark.parametrize(

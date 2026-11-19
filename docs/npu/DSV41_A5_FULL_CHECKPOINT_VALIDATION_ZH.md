@@ -1,4 +1,133 @@
-# DSV4.1 A5：完整权重 eager/U1 验证
+# DSV4.1 A5：完整权重功能矩阵验证
+
+2026-11-19 开发入口扩展为 `tools/diagnostics/run_dsv41_full_checkpoint.py`。
+使用原始量化 checkpoint、CPU offload Engram、TP4 A4/F4。新入口默认只生成命令计划；
+`--run` 才执行预检、载权、请求和必要清理。CPU/配置通过不能替代下面逐格 A5 验收。
+历史 eager/U1 首 token 差异仍待本轮同 TP4 原生对照收口。
+
+## 新批次准备与原生对照
+
+从 `origin/feat/dsv41-flash-hccl-v030` 更新 A5 的独立干净 checkout；确认存在新脚本及
+`afd_plugin/model_executor/models/npu/deepseek_v41_engram.py`，旧 U1 提交没有本批功能。
+使用已有容器与算子 vendor，不安装或切换依赖。源码锁仍为 vLLM `ced6857a`、
+Ascend `7e37e29a`。各个 AFD 实例使用八张卡，原生对照使用四张；PD 的 P/D
+必须同时驻留，设备安排尚未指定，由下述配置项声明。
+候选固定为文本、DP1/PP1/CP1、EP/SP 关闭、最大两请求、上下文 1024 token、
+调度块 128 token；真实 checkpoint 的层数、专家数和 Engram 保持原值。
+
+```bash
+DSV41_PY=/usr/local/python3.11.10/bin/python
+DSV41_MODEL=/home/models/DeepSeek-V4.1-Flash
+DSV41_VENDOR=/usr/local/Ascend/ascend-toolkit/latest/opp/vendors/custom_transformer
+full() {
+  "$DSV41_PY" -B tools/diagnostics/run_dsv41_full_checkpoint.py \
+    --model "$DSV41_MODEL" --transformer-vendor "$DSV41_VENDOR" \
+    --output-root results/full-checkpoint "$@"
+}
+full --native-control --run
+```
+
+将本次打印的原生目录赋给 `DSV41_NATIVE`。原生也保留 TP4、量化和 Engram，
+避免继续用不同 DP/EP 拓扑的旧结果作为等价基线。
+
+```bash
+DSV41_NATIVE=/absolute/path/to/results/full-checkpoint/full-eager-u1-XXXXXXXX
+full --mode eager-u1 --reference-run "$DSV41_NATIVE" --run
+```
+
+先回传这两个归档。若输出不同，`request-XX/token-comparison.json` 会记录首个差异
+位置及两侧 token IDs，脚本退出非零；不得将后续组合记为已通过。
+
+## standalone 十二种组合
+
+`--mode` 取 `eager-u1`、`eager-u2`、`graph-u1`、`graph-u2`，
+`--spec-tokens` 取 `0`、`1`、`2`，分别对应 DSpark 关、N=1、N=2。
+同一命令按表替换参数即可启动每格；默认多流显式开启。需要串行对照时加
+`--stream-overlap 0`，Graph/U2 同时改用 `stage_serial` 交换顺序。
+
+```bash
+full --mode eager-u1 --spec-tokens 1 --reference-run "$DSV41_NATIVE" --run
+full --mode eager-u2 --spec-tokens 0 --reference-run "$DSV41_NATIVE" --run
+full --mode graph-u1 --spec-tokens 0 --reference-run "$DSV41_NATIVE" --run
+full --mode graph-u2 --spec-tokens 2 --reference-run "$DSV41_NATIVE" --run
+```
+
+| 格子 | 启动参数 | 额外通过条件 |
+| --- | --- | --- |
+| eager/U1，无 DSpark | `--mode eager-u1 --spec-tokens 0` | 与原生五个对应请求的 prompt/output IDs 全等，包含首 token |
+| DSpark/U1，N=1/2 | `--mode eager-u1 --spec-tokens 1` 或 `2` | 真实详细 metrics 同时观察接受、拒绝，且拒绝后还有同请求的验证轮次 |
+| eager/U2，无 DSpark及 N=1/2 | `--mode eager-u2 --spec-tokens 0`、`1`、`2` | 真实 U2 parent、多流计算/发送/接收、同会话单请求 U1 回退；与 overlap=0 对照 |
+| Graph/U1，无 DSpark及 N=1/2 | `--mode graph-u1 --spec-tokens 0`、`1`、`2` | A/F capture、实际 replay 返回、长 prefill→eager 回退；父 Engram lookup 每步更新 |
+| Graph/U2，无 DSpark及 N=1/2 | `--mode graph-u2 --spec-tokens 0`、`1`、`2` | 真实双 stage、跨层/多流及图回放，bucket/请求切换后仍与原生输出全等 |
+
+每格自动执行两波双并发短请求，中间取消一个流式请求，随后复用槽位；最后发送一个
+超过 128-token 调度块的长 prompt，验证 chunked prefill 与单请求回退。正常请求均生成
+32 token，固定 temperature=0/seed=0。取消在首个非空文本 chunk 后关闭连接。
+DSpark 无有效提案、只接受/只拒绝、或没有拒绝后继续轮次，均不能通过脚本检查。
+
+`summary.request_passed=true` 只表示本次请求检查完成。U2/Graph 不得只看启动参数：
+核对 A/F 日志的 `AFD HCCL stage diagnostic`、实际 `num_stages`、
+`actual.mode`、非 warmup/profile 的业务 parent，以及 `graph_parent_replay_returned`。
+长 prompt 的 eager 业务 parent 和后继 replay 必须处于同一会话；缺失任一项时该格待验，
+不能由纯 U1 或 eager 回退结果替代。
+
+## 可配置 PD：先确定地址，设备稍后分配
+
+P 与 D 各启动一个 A4/F4 实例。P 当前使用 eager/U1；DSpark PD 时 P 和 D 使用相同 N。
+两节点可使用相同卡号与默认端口；同节点部署时选择互不重叠的八卡集合，并给 D 设置
+`--port-offset`。`--kv-ip` 必须是对端实际可达的本节点地址，`--bind-host` 控制 HTTP
+监听。单个实例的 A/F 本轮仍为同节点 mp/TP4，未把 A/F 拆到两台机器。
+
+在 P 节点（先不加 `--run` 可检查计划）：
+
+```bash
+full --pd-role producer --mode eager-u1 --spec-tokens 1 \
+  --engine-id dsv41-prefill --bind-host 0.0.0.0 --kv-ip "$DSV41_P_IP" \
+  --attention-devices "$DSV41_P_A_DEVICES" --ffn-devices "$DSV41_P_F_DEVICES" \
+  --producer-stop-file /absolute/path/to/p-finished.flag --run
+```
+
+等待打印 `P ready`，在 D 节点执行：
+
+```bash
+full --pd-role consumer --mode graph-u2 --spec-tokens 1 \
+  --engine-id dsv41-decode --bind-host 0.0.0.0 --kv-ip "$DSV41_D_IP" \
+  --attention-devices "$DSV41_D_A_DEVICES" --ffn-devices "$DSV41_D_F_DEVICES" \
+  --port-offset "${DSV41_D_PORT_OFFSET:-0}" \
+  --prefill-url "http://$DSV41_P_IP:18031" \
+  --reference-run "$DSV41_NATIVE" --run
+```
+
+上述 IP/卡号变量由实际设备安排填写，例如每节点 A=`0,1,2,3`、F=`4,5,6,7`。
+P 也使用端口偏移时，`--prefill-url` 的 HTTP 端口改为 `18031+P偏移`。
+D 的参考目录须从本批原生对照复制过来。D 全部请求及清理结束后，在 P 节点创建
+`/absolute/path/to/p-finished.flag`；P 才执行正常退出。该文件启动前必须不存在。
+
+| PD 必测格子 | D 参数 | P 参数 |
+| --- | --- | --- |
+| eager/U1 | `--mode eager-u1 --spec-tokens 0` | eager/U1，N=0 |
+| DSpark/U1 | `--mode eager-u1 --spec-tokens 1`，再 N=2 | eager/U1，相同 N |
+| Graph/U2 | `--mode graph-u2 --spec-tokens 0` | eager/U1，N=0 |
+| DSpark eager/U2 | `--mode eager-u2 --spec-tokens 1`，再 N=2 | eager/U1，相同 N |
+| DSpark Graph/U2 | `--mode graph-u2 --spec-tokens 1`，再 N=2 | eager/U1，相同 N |
+
+PD 额外要求：每次 P 响应包含 `afd_engram_history_v1`；D 在原生 KV pull 前校验完整
+原始 prompt 的长度、摘要、源 request/engine ID，使用自己的原生 token history 重建
+slotless Engram lookback。CPU offload 不免除历史检查。DSpark 继续核对既有 source、
+Ready/读取/DONE 协议，不把 history 声明当作 KV ready。P/D 的 request/前缀/退出日志及
+全部 D 输出均需对应；取消后新请求不得沿用旧历史。F 不接收 Engram 表或请求历史。
+
+## 回传与验收边界
+
+每个结果目录旁生成 `.tar.gz`，回传原生、各模式及 PD 两端的归档即可。
+所有模式均要求正常请求与原生精确匹配、必要清理成功、选定卡无本轮残留；强杀、超时、
+错误退出不转为通过。归档保留命令计划、预检、每请求 JSON/metrics、取消片段、日志及
+清理结果。`hardware_acceptance=false` / `full_model_qualification=false` 保留为待审阅标志，
+不因一次 HTTP 成功自动宣布完整支持。profiler、性能与服务启停/重启专项仍按原排期后置。
+
+下面是旧单次 U1 流程，保留用于历史报告复现；新批次使用上面的矩阵入口。
+
+## 历史：完整权重 eager/U1 单次验证
 
 本轮使用原始完整 checkpoint，实际读取 safetensors 参数并执行推理。
 先验证载权、一个固定短请求及正常退出，再根据保存的原生结果核对输出。

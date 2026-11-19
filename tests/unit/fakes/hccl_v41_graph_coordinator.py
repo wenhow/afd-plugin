@@ -48,6 +48,7 @@ from afd_plugin.v1.worker.npu.hccl_v41_ubatch_runner import HcclV41UBatchRunner
 from tests.unit.fakes.batch_req_state import make_batch_req_state
 from tests.unit.fakes.deepseek_v41 import ParentEngramState, make_staged_model
 from tests.unit.fakes.deepseek_v41_graph import GraphFFNEndpoint, make_graph_model_case
+from tests.unit.fakes.engram import ExternalParentEngramState
 from tests.unit.fakes.graph_cache import DeviceCompletion, ReplayGraph
 from tests.unit.fakes.graph_capture import cpu_capture_boundary
 from tests.unit.fakes.hccl_graph_stage import make_graph_stage_bank
@@ -65,6 +66,7 @@ def make_coordinator_case(
     exchange_order="stage_serial",
     target_query_len=1,
     engram=False,
+    external_engram=False,
     capture_tokens=None,
 ):
     tokens = 4 if target_query_len == 1 else 3 * target_query_len
@@ -134,7 +136,9 @@ def make_coordinator_case(
     nn.Module.__init__(wrapper)
     wrapper.language_model = nn.Module()
     wrapper.language_model.model = model_case.model
-    state = ParentEngramState({})
+    state = ExternalParentEngramState({}) if external_engram else ParentEngramState({})
+    if external_engram:
+        model_case.model.can_capture_engram_producer = lambda: False
     state.model = wrapper
     state.attn_metadata = {"previous-generation": SimpleNamespace()}
     runner = make_hccl_ubatch_seam(

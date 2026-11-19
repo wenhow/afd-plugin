@@ -37,10 +37,12 @@ The entry point instead calls the same process manager's liveness monitor on its
 main thread. This adds no model buffers or device synchronization.
 
 Before process creation, the entry point requires FFN/HCCL, NPU ModelRunner V2,
-one local DP1 `mp` engine and DSpark/PD off. The existing model qualification guard
-runs on the worker's existing detached FFN configuration view; the original
+one local DP1 `mp` engine and DSpark/PD off by default. The explicit full-checkpoint
+candidate also validates fixed eager DSpark N=1/2 and the attested PD declaration
+before isolating A-owned state. Both runtime and model qualification guards
+run on the worker's existing detached FFN configuration view; the original
 Engram configuration remains available to normal worker initialization. This
-entry point does not expand the qualified model or execution modes.
+entry point does not itself establish hardware qualification of any mode.
 
 `monitor_engine_liveness()` waits for an engine exit and calls manager shutdown.
 The DP1 entry point then requires exactly one finished engine, preserves its

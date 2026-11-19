@@ -32,6 +32,7 @@ from tests.unit.fakes.hccl_v41_graph_execution import (  # noqa: E402
 @pytest.fixture
 def graph_case(monkeypatch):
     monkeypatch.setattr(torch.npu, "is_current_stream_capturing", lambda: False)
+    monkeypatch.setattr(torch.npu, "synchronize", lambda *args: None)
     monkeypatch.setattr(
         "vllm_ascend.worker.v2.input_batch.update_cos_sin", lambda _: None
     )

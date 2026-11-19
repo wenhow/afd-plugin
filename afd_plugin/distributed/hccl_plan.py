@@ -27,6 +27,9 @@ from afd_plugin.distributed.hccl_graph import (
 )
 
 HCCL_PLAN_PROTOCOL_VERSION = 3
+# Paired roles preserve the native TP coordinate: A[tp + r] <-> F[r].
+# TP4 uses the same per-coordinate packets; native MoE owns its TP reduction.
+PAIRED_NATIVE_TP_SIZES = (1, 2, 4)
 MAX_ROLE_RANKS = 1_024
 MAX_CONTROL_MESSAGE_BYTES = 65_536
 MAX_TRANSACTION_ID_BYTES = 256
@@ -132,20 +135,20 @@ class HcclPlanCapabilities:
             self.graph_execution_version == 0
             and self.max_stages == MAX_HCCL_STAGES
             and self.attention_size == self.ffn_size == self.native_tp_size
-            and self.native_tp_size in (1, 2)
+            and self.native_tp_size in PAIRED_NATIVE_TP_SIZES
         ):
             raise ValueError(
                 "eager_pipeline_version=1 requires Graph v0, U2 "
-                "and paired native TP1/TP2"
+                "and paired native TP1/TP2/TP4"
             )
         if self.target_query_len > 1 and not (
             self.local_counts_version == self.graph_execution_version == 1
             and self.attention_size == self.ffn_size == self.native_tp_size
-            and self.native_tp_size in (1, 2)
+            and self.native_tp_size in PAIRED_NATIVE_TP_SIZES
         ):
             raise ValueError(
                 "target_query_len > 1 requires Graph v1, local counts v1 "
-                "and paired native TP1/TP2"
+                "and paired native TP1/TP2/TP4"
             )
         if self.graph_execution_version and self.local_counts_version != 1:
             raise ValueError("graph execution requires local_counts_version=1")
@@ -160,10 +163,11 @@ class HcclPlanCapabilities:
         if self.graph_exchange_order != "stage_serial" and (
             self.graph_execution_version != 1
             or self.max_stages != 2
-            or self.native_tp_size not in (1, 2)
+            or self.native_tp_size not in PAIRED_NATIVE_TP_SIZES
         ):
             raise ValueError(
-                f"{self.graph_exchange_order} requires Graph v1, U2 and paired TP1/TP2"
+                f"{self.graph_exchange_order} requires Graph v1, U2 "
+                "and paired TP1/TP2/TP4"
             )
         if self.local_counts_version == 1 and not (
             self.attention_size == self.ffn_size == self.native_tp_size

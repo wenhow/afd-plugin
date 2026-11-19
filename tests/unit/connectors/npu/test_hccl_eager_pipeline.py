@@ -34,7 +34,7 @@ def case(monkeypatch):
     return make_eager_pair(monkeypatch, owner_module, transport_module)
 
 
-@pytest.mark.parametrize("tp", [1, 2])
+@pytest.mark.parametrize("tp", [1, 2, 4])
 @pytest.mark.parametrize(
     "rows,valid",
     [((2, 3), (2, 3)), ((0, 3), (0, 1)), ((2, 0), (0, 0)), ((0, 0), (0, 0))],

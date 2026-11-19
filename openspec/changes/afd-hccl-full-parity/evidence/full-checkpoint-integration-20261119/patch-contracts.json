@@ -1,0 +1,25 @@
+{
+  "locked_vllm": "ced6857afa0ea7b2e3f0846a62e1394e90f15607",
+  "locked_ascend": "7e37e29a7803d6897a7113088e2b771f83205bc0",
+  "signatures": [
+    {
+      "symbol": "__init__",
+      "signature_matches": true
+    },
+    {
+      "symbol": "prepare_engram_dummy_inputs",
+      "signature_matches": true
+    },
+    {
+      "symbol": "prepare_engram",
+      "signature_matches": true
+    },
+    {
+      "symbol": "VllmConfig._resolve_and_verify_engram_config",
+      "signature_matches": true
+    }
+  ],
+  "engram_resolver_native_body_preserved_except_scoped_condition": true,
+  "native_state_sha256": "677cb13bb86ad80a154e0ff9a43620aa3344e7e93170a05e27aba0cc1f10aa8b",
+  "device_execution": false
+}

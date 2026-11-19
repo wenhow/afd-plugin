@@ -77,6 +77,11 @@ from afd_plugin.compat.npu.dspark_pd import (
     source_request_from_payload,
     source_request_payload,
 )
+from afd_plugin.compat.npu.engram_history import (
+    ENGRAM_HISTORY_PARAM,
+    engram_history_payload,
+    validate_engram_history,
+)
 from afd_plugin.compat.npu.kv_layout import (
     MAX_LAYOUT_BYTES,
     KVLayoutSnapshot,
@@ -550,16 +555,44 @@ class AFDMooncakeConnectorScheduler(MooncakeConnectorScheduler):
         self._dspark_cancelled: list[tuple[str, str]] = []
         self._dspark_failed = False
         # ### PATCH END: request-owned DSpark declarations
+        # ### PATCH START: A-owned slotless Engram history
+        self._engram_history_enabled = (
+            is_deepseek_v41_model(vllm_config) and vllm_config.engram_config is not None
+        )
+        # ### PATCH END: A-owned slotless Engram history
 
     # Native 7e37e29a:1566-1571, exact signature. Preserve the original prompt
     # before native P truncation; D validates that same prompt before any pull.
     # Native caps P output only when it truncates a multi-token prompt. Cap
     # every DSpark remote-decode producer request so later P decode cannot
     # rewrite a published prefix. This adds no synchronization or new state.
-    # Remove when native preserves an authenticated original-prompt declaration.
+    # Engram adds a request-owned digest/length/source declaration before native
+    # truncation; D checks its complete original prompt before remote KV pull.
+    # Cost: one O(prompt tokens) host digest per request, no lookup tensor copy.
+    # Remove when native preserves and validates this original-prompt contract.
     # Remove the cap when native handles every producer prompt length itself.
     def on_new_request(self, request: Request) -> None:
         params = request.kv_transfer_params
+        # ### PATCH START: original Engram prompt before native P truncation
+        if (
+            self._engram_history_enabled
+            and params is not None
+            and (params.get("do_remote_decode") or params.get("do_remote_prefill"))
+        ):
+            if request.prompt_token_ids is None:
+                raise ValueError("Engram PD requires complete original text prompt IDs")
+            if params.get("do_remote_prefill"):
+                validate_engram_history(
+                    params.get(ENGRAM_HISTORY_PARAM, {}),
+                    request.prompt_token_ids,
+                    params["remote_request_id"],
+                    params["remote_engine_id"],
+                )
+            else:
+                params[ENGRAM_HISTORY_PARAM] = engram_history_payload(
+                    request.prompt_token_ids, request.request_id, self.engine_id
+                )
+        # ### PATCH END: original Engram prompt before native P truncation
         # ### PATCH START: original prompt and source generation
         if (
             self._dspark_enabled
@@ -722,12 +755,22 @@ class AFDMooncakeConnectorScheduler(MooncakeConnectorScheduler):
 
     # Native 7e37e29a:1658-1705, exact signature. Keep native prefix/SWA export
     # and delay-free behavior; attach a source declaration, never a ready claim.
+    # Preserve Engram's original prompt declaration in P's native response;
+    # D reconstructs slotless lookback locally from its checked original IDs.
+    # Cost: constant-size response metadata; no F history or embedding transfer.
     # Delegation exception: native owns exact status/truncation/response fields.
     # Remove when native implements matching request-ready leases.
     def request_finished_all_groups(
         self, request: Request, block_ids: BlockIds
     ) -> tuple[bool, dict[str, Any] | None]:
         delayed, params = super().request_finished_all_groups(request, block_ids)
+        # ### PATCH START: preserve original history in the native PD response
+        if self._engram_history_enabled and params is not None:
+            assert request.kv_transfer_params is not None
+            params[ENGRAM_HISTORY_PARAM] = request.kv_transfer_params[
+                ENGRAM_HISTORY_PARAM
+            ]
+        # ### PATCH END: preserve original history in the native PD response
         # ### PATCH START: generation-aware source publication/cancellation
         source = self._dspark_sources.get(request.request_id)
         if not self._dspark_enabled or source is None:

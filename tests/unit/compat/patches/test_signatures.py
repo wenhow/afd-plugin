@@ -19,6 +19,7 @@ import pytest
         "capture-inputs",
         "engine-core-collective-rpc",
         "npu-dspark-ubatching-config",
+        "npu-engram-ubatching-config",
         "camp2p-dispatch",
         "hccl-native-prepare",
         "hccl-graph-gather",
@@ -100,11 +101,21 @@ def test_scoped_patch_preserves_upstream_signature(hook):  # long-test: shared t
             adapter.collective_rpc, eval_str=True
         ) == inspect.signature(namespace["collective_rpc"], eval_str=True)
         return
-    elif hook == "npu-dspark-ubatching-config":
+    elif hook in ("npu-dspark-ubatching-config", "npu-engram-ubatching-config"):
         from vllm.config import vllm as native_config
 
-        from afd_plugin.compat.patches.npu.ubatching_config import (
-            get_dbo_unsupported_features,
+        from afd_plugin.compat.patches.npu import ubatching_config
+
+        method_name, replacement = (
+            (
+                "_get_dbo_unsupported_features",
+                ubatching_config.get_dbo_unsupported_features,
+            )
+            if hook == "npu-dspark-ubatching-config"
+            else (
+                "_resolve_and_verify_engram_config",
+                ubatching_config.resolve_and_verify_engram_config,
+            )
         )
 
         # Read the installed native declaration: the public runtime facade may
@@ -116,8 +127,7 @@ def test_scoped_patch_preserves_upstream_signature(hook):  # long-test: shared t
             )
             .body[0]
             .body
-            if isinstance(node, ast.FunctionDef)
-            and node.name == "_get_dbo_unsupported_features"
+            if isinstance(node, ast.FunctionDef) and node.name == method_name
         )
         declaration.body = [ast.Pass()]
         namespace = dict(vars(native_config))
@@ -129,10 +139,8 @@ def test_scoped_patch_preserves_upstream_signature(hook):  # long-test: shared t
             ),
             namespace,
         )
-        assert inspect.signature(
-            get_dbo_unsupported_features, eval_str=True
-        ) == inspect.signature(
-            namespace["_get_dbo_unsupported_features"], eval_str=True
+        assert inspect.signature(replacement, eval_str=True) == inspect.signature(
+            namespace[method_name], eval_str=True
         )
         return
     elif hook.startswith("pd-"):

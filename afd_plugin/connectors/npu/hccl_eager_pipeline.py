@@ -26,6 +26,7 @@ from afd_plugin.connectors.npu.hccl_diagnostics import (
     HcclStageDiagnosticRun,
 )
 from afd_plugin.connectors.npu.hccl_transport import HcclLayerInputs
+from afd_plugin.distributed.hccl_plan import PAIRED_NATIVE_TP_SIZES
 
 if TYPE_CHECKING:
     from afd_plugin.connectors.npu.hccl_staged_transport import HcclStagedTransport
@@ -76,11 +77,11 @@ def validate_eager_topology(transport: HcclStagedTransport) -> None:
     caps.validate()
     if not (
         caps.attention_size == caps.ffn_size == caps.native_tp_size
-        and caps.native_tp_size in (1, 2)
+        and caps.native_tp_size in PAIRED_NATIVE_TP_SIZES
         and caps.max_stages == 2
     ):
         raise ValueError(
-            "eager pipeline requires paired native TP1/TP2 and U2 capacity"
+            "eager pipeline requires paired native TP1/TP2/TP4 and U2 capacity"
         )
 
 

@@ -75,6 +75,9 @@ from afd_plugin.model_executor.models.forward_context import use_afd_metadata_pr
 from afd_plugin.model_executor.models.npu.deepseek_v41 import (
     HCCL_V41_PARENT_FORWARD_KEY,
 )
+from afd_plugin.model_executor.models.npu.deepseek_v41_engram import (
+    AFDDeepseekV41EngramModelState,
+)
 from afd_plugin.v1.worker.npu.hccl_v41_diagnostics import HcclV41DiagnosticBinding
 from afd_plugin.v1.worker.npu.hccl_v41_execution import HcclV41Execution
 from afd_plugin.v1.worker.npu.hccl_v41_graph import (
@@ -364,6 +367,16 @@ class HcclV41GraphCoordinator:
             "attention", self._capabilities.graph_exchange_order
         )
 
+    def _supports_engram_graph(self) -> bool:
+        native = self.owner.model.language_model.model
+        state = self.owner.model_state
+        return (
+            not native.has_engram
+            or native.can_capture_engram_producer()
+            or isinstance(state, AFDDeepseekV41EngramModelState)
+            and state.uses_external_engram_graph_producer
+        )
+
     def preflight_capture(self) -> bool:
         """Agree capture eligibility with an honest miss and zero-row fallback.
 
@@ -382,10 +395,7 @@ class HcclV41GraphCoordinator:
                 or self.transport.graph_reservation is not None
             ):
                 raise ValueError("capture eligibility requires a fresh graph session")
-            native = self.owner.model.language_model.model
-            supported = bool(self.coverage.geometries) and (
-                not native.has_engram or native.can_capture_engram_producer()
-            )
+            supported = bool(self.coverage.geometries) and self._supports_engram_graph()
             if self._capabilities.graph_exchange_order != "stage_serial":
                 # FFN sees the complete sequence digest, not every descriptor.
                 # Require U2 compute eligibility for the whole bulk session,
@@ -829,7 +839,6 @@ class HcclV41GraphCoordinator:
         ) -> BatchExecutionDescriptor:
             nonlocal reservation
             self._require_storage()
-            native = self.model.language_model.model
             if batch_state is None:
                 geometry = eager_hccl_v41_geometry(native_descriptor)
                 reservation = self.control.reserve_eager(
@@ -841,9 +850,7 @@ class HcclV41GraphCoordinator:
                     parallel_config=self.owner.parallel_config,
                     allow_ubatching=arguments.allow_ubatching,
                     need_eager=(
-                        arguments.need_eager
-                        or native.has_engram
-                        and not native.can_capture_engram_producer()
+                        arguments.need_eager or not self._supports_engram_graph()
                     ),
                     max_query_len=arguments.max_query_len,
                     num_active_loras=arguments.num_active_loras,

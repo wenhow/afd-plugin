@@ -18,6 +18,7 @@ from afd_plugin.compat.patches.npu import ubatching_config
 from tests.unit.fakes.vllm_config import (
     native_dbo_config_snapshot,
     native_v41_dbo_config,
+    native_v41_engram_dbo_config,
 )
 
 NATIVE_SPECULATION = "dual batch overlap with speculative decoding"
@@ -27,6 +28,7 @@ NATIVE_BASE_RESTRICTIONS = [NATIVE_SPECULATION, NATIVE_MULTIMODAL]
 
 @pytest.fixture
 def native_config_patch(monkeypatch):
+    monkeypatch.delenv("AFD_DSV41_FULL_QUALIFICATION", raising=False)
     monkeypatch.setattr(envs, "VLLM_USE_V2_MODEL_RUNNER", True)
     monkeypatch.setattr(
         ubatching_config, "current_platform", SimpleNamespace(device_type="npu")
@@ -37,7 +39,41 @@ def native_config_patch(monkeypatch):
         "_get_dbo_unsupported_features",
         VllmConfig._get_dbo_unsupported_features,
     )
+    monkeypatch.setattr(
+        VllmConfig,
+        "_resolve_and_verify_engram_config",
+        VllmConfig._resolve_and_verify_engram_config,
+    )
     runtime.apply_afd_ascend_config_patch_if_needed()
+
+
+@pytest.mark.parametrize("role", ["attention", "ffn"])
+@pytest.mark.parametrize("target_graph", [False, True])
+@pytest.mark.parametrize("dspark", [False, True])
+def test_full_candidate_retains_native_engram_validation_and_configuration(
+    native_config_patch, monkeypatch, role, target_graph, dspark
+):
+    config = native_v41_engram_dbo_config(
+        role=role, target_graph=target_graph, dspark=dspark
+    )
+    before = native_dbo_config_snapshot(config)
+    monkeypatch.setenv("AFD_DSV41_FULL_QUALIFICATION", "1")
+
+    config._resolve_and_verify_engram_config()
+
+    assert config._get_dbo_unsupported_features() == []
+    assert native_dbo_config_snapshot(config) == before
+
+
+@pytest.mark.parametrize("flag", [None, "0", "true", "2"])
+def test_engram_u2_keeps_native_rejection_outside_exact_candidate(
+    native_config_patch, monkeypatch, flag
+):
+    config = native_v41_engram_dbo_config()
+    if flag is not None:
+        monkeypatch.setenv("AFD_DSV41_FULL_QUALIFICATION", flag)
+    with pytest.raises(ValueError, match="Engram does not support DBO"):
+        config._resolve_and_verify_engram_config()
 
 
 @pytest.mark.parametrize("role", ["attention", "ffn"])

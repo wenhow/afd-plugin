@@ -29,6 +29,10 @@ from afd_plugin.compat.npu.dspark_pd import (
     read_query_from_payload,
     source_request_payload,
 )
+from afd_plugin.compat.npu.engram_history import (
+    ENGRAM_HISTORY_PARAM,
+    engram_history_payload,
+)
 from afd_plugin.compat.npu.kv_layout import layout_from_json
 from afd_plugin.compat.npu.kv_layout_native import collect_deepseek_v41_kv_layout
 from tests.unit.fakes.dspark_pd import make_dspark_pd_prefix_case
@@ -71,6 +75,62 @@ BYTE_VALUE_COUNT = 256
 SCHEDULER_CPU_BLOCKS = 64
 REMOTE_PREFILL_CALLER_MAX_TOKENS = 5
 NATIVE_EVICTION_PROMPT_TOKENS = 10
+
+
+def test_engram_pd_exports_original_history_after_native_prefill_truncation(
+    monkeypatch,
+):
+    prefix = make_dspark_pd_prefix_case(
+        monkeypatch, num_blocks=SCHEDULER_CPU_BLOCKS, bind=False
+    )
+    prefix.config.engram_config = SimpleNamespace(cpu_offload=True)
+    case = make_dspark_scheduler_case(monkeypatch, prefix)
+    request = case.request
+    original = list(range(prefix.source.original_prompt_tokens))
+    expected = engram_history_payload(
+        original, request.request_id, case.scheduler.engine_id
+    )
+    assert request.prompt_token_ids == original[:-1]
+    assert case.manager.allocate_slots(request, request.num_prompt_tokens) is not None
+    case.scheduler.update_state_after_alloc(
+        request, case.manager.get_blocks(request.request_id), 0
+    )
+    request.num_computed_tokens = request.num_prompt_tokens
+    request.append_output_token_ids(7)
+    request.status = RequestStatus.FINISHED_LENGTH_CAPPED
+
+    _, params = case.scheduler.request_finished_all_groups(
+        request, case.manager.get_block_ids(request.request_id)
+    )
+
+    assert params[ENGRAM_HISTORY_PARAM] == expected
+
+
+@pytest.mark.parametrize("changed", [False, True])
+def test_engram_pd_checks_original_prompt_before_admitting_remote_prefix(
+    monkeypatch, changed
+):
+    prefix = make_dspark_pd_prefix_case(monkeypatch, bind=False)
+    prefix.config.engram_config = SimpleNamespace(cpu_offload=True)
+    case = make_dspark_scheduler_case(monkeypatch, prefix, role="kv_consumer")
+    source = prefix.source
+    tokens = list(range(source.original_prompt_tokens))
+    history = engram_history_payload(tokens, source.request_id, source.source_engine_id)
+    params = {
+        "do_remote_prefill": True,
+        "remote_request_id": source.request_id,
+        "remote_engine_id": source.source_engine_id,
+        "remote_block_ids": source.transfer_block_ids,
+        adapter.DSPARK_SOURCE_PARAM: source_request_payload(source),
+        ENGRAM_HISTORY_PARAM: history,
+    }
+    if changed:
+        tokens[-1] += 1
+        with pytest.raises(ValueError, match="Engram PD source history"):
+            case.new_request(tokens, params=params)
+    else:
+        received = case.new_request(tokens, params=params)
+        assert received.prompt_token_ids == tokens
 
 
 @pytest.fixture
@@ -1597,6 +1657,54 @@ def test_target_only_producer_keeps_native_noop_shutdown(monkeypatch):
     case = make_registration_case(monkeypatch, role="kv_producer")
     case.worker.register_kv_caches(case.cache.caches)
     assert case.connector.shutdown() is None
+
+
+@pytest.mark.parametrize("registration_failed", [False, True])
+def test_target_only_consumer_shutdown_preserves_registration_boundary(
+    monkeypatch, registration_failed
+):
+    case = make_registration_case(
+        monkeypatch, role="kv_consumer", receiver_boundary=False
+    )
+    if registration_failed:
+        case.boundary.fail_registration = True
+        with pytest.raises(
+            RuntimeError, match="controlled memory registration failure"
+        ):
+            case.worker.register_kv_caches(case.cache.caches)
+        with pytest.raises(RuntimeError, match="registered attested consumer"):
+            case.connector.shutdown()
+    else:
+        assert case.connector.shutdown() is None
+
+
+@pytest.mark.parametrize("acknowledged", [True, False])
+def test_target_only_consumer_shutdown_requires_done_ack(monkeypatch, acknowledged):
+    case = attach_consumer_worker(
+        make_retiring_receiver_case(
+            monkeypatch, ack=b"ACK" if acknowledged else b"NACK"
+        )
+    )
+    try:
+        case.submit()
+        case.allow_ack.set()
+        if acknowledged:
+            assert case.connector.shutdown() is None
+            assert case.connector.shutdown() is None
+            assert case.receiver.retired
+            assert not case.receiver.is_alive()
+            assert case.receiver.get_and_clear_finished_requests() == {"request"}
+        else:
+            with pytest.raises(RuntimeError, match="DONE/ACK|retained failure"):
+                case.connector.shutdown()
+            assert not case.receiver.retired
+            assert case.receiver.is_alive()
+            assert case.receiver.engine is case.engine
+            assert case.receiver.kv_caches is case.local.caches
+        with pytest.raises(RuntimeError, match="admission is closed"):
+            case.receiver.add_request(**request_map(case))
+    finally:
+        case.close()
 
 
 def test_producer_shutdown_closes_ready_admission_after_real_lease_done(dspark_case):

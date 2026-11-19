@@ -360,6 +360,19 @@ class AFDDeepseekV41AttentionLLMForCausalLM(native.AscendDeepseekV41LLMForCausal
 class AFDDeepseekV41AttentionForCausalLM(native_wrapper.AscendDeepseekV41ForCausalLM):
     language_model_cls = AFDDeepseekV41AttentionLLMForCausalLM
 
+    # Upstream: AscendDeepseekV41ForCausalLM.get_model_state_cls @ 7e37e29a.
+    # Reason: native TP graph preparation excludes captured Engram collectives.
+    # Functionality: retain native history with AFD's parent-stream TP producer.
+    # Signature matches upstream. Remove with native staged TP Engram support.
+    def get_model_state_cls(self):
+        # ### PATCH START: A-owned TP graph preparation
+        from afd_plugin.model_executor.models.npu.deepseek_v41_engram import (
+            AFDDeepseekV41EngramModelState,
+        )
+
+        return AFDDeepseekV41EngramModelState
+        # ### PATCH END: A-owned TP graph preparation
+
     # Upstream: AscendDeepseekV41ForCausalLM.forward @ 7e37e29a, vl_model.py.
     # Reason: native eager U1/profile calls bypass the microbatch runner.
     # Functionality: route an explicitly bound v3 parent after the native

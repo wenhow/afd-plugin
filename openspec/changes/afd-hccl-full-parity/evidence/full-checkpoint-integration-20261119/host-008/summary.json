@@ -1,0 +1,6 @@
+{
+  "exit_code": 0,
+  "npu_initialized_before": false,
+  "npu_initialized_after": false,
+  "hardware_acceptance": false
+}

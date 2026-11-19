@@ -1,0 +1,2172 @@
+..........................................................F.F.F.F....... [  8%]
+..F.F.F.F............................................................... [ 16%]
+........................................................................ [ 24%]
+........................................................................ [ 33%]
+........................................................................ [ 41%]
+........................................................................ [ 49%]
+........................................................................ [ 58%]
+........................................................................ [ 66%]
+........................................................................ [ 74%]
+........................................................................ [ 83%]
+............FFF......................................................... [ 91%]
+........................................................................ [ 99%]
+.                                                                        [100%]
+=================================== FAILURES ===================================
+_ test_full_checkpoint_candidate_preserves_weights_and_a_owned_history[True-False-False-1-attention] _
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0xfffb7b1743e0>
+v41_full_candidate = <function v41_full_candidate.<locals>.build at 0xfffb7af45bc0>
+role = 'attention', graph = False, stages = 1, dspark = True, pd = False
+
+    @pytest.mark.parametrize("role", ["attention", "ffn"])
+    @pytest.mark.parametrize("graph,stages", [(False, 1), (False, 2), (True, 1), (True, 2)])
+    @pytest.mark.parametrize(
+        "dspark,pd", [(False, False), (True, False), (False, True), (True, True)]
+    )
+    def test_full_checkpoint_candidate_preserves_weights_and_a_owned_history(
+        monkeypatch, v41_full_candidate, role, graph, stages, dspark, pd
+    ):
+        source = v41_full_candidate(
+            role=role, graph=graph, stages=stages, dspark=dspark, pd=pd
+        )
+        original = deepcopy(source)
+        config = get_npu_ffn_config(source) if role == "ffn" else source
+        before = deepcopy(config)
+        monkeypatch.setenv("AFD_DSV41_FULL_QUALIFICATION", "1")
+    
+>       fail_if_unsupported_npu_afd_features(config)
+
+tests/unit/compat/npu/test_feature_validation.py:181: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+afd_plugin/compat/npu/feature_validation.py:517: in fail_if_unsupported_npu_afd_features
+    _validate_v41_eager_qualification(vllm_config, afd_config, full=True)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+vllm_config = namespace(use_v2_model_runner=True, additional_config={'afd': {'role': 'attention', 'connector': 'P2pHcclAFDConnector'...v41_eager_qualification_config.<locals>.<lambda> at 0xfffb7af45b20>), load_config=namespace(load_format='safetensors'))
+afd_config = AFDConfig(connector='P2pHcclAFDConnector', async_dp=False, role='attention', port=1239, host='127.0.0.1', num_attention_ranks=4, num_ffn_ranks=4, compute_gate_on_attention=False, afd_process_group_timeout_s=120)
+
+    def _validate_v41_eager_qualification(
+        vllm_config: VllmConfig, afd_config: AFDConfig, *, full: bool = False
+    ) -> None:
+        """Admit one explicit hardware qualification candidate, not model support.
+    
+        Keep the ordinary connector validator in charge of text/BF16/V2, native
+        rank pairing, eager U1, F gate and EP/SP/Graph restrictions. This narrower
+        candidate adds a fixed topology, real weight loading and A-owned host
+        Engram. The worker still runs its normal runtime validation afterwards.
+        """
+        # Worker/backend isolation: the HCCL validator imports torch and native
+        # compilation enums. Unsupported/default V4.1 stays CPU-importable.
+        from afd_plugin.compat.npu.runtime_config import (
+            validate_deepseek_v41_graph_speculation,
+        )
+        from afd_plugin.connectors.npu.hccl_config import (
+            uses_staged_hccl_runtime,
+            validate_hccl_runtime,
+            validate_staged_hccl_runtime,
+        )
+    
+        if async_cam_layered_gmm_enabled():
+            raise ValueError("V4.1 eager qualification requires Async CAM layered GMM off")
+        if not full and vllm_config.speculative_config is not None:
+            raise ValueError("V4.1 eager qualification requires speculation off")
+        if not full and vllm_config.kv_transfer_config is not None:
+            raise ValueError("V4.1 eager qualification requires KV transfer/PD off")
+        parallel = vllm_config.parallel_config
+        if full:
+            validate_deepseek_v41_graph_speculation(vllm_config)
+            speculative = vllm_config.speculative_config
+            if speculative is not None and (
+                speculative.enforce_eager is not True
+                or speculative.enable_adaptive_verification
+                or type(speculative.num_speculative_tokens) is not int
+                or not 0
+                < speculative.num_speculative_tokens
+                <= V41_FUNCTIONAL_MAX_SPECULATIVE_TOKENS
+            ):
+>               raise ValueError(
+                    "V4.1 full qualification requires fixed eager DSpark N=1/2"
+                )
+E               ValueError: V4.1 full qualification requires fixed eager DSpark N=1/2
+
+afd_plugin/compat/npu/feature_validation.py:100: ValueError
+_ test_full_checkpoint_candidate_preserves_weights_and_a_owned_history[True-False-False-2-attention] _
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0xfffb7b1831a0>
+v41_full_candidate = <function v41_full_candidate.<locals>.build at 0xfffb7af46160>
+role = 'attention', graph = False, stages = 2, dspark = True, pd = False
+
+    @pytest.mark.parametrize("role", ["attention", "ffn"])
+    @pytest.mark.parametrize("graph,stages", [(False, 1), (False, 2), (True, 1), (True, 2)])
+    @pytest.mark.parametrize(
+        "dspark,pd", [(False, False), (True, False), (False, True), (True, True)]
+    )
+    def test_full_checkpoint_candidate_preserves_weights_and_a_owned_history(
+        monkeypatch, v41_full_candidate, role, graph, stages, dspark, pd
+    ):
+        source = v41_full_candidate(
+            role=role, graph=graph, stages=stages, dspark=dspark, pd=pd
+        )
+        original = deepcopy(source)
+        config = get_npu_ffn_config(source) if role == "ffn" else source
+        before = deepcopy(config)
+        monkeypatch.setenv("AFD_DSV41_FULL_QUALIFICATION", "1")
+    
+>       fail_if_unsupported_npu_afd_features(config)
+
+tests/unit/compat/npu/test_feature_validation.py:181: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+afd_plugin/compat/npu/feature_validation.py:517: in fail_if_unsupported_npu_afd_features
+    _validate_v41_eager_qualification(vllm_config, afd_config, full=True)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+vllm_config = namespace(use_v2_model_runner=True, additional_config={'afd': {'role': 'attention', 'connector': 'P2pHcclAFDConnector'...v41_eager_qualification_config.<locals>.<lambda> at 0xfffb7af460c0>), load_config=namespace(load_format='safetensors'))
+afd_config = AFDConfig(connector='P2pHcclAFDConnector', async_dp=False, role='attention', port=1239, host='127.0.0.1', num_attention_ranks=4, num_ffn_ranks=4, compute_gate_on_attention=False, afd_process_group_timeout_s=120)
+
+    def _validate_v41_eager_qualification(
+        vllm_config: VllmConfig, afd_config: AFDConfig, *, full: bool = False
+    ) -> None:
+        """Admit one explicit hardware qualification candidate, not model support.
+    
+        Keep the ordinary connector validator in charge of text/BF16/V2, native
+        rank pairing, eager U1, F gate and EP/SP/Graph restrictions. This narrower
+        candidate adds a fixed topology, real weight loading and A-owned host
+        Engram. The worker still runs its normal runtime validation afterwards.
+        """
+        # Worker/backend isolation: the HCCL validator imports torch and native
+        # compilation enums. Unsupported/default V4.1 stays CPU-importable.
+        from afd_plugin.compat.npu.runtime_config import (
+            validate_deepseek_v41_graph_speculation,
+        )
+        from afd_plugin.connectors.npu.hccl_config import (
+            uses_staged_hccl_runtime,
+            validate_hccl_runtime,
+            validate_staged_hccl_runtime,
+        )
+    
+        if async_cam_layered_gmm_enabled():
+            raise ValueError("V4.1 eager qualification requires Async CAM layered GMM off")
+        if not full and vllm_config.speculative_config is not None:
+            raise ValueError("V4.1 eager qualification requires speculation off")
+        if not full and vllm_config.kv_transfer_config is not None:
+            raise ValueError("V4.1 eager qualification requires KV transfer/PD off")
+        parallel = vllm_config.parallel_config
+        if full:
+            validate_deepseek_v41_graph_speculation(vllm_config)
+            speculative = vllm_config.speculative_config
+            if speculative is not None and (
+                speculative.enforce_eager is not True
+                or speculative.enable_adaptive_verification
+                or type(speculative.num_speculative_tokens) is not int
+                or not 0
+                < speculative.num_speculative_tokens
+                <= V41_FUNCTIONAL_MAX_SPECULATIVE_TOKENS
+            ):
+>               raise ValueError(
+                    "V4.1 full qualification requires fixed eager DSpark N=1/2"
+                )
+E               ValueError: V4.1 full qualification requires fixed eager DSpark N=1/2
+
+afd_plugin/compat/npu/feature_validation.py:100: ValueError
+_ test_full_checkpoint_candidate_preserves_weights_and_a_owned_history[True-False-True-1-attention] _
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0xfffb7b01a510>
+v41_full_candidate = <function v41_full_candidate.<locals>.build at 0xfffb7af46700>
+role = 'attention', graph = True, stages = 1, dspark = True, pd = False
+
+    @pytest.mark.parametrize("role", ["attention", "ffn"])
+    @pytest.mark.parametrize("graph,stages", [(False, 1), (False, 2), (True, 1), (True, 2)])
+    @pytest.mark.parametrize(
+        "dspark,pd", [(False, False), (True, False), (False, True), (True, True)]
+    )
+    def test_full_checkpoint_candidate_preserves_weights_and_a_owned_history(
+        monkeypatch, v41_full_candidate, role, graph, stages, dspark, pd
+    ):
+        source = v41_full_candidate(
+            role=role, graph=graph, stages=stages, dspark=dspark, pd=pd
+        )
+        original = deepcopy(source)
+        config = get_npu_ffn_config(source) if role == "ffn" else source
+        before = deepcopy(config)
+        monkeypatch.setenv("AFD_DSV41_FULL_QUALIFICATION", "1")
+    
+>       fail_if_unsupported_npu_afd_features(config)
+
+tests/unit/compat/npu/test_feature_validation.py:181: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+afd_plugin/compat/npu/feature_validation.py:517: in fail_if_unsupported_npu_afd_features
+    _validate_v41_eager_qualification(vllm_config, afd_config, full=True)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+vllm_config = namespace(use_v2_model_runner=True, additional_config={'afd': {'role': 'attention', 'connector': 'P2pHcclAFDConnector'...v41_eager_qualification_config.<locals>.<lambda> at 0xfffb7af46660>), load_config=namespace(load_format='safetensors'))
+afd_config = AFDConfig(connector='P2pHcclAFDConnector', async_dp=False, role='attention', port=1239, host='127.0.0.1', num_attention_ranks=4, num_ffn_ranks=4, compute_gate_on_attention=False, afd_process_group_timeout_s=120)
+
+    def _validate_v41_eager_qualification(
+        vllm_config: VllmConfig, afd_config: AFDConfig, *, full: bool = False
+    ) -> None:
+        """Admit one explicit hardware qualification candidate, not model support.
+    
+        Keep the ordinary connector validator in charge of text/BF16/V2, native
+        rank pairing, eager U1, F gate and EP/SP/Graph restrictions. This narrower
+        candidate adds a fixed topology, real weight loading and A-owned host
+        Engram. The worker still runs its normal runtime validation afterwards.
+        """
+        # Worker/backend isolation: the HCCL validator imports torch and native
+        # compilation enums. Unsupported/default V4.1 stays CPU-importable.
+        from afd_plugin.compat.npu.runtime_config import (
+            validate_deepseek_v41_graph_speculation,
+        )
+        from afd_plugin.connectors.npu.hccl_config import (
+            uses_staged_hccl_runtime,
+            validate_hccl_runtime,
+            validate_staged_hccl_runtime,
+        )
+    
+        if async_cam_layered_gmm_enabled():
+            raise ValueError("V4.1 eager qualification requires Async CAM layered GMM off")
+        if not full and vllm_config.speculative_config is not None:
+            raise ValueError("V4.1 eager qualification requires speculation off")
+        if not full and vllm_config.kv_transfer_config is not None:
+            raise ValueError("V4.1 eager qualification requires KV transfer/PD off")
+        parallel = vllm_config.parallel_config
+        if full:
+            validate_deepseek_v41_graph_speculation(vllm_config)
+            speculative = vllm_config.speculative_config
+            if speculative is not None and (
+                speculative.enforce_eager is not True
+                or speculative.enable_adaptive_verification
+                or type(speculative.num_speculative_tokens) is not int
+                or not 0
+                < speculative.num_speculative_tokens
+                <= V41_FUNCTIONAL_MAX_SPECULATIVE_TOKENS
+            ):
+>               raise ValueError(
+                    "V4.1 full qualification requires fixed eager DSpark N=1/2"
+                )
+E               ValueError: V4.1 full qualification requires fixed eager DSpark N=1/2
+
+afd_plugin/compat/npu/feature_validation.py:100: ValueError
+_ test_full_checkpoint_candidate_preserves_weights_and_a_owned_history[True-False-True-2-attention] _
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0xfffb7b0619d0>
+v41_full_candidate = <function v41_full_candidate.<locals>.build at 0xfffb7af46ca0>
+role = 'attention', graph = True, stages = 2, dspark = True, pd = False
+
+    @pytest.mark.parametrize("role", ["attention", "ffn"])
+    @pytest.mark.parametrize("graph,stages", [(False, 1), (False, 2), (True, 1), (True, 2)])
+    @pytest.mark.parametrize(
+        "dspark,pd", [(False, False), (True, False), (False, True), (True, True)]
+    )
+    def test_full_checkpoint_candidate_preserves_weights_and_a_owned_history(
+        monkeypatch, v41_full_candidate, role, graph, stages, dspark, pd
+    ):
+        source = v41_full_candidate(
+            role=role, graph=graph, stages=stages, dspark=dspark, pd=pd
+        )
+        original = deepcopy(source)
+        config = get_npu_ffn_config(source) if role == "ffn" else source
+        before = deepcopy(config)
+        monkeypatch.setenv("AFD_DSV41_FULL_QUALIFICATION", "1")
+    
+>       fail_if_unsupported_npu_afd_features(config)
+
+tests/unit/compat/npu/test_feature_validation.py:181: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+afd_plugin/compat/npu/feature_validation.py:517: in fail_if_unsupported_npu_afd_features
+    _validate_v41_eager_qualification(vllm_config, afd_config, full=True)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+vllm_config = namespace(use_v2_model_runner=True, additional_config={'afd': {'role': 'attention', 'connector': 'P2pHcclAFDConnector'...v41_eager_qualification_config.<locals>.<lambda> at 0xfffb7af46c00>), load_config=namespace(load_format='safetensors'))
+afd_config = AFDConfig(connector='P2pHcclAFDConnector', async_dp=False, role='attention', port=1239, host='127.0.0.1', num_attention_ranks=4, num_ffn_ranks=4, compute_gate_on_attention=False, afd_process_group_timeout_s=120)
+
+    def _validate_v41_eager_qualification(
+        vllm_config: VllmConfig, afd_config: AFDConfig, *, full: bool = False
+    ) -> None:
+        """Admit one explicit hardware qualification candidate, not model support.
+    
+        Keep the ordinary connector validator in charge of text/BF16/V2, native
+        rank pairing, eager U1, F gate and EP/SP/Graph restrictions. This narrower
+        candidate adds a fixed topology, real weight loading and A-owned host
+        Engram. The worker still runs its normal runtime validation afterwards.
+        """
+        # Worker/backend isolation: the HCCL validator imports torch and native
+        # compilation enums. Unsupported/default V4.1 stays CPU-importable.
+        from afd_plugin.compat.npu.runtime_config import (
+            validate_deepseek_v41_graph_speculation,
+        )
+        from afd_plugin.connectors.npu.hccl_config import (
+            uses_staged_hccl_runtime,
+            validate_hccl_runtime,
+            validate_staged_hccl_runtime,
+        )
+    
+        if async_cam_layered_gmm_enabled():
+            raise ValueError("V4.1 eager qualification requires Async CAM layered GMM off")
+        if not full and vllm_config.speculative_config is not None:
+            raise ValueError("V4.1 eager qualification requires speculation off")
+        if not full and vllm_config.kv_transfer_config is not None:
+            raise ValueError("V4.1 eager qualification requires KV transfer/PD off")
+        parallel = vllm_config.parallel_config
+        if full:
+            validate_deepseek_v41_graph_speculation(vllm_config)
+            speculative = vllm_config.speculative_config
+            if speculative is not None and (
+                speculative.enforce_eager is not True
+                or speculative.enable_adaptive_verification
+                or type(speculative.num_speculative_tokens) is not int
+                or not 0
+                < speculative.num_speculative_tokens
+                <= V41_FUNCTIONAL_MAX_SPECULATIVE_TOKENS
+            ):
+>               raise ValueError(
+                    "V4.1 full qualification requires fixed eager DSpark N=1/2"
+                )
+E               ValueError: V4.1 full qualification requires fixed eager DSpark N=1/2
+
+afd_plugin/compat/npu/feature_validation.py:100: ValueError
+_ test_full_checkpoint_candidate_preserves_weights_and_a_owned_history[True-True-False-1-attention] _
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0xfffb7b062e10>
+v41_full_candidate = <function v41_full_candidate.<locals>.build at 0xfffb7af47d80>
+role = 'attention', graph = False, stages = 1, dspark = True, pd = True
+
+    @pytest.mark.parametrize("role", ["attention", "ffn"])
+    @pytest.mark.parametrize("graph,stages", [(False, 1), (False, 2), (True, 1), (True, 2)])
+    @pytest.mark.parametrize(
+        "dspark,pd", [(False, False), (True, False), (False, True), (True, True)]
+    )
+    def test_full_checkpoint_candidate_preserves_weights_and_a_owned_history(
+        monkeypatch, v41_full_candidate, role, graph, stages, dspark, pd
+    ):
+        source = v41_full_candidate(
+            role=role, graph=graph, stages=stages, dspark=dspark, pd=pd
+        )
+        original = deepcopy(source)
+        config = get_npu_ffn_config(source) if role == "ffn" else source
+        before = deepcopy(config)
+        monkeypatch.setenv("AFD_DSV41_FULL_QUALIFICATION", "1")
+    
+>       fail_if_unsupported_npu_afd_features(config)
+
+tests/unit/compat/npu/test_feature_validation.py:181: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+afd_plugin/compat/npu/feature_validation.py:517: in fail_if_unsupported_npu_afd_features
+    _validate_v41_eager_qualification(vllm_config, afd_config, full=True)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+vllm_config = namespace(use_v2_model_runner=True, additional_config={'afd': {'role': 'attention', 'connector': 'P2pHcclAFDConnector'...v41_eager_qualification_config.<locals>.<lambda> at 0xfffb7af47ce0>), load_config=namespace(load_format='safetensors'))
+afd_config = AFDConfig(connector='P2pHcclAFDConnector', async_dp=False, role='attention', port=1239, host='127.0.0.1', num_attention_ranks=4, num_ffn_ranks=4, compute_gate_on_attention=False, afd_process_group_timeout_s=120)
+
+    def _validate_v41_eager_qualification(
+        vllm_config: VllmConfig, afd_config: AFDConfig, *, full: bool = False
+    ) -> None:
+        """Admit one explicit hardware qualification candidate, not model support.
+    
+        Keep the ordinary connector validator in charge of text/BF16/V2, native
+        rank pairing, eager U1, F gate and EP/SP/Graph restrictions. This narrower
+        candidate adds a fixed topology, real weight loading and A-owned host
+        Engram. The worker still runs its normal runtime validation afterwards.
+        """
+        # Worker/backend isolation: the HCCL validator imports torch and native
+        # compilation enums. Unsupported/default V4.1 stays CPU-importable.
+        from afd_plugin.compat.npu.runtime_config import (
+            validate_deepseek_v41_graph_speculation,
+        )
+        from afd_plugin.connectors.npu.hccl_config import (
+            uses_staged_hccl_runtime,
+            validate_hccl_runtime,
+            validate_staged_hccl_runtime,
+        )
+    
+        if async_cam_layered_gmm_enabled():
+            raise ValueError("V4.1 eager qualification requires Async CAM layered GMM off")
+        if not full and vllm_config.speculative_config is not None:
+            raise ValueError("V4.1 eager qualification requires speculation off")
+        if not full and vllm_config.kv_transfer_config is not None:
+            raise ValueError("V4.1 eager qualification requires KV transfer/PD off")
+        parallel = vllm_config.parallel_config
+        if full:
+            validate_deepseek_v41_graph_speculation(vllm_config)
+            speculative = vllm_config.speculative_config
+            if speculative is not None and (
+                speculative.enforce_eager is not True
+                or speculative.enable_adaptive_verification
+                or type(speculative.num_speculative_tokens) is not int
+                or not 0
+                < speculative.num_speculative_tokens
+                <= V41_FUNCTIONAL_MAX_SPECULATIVE_TOKENS
+            ):
+>               raise ValueError(
+                    "V4.1 full qualification requires fixed eager DSpark N=1/2"
+                )
+E               ValueError: V4.1 full qualification requires fixed eager DSpark N=1/2
+
+afd_plugin/compat/npu/feature_validation.py:100: ValueError
+_ test_full_checkpoint_candidate_preserves_weights_and_a_owned_history[True-True-False-2-attention] _
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0xfffb7b08a270>
+v41_full_candidate = <function v41_full_candidate.<locals>.build at 0xfffb7ac904a0>
+role = 'attention', graph = False, stages = 2, dspark = True, pd = True
+
+    @pytest.mark.parametrize("role", ["attention", "ffn"])
+    @pytest.mark.parametrize("graph,stages", [(False, 1), (False, 2), (True, 1), (True, 2)])
+    @pytest.mark.parametrize(
+        "dspark,pd", [(False, False), (True, False), (False, True), (True, True)]
+    )
+    def test_full_checkpoint_candidate_preserves_weights_and_a_owned_history(
+        monkeypatch, v41_full_candidate, role, graph, stages, dspark, pd
+    ):
+        source = v41_full_candidate(
+            role=role, graph=graph, stages=stages, dspark=dspark, pd=pd
+        )
+        original = deepcopy(source)
+        config = get_npu_ffn_config(source) if role == "ffn" else source
+        before = deepcopy(config)
+        monkeypatch.setenv("AFD_DSV41_FULL_QUALIFICATION", "1")
+    
+>       fail_if_unsupported_npu_afd_features(config)
+
+tests/unit/compat/npu/test_feature_validation.py:181: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+afd_plugin/compat/npu/feature_validation.py:517: in fail_if_unsupported_npu_afd_features
+    _validate_v41_eager_qualification(vllm_config, afd_config, full=True)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+vllm_config = namespace(use_v2_model_runner=True, additional_config={'afd': {'role': 'attention', 'connector': 'P2pHcclAFDConnector'...v41_eager_qualification_config.<locals>.<lambda> at 0xfffb7ac90400>), load_config=namespace(load_format='safetensors'))
+afd_config = AFDConfig(connector='P2pHcclAFDConnector', async_dp=False, role='attention', port=1239, host='127.0.0.1', num_attention_ranks=4, num_ffn_ranks=4, compute_gate_on_attention=False, afd_process_group_timeout_s=120)
+
+    def _validate_v41_eager_qualification(
+        vllm_config: VllmConfig, afd_config: AFDConfig, *, full: bool = False
+    ) -> None:
+        """Admit one explicit hardware qualification candidate, not model support.
+    
+        Keep the ordinary connector validator in charge of text/BF16/V2, native
+        rank pairing, eager U1, F gate and EP/SP/Graph restrictions. This narrower
+        candidate adds a fixed topology, real weight loading and A-owned host
+        Engram. The worker still runs its normal runtime validation afterwards.
+        """
+        # Worker/backend isolation: the HCCL validator imports torch and native
+        # compilation enums. Unsupported/default V4.1 stays CPU-importable.
+        from afd_plugin.compat.npu.runtime_config import (
+            validate_deepseek_v41_graph_speculation,
+        )
+        from afd_plugin.connectors.npu.hccl_config import (
+            uses_staged_hccl_runtime,
+            validate_hccl_runtime,
+            validate_staged_hccl_runtime,
+        )
+    
+        if async_cam_layered_gmm_enabled():
+            raise ValueError("V4.1 eager qualification requires Async CAM layered GMM off")
+        if not full and vllm_config.speculative_config is not None:
+            raise ValueError("V4.1 eager qualification requires speculation off")
+        if not full and vllm_config.kv_transfer_config is not None:
+            raise ValueError("V4.1 eager qualification requires KV transfer/PD off")
+        parallel = vllm_config.parallel_config
+        if full:
+            validate_deepseek_v41_graph_speculation(vllm_config)
+            speculative = vllm_config.speculative_config
+            if speculative is not None and (
+                speculative.enforce_eager is not True
+                or speculative.enable_adaptive_verification
+                or type(speculative.num_speculative_tokens) is not int
+                or not 0
+                < speculative.num_speculative_tokens
+                <= V41_FUNCTIONAL_MAX_SPECULATIVE_TOKENS
+            ):
+>               raise ValueError(
+                    "V4.1 full qualification requires fixed eager DSpark N=1/2"
+                )
+E               ValueError: V4.1 full qualification requires fixed eager DSpark N=1/2
+
+afd_plugin/compat/npu/feature_validation.py:100: ValueError
+_ test_full_checkpoint_candidate_preserves_weights_and_a_owned_history[True-True-True-1-attention] _
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0xfffb7b0634a0>
+v41_full_candidate = <function v41_full_candidate.<locals>.build at 0xfffb7af46e80>
+role = 'attention', graph = True, stages = 1, dspark = True, pd = True
+
+    @pytest.mark.parametrize("role", ["attention", "ffn"])
+    @pytest.mark.parametrize("graph,stages", [(False, 1), (False, 2), (True, 1), (True, 2)])
+    @pytest.mark.parametrize(
+        "dspark,pd", [(False, False), (True, False), (False, True), (True, True)]
+    )
+    def test_full_checkpoint_candidate_preserves_weights_and_a_owned_history(
+        monkeypatch, v41_full_candidate, role, graph, stages, dspark, pd
+    ):
+        source = v41_full_candidate(
+            role=role, graph=graph, stages=stages, dspark=dspark, pd=pd
+        )
+        original = deepcopy(source)
+        config = get_npu_ffn_config(source) if role == "ffn" else source
+        before = deepcopy(config)
+        monkeypatch.setenv("AFD_DSV41_FULL_QUALIFICATION", "1")
+    
+>       fail_if_unsupported_npu_afd_features(config)
+
+tests/unit/compat/npu/test_feature_validation.py:181: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+afd_plugin/compat/npu/feature_validation.py:517: in fail_if_unsupported_npu_afd_features
+    _validate_v41_eager_qualification(vllm_config, afd_config, full=True)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+vllm_config = namespace(use_v2_model_runner=True, additional_config={'afd': {'role': 'attention', 'connector': 'P2pHcclAFDConnector'...v41_eager_qualification_config.<locals>.<lambda> at 0xfffb7af47ce0>), load_config=namespace(load_format='safetensors'))
+afd_config = AFDConfig(connector='P2pHcclAFDConnector', async_dp=False, role='attention', port=1239, host='127.0.0.1', num_attention_ranks=4, num_ffn_ranks=4, compute_gate_on_attention=False, afd_process_group_timeout_s=120)
+
+    def _validate_v41_eager_qualification(
+        vllm_config: VllmConfig, afd_config: AFDConfig, *, full: bool = False
+    ) -> None:
+        """Admit one explicit hardware qualification candidate, not model support.
+    
+        Keep the ordinary connector validator in charge of text/BF16/V2, native
+        rank pairing, eager U1, F gate and EP/SP/Graph restrictions. This narrower
+        candidate adds a fixed topology, real weight loading and A-owned host
+        Engram. The worker still runs its normal runtime validation afterwards.
+        """
+        # Worker/backend isolation: the HCCL validator imports torch and native
+        # compilation enums. Unsupported/default V4.1 stays CPU-importable.
+        from afd_plugin.compat.npu.runtime_config import (
+            validate_deepseek_v41_graph_speculation,
+        )
+        from afd_plugin.connectors.npu.hccl_config import (
+            uses_staged_hccl_runtime,
+            validate_hccl_runtime,
+            validate_staged_hccl_runtime,
+        )
+    
+        if async_cam_layered_gmm_enabled():
+            raise ValueError("V4.1 eager qualification requires Async CAM layered GMM off")
+        if not full and vllm_config.speculative_config is not None:
+            raise ValueError("V4.1 eager qualification requires speculation off")
+        if not full and vllm_config.kv_transfer_config is not None:
+            raise ValueError("V4.1 eager qualification requires KV transfer/PD off")
+        parallel = vllm_config.parallel_config
+        if full:
+            validate_deepseek_v41_graph_speculation(vllm_config)
+            speculative = vllm_config.speculative_config
+            if speculative is not None and (
+                speculative.enforce_eager is not True
+                or speculative.enable_adaptive_verification
+                or type(speculative.num_speculative_tokens) is not int
+                or not 0
+                < speculative.num_speculative_tokens
+                <= V41_FUNCTIONAL_MAX_SPECULATIVE_TOKENS
+            ):
+>               raise ValueError(
+                    "V4.1 full qualification requires fixed eager DSpark N=1/2"
+                )
+E               ValueError: V4.1 full qualification requires fixed eager DSpark N=1/2
+
+afd_plugin/compat/npu/feature_validation.py:100: ValueError
+_ test_full_checkpoint_candidate_preserves_weights_and_a_owned_history[True-True-True-2-attention] _
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0xfffb7b061400>
+v41_full_candidate = <function v41_full_candidate.<locals>.build at 0xfffb7af462a0>
+role = 'attention', graph = True, stages = 2, dspark = True, pd = True
+
+    @pytest.mark.parametrize("role", ["attention", "ffn"])
+    @pytest.mark.parametrize("graph,stages", [(False, 1), (False, 2), (True, 1), (True, 2)])
+    @pytest.mark.parametrize(
+        "dspark,pd", [(False, False), (True, False), (False, True), (True, True)]
+    )
+    def test_full_checkpoint_candidate_preserves_weights_and_a_owned_history(
+        monkeypatch, v41_full_candidate, role, graph, stages, dspark, pd
+    ):
+        source = v41_full_candidate(
+            role=role, graph=graph, stages=stages, dspark=dspark, pd=pd
+        )
+        original = deepcopy(source)
+        config = get_npu_ffn_config(source) if role == "ffn" else source
+        before = deepcopy(config)
+        monkeypatch.setenv("AFD_DSV41_FULL_QUALIFICATION", "1")
+    
+>       fail_if_unsupported_npu_afd_features(config)
+
+tests/unit/compat/npu/test_feature_validation.py:181: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+afd_plugin/compat/npu/feature_validation.py:517: in fail_if_unsupported_npu_afd_features
+    _validate_v41_eager_qualification(vllm_config, afd_config, full=True)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+vllm_config = namespace(use_v2_model_runner=True, additional_config={'afd': {'role': 'attention', 'connector': 'P2pHcclAFDConnector'...v41_eager_qualification_config.<locals>.<lambda> at 0xfffb7af460c0>), load_config=namespace(load_format='safetensors'))
+afd_config = AFDConfig(connector='P2pHcclAFDConnector', async_dp=False, role='attention', port=1239, host='127.0.0.1', num_attention_ranks=4, num_ffn_ranks=4, compute_gate_on_attention=False, afd_process_group_timeout_s=120)
+
+    def _validate_v41_eager_qualification(
+        vllm_config: VllmConfig, afd_config: AFDConfig, *, full: bool = False
+    ) -> None:
+        """Admit one explicit hardware qualification candidate, not model support.
+    
+        Keep the ordinary connector validator in charge of text/BF16/V2, native
+        rank pairing, eager U1, F gate and EP/SP/Graph restrictions. This narrower
+        candidate adds a fixed topology, real weight loading and A-owned host
+        Engram. The worker still runs its normal runtime validation afterwards.
+        """
+        # Worker/backend isolation: the HCCL validator imports torch and native
+        # compilation enums. Unsupported/default V4.1 stays CPU-importable.
+        from afd_plugin.compat.npu.runtime_config import (
+            validate_deepseek_v41_graph_speculation,
+        )
+        from afd_plugin.connectors.npu.hccl_config import (
+            uses_staged_hccl_runtime,
+            validate_hccl_runtime,
+            validate_staged_hccl_runtime,
+        )
+    
+        if async_cam_layered_gmm_enabled():
+            raise ValueError("V4.1 eager qualification requires Async CAM layered GMM off")
+        if not full and vllm_config.speculative_config is not None:
+            raise ValueError("V4.1 eager qualification requires speculation off")
+        if not full and vllm_config.kv_transfer_config is not None:
+            raise ValueError("V4.1 eager qualification requires KV transfer/PD off")
+        parallel = vllm_config.parallel_config
+        if full:
+            validate_deepseek_v41_graph_speculation(vllm_config)
+            speculative = vllm_config.speculative_config
+            if speculative is not None and (
+                speculative.enforce_eager is not True
+                or speculative.enable_adaptive_verification
+                or type(speculative.num_speculative_tokens) is not int
+                or not 0
+                < speculative.num_speculative_tokens
+                <= V41_FUNCTIONAL_MAX_SPECULATIVE_TOKENS
+            ):
+>               raise ValueError(
+                    "V4.1 full qualification requires fixed eager DSpark N=1/2"
+                )
+E               ValueError: V4.1 full qualification requires fixed eager DSpark N=1/2
+
+afd_plugin/compat/npu/feature_validation.py:100: ValueError
+_________ test_scoped_patch_preserves_upstream_signature[ffn-profile] __________
+
+hook = 'ffn-profile'
+
+    @pytest.mark.parametrize(
+        "hook",
+        [
+            "capture-inputs",
+            "engine-core-collective-rpc",
+            "npu-dspark-ubatching-config",
+            "npu-engram-ubatching-config",
+            "camp2p-dispatch",
+            "hccl-native-prepare",
+            "hccl-graph-gather",
+            "hccl-graph-dispatch",
+            "hccl-graph-begin",
+            "hccl-graph-capture",
+            "hccl-graph-replay",
+            "hccl-u1-prepare",
+            "ffn-profile",
+            "attention-profile",
+            "attention-shutdown",
+            "dspark-pd-sampling",
+            "npu-model-loader",
+            "npu-kv-zeroing",
+            "ordinary-mtp-propose",
+            "ordinary-mtp-old-decoder",
+            "ordinary-mtp-old-model",
+            "ordinary-mtp-ffn-layer",
+            "ordinary-mtp-target-ffn",
+            "ordinary-mtp-target-load",
+            "ordinary-mtp-predictor-layer",
+            "ordinary-mtp-predictor",
+            "ordinary-mtp-model",
+            "ordinary-mtp-forward",
+            "ordinary-mtp-load",
+            "pd-outer-constructor",
+            "pd-outer-bind-metadata",
+            "pd-outer-shutdown",
+            "pd-worker-constructor",
+            "pd-register",
+            "pd-remote-metadata",
+            "pd-read",
+            "pd-receiver-run",
+            "pd-receiver-add-request",
+            "pd-receiver-handle-request",
+            "pd-receiver-done",
+            "pd-worker-start-load",
+            "pd-scheduler-constructor",
+            "pd-scheduler-new-request",
+            "pd-scheduler-after-alloc",
+            "pd-scheduler-metadata",
+            "pd-scheduler-finished",
+            "pd-native-source-retirement",
+            "pd-sender-finished",
+            "pd-sender-no-transfer",
+            "pd-sender-delayed",
+            "pd-sender-dispatch",
+            "ds-mxfp8",
+            "ds-mxfp4",
+            "ds-mxfp4-expert-scale",
+            "ds-mxfp4-gmm2",
+            "ds-mxfp4-gmm1-act-quant",
+        ],
+    )
+    def test_scoped_patch_preserves_upstream_signature(hook):  # long-test: shared table
+        pytest.importorskip("torch")
+        pytest.importorskip("vllm")
+        if hook == "engine-core-collective-rpc":
+            from vllm.v1.engine import core as native_core
+    
+            from afd_plugin.compat.patches import engine_core as adapter
+    
+            # CPU core tests reload this module against a temporary fake namespace.
+            # Restore its native core/_R bindings before checking the real contract.
+            importlib.reload(adapter)
+            # Importing the adapter installs this exact method on the native class.
+            # Inspect only the installed upstream declaration, with an empty body,
+            # so alignment never compares the replacement with itself. No plugin
+            # source is read or extracted and no upstream method body is executed.
+            declaration = next(
+                node
+                for node in ast.parse(
+                    textwrap.dedent(inspect.getsource(native_core.EngineCore))
+                )
+                .body[0]
+                .body
+                if isinstance(node, ast.FunctionDef) and node.name == "collective_rpc"
+            )
+            declaration.body = [ast.Pass()]
+            namespace = dict(vars(native_core))
+            exec(
+                compile(
+                    ast.fix_missing_locations(ast.Module([declaration], [])),
+                    native_core.__file__,
+                    "exec",
+                ),
+                namespace,
+            )
+            assert inspect.signature(
+                adapter.collective_rpc, eval_str=True
+            ) == inspect.signature(namespace["collective_rpc"], eval_str=True)
+            return
+        elif hook in ("npu-dspark-ubatching-config", "npu-engram-ubatching-config"):
+            from vllm.config import vllm as native_config
+    
+            from afd_plugin.compat.patches.npu import ubatching_config
+    
+            method_name, replacement = (
+                (
+                    "_get_dbo_unsupported_features",
+                    ubatching_config.get_dbo_unsupported_features,
+                )
+                if hook == "npu-dspark-ubatching-config"
+                else (
+                    "_resolve_and_verify_engram_config",
+                    ubatching_config.resolve_and_verify_engram_config,
+                )
+            )
+    
+            # Read the installed native declaration: the public runtime facade may
+            # already have replaced the class attribute during preceding tests.
+            declaration = next(
+                node
+                for node in ast.parse(
+                    textwrap.dedent(inspect.getsource(native_config.VllmConfig))
+                )
+                .body[0]
+                .body
+                if isinstance(node, ast.FunctionDef) and node.name == method_name
+            )
+            declaration.body = [ast.Pass()]
+            namespace = dict(vars(native_config))
+            exec(
+                compile(
+                    ast.fix_missing_locations(ast.Module([declaration], [])),
+                    native_config.__file__,
+                    "exec",
+                ),
+                namespace,
+            )
+            assert inspect.signature(replacement, eval_str=True) == inspect.signature(
+                namespace[method_name], eval_str=True
+            )
+            return
+        elif hook.startswith("ordinary-mtp-"):
+            pytest.importorskip("torch_npu")
+            pytest.importorskip("vllm_ascend")
+            from vllm_ascend.models.deepseek_v4 import model as native_target
+            from vllm_ascend.models.deepseek_v4 import mtp as native_mtp
+            from vllm_ascend.worker.v2.spec_decode.autoregressive.speculator import (
+                AscendAutoRegressiveSpeculator,
+            )
+    
+            from afd_plugin.compat.patches.npu.mtp_proposal import MtpProposalBinding
+            from afd_plugin.model_executor.models.npu import deepseek_v4, deepseek_v4_mtp
+    
+            target, replacement, symbol = {
+                "ordinary-mtp-propose": (
+                    AscendAutoRegressiveSpeculator,
+                    MtpProposalBinding.propose,
+                    "propose",
+                ),
+                "ordinary-mtp-old-decoder": (
+                    native_target.DeepseekV4DecoderLayer,
+                    deepseek_v4.AFDDeepseekV4DecoderLayer.__init__,
+                    "__init__",
+                ),
+                "ordinary-mtp-old-model": (
+                    native_target.AscendDeepseekV4ForCausalLM,
+                    deepseek_v4.AFDDeepseekV4ForCausalLM.__init__,
+                    "__init__",
+                ),
+                "ordinary-mtp-ffn-layer": (
+                    native_target.DeepseekV4DecoderLayer,
+                    deepseek_v4_mtp.AFDDeepseekV4MtpFFNLayer.__init__,
+                    "__init__",
+                ),
+                "ordinary-mtp-target-ffn": (
+                    native_target.AscendDeepseekV4ForCausalLM,
+                    deepseek_v4_mtp.AFDDeepseekV4MtpTargetFFN.__init__,
+                    "__init__",
+                ),
+                "ordinary-mtp-target-load": (
+                    native_target.AscendDeepseekV4ForCausalLM,
+                    deepseek_v4_mtp.AFDDeepseekV4MtpTargetFFN.load_weights,
+                    "load_weights",
+                ),
+                "ordinary-mtp-predictor-layer": (
+                    native_mtp.DeepSeekMultiTokenPredictorLayer,
+                    deepseek_v4_mtp.AFDDeepSeekMultiTokenPredictorLayer.__init__,
+                    "__init__",
+                ),
+                "ordinary-mtp-predictor": (
+                    native_mtp.DeepSeekMultiTokenPredictor,
+                    deepseek_v4_mtp.AFDDeepSeekMultiTokenPredictor.__init__,
+                    "__init__",
+                ),
+                "ordinary-mtp-model": (
+                    native_mtp.DeepSeekV4MTP,
+                    deepseek_v4_mtp.AFDDeepSeekV4MTP.__init__,
+                    "__init__",
+                ),
+                "ordinary-mtp-forward": (
+                    native_mtp.DeepSeekV4MTP,
+                    deepseek_v4_mtp.AFDDeepSeekV4MTP.forward,
+                    "forward",
+                ),
+                "ordinary-mtp-load": (
+                    native_mtp.DeepSeekV4MTP,
+                    deepseek_v4_mtp.AFDDeepSeekV4MTP.load_weights,
+                    "load_weights",
+                ),
+            }[hook]
+            scope = patch.object(target, symbol, replacement)
+        elif hook.startswith("pd-"):
+            pytest.importorskip("torch_npu")
+            pytest.importorskip("vllm_ascend")
+            from vllm.distributed.kv_transfer.kv_connector.v1.base import KVConnectorBase_V1
+            from vllm.v1.core.kv_cache_manager import KVCacheBlocks  # noqa: F401
+            from vllm.v1.request import Request  # noqa: F401
+            from vllm_ascend.distributed.kv_transfer.kv_p2p import (
+                mooncake_hybrid_connector as native,
+            )
+    
+            from afd_plugin.compat.npu import kv_layout_connector as adapter
+    
+            if hook == "pd-outer-constructor":
+                target, replacement, symbol = (
+                    native.MooncakeConnector,
+                    adapter.MooncakeHybridConnector.__init__,
+                    "__init__",
+                )
+            elif hook == "pd-worker-constructor":
+                target, replacement, symbol = (
+                    native.MooncakeConnectorWorker,
+                    adapter.AFDMooncakeConnectorWorker.__init__,
+                    "__init__",
+                )
+            elif hook == "pd-register":
+                target, replacement, symbol = (
+                    native.MooncakeConnectorWorker,
+                    adapter.AFDMooncakeConnectorWorker.register_kv_caches,
+                    "register_kv_caches",
+                )
+            elif hook == "pd-remote-metadata":
+                target, replacement, symbol = (
+                    native.KVCacheRecvingThread,
+                    adapter.AFDMooncakeRecvingThread._get_remote_metadata,
+                    "_get_remote_metadata",
+                )
+            elif hook == "pd-read":
+                target, replacement, symbol = (
+                    native.KVCacheRecvingThread,
+                    adapter.AFDMooncakeRecvingThread._transfer_kv_cache_all_groups,
+                    "_transfer_kv_cache_all_groups",
+                )
+            elif hook == "pd-native-source-retirement":
+                from afd_plugin.compat.patches.npu import dspark_pd_scheduler
+    
+                target = SimpleNamespace(
+                    _connector_finished=dspark_pd_scheduler.NATIVE_CONNECTOR_FINISHED
+                )
+                replacement = dspark_pd_scheduler._connector_finished
+                symbol = "_connector_finished"
+            else:
+                target, replacement, symbol = {
+                    "pd-scheduler-constructor": (
+                        native.MooncakeConnectorScheduler,
+                        adapter.AFDMooncakeConnectorScheduler.__init__,
+                        "__init__",
+                    ),
+                    "pd-scheduler-new-request": (
+                        native.MooncakeConnectorScheduler,
+                        adapter.AFDMooncakeConnectorScheduler.on_new_request,
+                        "on_new_request",
+                    ),
+                    "pd-scheduler-after-alloc": (
+                        native.MooncakeConnectorScheduler,
+                        adapter.AFDMooncakeConnectorScheduler.update_state_after_alloc,
+                        "update_state_after_alloc",
+                    ),
+                    "pd-scheduler-metadata": (
+                        native.MooncakeConnectorScheduler,
+                        adapter.AFDMooncakeConnectorScheduler.build_connector_meta,
+                        "build_connector_meta",
+                    ),
+                    "pd-scheduler-finished": (
+                        native.MooncakeConnectorScheduler,
+                        adapter.AFDMooncakeConnectorScheduler.request_finished_all_groups,
+                        "request_finished_all_groups",
+                    ),
+                    "pd-sender-finished": (
+                        native.KVCacheSendingThread,
+                        adapter.AFDMooncakeSendingThread.get_and_clear_finished_requests,
+                        "get_and_clear_finished_requests",
+                    ),
+                    "pd-sender-no-transfer": (
+                        native.KVCacheSendingThread,
+                        adapter.AFDMooncakeSendingThread.add_not_transfer_request,
+                        "add_not_transfer_request",
+                    ),
+                    "pd-sender-delayed": (
+                        native.KVCacheSendingThread,
+                        adapter.AFDMooncakeSendingThread.add_delayed_request,
+                        "add_delayed_request",
+                    ),
+                    "pd-sender-dispatch": (
+                        native.KVCacheSendingThread,
+                        adapter.AFDMooncakeSendingThread.run_busy_loop,
+                        "run_busy_loop",
+                    ),
+                    "pd-outer-shutdown": (
+                        native.MooncakeConnector,
+                        adapter.MooncakeHybridConnector.shutdown,
+                        "shutdown",
+                    ),
+                    "pd-outer-bind-metadata": (
+                        KVConnectorBase_V1,
+                        adapter.MooncakeHybridConnector.bind_connector_metadata,
+                        "bind_connector_metadata",
+                    ),
+                    "pd-receiver-run": (
+                        native.KVCacheRecvingThread,
+                        adapter.AFDMooncakeRecvingThread.run,
+                        "run",
+                    ),
+                    "pd-receiver-add-request": (
+                        native.KVCacheRecvingThread,
+                        adapter.AFDMooncakeRecvingThread.add_request,
+                        "add_request",
+                    ),
+                    "pd-receiver-handle-request": (
+                        native.KVCacheRecvingThread,
+                        adapter.AFDMooncakeRecvingThread._handle_request,
+                        "_handle_request",
+                    ),
+                    "pd-receiver-done": (
+                        native.KVCacheRecvingThread,
+                        adapter.AFDMooncakeRecvingThread._send_done_recv_signal,
+                        "_send_done_recv_signal",
+                    ),
+                    "pd-worker-start-load": (
+                        native.MooncakeConnectorWorker,
+                        adapter.AFDMooncakeConnectorWorker.start_load_kv,
+                        "start_load_kv",
+                    ),
+                }[hook]
+            scope = patch.object(target, symbol, replacement)
+        elif hook == "capture-inputs":
+            from vllm.v1.worker.gpu import cudagraph_utils as target
+            from vllm.v1.worker.gpu.pcp_manager import PCPManager  # noqa: F401
+    
+            from afd_plugin.v1.worker import attention_model_runner_v2 as adapter
+    
+            symbol = "prepare_inputs_to_capture"
+            tracker = adapter._AFDCaptureEventTracker([])
+            scope = adapter._use_afd_capture_input_preparation(None, tracker)
+        elif hook == "camp2p-dispatch":
+            pytest.importorskip("torch_npu")
+            pytest.importorskip("vllm_ascend")
+            from vllm.v1.worker.gpu import model_runner as target
+    
+            from afd_plugin.v1.worker.npu import attention_model_runner_v2 as adapter
+    
+            symbol = "dispatch_cg_and_sync_dp"
+            scope = adapter._use_camp2p_dp_padding(4, 2)
+        elif hook == "hccl-native-prepare":
+            pytest.importorskip("torch_npu")
+            pytest.importorskip("vllm_ascend")
+            from vllm.v1.worker.gpu.ubatch_utils import UBatchRunner
+    
+            from afd_plugin.v1.worker.npu.hccl_v41_execution import HcclV41Execution
+            from tests.unit.fakes.deepseek_v41 import ParentEngramState
+    
+            target = object.__new__(UBatchRunner)
+            # Keep a stable bound-method alias so restoration can use the table's
+            # identity assertion as well as its exact signature comparison.
+            target.prepare = target.prepare
+            owner = SimpleNamespace(model_state=ParentEngramState({}), ubatch_runner=target)
+            symbol = "prepare"
+            scope = HcclV41Execution(
+                owner,
+                SimpleNamespace(terminal=False),
+                mode="target",
+                valid_tokens=0,
+                dummy_run=False,
+            ).scope()
+        elif hook in ("hccl-graph-gather", "hccl-graph-dispatch"):
+            pytest.importorskip("torch_npu")
+            pytest.importorskip("vllm_ascend")
+            from vllm.v1.worker.gpu import model_runner
+            from vllm_ascend.worker.v2.model_runner import NPUModelRunner
+    
+            from afd_plugin.compat.patches.npu.hccl_graph_dispatch import (
+                use_hccl_graph_dispatch,
+            )
+    
+            owner = object.__new__(NPUModelRunner)
+            owner.cudagraph_manager = None
+            owner.parallel_config = SimpleNamespace()
+            owner.gather_batch_req_state = owner.gather_batch_req_state
+            if hook == "hccl-graph-gather":
+                target, symbol = owner, "gather_batch_req_state"
+            else:
+                target, symbol = model_runner, "dispatch_cg_and_sync_dp"
+            scope = use_hccl_graph_dispatch(owner, lambda state, args, desc: desc)
+        elif hook == "hccl-graph-capture":
+            from vllm.v1.worker.gpu.cudagraph_utils import CudaGraphManager
+    
+            from afd_plugin.compat.patches.npu.hccl_graph_capture import (
+                use_hccl_graph_capture,
+            )
+    
+            target = CudaGraphManager
+            symbol = "capture"
+            scope = use_hccl_graph_capture(
+                object.__new__(CudaGraphManager),
+                before_factory=lambda descriptor, warmup: None,
+                after_capture=lambda: None,
+                fail=lambda: None,
+            )
+        elif hook == "hccl-graph-replay":
+            pytest.importorskip("torch_npu")
+            pytest.importorskip("vllm_ascend")
+            from contextlib import nullcontext
+    
+            from vllm_ascend.worker.v2.aclgraph_utils import ModelAclGraphManager
+    
+            from afd_plugin.compat.patches.npu.hccl_graph_replay import (
+                use_hccl_graph_replay,
+            )
+    
+            target = object.__new__(ModelAclGraphManager)
+            target.run_fullgraph = target.run_fullgraph
+            symbol = "run_fullgraph"
+            scope = use_hccl_graph_replay(
+                target,
+                before_replay=lambda descriptor: nullcontext(),
+                after_replay=lambda descriptor: None,
+                fail=lambda: None,
+            )
+        elif hook == "hccl-u1-prepare":
+            pytest.importorskip("torch_npu")
+            pytest.importorskip("vllm_ascend")
+            from afd_plugin.compat.patches.npu.hccl_v41_u1_graph import (
+                use_hccl_v41_u1_preparation,
+            )
+            from tests.unit.fakes.deepseek_v41 import ParentEngramState
+    
+            target = ParentEngramState({})
+            target.prepare_attn = target.prepare_attn
+            symbol = "prepare_attn"
+            scope = use_hccl_v41_u1_preparation(target, None, lambda: None)
+        elif hook == "hccl-graph-begin":
+            pytest.importorskip("torch_npu")
+            pytest.importorskip("vllm_ascend")
+            from vllm.v1.worker.gpu.ubatch_utils import UBatchRunner
+    
+            from afd_plugin.v1.worker.npu.hccl_v41_ubatch_runner import HcclV41UBatchRunner
+    
+            target = UBatchRunner
+            symbol = "begin_capturable_run"
+            scope = patch.object(target, symbol, HcclV41UBatchRunner.begin_capturable_run)
+        elif hook in ("ffn-profile", "attention-profile", "attention-shutdown"):
+            pytest.importorskip("torch_npu")
+            pytest.importorskip("vllm_ascend")
+>           from vllm_ascend.worker.worker import NPUWorker
+
+tests/unit/compat/patches/test_signatures.py:479: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/vllm_ascend/worker/worker.py:85: in <module>
+    from vllm_ascend.device_allocator.camem import CaMemAllocator
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+    #
+    # Copyright (c) 2025 Huawei Technologies Co., Ltd. All Rights Reserved.
+    # This file is a part of the vllm-ascend project.
+    #
+    # Licensed under the Apache License, Version 2.0 (the "License");
+    # you may not use this file except in compliance with the License.
+    # You may obtain a copy of the License at
+    #
+    #     http://www.apache.org/licenses/LICENSE-2.0
+    #
+    # Unless required by applicable law or agreed to in writing, software
+    # distributed under the License is distributed on an "AS IS" BASIS,
+    # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+    # See the License for the specific language governing permissions and
+    # limitations under the License.
+    #
+    # CANN-mem-based pytorch pluggable allocator to implement sleep mode.
+    #
+    import dataclasses
+    import gc
+    import os
+    from collections.abc import Callable
+    from contextlib import contextmanager
+    from typing import Any
+    
+    import torch
+>   from acl.rt import memcpy  # type: ignore # noqa: F401
+E   ModuleNotFoundError: No module named 'acl'
+
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/vllm_ascend/device_allocator/camem.py:27: ModuleNotFoundError
+______ test_scoped_patch_preserves_upstream_signature[attention-profile] _______
+
+hook = 'attention-profile'
+
+    @pytest.mark.parametrize(
+        "hook",
+        [
+            "capture-inputs",
+            "engine-core-collective-rpc",
+            "npu-dspark-ubatching-config",
+            "npu-engram-ubatching-config",
+            "camp2p-dispatch",
+            "hccl-native-prepare",
+            "hccl-graph-gather",
+            "hccl-graph-dispatch",
+            "hccl-graph-begin",
+            "hccl-graph-capture",
+            "hccl-graph-replay",
+            "hccl-u1-prepare",
+            "ffn-profile",
+            "attention-profile",
+            "attention-shutdown",
+            "dspark-pd-sampling",
+            "npu-model-loader",
+            "npu-kv-zeroing",
+            "ordinary-mtp-propose",
+            "ordinary-mtp-old-decoder",
+            "ordinary-mtp-old-model",
+            "ordinary-mtp-ffn-layer",
+            "ordinary-mtp-target-ffn",
+            "ordinary-mtp-target-load",
+            "ordinary-mtp-predictor-layer",
+            "ordinary-mtp-predictor",
+            "ordinary-mtp-model",
+            "ordinary-mtp-forward",
+            "ordinary-mtp-load",
+            "pd-outer-constructor",
+            "pd-outer-bind-metadata",
+            "pd-outer-shutdown",
+            "pd-worker-constructor",
+            "pd-register",
+            "pd-remote-metadata",
+            "pd-read",
+            "pd-receiver-run",
+            "pd-receiver-add-request",
+            "pd-receiver-handle-request",
+            "pd-receiver-done",
+            "pd-worker-start-load",
+            "pd-scheduler-constructor",
+            "pd-scheduler-new-request",
+            "pd-scheduler-after-alloc",
+            "pd-scheduler-metadata",
+            "pd-scheduler-finished",
+            "pd-native-source-retirement",
+            "pd-sender-finished",
+            "pd-sender-no-transfer",
+            "pd-sender-delayed",
+            "pd-sender-dispatch",
+            "ds-mxfp8",
+            "ds-mxfp4",
+            "ds-mxfp4-expert-scale",
+            "ds-mxfp4-gmm2",
+            "ds-mxfp4-gmm1-act-quant",
+        ],
+    )
+    def test_scoped_patch_preserves_upstream_signature(hook):  # long-test: shared table
+        pytest.importorskip("torch")
+        pytest.importorskip("vllm")
+        if hook == "engine-core-collective-rpc":
+            from vllm.v1.engine import core as native_core
+    
+            from afd_plugin.compat.patches import engine_core as adapter
+    
+            # CPU core tests reload this module against a temporary fake namespace.
+            # Restore its native core/_R bindings before checking the real contract.
+            importlib.reload(adapter)
+            # Importing the adapter installs this exact method on the native class.
+            # Inspect only the installed upstream declaration, with an empty body,
+            # so alignment never compares the replacement with itself. No plugin
+            # source is read or extracted and no upstream method body is executed.
+            declaration = next(
+                node
+                for node in ast.parse(
+                    textwrap.dedent(inspect.getsource(native_core.EngineCore))
+                )
+                .body[0]
+                .body
+                if isinstance(node, ast.FunctionDef) and node.name == "collective_rpc"
+            )
+            declaration.body = [ast.Pass()]
+            namespace = dict(vars(native_core))
+            exec(
+                compile(
+                    ast.fix_missing_locations(ast.Module([declaration], [])),
+                    native_core.__file__,
+                    "exec",
+                ),
+                namespace,
+            )
+            assert inspect.signature(
+                adapter.collective_rpc, eval_str=True
+            ) == inspect.signature(namespace["collective_rpc"], eval_str=True)
+            return
+        elif hook in ("npu-dspark-ubatching-config", "npu-engram-ubatching-config"):
+            from vllm.config import vllm as native_config
+    
+            from afd_plugin.compat.patches.npu import ubatching_config
+    
+            method_name, replacement = (
+                (
+                    "_get_dbo_unsupported_features",
+                    ubatching_config.get_dbo_unsupported_features,
+                )
+                if hook == "npu-dspark-ubatching-config"
+                else (
+                    "_resolve_and_verify_engram_config",
+                    ubatching_config.resolve_and_verify_engram_config,
+                )
+            )
+    
+            # Read the installed native declaration: the public runtime facade may
+            # already have replaced the class attribute during preceding tests.
+            declaration = next(
+                node
+                for node in ast.parse(
+                    textwrap.dedent(inspect.getsource(native_config.VllmConfig))
+                )
+                .body[0]
+                .body
+                if isinstance(node, ast.FunctionDef) and node.name == method_name
+            )
+            declaration.body = [ast.Pass()]
+            namespace = dict(vars(native_config))
+            exec(
+                compile(
+                    ast.fix_missing_locations(ast.Module([declaration], [])),
+                    native_config.__file__,
+                    "exec",
+                ),
+                namespace,
+            )
+            assert inspect.signature(replacement, eval_str=True) == inspect.signature(
+                namespace[method_name], eval_str=True
+            )
+            return
+        elif hook.startswith("ordinary-mtp-"):
+            pytest.importorskip("torch_npu")
+            pytest.importorskip("vllm_ascend")
+            from vllm_ascend.models.deepseek_v4 import model as native_target
+            from vllm_ascend.models.deepseek_v4 import mtp as native_mtp
+            from vllm_ascend.worker.v2.spec_decode.autoregressive.speculator import (
+                AscendAutoRegressiveSpeculator,
+            )
+    
+            from afd_plugin.compat.patches.npu.mtp_proposal import MtpProposalBinding
+            from afd_plugin.model_executor.models.npu import deepseek_v4, deepseek_v4_mtp
+    
+            target, replacement, symbol = {
+                "ordinary-mtp-propose": (
+                    AscendAutoRegressiveSpeculator,
+                    MtpProposalBinding.propose,
+                    "propose",
+                ),
+                "ordinary-mtp-old-decoder": (
+                    native_target.DeepseekV4DecoderLayer,
+                    deepseek_v4.AFDDeepseekV4DecoderLayer.__init__,
+                    "__init__",
+                ),
+                "ordinary-mtp-old-model": (
+                    native_target.AscendDeepseekV4ForCausalLM,
+                    deepseek_v4.AFDDeepseekV4ForCausalLM.__init__,
+                    "__init__",
+                ),
+                "ordinary-mtp-ffn-layer": (
+                    native_target.DeepseekV4DecoderLayer,
+                    deepseek_v4_mtp.AFDDeepseekV4MtpFFNLayer.__init__,
+                    "__init__",
+                ),
+                "ordinary-mtp-target-ffn": (
+                    native_target.AscendDeepseekV4ForCausalLM,
+                    deepseek_v4_mtp.AFDDeepseekV4MtpTargetFFN.__init__,
+                    "__init__",
+                ),
+                "ordinary-mtp-target-load": (
+                    native_target.AscendDeepseekV4ForCausalLM,
+                    deepseek_v4_mtp.AFDDeepseekV4MtpTargetFFN.load_weights,
+                    "load_weights",
+                ),
+                "ordinary-mtp-predictor-layer": (
+                    native_mtp.DeepSeekMultiTokenPredictorLayer,
+                    deepseek_v4_mtp.AFDDeepSeekMultiTokenPredictorLayer.__init__,
+                    "__init__",
+                ),
+                "ordinary-mtp-predictor": (
+                    native_mtp.DeepSeekMultiTokenPredictor,
+                    deepseek_v4_mtp.AFDDeepSeekMultiTokenPredictor.__init__,
+                    "__init__",
+                ),
+                "ordinary-mtp-model": (
+                    native_mtp.DeepSeekV4MTP,
+                    deepseek_v4_mtp.AFDDeepSeekV4MTP.__init__,
+                    "__init__",
+                ),
+                "ordinary-mtp-forward": (
+                    native_mtp.DeepSeekV4MTP,
+                    deepseek_v4_mtp.AFDDeepSeekV4MTP.forward,
+                    "forward",
+                ),
+                "ordinary-mtp-load": (
+                    native_mtp.DeepSeekV4MTP,
+                    deepseek_v4_mtp.AFDDeepSeekV4MTP.load_weights,
+                    "load_weights",
+                ),
+            }[hook]
+            scope = patch.object(target, symbol, replacement)
+        elif hook.startswith("pd-"):
+            pytest.importorskip("torch_npu")
+            pytest.importorskip("vllm_ascend")
+            from vllm.distributed.kv_transfer.kv_connector.v1.base import KVConnectorBase_V1
+            from vllm.v1.core.kv_cache_manager import KVCacheBlocks  # noqa: F401
+            from vllm.v1.request import Request  # noqa: F401
+            from vllm_ascend.distributed.kv_transfer.kv_p2p import (
+                mooncake_hybrid_connector as native,
+            )
+    
+            from afd_plugin.compat.npu import kv_layout_connector as adapter
+    
+            if hook == "pd-outer-constructor":
+                target, replacement, symbol = (
+                    native.MooncakeConnector,
+                    adapter.MooncakeHybridConnector.__init__,
+                    "__init__",
+                )
+            elif hook == "pd-worker-constructor":
+                target, replacement, symbol = (
+                    native.MooncakeConnectorWorker,
+                    adapter.AFDMooncakeConnectorWorker.__init__,
+                    "__init__",
+                )
+            elif hook == "pd-register":
+                target, replacement, symbol = (
+                    native.MooncakeConnectorWorker,
+                    adapter.AFDMooncakeConnectorWorker.register_kv_caches,
+                    "register_kv_caches",
+                )
+            elif hook == "pd-remote-metadata":
+                target, replacement, symbol = (
+                    native.KVCacheRecvingThread,
+                    adapter.AFDMooncakeRecvingThread._get_remote_metadata,
+                    "_get_remote_metadata",
+                )
+            elif hook == "pd-read":
+                target, replacement, symbol = (
+                    native.KVCacheRecvingThread,
+                    adapter.AFDMooncakeRecvingThread._transfer_kv_cache_all_groups,
+                    "_transfer_kv_cache_all_groups",
+                )
+            elif hook == "pd-native-source-retirement":
+                from afd_plugin.compat.patches.npu import dspark_pd_scheduler
+    
+                target = SimpleNamespace(
+                    _connector_finished=dspark_pd_scheduler.NATIVE_CONNECTOR_FINISHED
+                )
+                replacement = dspark_pd_scheduler._connector_finished
+                symbol = "_connector_finished"
+            else:
+                target, replacement, symbol = {
+                    "pd-scheduler-constructor": (
+                        native.MooncakeConnectorScheduler,
+                        adapter.AFDMooncakeConnectorScheduler.__init__,
+                        "__init__",
+                    ),
+                    "pd-scheduler-new-request": (
+                        native.MooncakeConnectorScheduler,
+                        adapter.AFDMooncakeConnectorScheduler.on_new_request,
+                        "on_new_request",
+                    ),
+                    "pd-scheduler-after-alloc": (
+                        native.MooncakeConnectorScheduler,
+                        adapter.AFDMooncakeConnectorScheduler.update_state_after_alloc,
+                        "update_state_after_alloc",
+                    ),
+                    "pd-scheduler-metadata": (
+                        native.MooncakeConnectorScheduler,
+                        adapter.AFDMooncakeConnectorScheduler.build_connector_meta,
+                        "build_connector_meta",
+                    ),
+                    "pd-scheduler-finished": (
+                        native.MooncakeConnectorScheduler,
+                        adapter.AFDMooncakeConnectorScheduler.request_finished_all_groups,
+                        "request_finished_all_groups",
+                    ),
+                    "pd-sender-finished": (
+                        native.KVCacheSendingThread,
+                        adapter.AFDMooncakeSendingThread.get_and_clear_finished_requests,
+                        "get_and_clear_finished_requests",
+                    ),
+                    "pd-sender-no-transfer": (
+                        native.KVCacheSendingThread,
+                        adapter.AFDMooncakeSendingThread.add_not_transfer_request,
+                        "add_not_transfer_request",
+                    ),
+                    "pd-sender-delayed": (
+                        native.KVCacheSendingThread,
+                        adapter.AFDMooncakeSendingThread.add_delayed_request,
+                        "add_delayed_request",
+                    ),
+                    "pd-sender-dispatch": (
+                        native.KVCacheSendingThread,
+                        adapter.AFDMooncakeSendingThread.run_busy_loop,
+                        "run_busy_loop",
+                    ),
+                    "pd-outer-shutdown": (
+                        native.MooncakeConnector,
+                        adapter.MooncakeHybridConnector.shutdown,
+                        "shutdown",
+                    ),
+                    "pd-outer-bind-metadata": (
+                        KVConnectorBase_V1,
+                        adapter.MooncakeHybridConnector.bind_connector_metadata,
+                        "bind_connector_metadata",
+                    ),
+                    "pd-receiver-run": (
+                        native.KVCacheRecvingThread,
+                        adapter.AFDMooncakeRecvingThread.run,
+                        "run",
+                    ),
+                    "pd-receiver-add-request": (
+                        native.KVCacheRecvingThread,
+                        adapter.AFDMooncakeRecvingThread.add_request,
+                        "add_request",
+                    ),
+                    "pd-receiver-handle-request": (
+                        native.KVCacheRecvingThread,
+                        adapter.AFDMooncakeRecvingThread._handle_request,
+                        "_handle_request",
+                    ),
+                    "pd-receiver-done": (
+                        native.KVCacheRecvingThread,
+                        adapter.AFDMooncakeRecvingThread._send_done_recv_signal,
+                        "_send_done_recv_signal",
+                    ),
+                    "pd-worker-start-load": (
+                        native.MooncakeConnectorWorker,
+                        adapter.AFDMooncakeConnectorWorker.start_load_kv,
+                        "start_load_kv",
+                    ),
+                }[hook]
+            scope = patch.object(target, symbol, replacement)
+        elif hook == "capture-inputs":
+            from vllm.v1.worker.gpu import cudagraph_utils as target
+            from vllm.v1.worker.gpu.pcp_manager import PCPManager  # noqa: F401
+    
+            from afd_plugin.v1.worker import attention_model_runner_v2 as adapter
+    
+            symbol = "prepare_inputs_to_capture"
+            tracker = adapter._AFDCaptureEventTracker([])
+            scope = adapter._use_afd_capture_input_preparation(None, tracker)
+        elif hook == "camp2p-dispatch":
+            pytest.importorskip("torch_npu")
+            pytest.importorskip("vllm_ascend")
+            from vllm.v1.worker.gpu import model_runner as target
+    
+            from afd_plugin.v1.worker.npu import attention_model_runner_v2 as adapter
+    
+            symbol = "dispatch_cg_and_sync_dp"
+            scope = adapter._use_camp2p_dp_padding(4, 2)
+        elif hook == "hccl-native-prepare":
+            pytest.importorskip("torch_npu")
+            pytest.importorskip("vllm_ascend")
+            from vllm.v1.worker.gpu.ubatch_utils import UBatchRunner
+    
+            from afd_plugin.v1.worker.npu.hccl_v41_execution import HcclV41Execution
+            from tests.unit.fakes.deepseek_v41 import ParentEngramState
+    
+            target = object.__new__(UBatchRunner)
+            # Keep a stable bound-method alias so restoration can use the table's
+            # identity assertion as well as its exact signature comparison.
+            target.prepare = target.prepare
+            owner = SimpleNamespace(model_state=ParentEngramState({}), ubatch_runner=target)
+            symbol = "prepare"
+            scope = HcclV41Execution(
+                owner,
+                SimpleNamespace(terminal=False),
+                mode="target",
+                valid_tokens=0,
+                dummy_run=False,
+            ).scope()
+        elif hook in ("hccl-graph-gather", "hccl-graph-dispatch"):
+            pytest.importorskip("torch_npu")
+            pytest.importorskip("vllm_ascend")
+            from vllm.v1.worker.gpu import model_runner
+            from vllm_ascend.worker.v2.model_runner import NPUModelRunner
+    
+            from afd_plugin.compat.patches.npu.hccl_graph_dispatch import (
+                use_hccl_graph_dispatch,
+            )
+    
+            owner = object.__new__(NPUModelRunner)
+            owner.cudagraph_manager = None
+            owner.parallel_config = SimpleNamespace()
+            owner.gather_batch_req_state = owner.gather_batch_req_state
+            if hook == "hccl-graph-gather":
+                target, symbol = owner, "gather_batch_req_state"
+            else:
+                target, symbol = model_runner, "dispatch_cg_and_sync_dp"
+            scope = use_hccl_graph_dispatch(owner, lambda state, args, desc: desc)
+        elif hook == "hccl-graph-capture":
+            from vllm.v1.worker.gpu.cudagraph_utils import CudaGraphManager
+    
+            from afd_plugin.compat.patches.npu.hccl_graph_capture import (
+                use_hccl_graph_capture,
+            )
+    
+            target = CudaGraphManager
+            symbol = "capture"
+            scope = use_hccl_graph_capture(
+                object.__new__(CudaGraphManager),
+                before_factory=lambda descriptor, warmup: None,
+                after_capture=lambda: None,
+                fail=lambda: None,
+            )
+        elif hook == "hccl-graph-replay":
+            pytest.importorskip("torch_npu")
+            pytest.importorskip("vllm_ascend")
+            from contextlib import nullcontext
+    
+            from vllm_ascend.worker.v2.aclgraph_utils import ModelAclGraphManager
+    
+            from afd_plugin.compat.patches.npu.hccl_graph_replay import (
+                use_hccl_graph_replay,
+            )
+    
+            target = object.__new__(ModelAclGraphManager)
+            target.run_fullgraph = target.run_fullgraph
+            symbol = "run_fullgraph"
+            scope = use_hccl_graph_replay(
+                target,
+                before_replay=lambda descriptor: nullcontext(),
+                after_replay=lambda descriptor: None,
+                fail=lambda: None,
+            )
+        elif hook == "hccl-u1-prepare":
+            pytest.importorskip("torch_npu")
+            pytest.importorskip("vllm_ascend")
+            from afd_plugin.compat.patches.npu.hccl_v41_u1_graph import (
+                use_hccl_v41_u1_preparation,
+            )
+            from tests.unit.fakes.deepseek_v41 import ParentEngramState
+    
+            target = ParentEngramState({})
+            target.prepare_attn = target.prepare_attn
+            symbol = "prepare_attn"
+            scope = use_hccl_v41_u1_preparation(target, None, lambda: None)
+        elif hook == "hccl-graph-begin":
+            pytest.importorskip("torch_npu")
+            pytest.importorskip("vllm_ascend")
+            from vllm.v1.worker.gpu.ubatch_utils import UBatchRunner
+    
+            from afd_plugin.v1.worker.npu.hccl_v41_ubatch_runner import HcclV41UBatchRunner
+    
+            target = UBatchRunner
+            symbol = "begin_capturable_run"
+            scope = patch.object(target, symbol, HcclV41UBatchRunner.begin_capturable_run)
+        elif hook in ("ffn-profile", "attention-profile", "attention-shutdown"):
+            pytest.importorskip("torch_npu")
+            pytest.importorskip("vllm_ascend")
+>           from vllm_ascend.worker.worker import NPUWorker
+
+tests/unit/compat/patches/test_signatures.py:479: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/vllm_ascend/worker/worker.py:85: in <module>
+    from vllm_ascend.device_allocator.camem import CaMemAllocator
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+    #
+    # Copyright (c) 2025 Huawei Technologies Co., Ltd. All Rights Reserved.
+    # This file is a part of the vllm-ascend project.
+    #
+    # Licensed under the Apache License, Version 2.0 (the "License");
+    # you may not use this file except in compliance with the License.
+    # You may obtain a copy of the License at
+    #
+    #     http://www.apache.org/licenses/LICENSE-2.0
+    #
+    # Unless required by applicable law or agreed to in writing, software
+    # distributed under the License is distributed on an "AS IS" BASIS,
+    # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+    # See the License for the specific language governing permissions and
+    # limitations under the License.
+    #
+    # CANN-mem-based pytorch pluggable allocator to implement sleep mode.
+    #
+    import dataclasses
+    import gc
+    import os
+    from collections.abc import Callable
+    from contextlib import contextmanager
+    from typing import Any
+    
+    import torch
+>   from acl.rt import memcpy  # type: ignore # noqa: F401
+E   ModuleNotFoundError: No module named 'acl'
+
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/vllm_ascend/device_allocator/camem.py:27: ModuleNotFoundError
+______ test_scoped_patch_preserves_upstream_signature[attention-shutdown] ______
+
+hook = 'attention-shutdown'
+
+    @pytest.mark.parametrize(
+        "hook",
+        [
+            "capture-inputs",
+            "engine-core-collective-rpc",
+            "npu-dspark-ubatching-config",
+            "npu-engram-ubatching-config",
+            "camp2p-dispatch",
+            "hccl-native-prepare",
+            "hccl-graph-gather",
+            "hccl-graph-dispatch",
+            "hccl-graph-begin",
+            "hccl-graph-capture",
+            "hccl-graph-replay",
+            "hccl-u1-prepare",
+            "ffn-profile",
+            "attention-profile",
+            "attention-shutdown",
+            "dspark-pd-sampling",
+            "npu-model-loader",
+            "npu-kv-zeroing",
+            "ordinary-mtp-propose",
+            "ordinary-mtp-old-decoder",
+            "ordinary-mtp-old-model",
+            "ordinary-mtp-ffn-layer",
+            "ordinary-mtp-target-ffn",
+            "ordinary-mtp-target-load",
+            "ordinary-mtp-predictor-layer",
+            "ordinary-mtp-predictor",
+            "ordinary-mtp-model",
+            "ordinary-mtp-forward",
+            "ordinary-mtp-load",
+            "pd-outer-constructor",
+            "pd-outer-bind-metadata",
+            "pd-outer-shutdown",
+            "pd-worker-constructor",
+            "pd-register",
+            "pd-remote-metadata",
+            "pd-read",
+            "pd-receiver-run",
+            "pd-receiver-add-request",
+            "pd-receiver-handle-request",
+            "pd-receiver-done",
+            "pd-worker-start-load",
+            "pd-scheduler-constructor",
+            "pd-scheduler-new-request",
+            "pd-scheduler-after-alloc",
+            "pd-scheduler-metadata",
+            "pd-scheduler-finished",
+            "pd-native-source-retirement",
+            "pd-sender-finished",
+            "pd-sender-no-transfer",
+            "pd-sender-delayed",
+            "pd-sender-dispatch",
+            "ds-mxfp8",
+            "ds-mxfp4",
+            "ds-mxfp4-expert-scale",
+            "ds-mxfp4-gmm2",
+            "ds-mxfp4-gmm1-act-quant",
+        ],
+    )
+    def test_scoped_patch_preserves_upstream_signature(hook):  # long-test: shared table
+        pytest.importorskip("torch")
+        pytest.importorskip("vllm")
+        if hook == "engine-core-collective-rpc":
+            from vllm.v1.engine import core as native_core
+    
+            from afd_plugin.compat.patches import engine_core as adapter
+    
+            # CPU core tests reload this module against a temporary fake namespace.
+            # Restore its native core/_R bindings before checking the real contract.
+            importlib.reload(adapter)
+            # Importing the adapter installs this exact method on the native class.
+            # Inspect only the installed upstream declaration, with an empty body,
+            # so alignment never compares the replacement with itself. No plugin
+            # source is read or extracted and no upstream method body is executed.
+            declaration = next(
+                node
+                for node in ast.parse(
+                    textwrap.dedent(inspect.getsource(native_core.EngineCore))
+                )
+                .body[0]
+                .body
+                if isinstance(node, ast.FunctionDef) and node.name == "collective_rpc"
+            )
+            declaration.body = [ast.Pass()]
+            namespace = dict(vars(native_core))
+            exec(
+                compile(
+                    ast.fix_missing_locations(ast.Module([declaration], [])),
+                    native_core.__file__,
+                    "exec",
+                ),
+                namespace,
+            )
+            assert inspect.signature(
+                adapter.collective_rpc, eval_str=True
+            ) == inspect.signature(namespace["collective_rpc"], eval_str=True)
+            return
+        elif hook in ("npu-dspark-ubatching-config", "npu-engram-ubatching-config"):
+            from vllm.config import vllm as native_config
+    
+            from afd_plugin.compat.patches.npu import ubatching_config
+    
+            method_name, replacement = (
+                (
+                    "_get_dbo_unsupported_features",
+                    ubatching_config.get_dbo_unsupported_features,
+                )
+                if hook == "npu-dspark-ubatching-config"
+                else (
+                    "_resolve_and_verify_engram_config",
+                    ubatching_config.resolve_and_verify_engram_config,
+                )
+            )
+    
+            # Read the installed native declaration: the public runtime facade may
+            # already have replaced the class attribute during preceding tests.
+            declaration = next(
+                node
+                for node in ast.parse(
+                    textwrap.dedent(inspect.getsource(native_config.VllmConfig))
+                )
+                .body[0]
+                .body
+                if isinstance(node, ast.FunctionDef) and node.name == method_name
+            )
+            declaration.body = [ast.Pass()]
+            namespace = dict(vars(native_config))
+            exec(
+                compile(
+                    ast.fix_missing_locations(ast.Module([declaration], [])),
+                    native_config.__file__,
+                    "exec",
+                ),
+                namespace,
+            )
+            assert inspect.signature(replacement, eval_str=True) == inspect.signature(
+                namespace[method_name], eval_str=True
+            )
+            return
+        elif hook.startswith("ordinary-mtp-"):
+            pytest.importorskip("torch_npu")
+            pytest.importorskip("vllm_ascend")
+            from vllm_ascend.models.deepseek_v4 import model as native_target
+            from vllm_ascend.models.deepseek_v4 import mtp as native_mtp
+            from vllm_ascend.worker.v2.spec_decode.autoregressive.speculator import (
+                AscendAutoRegressiveSpeculator,
+            )
+    
+            from afd_plugin.compat.patches.npu.mtp_proposal import MtpProposalBinding
+            from afd_plugin.model_executor.models.npu import deepseek_v4, deepseek_v4_mtp
+    
+            target, replacement, symbol = {
+                "ordinary-mtp-propose": (
+                    AscendAutoRegressiveSpeculator,
+                    MtpProposalBinding.propose,
+                    "propose",
+                ),
+                "ordinary-mtp-old-decoder": (
+                    native_target.DeepseekV4DecoderLayer,
+                    deepseek_v4.AFDDeepseekV4DecoderLayer.__init__,
+                    "__init__",
+                ),
+                "ordinary-mtp-old-model": (
+                    native_target.AscendDeepseekV4ForCausalLM,
+                    deepseek_v4.AFDDeepseekV4ForCausalLM.__init__,
+                    "__init__",
+                ),
+                "ordinary-mtp-ffn-layer": (
+                    native_target.DeepseekV4DecoderLayer,
+                    deepseek_v4_mtp.AFDDeepseekV4MtpFFNLayer.__init__,
+                    "__init__",
+                ),
+                "ordinary-mtp-target-ffn": (
+                    native_target.AscendDeepseekV4ForCausalLM,
+                    deepseek_v4_mtp.AFDDeepseekV4MtpTargetFFN.__init__,
+                    "__init__",
+                ),
+                "ordinary-mtp-target-load": (
+                    native_target.AscendDeepseekV4ForCausalLM,
+                    deepseek_v4_mtp.AFDDeepseekV4MtpTargetFFN.load_weights,
+                    "load_weights",
+                ),
+                "ordinary-mtp-predictor-layer": (
+                    native_mtp.DeepSeekMultiTokenPredictorLayer,
+                    deepseek_v4_mtp.AFDDeepSeekMultiTokenPredictorLayer.__init__,
+                    "__init__",
+                ),
+                "ordinary-mtp-predictor": (
+                    native_mtp.DeepSeekMultiTokenPredictor,
+                    deepseek_v4_mtp.AFDDeepSeekMultiTokenPredictor.__init__,
+                    "__init__",
+                ),
+                "ordinary-mtp-model": (
+                    native_mtp.DeepSeekV4MTP,
+                    deepseek_v4_mtp.AFDDeepSeekV4MTP.__init__,
+                    "__init__",
+                ),
+                "ordinary-mtp-forward": (
+                    native_mtp.DeepSeekV4MTP,
+                    deepseek_v4_mtp.AFDDeepSeekV4MTP.forward,
+                    "forward",
+                ),
+                "ordinary-mtp-load": (
+                    native_mtp.DeepSeekV4MTP,
+                    deepseek_v4_mtp.AFDDeepSeekV4MTP.load_weights,
+                    "load_weights",
+                ),
+            }[hook]
+            scope = patch.object(target, symbol, replacement)
+        elif hook.startswith("pd-"):
+            pytest.importorskip("torch_npu")
+            pytest.importorskip("vllm_ascend")
+            from vllm.distributed.kv_transfer.kv_connector.v1.base import KVConnectorBase_V1
+            from vllm.v1.core.kv_cache_manager import KVCacheBlocks  # noqa: F401
+            from vllm.v1.request import Request  # noqa: F401
+            from vllm_ascend.distributed.kv_transfer.kv_p2p import (
+                mooncake_hybrid_connector as native,
+            )
+    
+            from afd_plugin.compat.npu import kv_layout_connector as adapter
+    
+            if hook == "pd-outer-constructor":
+                target, replacement, symbol = (
+                    native.MooncakeConnector,
+                    adapter.MooncakeHybridConnector.__init__,
+                    "__init__",
+                )
+            elif hook == "pd-worker-constructor":
+                target, replacement, symbol = (
+                    native.MooncakeConnectorWorker,
+                    adapter.AFDMooncakeConnectorWorker.__init__,
+                    "__init__",
+                )
+            elif hook == "pd-register":
+                target, replacement, symbol = (
+                    native.MooncakeConnectorWorker,
+                    adapter.AFDMooncakeConnectorWorker.register_kv_caches,
+                    "register_kv_caches",
+                )
+            elif hook == "pd-remote-metadata":
+                target, replacement, symbol = (
+                    native.KVCacheRecvingThread,
+                    adapter.AFDMooncakeRecvingThread._get_remote_metadata,
+                    "_get_remote_metadata",
+                )
+            elif hook == "pd-read":
+                target, replacement, symbol = (
+                    native.KVCacheRecvingThread,
+                    adapter.AFDMooncakeRecvingThread._transfer_kv_cache_all_groups,
+                    "_transfer_kv_cache_all_groups",
+                )
+            elif hook == "pd-native-source-retirement":
+                from afd_plugin.compat.patches.npu import dspark_pd_scheduler
+    
+                target = SimpleNamespace(
+                    _connector_finished=dspark_pd_scheduler.NATIVE_CONNECTOR_FINISHED
+                )
+                replacement = dspark_pd_scheduler._connector_finished
+                symbol = "_connector_finished"
+            else:
+                target, replacement, symbol = {
+                    "pd-scheduler-constructor": (
+                        native.MooncakeConnectorScheduler,
+                        adapter.AFDMooncakeConnectorScheduler.__init__,
+                        "__init__",
+                    ),
+                    "pd-scheduler-new-request": (
+                        native.MooncakeConnectorScheduler,
+                        adapter.AFDMooncakeConnectorScheduler.on_new_request,
+                        "on_new_request",
+                    ),
+                    "pd-scheduler-after-alloc": (
+                        native.MooncakeConnectorScheduler,
+                        adapter.AFDMooncakeConnectorScheduler.update_state_after_alloc,
+                        "update_state_after_alloc",
+                    ),
+                    "pd-scheduler-metadata": (
+                        native.MooncakeConnectorScheduler,
+                        adapter.AFDMooncakeConnectorScheduler.build_connector_meta,
+                        "build_connector_meta",
+                    ),
+                    "pd-scheduler-finished": (
+                        native.MooncakeConnectorScheduler,
+                        adapter.AFDMooncakeConnectorScheduler.request_finished_all_groups,
+                        "request_finished_all_groups",
+                    ),
+                    "pd-sender-finished": (
+                        native.KVCacheSendingThread,
+                        adapter.AFDMooncakeSendingThread.get_and_clear_finished_requests,
+                        "get_and_clear_finished_requests",
+                    ),
+                    "pd-sender-no-transfer": (
+                        native.KVCacheSendingThread,
+                        adapter.AFDMooncakeSendingThread.add_not_transfer_request,
+                        "add_not_transfer_request",
+                    ),
+                    "pd-sender-delayed": (
+                        native.KVCacheSendingThread,
+                        adapter.AFDMooncakeSendingThread.add_delayed_request,
+                        "add_delayed_request",
+                    ),
+                    "pd-sender-dispatch": (
+                        native.KVCacheSendingThread,
+                        adapter.AFDMooncakeSendingThread.run_busy_loop,
+                        "run_busy_loop",
+                    ),
+                    "pd-outer-shutdown": (
+                        native.MooncakeConnector,
+                        adapter.MooncakeHybridConnector.shutdown,
+                        "shutdown",
+                    ),
+                    "pd-outer-bind-metadata": (
+                        KVConnectorBase_V1,
+                        adapter.MooncakeHybridConnector.bind_connector_metadata,
+                        "bind_connector_metadata",
+                    ),
+                    "pd-receiver-run": (
+                        native.KVCacheRecvingThread,
+                        adapter.AFDMooncakeRecvingThread.run,
+                        "run",
+                    ),
+                    "pd-receiver-add-request": (
+                        native.KVCacheRecvingThread,
+                        adapter.AFDMooncakeRecvingThread.add_request,
+                        "add_request",
+                    ),
+                    "pd-receiver-handle-request": (
+                        native.KVCacheRecvingThread,
+                        adapter.AFDMooncakeRecvingThread._handle_request,
+                        "_handle_request",
+                    ),
+                    "pd-receiver-done": (
+                        native.KVCacheRecvingThread,
+                        adapter.AFDMooncakeRecvingThread._send_done_recv_signal,
+                        "_send_done_recv_signal",
+                    ),
+                    "pd-worker-start-load": (
+                        native.MooncakeConnectorWorker,
+                        adapter.AFDMooncakeConnectorWorker.start_load_kv,
+                        "start_load_kv",
+                    ),
+                }[hook]
+            scope = patch.object(target, symbol, replacement)
+        elif hook == "capture-inputs":
+            from vllm.v1.worker.gpu import cudagraph_utils as target
+            from vllm.v1.worker.gpu.pcp_manager import PCPManager  # noqa: F401
+    
+            from afd_plugin.v1.worker import attention_model_runner_v2 as adapter
+    
+            symbol = "prepare_inputs_to_capture"
+            tracker = adapter._AFDCaptureEventTracker([])
+            scope = adapter._use_afd_capture_input_preparation(None, tracker)
+        elif hook == "camp2p-dispatch":
+            pytest.importorskip("torch_npu")
+            pytest.importorskip("vllm_ascend")
+            from vllm.v1.worker.gpu import model_runner as target
+    
+            from afd_plugin.v1.worker.npu import attention_model_runner_v2 as adapter
+    
+            symbol = "dispatch_cg_and_sync_dp"
+            scope = adapter._use_camp2p_dp_padding(4, 2)
+        elif hook == "hccl-native-prepare":
+            pytest.importorskip("torch_npu")
+            pytest.importorskip("vllm_ascend")
+            from vllm.v1.worker.gpu.ubatch_utils import UBatchRunner
+    
+            from afd_plugin.v1.worker.npu.hccl_v41_execution import HcclV41Execution
+            from tests.unit.fakes.deepseek_v41 import ParentEngramState
+    
+            target = object.__new__(UBatchRunner)
+            # Keep a stable bound-method alias so restoration can use the table's
+            # identity assertion as well as its exact signature comparison.
+            target.prepare = target.prepare
+            owner = SimpleNamespace(model_state=ParentEngramState({}), ubatch_runner=target)
+            symbol = "prepare"
+            scope = HcclV41Execution(
+                owner,
+                SimpleNamespace(terminal=False),
+                mode="target",
+                valid_tokens=0,
+                dummy_run=False,
+            ).scope()
+        elif hook in ("hccl-graph-gather", "hccl-graph-dispatch"):
+            pytest.importorskip("torch_npu")
+            pytest.importorskip("vllm_ascend")
+            from vllm.v1.worker.gpu import model_runner
+            from vllm_ascend.worker.v2.model_runner import NPUModelRunner
+    
+            from afd_plugin.compat.patches.npu.hccl_graph_dispatch import (
+                use_hccl_graph_dispatch,
+            )
+    
+            owner = object.__new__(NPUModelRunner)
+            owner.cudagraph_manager = None
+            owner.parallel_config = SimpleNamespace()
+            owner.gather_batch_req_state = owner.gather_batch_req_state
+            if hook == "hccl-graph-gather":
+                target, symbol = owner, "gather_batch_req_state"
+            else:
+                target, symbol = model_runner, "dispatch_cg_and_sync_dp"
+            scope = use_hccl_graph_dispatch(owner, lambda state, args, desc: desc)
+        elif hook == "hccl-graph-capture":
+            from vllm.v1.worker.gpu.cudagraph_utils import CudaGraphManager
+    
+            from afd_plugin.compat.patches.npu.hccl_graph_capture import (
+                use_hccl_graph_capture,
+            )
+    
+            target = CudaGraphManager
+            symbol = "capture"
+            scope = use_hccl_graph_capture(
+                object.__new__(CudaGraphManager),
+                before_factory=lambda descriptor, warmup: None,
+                after_capture=lambda: None,
+                fail=lambda: None,
+            )
+        elif hook == "hccl-graph-replay":
+            pytest.importorskip("torch_npu")
+            pytest.importorskip("vllm_ascend")
+            from contextlib import nullcontext
+    
+            from vllm_ascend.worker.v2.aclgraph_utils import ModelAclGraphManager
+    
+            from afd_plugin.compat.patches.npu.hccl_graph_replay import (
+                use_hccl_graph_replay,
+            )
+    
+            target = object.__new__(ModelAclGraphManager)
+            target.run_fullgraph = target.run_fullgraph
+            symbol = "run_fullgraph"
+            scope = use_hccl_graph_replay(
+                target,
+                before_replay=lambda descriptor: nullcontext(),
+                after_replay=lambda descriptor: None,
+                fail=lambda: None,
+            )
+        elif hook == "hccl-u1-prepare":
+            pytest.importorskip("torch_npu")
+            pytest.importorskip("vllm_ascend")
+            from afd_plugin.compat.patches.npu.hccl_v41_u1_graph import (
+                use_hccl_v41_u1_preparation,
+            )
+            from tests.unit.fakes.deepseek_v41 import ParentEngramState
+    
+            target = ParentEngramState({})
+            target.prepare_attn = target.prepare_attn
+            symbol = "prepare_attn"
+            scope = use_hccl_v41_u1_preparation(target, None, lambda: None)
+        elif hook == "hccl-graph-begin":
+            pytest.importorskip("torch_npu")
+            pytest.importorskip("vllm_ascend")
+            from vllm.v1.worker.gpu.ubatch_utils import UBatchRunner
+    
+            from afd_plugin.v1.worker.npu.hccl_v41_ubatch_runner import HcclV41UBatchRunner
+    
+            target = UBatchRunner
+            symbol = "begin_capturable_run"
+            scope = patch.object(target, symbol, HcclV41UBatchRunner.begin_capturable_run)
+        elif hook in ("ffn-profile", "attention-profile", "attention-shutdown"):
+            pytest.importorskip("torch_npu")
+            pytest.importorskip("vllm_ascend")
+>           from vllm_ascend.worker.worker import NPUWorker
+
+tests/unit/compat/patches/test_signatures.py:479: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/vllm_ascend/worker/worker.py:85: in <module>
+    from vllm_ascend.device_allocator.camem import CaMemAllocator
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+    #
+    # Copyright (c) 2025 Huawei Technologies Co., Ltd. All Rights Reserved.
+    # This file is a part of the vllm-ascend project.
+    #
+    # Licensed under the Apache License, Version 2.0 (the "License");
+    # you may not use this file except in compliance with the License.
+    # You may obtain a copy of the License at
+    #
+    #     http://www.apache.org/licenses/LICENSE-2.0
+    #
+    # Unless required by applicable law or agreed to in writing, software
+    # distributed under the License is distributed on an "AS IS" BASIS,
+    # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+    # See the License for the specific language governing permissions and
+    # limitations under the License.
+    #
+    # CANN-mem-based pytorch pluggable allocator to implement sleep mode.
+    #
+    import dataclasses
+    import gc
+    import os
+    from collections.abc import Callable
+    from contextlib import contextmanager
+    from typing import Any
+    
+    import torch
+>   from acl.rt import memcpy  # type: ignore # noqa: F401
+E   ModuleNotFoundError: No module named 'acl'
+
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/vllm_ascend/device_allocator/camem.py:27: ModuleNotFoundError
+=============================== warnings summary ===============================
+tests/unit/compat/npu/test_kv_layout_connector.py::test_request_ready_wire_requires_complete_native_draft_projection[1-0]
+  /mnt/workspace/code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/torch_npu/utils/storage.py:55: UserWarning: TypedStorage is deprecated. It will be removed in the future and UntypedStorage will be the only storage class. This should only matter to you if you are using storages directly.  To access UntypedStorage directly, use tensor.untyped_storage() instead of tensor.storage()
+    if self.device.type != 'cpu':
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+- generated xml file: /mnt/workspace/tmp/afd-c0-20261104.hVgsIf/full-checkpoint-cpu-20261119.NOpVPI/results/junit.xml -
+=========================== short test summary info ============================
+FAILED tests/unit/compat/npu/test_feature_validation.py::test_full_checkpoint_candidate_preserves_weights_and_a_owned_history[True-False-False-1-attention]
+FAILED tests/unit/compat/npu/test_feature_validation.py::test_full_checkpoint_candidate_preserves_weights_and_a_owned_history[True-False-False-2-attention]
+FAILED tests/unit/compat/npu/test_feature_validation.py::test_full_checkpoint_candidate_preserves_weights_and_a_owned_history[True-False-True-1-attention]
+FAILED tests/unit/compat/npu/test_feature_validation.py::test_full_checkpoint_candidate_preserves_weights_and_a_owned_history[True-False-True-2-attention]
+FAILED tests/unit/compat/npu/test_feature_validation.py::test_full_checkpoint_candidate_preserves_weights_and_a_owned_history[True-True-False-1-attention]
+FAILED tests/unit/compat/npu/test_feature_validation.py::test_full_checkpoint_candidate_preserves_weights_and_a_owned_history[True-True-False-2-attention]
+FAILED tests/unit/compat/npu/test_feature_validation.py::test_full_checkpoint_candidate_preserves_weights_and_a_owned_history[True-True-True-1-attention]
+FAILED tests/unit/compat/npu/test_feature_validation.py::test_full_checkpoint_candidate_preserves_weights_and_a_owned_history[True-True-True-2-attention]
+FAILED tests/unit/compat/patches/test_signatures.py::test_scoped_patch_preserves_upstream_signature[ffn-profile]
+FAILED tests/unit/compat/patches/test_signatures.py::test_scoped_patch_preserves_upstream_signature[attention-profile]
+FAILED tests/unit/compat/patches/test_signatures.py::test_scoped_patch_preserves_upstream_signature[attention-shutdown]

@@ -1,0 +1,2840 @@
+..............................................................F.F....... [  7%]
+......F.F............................................................... [ 15%]
+........................................................................ [ 22%]
+........................................................................ [ 30%]
+........................................................................ [ 37%]
+........................................................................ [ 45%]
+........................................................................ [ 52%]
+..................F..................................................... [ 60%]
+........................................................................ [ 68%]
+........................................................................ [ 75%]
+........................................................................ [ 83%]
+..................FFFFFFFF....F......................................... [ 90%]
+........................................................................ [ 98%]
+...............                                                          [100%]
+=================================== FAILURES ===================================
+_ test_full_checkpoint_candidate_preserves_weights_and_a_owned_history[True-False-True-1-attention] _
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0xfffb756aa210>
+v41_full_candidate = <function v41_full_candidate.<locals>.build at 0xfffb74bf8a40>
+role = 'attention', graph = True, stages = 1, dspark = True, pd = False
+
+    @pytest.mark.parametrize("role", ["attention", "ffn"])
+    @pytest.mark.parametrize("graph,stages", [(False, 1), (False, 2), (True, 1), (True, 2)])
+    @pytest.mark.parametrize(
+        "dspark,pd", [(False, False), (True, False), (False, True), (True, True)]
+    )
+    def test_full_checkpoint_candidate_preserves_weights_and_a_owned_history(
+        monkeypatch, v41_full_candidate, role, graph, stages, dspark, pd
+    ):
+        source = v41_full_candidate(
+            role=role, graph=graph, stages=stages, dspark=dspark, pd=pd
+        )
+        original = deepcopy(source)
+        config = get_npu_ffn_config(source) if role == "ffn" else source
+        before = deepcopy(config)
+        monkeypatch.setenv("AFD_DSV41_FULL_QUALIFICATION", "1")
+    
+>       fail_if_unsupported_npu_afd_features(config)
+
+tests/unit/compat/npu/test_feature_validation.py:181: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+afd_plugin/compat/npu/feature_validation.py:517: in fail_if_unsupported_npu_afd_features
+    _validate_v41_eager_qualification(vllm_config, afd_config, full=True)
+afd_plugin/compat/npu/feature_validation.py:111: in _validate_v41_eager_qualification
+    validate_staged_hccl_runtime(
+afd_plugin/connectors/npu/hccl_config.py:141: in validate_staged_hccl_runtime
+    result.validate()
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = HcclPlanCapabilities(hidden_size=16, vocab_size=1024, max_tokens=1024, layer_indices=(0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10...ersion=1, graph_execution_version=1, graph_exchange_order='stage_serial', target_query_len=3, eager_pipeline_version=0)
+
+    def validate(self) -> None:
+        _integer("hidden_size", self.hidden_size, minimum=1)
+        _integer("vocab_size", self.vocab_size, minimum=1, maximum=MAX_INT32 + 1)
+        _integer("max_tokens", self.max_tokens, minimum=1)
+        _integer(
+            "target_query_len",
+            self.target_query_len,
+            minimum=1,
+            maximum=self.max_tokens,
+        )
+        _integer(
+            "attention_size", self.attention_size, minimum=1, maximum=MAX_ROLE_RANKS
+        )
+        _integer("ffn_size", self.ffn_size, minimum=1, maximum=MAX_ROLE_RANKS)
+        _integer(
+            "native_tp_size", self.native_tp_size, minimum=1, maximum=MAX_ROLE_RANKS
+        )
+        _integer("max_stages", self.max_stages, minimum=1, maximum=MAX_HCCL_STAGES)
+        _integer("local_counts_version", self.local_counts_version, maximum=1)
+        _integer("graph_execution_version", self.graph_execution_version, maximum=1)
+        _integer("eager_pipeline_version", self.eager_pipeline_version, maximum=1)
+        if self.eager_pipeline_version == 1 and not (
+            self.graph_execution_version == 0
+            and self.max_stages == MAX_HCCL_STAGES
+            and self.attention_size == self.ffn_size == self.native_tp_size
+            and self.native_tp_size in (1, 2)
+        ):
+            raise ValueError(
+                "eager_pipeline_version=1 requires Graph v0, U2 "
+                "and paired native TP1/TP2"
+            )
+        if self.target_query_len > 1 and not (
+            self.local_counts_version == self.graph_execution_version == 1
+            and self.attention_size == self.ffn_size == self.native_tp_size
+            and self.native_tp_size in (1, 2)
+        ):
+>           raise ValueError(
+                "target_query_len > 1 requires Graph v1, local counts v1 "
+                "and paired native TP1/TP2"
+            )
+E           ValueError: target_query_len > 1 requires Graph v1, local counts v1 and paired native TP1/TP2
+
+afd_plugin/distributed/hccl_plan.py:146: ValueError
+_ test_full_checkpoint_candidate_preserves_weights_and_a_owned_history[True-False-True-2-attention] _
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0xfffb75662c60>
+v41_full_candidate = <function v41_full_candidate.<locals>.build at 0xfffb74d40900>
+role = 'attention', graph = True, stages = 2, dspark = True, pd = False
+
+    @pytest.mark.parametrize("role", ["attention", "ffn"])
+    @pytest.mark.parametrize("graph,stages", [(False, 1), (False, 2), (True, 1), (True, 2)])
+    @pytest.mark.parametrize(
+        "dspark,pd", [(False, False), (True, False), (False, True), (True, True)]
+    )
+    def test_full_checkpoint_candidate_preserves_weights_and_a_owned_history(
+        monkeypatch, v41_full_candidate, role, graph, stages, dspark, pd
+    ):
+        source = v41_full_candidate(
+            role=role, graph=graph, stages=stages, dspark=dspark, pd=pd
+        )
+        original = deepcopy(source)
+        config = get_npu_ffn_config(source) if role == "ffn" else source
+        before = deepcopy(config)
+        monkeypatch.setenv("AFD_DSV41_FULL_QUALIFICATION", "1")
+    
+>       fail_if_unsupported_npu_afd_features(config)
+
+tests/unit/compat/npu/test_feature_validation.py:181: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+afd_plugin/compat/npu/feature_validation.py:517: in fail_if_unsupported_npu_afd_features
+    _validate_v41_eager_qualification(vllm_config, afd_config, full=True)
+afd_plugin/compat/npu/feature_validation.py:111: in _validate_v41_eager_qualification
+    validate_staged_hccl_runtime(
+afd_plugin/connectors/npu/hccl_config.py:141: in validate_staged_hccl_runtime
+    result.validate()
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = HcclPlanCapabilities(hidden_size=16, vocab_size=1024, max_tokens=1024, layer_indices=(0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10...ersion=1, graph_execution_version=1, graph_exchange_order='stage_serial', target_query_len=3, eager_pipeline_version=0)
+
+    def validate(self) -> None:
+        _integer("hidden_size", self.hidden_size, minimum=1)
+        _integer("vocab_size", self.vocab_size, minimum=1, maximum=MAX_INT32 + 1)
+        _integer("max_tokens", self.max_tokens, minimum=1)
+        _integer(
+            "target_query_len",
+            self.target_query_len,
+            minimum=1,
+            maximum=self.max_tokens,
+        )
+        _integer(
+            "attention_size", self.attention_size, minimum=1, maximum=MAX_ROLE_RANKS
+        )
+        _integer("ffn_size", self.ffn_size, minimum=1, maximum=MAX_ROLE_RANKS)
+        _integer(
+            "native_tp_size", self.native_tp_size, minimum=1, maximum=MAX_ROLE_RANKS
+        )
+        _integer("max_stages", self.max_stages, minimum=1, maximum=MAX_HCCL_STAGES)
+        _integer("local_counts_version", self.local_counts_version, maximum=1)
+        _integer("graph_execution_version", self.graph_execution_version, maximum=1)
+        _integer("eager_pipeline_version", self.eager_pipeline_version, maximum=1)
+        if self.eager_pipeline_version == 1 and not (
+            self.graph_execution_version == 0
+            and self.max_stages == MAX_HCCL_STAGES
+            and self.attention_size == self.ffn_size == self.native_tp_size
+            and self.native_tp_size in (1, 2)
+        ):
+            raise ValueError(
+                "eager_pipeline_version=1 requires Graph v0, U2 "
+                "and paired native TP1/TP2"
+            )
+        if self.target_query_len > 1 and not (
+            self.local_counts_version == self.graph_execution_version == 1
+            and self.attention_size == self.ffn_size == self.native_tp_size
+            and self.native_tp_size in (1, 2)
+        ):
+>           raise ValueError(
+                "target_query_len > 1 requires Graph v1, local counts v1 "
+                "and paired native TP1/TP2"
+            )
+E           ValueError: target_query_len > 1 requires Graph v1, local counts v1 and paired native TP1/TP2
+
+afd_plugin/distributed/hccl_plan.py:146: ValueError
+_ test_full_checkpoint_candidate_preserves_weights_and_a_owned_history[True-True-True-1-attention] _
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0xfffb758c0c80>
+v41_full_candidate = <function v41_full_candidate.<locals>.build at 0xfffb74d41a80>
+role = 'attention', graph = True, stages = 1, dspark = True, pd = True
+
+    @pytest.mark.parametrize("role", ["attention", "ffn"])
+    @pytest.mark.parametrize("graph,stages", [(False, 1), (False, 2), (True, 1), (True, 2)])
+    @pytest.mark.parametrize(
+        "dspark,pd", [(False, False), (True, False), (False, True), (True, True)]
+    )
+    def test_full_checkpoint_candidate_preserves_weights_and_a_owned_history(
+        monkeypatch, v41_full_candidate, role, graph, stages, dspark, pd
+    ):
+        source = v41_full_candidate(
+            role=role, graph=graph, stages=stages, dspark=dspark, pd=pd
+        )
+        original = deepcopy(source)
+        config = get_npu_ffn_config(source) if role == "ffn" else source
+        before = deepcopy(config)
+        monkeypatch.setenv("AFD_DSV41_FULL_QUALIFICATION", "1")
+    
+>       fail_if_unsupported_npu_afd_features(config)
+
+tests/unit/compat/npu/test_feature_validation.py:181: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+afd_plugin/compat/npu/feature_validation.py:517: in fail_if_unsupported_npu_afd_features
+    _validate_v41_eager_qualification(vllm_config, afd_config, full=True)
+afd_plugin/compat/npu/feature_validation.py:111: in _validate_v41_eager_qualification
+    validate_staged_hccl_runtime(
+afd_plugin/connectors/npu/hccl_config.py:141: in validate_staged_hccl_runtime
+    result.validate()
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = HcclPlanCapabilities(hidden_size=16, vocab_size=1024, max_tokens=1024, layer_indices=(0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10...ersion=1, graph_execution_version=1, graph_exchange_order='stage_serial', target_query_len=3, eager_pipeline_version=0)
+
+    def validate(self) -> None:
+        _integer("hidden_size", self.hidden_size, minimum=1)
+        _integer("vocab_size", self.vocab_size, minimum=1, maximum=MAX_INT32 + 1)
+        _integer("max_tokens", self.max_tokens, minimum=1)
+        _integer(
+            "target_query_len",
+            self.target_query_len,
+            minimum=1,
+            maximum=self.max_tokens,
+        )
+        _integer(
+            "attention_size", self.attention_size, minimum=1, maximum=MAX_ROLE_RANKS
+        )
+        _integer("ffn_size", self.ffn_size, minimum=1, maximum=MAX_ROLE_RANKS)
+        _integer(
+            "native_tp_size", self.native_tp_size, minimum=1, maximum=MAX_ROLE_RANKS
+        )
+        _integer("max_stages", self.max_stages, minimum=1, maximum=MAX_HCCL_STAGES)
+        _integer("local_counts_version", self.local_counts_version, maximum=1)
+        _integer("graph_execution_version", self.graph_execution_version, maximum=1)
+        _integer("eager_pipeline_version", self.eager_pipeline_version, maximum=1)
+        if self.eager_pipeline_version == 1 and not (
+            self.graph_execution_version == 0
+            and self.max_stages == MAX_HCCL_STAGES
+            and self.attention_size == self.ffn_size == self.native_tp_size
+            and self.native_tp_size in (1, 2)
+        ):
+            raise ValueError(
+                "eager_pipeline_version=1 requires Graph v0, U2 "
+                "and paired native TP1/TP2"
+            )
+        if self.target_query_len > 1 and not (
+            self.local_counts_version == self.graph_execution_version == 1
+            and self.attention_size == self.ffn_size == self.native_tp_size
+            and self.native_tp_size in (1, 2)
+        ):
+>           raise ValueError(
+                "target_query_len > 1 requires Graph v1, local counts v1 "
+                "and paired native TP1/TP2"
+            )
+E           ValueError: target_query_len > 1 requires Graph v1, local counts v1 and paired native TP1/TP2
+
+afd_plugin/distributed/hccl_plan.py:146: ValueError
+_ test_full_checkpoint_candidate_preserves_weights_and_a_owned_history[True-True-True-2-attention] _
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0xfffb757266c0>
+v41_full_candidate = <function v41_full_candidate.<locals>.build at 0xfffb74d422a0>
+role = 'attention', graph = True, stages = 2, dspark = True, pd = True
+
+    @pytest.mark.parametrize("role", ["attention", "ffn"])
+    @pytest.mark.parametrize("graph,stages", [(False, 1), (False, 2), (True, 1), (True, 2)])
+    @pytest.mark.parametrize(
+        "dspark,pd", [(False, False), (True, False), (False, True), (True, True)]
+    )
+    def test_full_checkpoint_candidate_preserves_weights_and_a_owned_history(
+        monkeypatch, v41_full_candidate, role, graph, stages, dspark, pd
+    ):
+        source = v41_full_candidate(
+            role=role, graph=graph, stages=stages, dspark=dspark, pd=pd
+        )
+        original = deepcopy(source)
+        config = get_npu_ffn_config(source) if role == "ffn" else source
+        before = deepcopy(config)
+        monkeypatch.setenv("AFD_DSV41_FULL_QUALIFICATION", "1")
+    
+>       fail_if_unsupported_npu_afd_features(config)
+
+tests/unit/compat/npu/test_feature_validation.py:181: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+afd_plugin/compat/npu/feature_validation.py:517: in fail_if_unsupported_npu_afd_features
+    _validate_v41_eager_qualification(vllm_config, afd_config, full=True)
+afd_plugin/compat/npu/feature_validation.py:111: in _validate_v41_eager_qualification
+    validate_staged_hccl_runtime(
+afd_plugin/connectors/npu/hccl_config.py:141: in validate_staged_hccl_runtime
+    result.validate()
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = HcclPlanCapabilities(hidden_size=16, vocab_size=1024, max_tokens=1024, layer_indices=(0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10...ersion=1, graph_execution_version=1, graph_exchange_order='stage_serial', target_query_len=3, eager_pipeline_version=0)
+
+    def validate(self) -> None:
+        _integer("hidden_size", self.hidden_size, minimum=1)
+        _integer("vocab_size", self.vocab_size, minimum=1, maximum=MAX_INT32 + 1)
+        _integer("max_tokens", self.max_tokens, minimum=1)
+        _integer(
+            "target_query_len",
+            self.target_query_len,
+            minimum=1,
+            maximum=self.max_tokens,
+        )
+        _integer(
+            "attention_size", self.attention_size, minimum=1, maximum=MAX_ROLE_RANKS
+        )
+        _integer("ffn_size", self.ffn_size, minimum=1, maximum=MAX_ROLE_RANKS)
+        _integer(
+            "native_tp_size", self.native_tp_size, minimum=1, maximum=MAX_ROLE_RANKS
+        )
+        _integer("max_stages", self.max_stages, minimum=1, maximum=MAX_HCCL_STAGES)
+        _integer("local_counts_version", self.local_counts_version, maximum=1)
+        _integer("graph_execution_version", self.graph_execution_version, maximum=1)
+        _integer("eager_pipeline_version", self.eager_pipeline_version, maximum=1)
+        if self.eager_pipeline_version == 1 and not (
+            self.graph_execution_version == 0
+            and self.max_stages == MAX_HCCL_STAGES
+            and self.attention_size == self.ffn_size == self.native_tp_size
+            and self.native_tp_size in (1, 2)
+        ):
+            raise ValueError(
+                "eager_pipeline_version=1 requires Graph v0, U2 "
+                "and paired native TP1/TP2"
+            )
+        if self.target_query_len > 1 and not (
+            self.local_counts_version == self.graph_execution_version == 1
+            and self.attention_size == self.ffn_size == self.native_tp_size
+            and self.native_tp_size in (1, 2)
+        ):
+>           raise ValueError(
+                "target_query_len > 1 requires Graph v1, local counts v1 "
+                "and paired native TP1/TP2"
+            )
+E           ValueError: target_query_len > 1 requires Graph v1, local counts v1 and paired native TP1/TP2
+
+afd_plugin/distributed/hccl_plan.py:146: ValueError
+___ test_engram_pd_exports_original_history_after_native_prefill_truncation ____
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0xfffb74e26930>
+
+    def test_engram_pd_exports_original_history_after_native_prefill_truncation(
+        monkeypatch,
+    ):
+        prefix = make_dspark_pd_prefix_case(monkeypatch, bind=False)
+        prefix.config.engram_config = SimpleNamespace(cpu_offload=True)
+        case = make_dspark_scheduler_case(monkeypatch, prefix)
+        request = case.request
+        original = list(range(prefix.source.original_prompt_tokens))
+        expected = engram_history_payload(
+            original, request.request_id, case.scheduler.engine_id
+        )
+        assert request.prompt_token_ids == original[:-1]
+>       assert case.manager.allocate_slots(request, request.num_prompt_tokens) is not None
+E       assert None is not None
+E        +  where None = allocate_slots(<vllm.v1.request.Request object at 0xfffb75d7aea0>, 5)
+E        +    where allocate_slots = <vllm.v1.core.kv_cache_manager.KVCacheManager object at 0xfffb7594a7b0>.allocate_slots
+E        +      where <vllm.v1.core.kv_cache_manager.KVCacheManager object at 0xfffb7594a7b0> = namespace(scheduler=<afd_plugin.compat.npu.kv_layout_connector.AFDMooncakeConnectorScheduler object at 0xfffb7574bbc0>...er object at 0xfffb7594a7b0>, new_request=<function make_dspark_scheduler_case.<locals>.new_request at 0xfffb74e5dbc0>).manager
+E        +    and   5 = <vllm.v1.request.Request object at 0xfffb75d7aea0>.num_prompt_tokens
+
+tests/unit/compat/npu/test_kv_layout_connector.py:92: AssertionError
+----------------------------- Captured stdout call -----------------------------
+INFO 11-19 11:41:17 [mooncake_hybrid_connector.py:1426] Initializing Mooncake Scheduler source-engine
+INFO 11-19 11:41:17 [mooncake_hybrid_connector.py:1426] Initializing Mooncake Scheduler source-engine
+_ test_native_parent_callback_uses_actual_counts_and_one_unsliced_producer[False-False-True] _
+
+graph_case = <function make_graph_execution_case at 0xfffb756e9620>
+warmup = True, engram = False, pipelined = False
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0xfffb75852db0>
+
+    @pytest.mark.parametrize("warmup", [True, False])
+    @pytest.mark.parametrize("engram", [False, True])
+    @pytest.mark.parametrize("pipelined", [False, True])
+    def test_native_parent_callback_uses_actual_counts_and_one_unsliced_producer(
+        graph_case, warmup, engram, pipelined, monkeypatch
+    ):
+        case = graph_case(
+            warmup=warmup,
+            engram=engram,
+            pipeline_factory=(
+                lambda bank: attach_pipeline(monkeypatch, pipeline_module, bank).pipeline
+            )
+            if pipelined
+            else None,
+        )
+        prepared = case.runner.prepare(
+            case.batch, (), torch.zeros(1, 4, dtype=torch.int32), CUDAGraphMode.FULL, True
+        )
+        finish = case.runner.begin_capturable_run(
+            case.model, case.inputs, prepared, for_capture=True
+        )
+        parent = SimpleNamespace(ubatch_idx=-1)
+    
+        with override_forward_context(parent):
+            output, auxiliary = finish()
+            assert get_forward_context() is parent
+    
+        assert output.shape == (4, 4) and len(auxiliary) == 2
+        assert case.transport.plan.graph_execution == case.reservation.decision
+        assert [stage.attention_valid_tokens for stage in case.transport.plan.stages] == [
+            (0,),
+            (0,),
+        ]
+        assert all(
+            peer.messages[2].tolist() == [0, 0] for peer in case.model_case.endpoints
+        )
+        assert len(case.model_case.producer_parents) == int(engram)
+        assert case.model_case.joined == ([True] if engram else [])
+        # Completion is deliberately outside this native tensor callback.
+>       case.transport.complete_graph_forward(case.reservation.decision.key)
+
+tests/unit/v1/worker/npu/test_hccl_v41_graph_execution.py:84: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+afd_plugin/connectors/npu/hccl_staged_transport.py:1198: in complete_graph_forward
+    self.finish_forward()
+afd_plugin/connectors/npu/hccl_staged_transport.py:1145: in finish_forward
+    self._finish_forward()
+afd_plugin/connectors/npu/hccl_staged_transport.py:1163: in _finish_forward
+    torch.npu.synchronize(self.local_device)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/torch_npu/npu/utils.py:70: in synchronize
+    torch_npu.npu._lazy_init()
+/opt/buildtools/python-3.12.9/lib/python3.12/unittest/mock.py:1139: in __call__
+    return self._mock_call(*args, **kwargs)
+/opt/buildtools/python-3.12.9/lib/python3.12/unittest/mock.py:1143: in _mock_call
+    return self._execute_mock_call(*args, **kwargs)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <MagicMock name='_lazy_init' id='281464566746864'>, args = ()
+kwargs = {}, effect = RuntimeError('CPU validation forbids NPU initialization')
+
+    def _execute_mock_call(self, /, *args, **kwargs):
+        # separate from _increment_mock_call so that awaited functions are
+        # executed separately from their call, also AsyncMock overrides this method
+    
+        effect = self.side_effect
+        if effect is not None:
+            if _is_exception(effect):
+>               raise effect
+E               RuntimeError: CPU validation forbids NPU initialization
+
+/opt/buildtools/python-3.12.9/lib/python3.12/unittest/mock.py:1198: RuntimeError
+_ test_native_parent_callback_uses_actual_counts_and_one_unsliced_producer[False-False-False] _
+
+graph_case = <function make_graph_execution_case at 0xfffb756e9620>
+warmup = False, engram = False, pipelined = False
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0xfffb7562ce30>
+
+    @pytest.mark.parametrize("warmup", [True, False])
+    @pytest.mark.parametrize("engram", [False, True])
+    @pytest.mark.parametrize("pipelined", [False, True])
+    def test_native_parent_callback_uses_actual_counts_and_one_unsliced_producer(
+        graph_case, warmup, engram, pipelined, monkeypatch
+    ):
+        case = graph_case(
+            warmup=warmup,
+            engram=engram,
+            pipeline_factory=(
+                lambda bank: attach_pipeline(monkeypatch, pipeline_module, bank).pipeline
+            )
+            if pipelined
+            else None,
+        )
+        prepared = case.runner.prepare(
+            case.batch, (), torch.zeros(1, 4, dtype=torch.int32), CUDAGraphMode.FULL, True
+        )
+        finish = case.runner.begin_capturable_run(
+            case.model, case.inputs, prepared, for_capture=True
+        )
+        parent = SimpleNamespace(ubatch_idx=-1)
+    
+        with override_forward_context(parent):
+            output, auxiliary = finish()
+            assert get_forward_context() is parent
+    
+        assert output.shape == (4, 4) and len(auxiliary) == 2
+        assert case.transport.plan.graph_execution == case.reservation.decision
+        assert [stage.attention_valid_tokens for stage in case.transport.plan.stages] == [
+            (0,),
+            (0,),
+        ]
+        assert all(
+            peer.messages[2].tolist() == [0, 0] for peer in case.model_case.endpoints
+        )
+        assert len(case.model_case.producer_parents) == int(engram)
+        assert case.model_case.joined == ([True] if engram else [])
+        # Completion is deliberately outside this native tensor callback.
+>       case.transport.complete_graph_forward(case.reservation.decision.key)
+
+tests/unit/v1/worker/npu/test_hccl_v41_graph_execution.py:84: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+afd_plugin/connectors/npu/hccl_staged_transport.py:1198: in complete_graph_forward
+    self.finish_forward()
+afd_plugin/connectors/npu/hccl_staged_transport.py:1145: in finish_forward
+    self._finish_forward()
+afd_plugin/connectors/npu/hccl_staged_transport.py:1163: in _finish_forward
+    torch.npu.synchronize(self.local_device)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/torch_npu/npu/utils.py:70: in synchronize
+    torch_npu.npu._lazy_init()
+/opt/buildtools/python-3.12.9/lib/python3.12/unittest/mock.py:1139: in __call__
+    return self._mock_call(*args, **kwargs)
+/opt/buildtools/python-3.12.9/lib/python3.12/unittest/mock.py:1143: in _mock_call
+    return self._execute_mock_call(*args, **kwargs)
+/opt/buildtools/python-3.12.9/lib/python3.12/unittest/mock.py:1198: in _execute_mock_call
+    raise effect
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/runner.py:341: in from_call
+    result: TResult | None = func()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/runner.py:242: in <lambda>
+    lambda: runtest_hook(item=item, **kwds), when=when, reraise=reraise
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/pluggy/_caller.py:197: in __call__
+    return self._hookexec(
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/pluggy/_manager.py:183: in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/threadexception.py:92: in pytest_runtest_call
+    yield from thread_exception_runtest_hook()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/threadexception.py:68: in thread_exception_runtest_hook
+    yield
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/unraisableexception.py:95: in pytest_runtest_call
+    yield from unraisable_exception_runtest_hook()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/unraisableexception.py:70: in unraisable_exception_runtest_hook
+    yield
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/logging.py:848: in pytest_runtest_call
+    yield from self._runtest_for(item, "call")
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/logging.py:831: in _runtest_for
+    yield
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/capture.py:879: in pytest_runtest_call
+    return (yield)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/skipping.py:257: in pytest_runtest_call
+    return (yield)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/runner.py:174: in pytest_runtest_call
+    item.runtest()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/python.py:1627: in runtest
+    self.ihook.pytest_pyfunc_call(pyfuncitem=self)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/pluggy/_caller.py:197: in __call__
+    return self._hookexec(
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/pluggy/_manager.py:183: in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/python.py:159: in pytest_pyfunc_call
+    result = testfunction(**testargs)
+tests/unit/v1/worker/npu/test_hccl_v41_graph_execution.py:84: in test_native_parent_callback_uses_actual_counts_and_one_unsliced_producer
+    case.transport.complete_graph_forward(case.reservation.decision.key)
+afd_plugin/connectors/npu/hccl_staged_transport.py:1198: in complete_graph_forward
+    self.finish_forward()
+afd_plugin/connectors/npu/hccl_staged_transport.py:1145: in finish_forward
+    self._finish_forward()
+afd_plugin/connectors/npu/hccl_staged_transport.py:1163: in _finish_forward
+    torch.npu.synchronize(self.local_device)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/torch_npu/npu/utils.py:70: in synchronize
+    torch_npu.npu._lazy_init()
+/opt/buildtools/python-3.12.9/lib/python3.12/unittest/mock.py:1139: in __call__
+    return self._mock_call(*args, **kwargs)
+/opt/buildtools/python-3.12.9/lib/python3.12/unittest/mock.py:1143: in _mock_call
+    return self._execute_mock_call(*args, **kwargs)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <MagicMock name='_lazy_init' id='281464566746864'>, args = ()
+kwargs = {}, effect = RuntimeError('CPU validation forbids NPU initialization')
+
+    def _execute_mock_call(self, /, *args, **kwargs):
+        # separate from _increment_mock_call so that awaited functions are
+        # executed separately from their call, also AsyncMock overrides this method
+    
+        effect = self.side_effect
+        if effect is not None:
+            if _is_exception(effect):
+>               raise effect
+E               RuntimeError: CPU validation forbids NPU initialization
+
+/opt/buildtools/python-3.12.9/lib/python3.12/unittest/mock.py:1198: RuntimeError
+_ test_native_parent_callback_uses_actual_counts_and_one_unsliced_producer[False-True-True] _
+
+graph_case = <function make_graph_execution_case at 0xfffb756e9620>
+warmup = True, engram = True, pipelined = False
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0xfffb7562eff0>
+
+    @pytest.mark.parametrize("warmup", [True, False])
+    @pytest.mark.parametrize("engram", [False, True])
+    @pytest.mark.parametrize("pipelined", [False, True])
+    def test_native_parent_callback_uses_actual_counts_and_one_unsliced_producer(
+        graph_case, warmup, engram, pipelined, monkeypatch
+    ):
+        case = graph_case(
+            warmup=warmup,
+            engram=engram,
+            pipeline_factory=(
+                lambda bank: attach_pipeline(monkeypatch, pipeline_module, bank).pipeline
+            )
+            if pipelined
+            else None,
+        )
+        prepared = case.runner.prepare(
+            case.batch, (), torch.zeros(1, 4, dtype=torch.int32), CUDAGraphMode.FULL, True
+        )
+        finish = case.runner.begin_capturable_run(
+            case.model, case.inputs, prepared, for_capture=True
+        )
+        parent = SimpleNamespace(ubatch_idx=-1)
+    
+        with override_forward_context(parent):
+            output, auxiliary = finish()
+            assert get_forward_context() is parent
+    
+        assert output.shape == (4, 4) and len(auxiliary) == 2
+        assert case.transport.plan.graph_execution == case.reservation.decision
+        assert [stage.attention_valid_tokens for stage in case.transport.plan.stages] == [
+            (0,),
+            (0,),
+        ]
+        assert all(
+            peer.messages[2].tolist() == [0, 0] for peer in case.model_case.endpoints
+        )
+        assert len(case.model_case.producer_parents) == int(engram)
+        assert case.model_case.joined == ([True] if engram else [])
+        # Completion is deliberately outside this native tensor callback.
+>       case.transport.complete_graph_forward(case.reservation.decision.key)
+
+tests/unit/v1/worker/npu/test_hccl_v41_graph_execution.py:84: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+afd_plugin/connectors/npu/hccl_staged_transport.py:1198: in complete_graph_forward
+    self.finish_forward()
+afd_plugin/connectors/npu/hccl_staged_transport.py:1145: in finish_forward
+    self._finish_forward()
+afd_plugin/connectors/npu/hccl_staged_transport.py:1163: in _finish_forward
+    torch.npu.synchronize(self.local_device)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/torch_npu/npu/utils.py:70: in synchronize
+    torch_npu.npu._lazy_init()
+/opt/buildtools/python-3.12.9/lib/python3.12/unittest/mock.py:1139: in __call__
+    return self._mock_call(*args, **kwargs)
+/opt/buildtools/python-3.12.9/lib/python3.12/unittest/mock.py:1143: in _mock_call
+    return self._execute_mock_call(*args, **kwargs)
+/opt/buildtools/python-3.12.9/lib/python3.12/unittest/mock.py:1198: in _execute_mock_call
+    raise effect
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/runner.py:341: in from_call
+    result: TResult | None = func()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/runner.py:242: in <lambda>
+    lambda: runtest_hook(item=item, **kwds), when=when, reraise=reraise
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/pluggy/_caller.py:197: in __call__
+    return self._hookexec(
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/pluggy/_manager.py:183: in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/threadexception.py:92: in pytest_runtest_call
+    yield from thread_exception_runtest_hook()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/threadexception.py:68: in thread_exception_runtest_hook
+    yield
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/unraisableexception.py:95: in pytest_runtest_call
+    yield from unraisable_exception_runtest_hook()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/unraisableexception.py:70: in unraisable_exception_runtest_hook
+    yield
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/logging.py:848: in pytest_runtest_call
+    yield from self._runtest_for(item, "call")
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/logging.py:831: in _runtest_for
+    yield
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/capture.py:879: in pytest_runtest_call
+    return (yield)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/skipping.py:257: in pytest_runtest_call
+    return (yield)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/runner.py:174: in pytest_runtest_call
+    item.runtest()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/python.py:1627: in runtest
+    self.ihook.pytest_pyfunc_call(pyfuncitem=self)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/pluggy/_caller.py:197: in __call__
+    return self._hookexec(
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/pluggy/_manager.py:183: in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/python.py:159: in pytest_pyfunc_call
+    result = testfunction(**testargs)
+tests/unit/v1/worker/npu/test_hccl_v41_graph_execution.py:84: in test_native_parent_callback_uses_actual_counts_and_one_unsliced_producer
+    case.transport.complete_graph_forward(case.reservation.decision.key)
+afd_plugin/connectors/npu/hccl_staged_transport.py:1198: in complete_graph_forward
+    self.finish_forward()
+afd_plugin/connectors/npu/hccl_staged_transport.py:1145: in finish_forward
+    self._finish_forward()
+afd_plugin/connectors/npu/hccl_staged_transport.py:1163: in _finish_forward
+    torch.npu.synchronize(self.local_device)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/torch_npu/npu/utils.py:70: in synchronize
+    torch_npu.npu._lazy_init()
+/opt/buildtools/python-3.12.9/lib/python3.12/unittest/mock.py:1139: in __call__
+    return self._mock_call(*args, **kwargs)
+/opt/buildtools/python-3.12.9/lib/python3.12/unittest/mock.py:1143: in _mock_call
+    return self._execute_mock_call(*args, **kwargs)
+/opt/buildtools/python-3.12.9/lib/python3.12/unittest/mock.py:1198: in _execute_mock_call
+    raise effect
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/runner.py:341: in from_call
+    result: TResult | None = func()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/runner.py:242: in <lambda>
+    lambda: runtest_hook(item=item, **kwds), when=when, reraise=reraise
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/pluggy/_caller.py:197: in __call__
+    return self._hookexec(
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/pluggy/_manager.py:183: in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/threadexception.py:92: in pytest_runtest_call
+    yield from thread_exception_runtest_hook()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/threadexception.py:68: in thread_exception_runtest_hook
+    yield
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/unraisableexception.py:95: in pytest_runtest_call
+    yield from unraisable_exception_runtest_hook()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/unraisableexception.py:70: in unraisable_exception_runtest_hook
+    yield
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/logging.py:848: in pytest_runtest_call
+    yield from self._runtest_for(item, "call")
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/logging.py:831: in _runtest_for
+    yield
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/capture.py:879: in pytest_runtest_call
+    return (yield)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/skipping.py:257: in pytest_runtest_call
+    return (yield)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/runner.py:174: in pytest_runtest_call
+    item.runtest()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/python.py:1627: in runtest
+    self.ihook.pytest_pyfunc_call(pyfuncitem=self)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/pluggy/_caller.py:197: in __call__
+    return self._hookexec(
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/pluggy/_manager.py:183: in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/python.py:159: in pytest_pyfunc_call
+    result = testfunction(**testargs)
+tests/unit/v1/worker/npu/test_hccl_v41_graph_execution.py:84: in test_native_parent_callback_uses_actual_counts_and_one_unsliced_producer
+    case.transport.complete_graph_forward(case.reservation.decision.key)
+afd_plugin/connectors/npu/hccl_staged_transport.py:1198: in complete_graph_forward
+    self.finish_forward()
+afd_plugin/connectors/npu/hccl_staged_transport.py:1145: in finish_forward
+    self._finish_forward()
+afd_plugin/connectors/npu/hccl_staged_transport.py:1163: in _finish_forward
+    torch.npu.synchronize(self.local_device)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/torch_npu/npu/utils.py:70: in synchronize
+    torch_npu.npu._lazy_init()
+/opt/buildtools/python-3.12.9/lib/python3.12/unittest/mock.py:1139: in __call__
+    return self._mock_call(*args, **kwargs)
+/opt/buildtools/python-3.12.9/lib/python3.12/unittest/mock.py:1143: in _mock_call
+    return self._execute_mock_call(*args, **kwargs)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <MagicMock name='_lazy_init' id='281464566746864'>, args = ()
+kwargs = {}, effect = RuntimeError('CPU validation forbids NPU initialization')
+
+    def _execute_mock_call(self, /, *args, **kwargs):
+        # separate from _increment_mock_call so that awaited functions are
+        # executed separately from their call, also AsyncMock overrides this method
+    
+        effect = self.side_effect
+        if effect is not None:
+            if _is_exception(effect):
+>               raise effect
+E               RuntimeError: CPU validation forbids NPU initialization
+
+/opt/buildtools/python-3.12.9/lib/python3.12/unittest/mock.py:1198: RuntimeError
+_ test_native_parent_callback_uses_actual_counts_and_one_unsliced_producer[False-True-False] _
+
+graph_case = <function make_graph_execution_case at 0xfffb756e9620>
+warmup = False, engram = True, pipelined = False
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0xfffb753f0d40>
+
+    @pytest.mark.parametrize("warmup", [True, False])
+    @pytest.mark.parametrize("engram", [False, True])
+    @pytest.mark.parametrize("pipelined", [False, True])
+    def test_native_parent_callback_uses_actual_counts_and_one_unsliced_producer(
+        graph_case, warmup, engram, pipelined, monkeypatch
+    ):
+        case = graph_case(
+            warmup=warmup,
+            engram=engram,
+            pipeline_factory=(
+                lambda bank: attach_pipeline(monkeypatch, pipeline_module, bank).pipeline
+            )
+            if pipelined
+            else None,
+        )
+        prepared = case.runner.prepare(
+            case.batch, (), torch.zeros(1, 4, dtype=torch.int32), CUDAGraphMode.FULL, True
+        )
+        finish = case.runner.begin_capturable_run(
+            case.model, case.inputs, prepared, for_capture=True
+        )
+        parent = SimpleNamespace(ubatch_idx=-1)
+    
+        with override_forward_context(parent):
+            output, auxiliary = finish()
+            assert get_forward_context() is parent
+    
+        assert output.shape == (4, 4) and len(auxiliary) == 2
+        assert case.transport.plan.graph_execution == case.reservation.decision
+        assert [stage.attention_valid_tokens for stage in case.transport.plan.stages] == [
+            (0,),
+            (0,),
+        ]
+        assert all(
+            peer.messages[2].tolist() == [0, 0] for peer in case.model_case.endpoints
+        )
+        assert len(case.model_case.producer_parents) == int(engram)
+        assert case.model_case.joined == ([True] if engram else [])
+        # Completion is deliberately outside this native tensor callback.
+>       case.transport.complete_graph_forward(case.reservation.decision.key)
+
+tests/unit/v1/worker/npu/test_hccl_v41_graph_execution.py:84: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+afd_plugin/connectors/npu/hccl_staged_transport.py:1198: in complete_graph_forward
+    self.finish_forward()
+afd_plugin/connectors/npu/hccl_staged_transport.py:1145: in finish_forward
+    self._finish_forward()
+afd_plugin/connectors/npu/hccl_staged_transport.py:1163: in _finish_forward
+    torch.npu.synchronize(self.local_device)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/torch_npu/npu/utils.py:70: in synchronize
+    torch_npu.npu._lazy_init()
+/opt/buildtools/python-3.12.9/lib/python3.12/unittest/mock.py:1139: in __call__
+    return self._mock_call(*args, **kwargs)
+/opt/buildtools/python-3.12.9/lib/python3.12/unittest/mock.py:1143: in _mock_call
+    return self._execute_mock_call(*args, **kwargs)
+/opt/buildtools/python-3.12.9/lib/python3.12/unittest/mock.py:1198: in _execute_mock_call
+    raise effect
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/runner.py:341: in from_call
+    result: TResult | None = func()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/runner.py:242: in <lambda>
+    lambda: runtest_hook(item=item, **kwds), when=when, reraise=reraise
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/pluggy/_caller.py:197: in __call__
+    return self._hookexec(
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/pluggy/_manager.py:183: in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/threadexception.py:92: in pytest_runtest_call
+    yield from thread_exception_runtest_hook()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/threadexception.py:68: in thread_exception_runtest_hook
+    yield
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/unraisableexception.py:95: in pytest_runtest_call
+    yield from unraisable_exception_runtest_hook()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/unraisableexception.py:70: in unraisable_exception_runtest_hook
+    yield
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/logging.py:848: in pytest_runtest_call
+    yield from self._runtest_for(item, "call")
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/logging.py:831: in _runtest_for
+    yield
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/capture.py:879: in pytest_runtest_call
+    return (yield)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/skipping.py:257: in pytest_runtest_call
+    return (yield)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/runner.py:174: in pytest_runtest_call
+    item.runtest()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/python.py:1627: in runtest
+    self.ihook.pytest_pyfunc_call(pyfuncitem=self)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/pluggy/_caller.py:197: in __call__
+    return self._hookexec(
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/pluggy/_manager.py:183: in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/python.py:159: in pytest_pyfunc_call
+    result = testfunction(**testargs)
+tests/unit/v1/worker/npu/test_hccl_v41_graph_execution.py:84: in test_native_parent_callback_uses_actual_counts_and_one_unsliced_producer
+    case.transport.complete_graph_forward(case.reservation.decision.key)
+afd_plugin/connectors/npu/hccl_staged_transport.py:1198: in complete_graph_forward
+    self.finish_forward()
+afd_plugin/connectors/npu/hccl_staged_transport.py:1145: in finish_forward
+    self._finish_forward()
+afd_plugin/connectors/npu/hccl_staged_transport.py:1163: in _finish_forward
+    torch.npu.synchronize(self.local_device)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/torch_npu/npu/utils.py:70: in synchronize
+    torch_npu.npu._lazy_init()
+/opt/buildtools/python-3.12.9/lib/python3.12/unittest/mock.py:1139: in __call__
+    return self._mock_call(*args, **kwargs)
+/opt/buildtools/python-3.12.9/lib/python3.12/unittest/mock.py:1143: in _mock_call
+    return self._execute_mock_call(*args, **kwargs)
+/opt/buildtools/python-3.12.9/lib/python3.12/unittest/mock.py:1198: in _execute_mock_call
+    raise effect
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/runner.py:341: in from_call
+    result: TResult | None = func()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/runner.py:242: in <lambda>
+    lambda: runtest_hook(item=item, **kwds), when=when, reraise=reraise
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/pluggy/_caller.py:197: in __call__
+    return self._hookexec(
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/pluggy/_manager.py:183: in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/threadexception.py:92: in pytest_runtest_call
+    yield from thread_exception_runtest_hook()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/threadexception.py:68: in thread_exception_runtest_hook
+    yield
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/unraisableexception.py:95: in pytest_runtest_call
+    yield from unraisable_exception_runtest_hook()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/unraisableexception.py:70: in unraisable_exception_runtest_hook
+    yield
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/logging.py:848: in pytest_runtest_call
+    yield from self._runtest_for(item, "call")
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/logging.py:831: in _runtest_for
+    yield
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/capture.py:879: in pytest_runtest_call
+    return (yield)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/skipping.py:257: in pytest_runtest_call
+    return (yield)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/runner.py:174: in pytest_runtest_call
+    item.runtest()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/python.py:1627: in runtest
+    self.ihook.pytest_pyfunc_call(pyfuncitem=self)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/pluggy/_caller.py:197: in __call__
+    return self._hookexec(
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/pluggy/_manager.py:183: in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/python.py:159: in pytest_pyfunc_call
+    result = testfunction(**testargs)
+tests/unit/v1/worker/npu/test_hccl_v41_graph_execution.py:84: in test_native_parent_callback_uses_actual_counts_and_one_unsliced_producer
+    case.transport.complete_graph_forward(case.reservation.decision.key)
+afd_plugin/connectors/npu/hccl_staged_transport.py:1198: in complete_graph_forward
+    self.finish_forward()
+afd_plugin/connectors/npu/hccl_staged_transport.py:1145: in finish_forward
+    self._finish_forward()
+afd_plugin/connectors/npu/hccl_staged_transport.py:1163: in _finish_forward
+    torch.npu.synchronize(self.local_device)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/torch_npu/npu/utils.py:70: in synchronize
+    torch_npu.npu._lazy_init()
+/opt/buildtools/python-3.12.9/lib/python3.12/unittest/mock.py:1139: in __call__
+    return self._mock_call(*args, **kwargs)
+/opt/buildtools/python-3.12.9/lib/python3.12/unittest/mock.py:1143: in _mock_call
+    return self._execute_mock_call(*args, **kwargs)
+/opt/buildtools/python-3.12.9/lib/python3.12/unittest/mock.py:1198: in _execute_mock_call
+    raise effect
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/runner.py:341: in from_call
+    result: TResult | None = func()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/runner.py:242: in <lambda>
+    lambda: runtest_hook(item=item, **kwds), when=when, reraise=reraise
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/pluggy/_caller.py:197: in __call__
+    return self._hookexec(
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/pluggy/_manager.py:183: in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/threadexception.py:92: in pytest_runtest_call
+    yield from thread_exception_runtest_hook()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/threadexception.py:68: in thread_exception_runtest_hook
+    yield
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/unraisableexception.py:95: in pytest_runtest_call
+    yield from unraisable_exception_runtest_hook()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/unraisableexception.py:70: in unraisable_exception_runtest_hook
+    yield
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/logging.py:848: in pytest_runtest_call
+    yield from self._runtest_for(item, "call")
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/logging.py:831: in _runtest_for
+    yield
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/capture.py:879: in pytest_runtest_call
+    return (yield)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/skipping.py:257: in pytest_runtest_call
+    return (yield)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/runner.py:174: in pytest_runtest_call
+    item.runtest()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/python.py:1627: in runtest
+    self.ihook.pytest_pyfunc_call(pyfuncitem=self)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/pluggy/_caller.py:197: in __call__
+    return self._hookexec(
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/pluggy/_manager.py:183: in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/python.py:159: in pytest_pyfunc_call
+    result = testfunction(**testargs)
+tests/unit/v1/worker/npu/test_hccl_v41_graph_execution.py:84: in test_native_parent_callback_uses_actual_counts_and_one_unsliced_producer
+    case.transport.complete_graph_forward(case.reservation.decision.key)
+afd_plugin/connectors/npu/hccl_staged_transport.py:1198: in complete_graph_forward
+    self.finish_forward()
+afd_plugin/connectors/npu/hccl_staged_transport.py:1145: in finish_forward
+    self._finish_forward()
+afd_plugin/connectors/npu/hccl_staged_transport.py:1163: in _finish_forward
+    torch.npu.synchronize(self.local_device)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/torch_npu/npu/utils.py:70: in synchronize
+    torch_npu.npu._lazy_init()
+/opt/buildtools/python-3.12.9/lib/python3.12/unittest/mock.py:1139: in __call__
+    return self._mock_call(*args, **kwargs)
+/opt/buildtools/python-3.12.9/lib/python3.12/unittest/mock.py:1143: in _mock_call
+    return self._execute_mock_call(*args, **kwargs)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <MagicMock name='_lazy_init' id='281464566746864'>, args = ()
+kwargs = {}, effect = RuntimeError('CPU validation forbids NPU initialization')
+
+    def _execute_mock_call(self, /, *args, **kwargs):
+        # separate from _increment_mock_call so that awaited functions are
+        # executed separately from their call, also AsyncMock overrides this method
+    
+        effect = self.side_effect
+        if effect is not None:
+            if _is_exception(effect):
+>               raise effect
+E               RuntimeError: CPU validation forbids NPU initialization
+
+/opt/buildtools/python-3.12.9/lib/python3.12/unittest/mock.py:1198: RuntimeError
+_ test_native_parent_callback_uses_actual_counts_and_one_unsliced_producer[True-False-True] _
+
+graph_case = <function make_graph_execution_case at 0xfffb756e9620>
+warmup = True, engram = False, pipelined = True
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0xfffb755e9f40>
+
+    @pytest.mark.parametrize("warmup", [True, False])
+    @pytest.mark.parametrize("engram", [False, True])
+    @pytest.mark.parametrize("pipelined", [False, True])
+    def test_native_parent_callback_uses_actual_counts_and_one_unsliced_producer(
+        graph_case, warmup, engram, pipelined, monkeypatch
+    ):
+        case = graph_case(
+            warmup=warmup,
+            engram=engram,
+            pipeline_factory=(
+                lambda bank: attach_pipeline(monkeypatch, pipeline_module, bank).pipeline
+            )
+            if pipelined
+            else None,
+        )
+        prepared = case.runner.prepare(
+            case.batch, (), torch.zeros(1, 4, dtype=torch.int32), CUDAGraphMode.FULL, True
+        )
+        finish = case.runner.begin_capturable_run(
+            case.model, case.inputs, prepared, for_capture=True
+        )
+        parent = SimpleNamespace(ubatch_idx=-1)
+    
+        with override_forward_context(parent):
+            output, auxiliary = finish()
+            assert get_forward_context() is parent
+    
+        assert output.shape == (4, 4) and len(auxiliary) == 2
+        assert case.transport.plan.graph_execution == case.reservation.decision
+        assert [stage.attention_valid_tokens for stage in case.transport.plan.stages] == [
+            (0,),
+            (0,),
+        ]
+        assert all(
+            peer.messages[2].tolist() == [0, 0] for peer in case.model_case.endpoints
+        )
+        assert len(case.model_case.producer_parents) == int(engram)
+        assert case.model_case.joined == ([True] if engram else [])
+        # Completion is deliberately outside this native tensor callback.
+>       case.transport.complete_graph_forward(case.reservation.decision.key)
+
+tests/unit/v1/worker/npu/test_hccl_v41_graph_execution.py:84: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+afd_plugin/connectors/npu/hccl_staged_transport.py:1198: in complete_graph_forward
+    self.finish_forward()
+afd_plugin/connectors/npu/hccl_staged_transport.py:1145: in finish_forward
+    self._finish_forward()
+afd_plugin/connectors/npu/hccl_staged_transport.py:1163: in _finish_forward
+    torch.npu.synchronize(self.local_device)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/torch_npu/npu/utils.py:70: in synchronize
+    torch_npu.npu._lazy_init()
+/opt/buildtools/python-3.12.9/lib/python3.12/unittest/mock.py:1139: in __call__
+    return self._mock_call(*args, **kwargs)
+/opt/buildtools/python-3.12.9/lib/python3.12/unittest/mock.py:1143: in _mock_call
+    return self._execute_mock_call(*args, **kwargs)
+/opt/buildtools/python-3.12.9/lib/python3.12/unittest/mock.py:1198: in _execute_mock_call
+    raise effect
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/runner.py:341: in from_call
+    result: TResult | None = func()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/runner.py:242: in <lambda>
+    lambda: runtest_hook(item=item, **kwds), when=when, reraise=reraise
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/pluggy/_caller.py:197: in __call__
+    return self._hookexec(
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/pluggy/_manager.py:183: in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/threadexception.py:92: in pytest_runtest_call
+    yield from thread_exception_runtest_hook()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/threadexception.py:68: in thread_exception_runtest_hook
+    yield
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/unraisableexception.py:95: in pytest_runtest_call
+    yield from unraisable_exception_runtest_hook()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/unraisableexception.py:70: in unraisable_exception_runtest_hook
+    yield
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/logging.py:848: in pytest_runtest_call
+    yield from self._runtest_for(item, "call")
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/logging.py:831: in _runtest_for
+    yield
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/capture.py:879: in pytest_runtest_call
+    return (yield)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/skipping.py:257: in pytest_runtest_call
+    return (yield)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/runner.py:174: in pytest_runtest_call
+    item.runtest()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/python.py:1627: in runtest
+    self.ihook.pytest_pyfunc_call(pyfuncitem=self)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/pluggy/_caller.py:197: in __call__
+    return self._hookexec(
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/pluggy/_manager.py:183: in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/python.py:159: in pytest_pyfunc_call
+    result = testfunction(**testargs)
+tests/unit/v1/worker/npu/test_hccl_v41_graph_execution.py:84: in test_native_parent_callback_uses_actual_counts_and_one_unsliced_producer
+    case.transport.complete_graph_forward(case.reservation.decision.key)
+afd_plugin/connectors/npu/hccl_staged_transport.py:1198: in complete_graph_forward
+    self.finish_forward()
+afd_plugin/connectors/npu/hccl_staged_transport.py:1145: in finish_forward
+    self._finish_forward()
+afd_plugin/connectors/npu/hccl_staged_transport.py:1163: in _finish_forward
+    torch.npu.synchronize(self.local_device)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/torch_npu/npu/utils.py:70: in synchronize
+    torch_npu.npu._lazy_init()
+/opt/buildtools/python-3.12.9/lib/python3.12/unittest/mock.py:1139: in __call__
+    return self._mock_call(*args, **kwargs)
+/opt/buildtools/python-3.12.9/lib/python3.12/unittest/mock.py:1143: in _mock_call
+    return self._execute_mock_call(*args, **kwargs)
+/opt/buildtools/python-3.12.9/lib/python3.12/unittest/mock.py:1198: in _execute_mock_call
+    raise effect
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/runner.py:341: in from_call
+    result: TResult | None = func()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/runner.py:242: in <lambda>
+    lambda: runtest_hook(item=item, **kwds), when=when, reraise=reraise
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/pluggy/_caller.py:197: in __call__
+    return self._hookexec(
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/pluggy/_manager.py:183: in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/threadexception.py:92: in pytest_runtest_call
+    yield from thread_exception_runtest_hook()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/threadexception.py:68: in thread_exception_runtest_hook
+    yield
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/unraisableexception.py:95: in pytest_runtest_call
+    yield from unraisable_exception_runtest_hook()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/unraisableexception.py:70: in unraisable_exception_runtest_hook
+    yield
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/logging.py:848: in pytest_runtest_call
+    yield from self._runtest_for(item, "call")
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/logging.py:831: in _runtest_for
+    yield
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/capture.py:879: in pytest_runtest_call
+    return (yield)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/skipping.py:257: in pytest_runtest_call
+    return (yield)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/runner.py:174: in pytest_runtest_call
+    item.runtest()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/python.py:1627: in runtest
+    self.ihook.pytest_pyfunc_call(pyfuncitem=self)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/pluggy/_caller.py:197: in __call__
+    return self._hookexec(
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/pluggy/_manager.py:183: in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/python.py:159: in pytest_pyfunc_call
+    result = testfunction(**testargs)
+tests/unit/v1/worker/npu/test_hccl_v41_graph_execution.py:84: in test_native_parent_callback_uses_actual_counts_and_one_unsliced_producer
+    case.transport.complete_graph_forward(case.reservation.decision.key)
+afd_plugin/connectors/npu/hccl_staged_transport.py:1198: in complete_graph_forward
+    self.finish_forward()
+afd_plugin/connectors/npu/hccl_staged_transport.py:1145: in finish_forward
+    self._finish_forward()
+afd_plugin/connectors/npu/hccl_staged_transport.py:1163: in _finish_forward
+    torch.npu.synchronize(self.local_device)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/torch_npu/npu/utils.py:70: in synchronize
+    torch_npu.npu._lazy_init()
+/opt/buildtools/python-3.12.9/lib/python3.12/unittest/mock.py:1139: in __call__
+    return self._mock_call(*args, **kwargs)
+/opt/buildtools/python-3.12.9/lib/python3.12/unittest/mock.py:1143: in _mock_call
+    return self._execute_mock_call(*args, **kwargs)
+/opt/buildtools/python-3.12.9/lib/python3.12/unittest/mock.py:1198: in _execute_mock_call
+    raise effect
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/runner.py:341: in from_call
+    result: TResult | None = func()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/runner.py:242: in <lambda>
+    lambda: runtest_hook(item=item, **kwds), when=when, reraise=reraise
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/pluggy/_caller.py:197: in __call__
+    return self._hookexec(
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/pluggy/_manager.py:183: in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/threadexception.py:92: in pytest_runtest_call
+    yield from thread_exception_runtest_hook()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/threadexception.py:68: in thread_exception_runtest_hook
+    yield
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/unraisableexception.py:95: in pytest_runtest_call
+    yield from unraisable_exception_runtest_hook()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/unraisableexception.py:70: in unraisable_exception_runtest_hook
+    yield
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/logging.py:848: in pytest_runtest_call
+    yield from self._runtest_for(item, "call")
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/logging.py:831: in _runtest_for
+    yield
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/capture.py:879: in pytest_runtest_call
+    return (yield)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/skipping.py:257: in pytest_runtest_call
+    return (yield)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/runner.py:174: in pytest_runtest_call
+    item.runtest()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/python.py:1627: in runtest
+    self.ihook.pytest_pyfunc_call(pyfuncitem=self)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/pluggy/_caller.py:197: in __call__
+    return self._hookexec(
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/pluggy/_manager.py:183: in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/python.py:159: in pytest_pyfunc_call
+    result = testfunction(**testargs)
+tests/unit/v1/worker/npu/test_hccl_v41_graph_execution.py:84: in test_native_parent_callback_uses_actual_counts_and_one_unsliced_producer
+    case.transport.complete_graph_forward(case.reservation.decision.key)
+afd_plugin/connectors/npu/hccl_staged_transport.py:1198: in complete_graph_forward
+    self.finish_forward()
+afd_plugin/connectors/npu/hccl_staged_transport.py:1145: in finish_forward
+    self._finish_forward()
+afd_plugin/connectors/npu/hccl_staged_transport.py:1163: in _finish_forward
+    torch.npu.synchronize(self.local_device)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/torch_npu/npu/utils.py:70: in synchronize
+    torch_npu.npu._lazy_init()
+/opt/buildtools/python-3.12.9/lib/python3.12/unittest/mock.py:1139: in __call__
+    return self._mock_call(*args, **kwargs)
+/opt/buildtools/python-3.12.9/lib/python3.12/unittest/mock.py:1143: in _mock_call
+    return self._execute_mock_call(*args, **kwargs)
+/opt/buildtools/python-3.12.9/lib/python3.12/unittest/mock.py:1198: in _execute_mock_call
+    raise effect
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/runner.py:341: in from_call
+    result: TResult | None = func()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/runner.py:242: in <lambda>
+    lambda: runtest_hook(item=item, **kwds), when=when, reraise=reraise
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/pluggy/_caller.py:197: in __call__
+    return self._hookexec(
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/pluggy/_manager.py:183: in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/threadexception.py:92: in pytest_runtest_call
+    yield from thread_exception_runtest_hook()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/threadexception.py:68: in thread_exception_runtest_hook
+    yield
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/unraisableexception.py:95: in pytest_runtest_call
+    yield from unraisable_exception_runtest_hook()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/unraisableexception.py:70: in unraisable_exception_runtest_hook
+    yield
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/logging.py:848: in pytest_runtest_call
+    yield from self._runtest_for(item, "call")
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/logging.py:831: in _runtest_for
+    yield
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/capture.py:879: in pytest_runtest_call
+    return (yield)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/skipping.py:257: in pytest_runtest_call
+    return (yield)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/runner.py:174: in pytest_runtest_call
+    item.runtest()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/python.py:1627: in runtest
+    self.ihook.pytest_pyfunc_call(pyfuncitem=self)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/pluggy/_caller.py:197: in __call__
+    return self._hookexec(
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/pluggy/_manager.py:183: in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/python.py:159: in pytest_pyfunc_call
+    result = testfunction(**testargs)
+tests/unit/v1/worker/npu/test_hccl_v41_graph_execution.py:84: in test_native_parent_callback_uses_actual_counts_and_one_unsliced_producer
+    case.transport.complete_graph_forward(case.reservation.decision.key)
+afd_plugin/connectors/npu/hccl_staged_transport.py:1198: in complete_graph_forward
+    self.finish_forward()
+afd_plugin/connectors/npu/hccl_staged_transport.py:1145: in finish_forward
+    self._finish_forward()
+afd_plugin/connectors/npu/hccl_staged_transport.py:1163: in _finish_forward
+    torch.npu.synchronize(self.local_device)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/torch_npu/npu/utils.py:70: in synchronize
+    torch_npu.npu._lazy_init()
+/opt/buildtools/python-3.12.9/lib/python3.12/unittest/mock.py:1139: in __call__
+    return self._mock_call(*args, **kwargs)
+/opt/buildtools/python-3.12.9/lib/python3.12/unittest/mock.py:1143: in _mock_call
+    return self._execute_mock_call(*args, **kwargs)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <MagicMock name='_lazy_init' id='281464566746864'>, args = ()
+kwargs = {}, effect = RuntimeError('CPU validation forbids NPU initialization')
+
+    def _execute_mock_call(self, /, *args, **kwargs):
+        # separate from _increment_mock_call so that awaited functions are
+        # executed separately from their call, also AsyncMock overrides this method
+    
+        effect = self.side_effect
+        if effect is not None:
+            if _is_exception(effect):
+>               raise effect
+E               RuntimeError: CPU validation forbids NPU initialization
+
+/opt/buildtools/python-3.12.9/lib/python3.12/unittest/mock.py:1198: RuntimeError
+_ test_native_parent_callback_uses_actual_counts_and_one_unsliced_producer[True-False-False] _
+
+graph_case = <function make_graph_execution_case at 0xfffb756e9620>
+warmup = False, engram = False, pipelined = True
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0xfffb75186300>
+
+    @pytest.mark.parametrize("warmup", [True, False])
+    @pytest.mark.parametrize("engram", [False, True])
+    @pytest.mark.parametrize("pipelined", [False, True])
+    def test_native_parent_callback_uses_actual_counts_and_one_unsliced_producer(
+        graph_case, warmup, engram, pipelined, monkeypatch
+    ):
+        case = graph_case(
+            warmup=warmup,
+            engram=engram,
+            pipeline_factory=(
+                lambda bank: attach_pipeline(monkeypatch, pipeline_module, bank).pipeline
+            )
+            if pipelined
+            else None,
+        )
+        prepared = case.runner.prepare(
+            case.batch, (), torch.zeros(1, 4, dtype=torch.int32), CUDAGraphMode.FULL, True
+        )
+        finish = case.runner.begin_capturable_run(
+            case.model, case.inputs, prepared, for_capture=True
+        )
+        parent = SimpleNamespace(ubatch_idx=-1)
+    
+        with override_forward_context(parent):
+            output, auxiliary = finish()
+            assert get_forward_context() is parent
+    
+        assert output.shape == (4, 4) and len(auxiliary) == 2
+        assert case.transport.plan.graph_execution == case.reservation.decision
+        assert [stage.attention_valid_tokens for stage in case.transport.plan.stages] == [
+            (0,),
+            (0,),
+        ]
+        assert all(
+            peer.messages[2].tolist() == [0, 0] for peer in case.model_case.endpoints
+        )
+        assert len(case.model_case.producer_parents) == int(engram)
+        assert case.model_case.joined == ([True] if engram else [])
+        # Completion is deliberately outside this native tensor callback.
+>       case.transport.complete_graph_forward(case.reservation.decision.key)
+
+tests/unit/v1/worker/npu/test_hccl_v41_graph_execution.py:84: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+afd_plugin/connectors/npu/hccl_staged_transport.py:1198: in complete_graph_forward
+    self.finish_forward()
+afd_plugin/connectors/npu/hccl_staged_transport.py:1145: in finish_forward
+    self._finish_forward()
+afd_plugin/connectors/npu/hccl_staged_transport.py:1163: in _finish_forward
+    torch.npu.synchronize(self.local_device)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/torch_npu/npu/utils.py:70: in synchronize
+    torch_npu.npu._lazy_init()
+/opt/buildtools/python-3.12.9/lib/python3.12/unittest/mock.py:1139: in __call__
+    return self._mock_call(*args, **kwargs)
+/opt/buildtools/python-3.12.9/lib/python3.12/unittest/mock.py:1143: in _mock_call
+    return self._execute_mock_call(*args, **kwargs)
+/opt/buildtools/python-3.12.9/lib/python3.12/unittest/mock.py:1198: in _execute_mock_call
+    raise effect
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/runner.py:341: in from_call
+    result: TResult | None = func()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/runner.py:242: in <lambda>
+    lambda: runtest_hook(item=item, **kwds), when=when, reraise=reraise
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/pluggy/_caller.py:197: in __call__
+    return self._hookexec(
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/pluggy/_manager.py:183: in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/threadexception.py:92: in pytest_runtest_call
+    yield from thread_exception_runtest_hook()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/threadexception.py:68: in thread_exception_runtest_hook
+    yield
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/unraisableexception.py:95: in pytest_runtest_call
+    yield from unraisable_exception_runtest_hook()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/unraisableexception.py:70: in unraisable_exception_runtest_hook
+    yield
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/logging.py:848: in pytest_runtest_call
+    yield from self._runtest_for(item, "call")
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/logging.py:831: in _runtest_for
+    yield
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/capture.py:879: in pytest_runtest_call
+    return (yield)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/skipping.py:257: in pytest_runtest_call
+    return (yield)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/runner.py:174: in pytest_runtest_call
+    item.runtest()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/python.py:1627: in runtest
+    self.ihook.pytest_pyfunc_call(pyfuncitem=self)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/pluggy/_caller.py:197: in __call__
+    return self._hookexec(
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/pluggy/_manager.py:183: in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/python.py:159: in pytest_pyfunc_call
+    result = testfunction(**testargs)
+tests/unit/v1/worker/npu/test_hccl_v41_graph_execution.py:84: in test_native_parent_callback_uses_actual_counts_and_one_unsliced_producer
+    case.transport.complete_graph_forward(case.reservation.decision.key)
+afd_plugin/connectors/npu/hccl_staged_transport.py:1198: in complete_graph_forward
+    self.finish_forward()
+afd_plugin/connectors/npu/hccl_staged_transport.py:1145: in finish_forward
+    self._finish_forward()
+afd_plugin/connectors/npu/hccl_staged_transport.py:1163: in _finish_forward
+    torch.npu.synchronize(self.local_device)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/torch_npu/npu/utils.py:70: in synchronize
+    torch_npu.npu._lazy_init()
+/opt/buildtools/python-3.12.9/lib/python3.12/unittest/mock.py:1139: in __call__
+    return self._mock_call(*args, **kwargs)
+/opt/buildtools/python-3.12.9/lib/python3.12/unittest/mock.py:1143: in _mock_call
+    return self._execute_mock_call(*args, **kwargs)
+/opt/buildtools/python-3.12.9/lib/python3.12/unittest/mock.py:1198: in _execute_mock_call
+    raise effect
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/runner.py:341: in from_call
+    result: TResult | None = func()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/runner.py:242: in <lambda>
+    lambda: runtest_hook(item=item, **kwds), when=when, reraise=reraise
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/pluggy/_caller.py:197: in __call__
+    return self._hookexec(
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/pluggy/_manager.py:183: in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/threadexception.py:92: in pytest_runtest_call
+    yield from thread_exception_runtest_hook()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/threadexception.py:68: in thread_exception_runtest_hook
+    yield
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/unraisableexception.py:95: in pytest_runtest_call
+    yield from unraisable_exception_runtest_hook()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/unraisableexception.py:70: in unraisable_exception_runtest_hook
+    yield
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/logging.py:848: in pytest_runtest_call
+    yield from self._runtest_for(item, "call")
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/logging.py:831: in _runtest_for
+    yield
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/capture.py:879: in pytest_runtest_call
+    return (yield)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/skipping.py:257: in pytest_runtest_call
+    return (yield)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/runner.py:174: in pytest_runtest_call
+    item.runtest()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/python.py:1627: in runtest
+    self.ihook.pytest_pyfunc_call(pyfuncitem=self)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/pluggy/_caller.py:197: in __call__
+    return self._hookexec(
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/pluggy/_manager.py:183: in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/python.py:159: in pytest_pyfunc_call
+    result = testfunction(**testargs)
+tests/unit/v1/worker/npu/test_hccl_v41_graph_execution.py:84: in test_native_parent_callback_uses_actual_counts_and_one_unsliced_producer
+    case.transport.complete_graph_forward(case.reservation.decision.key)
+afd_plugin/connectors/npu/hccl_staged_transport.py:1198: in complete_graph_forward
+    self.finish_forward()
+afd_plugin/connectors/npu/hccl_staged_transport.py:1145: in finish_forward
+    self._finish_forward()
+afd_plugin/connectors/npu/hccl_staged_transport.py:1163: in _finish_forward
+    torch.npu.synchronize(self.local_device)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/torch_npu/npu/utils.py:70: in synchronize
+    torch_npu.npu._lazy_init()
+/opt/buildtools/python-3.12.9/lib/python3.12/unittest/mock.py:1139: in __call__
+    return self._mock_call(*args, **kwargs)
+/opt/buildtools/python-3.12.9/lib/python3.12/unittest/mock.py:1143: in _mock_call
+    return self._execute_mock_call(*args, **kwargs)
+/opt/buildtools/python-3.12.9/lib/python3.12/unittest/mock.py:1198: in _execute_mock_call
+    raise effect
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/runner.py:341: in from_call
+    result: TResult | None = func()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/runner.py:242: in <lambda>
+    lambda: runtest_hook(item=item, **kwds), when=when, reraise=reraise
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/pluggy/_caller.py:197: in __call__
+    return self._hookexec(
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/pluggy/_manager.py:183: in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/threadexception.py:92: in pytest_runtest_call
+    yield from thread_exception_runtest_hook()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/threadexception.py:68: in thread_exception_runtest_hook
+    yield
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/unraisableexception.py:95: in pytest_runtest_call
+    yield from unraisable_exception_runtest_hook()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/unraisableexception.py:70: in unraisable_exception_runtest_hook
+    yield
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/logging.py:848: in pytest_runtest_call
+    yield from self._runtest_for(item, "call")
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/logging.py:831: in _runtest_for
+    yield
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/capture.py:879: in pytest_runtest_call
+    return (yield)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/skipping.py:257: in pytest_runtest_call
+    return (yield)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/runner.py:174: in pytest_runtest_call
+    item.runtest()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/python.py:1627: in runtest
+    self.ihook.pytest_pyfunc_call(pyfuncitem=self)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/pluggy/_caller.py:197: in __call__
+    return self._hookexec(
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/pluggy/_manager.py:183: in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/python.py:159: in pytest_pyfunc_call
+    result = testfunction(**testargs)
+tests/unit/v1/worker/npu/test_hccl_v41_graph_execution.py:84: in test_native_parent_callback_uses_actual_counts_and_one_unsliced_producer
+    case.transport.complete_graph_forward(case.reservation.decision.key)
+afd_plugin/connectors/npu/hccl_staged_transport.py:1198: in complete_graph_forward
+    self.finish_forward()
+afd_plugin/connectors/npu/hccl_staged_transport.py:1145: in finish_forward
+    self._finish_forward()
+afd_plugin/connectors/npu/hccl_staged_transport.py:1163: in _finish_forward
+    torch.npu.synchronize(self.local_device)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/torch_npu/npu/utils.py:70: in synchronize
+    torch_npu.npu._lazy_init()
+/opt/buildtools/python-3.12.9/lib/python3.12/unittest/mock.py:1139: in __call__
+    return self._mock_call(*args, **kwargs)
+/opt/buildtools/python-3.12.9/lib/python3.12/unittest/mock.py:1143: in _mock_call
+    return self._execute_mock_call(*args, **kwargs)
+/opt/buildtools/python-3.12.9/lib/python3.12/unittest/mock.py:1198: in _execute_mock_call
+    raise effect
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/runner.py:341: in from_call
+    result: TResult | None = func()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/runner.py:242: in <lambda>
+    lambda: runtest_hook(item=item, **kwds), when=when, reraise=reraise
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/pluggy/_caller.py:197: in __call__
+    return self._hookexec(
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/pluggy/_manager.py:183: in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/threadexception.py:92: in pytest_runtest_call
+    yield from thread_exception_runtest_hook()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/threadexception.py:68: in thread_exception_runtest_hook
+    yield
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/unraisableexception.py:95: in pytest_runtest_call
+    yield from unraisable_exception_runtest_hook()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/unraisableexception.py:70: in unraisable_exception_runtest_hook
+    yield
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/logging.py:848: in pytest_runtest_call
+    yield from self._runtest_for(item, "call")
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/logging.py:831: in _runtest_for
+    yield
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/capture.py:879: in pytest_runtest_call
+    return (yield)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/skipping.py:257: in pytest_runtest_call
+    return (yield)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/runner.py:174: in pytest_runtest_call
+    item.runtest()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/python.py:1627: in runtest
+    self.ihook.pytest_pyfunc_call(pyfuncitem=self)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/pluggy/_caller.py:197: in __call__
+    return self._hookexec(
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/pluggy/_manager.py:183: in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/python.py:159: in pytest_pyfunc_call
+    result = testfunction(**testargs)
+tests/unit/v1/worker/npu/test_hccl_v41_graph_execution.py:84: in test_native_parent_callback_uses_actual_counts_and_one_unsliced_producer
+    case.transport.complete_graph_forward(case.reservation.decision.key)
+afd_plugin/connectors/npu/hccl_staged_transport.py:1198: in complete_graph_forward
+    self.finish_forward()
+afd_plugin/connectors/npu/hccl_staged_transport.py:1145: in finish_forward
+    self._finish_forward()
+afd_plugin/connectors/npu/hccl_staged_transport.py:1163: in _finish_forward
+    torch.npu.synchronize(self.local_device)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/torch_npu/npu/utils.py:70: in synchronize
+    torch_npu.npu._lazy_init()
+/opt/buildtools/python-3.12.9/lib/python3.12/unittest/mock.py:1139: in __call__
+    return self._mock_call(*args, **kwargs)
+/opt/buildtools/python-3.12.9/lib/python3.12/unittest/mock.py:1143: in _mock_call
+    return self._execute_mock_call(*args, **kwargs)
+/opt/buildtools/python-3.12.9/lib/python3.12/unittest/mock.py:1198: in _execute_mock_call
+    raise effect
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/runner.py:341: in from_call
+    result: TResult | None = func()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/runner.py:242: in <lambda>
+    lambda: runtest_hook(item=item, **kwds), when=when, reraise=reraise
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/pluggy/_caller.py:197: in __call__
+    return self._hookexec(
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/pluggy/_manager.py:183: in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/threadexception.py:92: in pytest_runtest_call
+    yield from thread_exception_runtest_hook()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/threadexception.py:68: in thread_exception_runtest_hook
+    yield
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/unraisableexception.py:95: in pytest_runtest_call
+    yield from unraisable_exception_runtest_hook()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/unraisableexception.py:70: in unraisable_exception_runtest_hook
+    yield
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/logging.py:848: in pytest_runtest_call
+    yield from self._runtest_for(item, "call")
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/logging.py:831: in _runtest_for
+    yield
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/capture.py:879: in pytest_runtest_call
+    return (yield)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/skipping.py:257: in pytest_runtest_call
+    return (yield)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/runner.py:174: in pytest_runtest_call
+    item.runtest()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/python.py:1627: in runtest
+    self.ihook.pytest_pyfunc_call(pyfuncitem=self)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/pluggy/_caller.py:197: in __call__
+    return self._hookexec(
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/pluggy/_manager.py:183: in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/python.py:159: in pytest_pyfunc_call
+    result = testfunction(**testargs)
+tests/unit/v1/worker/npu/test_hccl_v41_graph_execution.py:84: in test_native_parent_callback_uses_actual_counts_and_one_unsliced_producer
+    case.transport.complete_graph_forward(case.reservation.decision.key)
+afd_plugin/connectors/npu/hccl_staged_transport.py:1198: in complete_graph_forward
+    self.finish_forward()
+afd_plugin/connectors/npu/hccl_staged_transport.py:1145: in finish_forward
+    self._finish_forward()
+afd_plugin/connectors/npu/hccl_staged_transport.py:1163: in _finish_forward
+    torch.npu.synchronize(self.local_device)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/torch_npu/npu/utils.py:70: in synchronize
+    torch_npu.npu._lazy_init()
+/opt/buildtools/python-3.12.9/lib/python3.12/unittest/mock.py:1139: in __call__
+    return self._mock_call(*args, **kwargs)
+/opt/buildtools/python-3.12.9/lib/python3.12/unittest/mock.py:1143: in _mock_call
+    return self._execute_mock_call(*args, **kwargs)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <MagicMock name='_lazy_init' id='281464566746864'>, args = ()
+kwargs = {}, effect = RuntimeError('CPU validation forbids NPU initialization')
+
+    def _execute_mock_call(self, /, *args, **kwargs):
+        # separate from _increment_mock_call so that awaited functions are
+        # executed separately from their call, also AsyncMock overrides this method
+    
+        effect = self.side_effect
+        if effect is not None:
+            if _is_exception(effect):
+>               raise effect
+E               RuntimeError: CPU validation forbids NPU initialization
+
+/opt/buildtools/python-3.12.9/lib/python3.12/unittest/mock.py:1198: RuntimeError
+_ test_native_parent_callback_uses_actual_counts_and_one_unsliced_producer[True-True-True] _
+
+graph_case = <function make_graph_execution_case at 0xfffb756e9620>
+warmup = True, engram = True, pipelined = True
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0xfffb7519f530>
+
+    @pytest.mark.parametrize("warmup", [True, False])
+    @pytest.mark.parametrize("engram", [False, True])
+    @pytest.mark.parametrize("pipelined", [False, True])
+    def test_native_parent_callback_uses_actual_counts_and_one_unsliced_producer(
+        graph_case, warmup, engram, pipelined, monkeypatch
+    ):
+        case = graph_case(
+            warmup=warmup,
+            engram=engram,
+            pipeline_factory=(
+                lambda bank: attach_pipeline(monkeypatch, pipeline_module, bank).pipeline
+            )
+            if pipelined
+            else None,
+        )
+        prepared = case.runner.prepare(
+            case.batch, (), torch.zeros(1, 4, dtype=torch.int32), CUDAGraphMode.FULL, True
+        )
+        finish = case.runner.begin_capturable_run(
+            case.model, case.inputs, prepared, for_capture=True
+        )
+        parent = SimpleNamespace(ubatch_idx=-1)
+    
+        with override_forward_context(parent):
+            output, auxiliary = finish()
+            assert get_forward_context() is parent
+    
+        assert output.shape == (4, 4) and len(auxiliary) == 2
+        assert case.transport.plan.graph_execution == case.reservation.decision
+        assert [stage.attention_valid_tokens for stage in case.transport.plan.stages] == [
+            (0,),
+            (0,),
+        ]
+        assert all(
+            peer.messages[2].tolist() == [0, 0] for peer in case.model_case.endpoints
+        )
+        assert len(case.model_case.producer_parents) == int(engram)
+        assert case.model_case.joined == ([True] if engram else [])
+        # Completion is deliberately outside this native tensor callback.
+>       case.transport.complete_graph_forward(case.reservation.decision.key)
+
+tests/unit/v1/worker/npu/test_hccl_v41_graph_execution.py:84: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+afd_plugin/connectors/npu/hccl_staged_transport.py:1198: in complete_graph_forward
+    self.finish_forward()
+afd_plugin/connectors/npu/hccl_staged_transport.py:1145: in finish_forward
+    self._finish_forward()
+afd_plugin/connectors/npu/hccl_staged_transport.py:1163: in _finish_forward
+    torch.npu.synchronize(self.local_device)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/torch_npu/npu/utils.py:70: in synchronize
+    torch_npu.npu._lazy_init()
+/opt/buildtools/python-3.12.9/lib/python3.12/unittest/mock.py:1139: in __call__
+    return self._mock_call(*args, **kwargs)
+/opt/buildtools/python-3.12.9/lib/python3.12/unittest/mock.py:1143: in _mock_call
+    return self._execute_mock_call(*args, **kwargs)
+/opt/buildtools/python-3.12.9/lib/python3.12/unittest/mock.py:1198: in _execute_mock_call
+    raise effect
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/runner.py:341: in from_call
+    result: TResult | None = func()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/runner.py:242: in <lambda>
+    lambda: runtest_hook(item=item, **kwds), when=when, reraise=reraise
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/pluggy/_caller.py:197: in __call__
+    return self._hookexec(
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/pluggy/_manager.py:183: in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/threadexception.py:92: in pytest_runtest_call
+    yield from thread_exception_runtest_hook()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/threadexception.py:68: in thread_exception_runtest_hook
+    yield
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/unraisableexception.py:95: in pytest_runtest_call
+    yield from unraisable_exception_runtest_hook()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/unraisableexception.py:70: in unraisable_exception_runtest_hook
+    yield
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/logging.py:848: in pytest_runtest_call
+    yield from self._runtest_for(item, "call")
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/logging.py:831: in _runtest_for
+    yield
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/capture.py:879: in pytest_runtest_call
+    return (yield)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/skipping.py:257: in pytest_runtest_call
+    return (yield)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/runner.py:174: in pytest_runtest_call
+    item.runtest()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/python.py:1627: in runtest
+    self.ihook.pytest_pyfunc_call(pyfuncitem=self)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/pluggy/_caller.py:197: in __call__
+    return self._hookexec(
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/pluggy/_manager.py:183: in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/python.py:159: in pytest_pyfunc_call
+    result = testfunction(**testargs)
+tests/unit/v1/worker/npu/test_hccl_v41_graph_execution.py:84: in test_native_parent_callback_uses_actual_counts_and_one_unsliced_producer
+    case.transport.complete_graph_forward(case.reservation.decision.key)
+afd_plugin/connectors/npu/hccl_staged_transport.py:1198: in complete_graph_forward
+    self.finish_forward()
+afd_plugin/connectors/npu/hccl_staged_transport.py:1145: in finish_forward
+    self._finish_forward()
+afd_plugin/connectors/npu/hccl_staged_transport.py:1163: in _finish_forward
+    torch.npu.synchronize(self.local_device)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/torch_npu/npu/utils.py:70: in synchronize
+    torch_npu.npu._lazy_init()
+/opt/buildtools/python-3.12.9/lib/python3.12/unittest/mock.py:1139: in __call__
+    return self._mock_call(*args, **kwargs)
+/opt/buildtools/python-3.12.9/lib/python3.12/unittest/mock.py:1143: in _mock_call
+    return self._execute_mock_call(*args, **kwargs)
+/opt/buildtools/python-3.12.9/lib/python3.12/unittest/mock.py:1198: in _execute_mock_call
+    raise effect
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/runner.py:341: in from_call
+    result: TResult | None = func()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/runner.py:242: in <lambda>
+    lambda: runtest_hook(item=item, **kwds), when=when, reraise=reraise
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/pluggy/_caller.py:197: in __call__
+    return self._hookexec(
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/pluggy/_manager.py:183: in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/threadexception.py:92: in pytest_runtest_call
+    yield from thread_exception_runtest_hook()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/threadexception.py:68: in thread_exception_runtest_hook
+    yield
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/unraisableexception.py:95: in pytest_runtest_call
+    yield from unraisable_exception_runtest_hook()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/unraisableexception.py:70: in unraisable_exception_runtest_hook
+    yield
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/logging.py:848: in pytest_runtest_call
+    yield from self._runtest_for(item, "call")
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/logging.py:831: in _runtest_for
+    yield
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/capture.py:879: in pytest_runtest_call
+    return (yield)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/skipping.py:257: in pytest_runtest_call
+    return (yield)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/runner.py:174: in pytest_runtest_call
+    item.runtest()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/python.py:1627: in runtest
+    self.ihook.pytest_pyfunc_call(pyfuncitem=self)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/pluggy/_caller.py:197: in __call__
+    return self._hookexec(
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/pluggy/_manager.py:183: in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/python.py:159: in pytest_pyfunc_call
+    result = testfunction(**testargs)
+tests/unit/v1/worker/npu/test_hccl_v41_graph_execution.py:84: in test_native_parent_callback_uses_actual_counts_and_one_unsliced_producer
+    case.transport.complete_graph_forward(case.reservation.decision.key)
+afd_plugin/connectors/npu/hccl_staged_transport.py:1198: in complete_graph_forward
+    self.finish_forward()
+afd_plugin/connectors/npu/hccl_staged_transport.py:1145: in finish_forward
+    self._finish_forward()
+afd_plugin/connectors/npu/hccl_staged_transport.py:1163: in _finish_forward
+    torch.npu.synchronize(self.local_device)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/torch_npu/npu/utils.py:70: in synchronize
+    torch_npu.npu._lazy_init()
+/opt/buildtools/python-3.12.9/lib/python3.12/unittest/mock.py:1139: in __call__
+    return self._mock_call(*args, **kwargs)
+/opt/buildtools/python-3.12.9/lib/python3.12/unittest/mock.py:1143: in _mock_call
+    return self._execute_mock_call(*args, **kwargs)
+/opt/buildtools/python-3.12.9/lib/python3.12/unittest/mock.py:1198: in _execute_mock_call
+    raise effect
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/runner.py:341: in from_call
+    result: TResult | None = func()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/runner.py:242: in <lambda>
+    lambda: runtest_hook(item=item, **kwds), when=when, reraise=reraise
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/pluggy/_caller.py:197: in __call__
+    return self._hookexec(
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/pluggy/_manager.py:183: in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/threadexception.py:92: in pytest_runtest_call
+    yield from thread_exception_runtest_hook()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/threadexception.py:68: in thread_exception_runtest_hook
+    yield
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/unraisableexception.py:95: in pytest_runtest_call
+    yield from unraisable_exception_runtest_hook()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/unraisableexception.py:70: in unraisable_exception_runtest_hook
+    yield
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/logging.py:848: in pytest_runtest_call
+    yield from self._runtest_for(item, "call")
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/logging.py:831: in _runtest_for
+    yield
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/capture.py:879: in pytest_runtest_call
+    return (yield)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/skipping.py:257: in pytest_runtest_call
+    return (yield)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/runner.py:174: in pytest_runtest_call
+    item.runtest()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/python.py:1627: in runtest
+    self.ihook.pytest_pyfunc_call(pyfuncitem=self)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/pluggy/_caller.py:197: in __call__
+    return self._hookexec(
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/pluggy/_manager.py:183: in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/python.py:159: in pytest_pyfunc_call
+    result = testfunction(**testargs)
+tests/unit/v1/worker/npu/test_hccl_v41_graph_execution.py:84: in test_native_parent_callback_uses_actual_counts_and_one_unsliced_producer
+    case.transport.complete_graph_forward(case.reservation.decision.key)
+afd_plugin/connectors/npu/hccl_staged_transport.py:1198: in complete_graph_forward
+    self.finish_forward()
+afd_plugin/connectors/npu/hccl_staged_transport.py:1145: in finish_forward
+    self._finish_forward()
+afd_plugin/connectors/npu/hccl_staged_transport.py:1163: in _finish_forward
+    torch.npu.synchronize(self.local_device)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/torch_npu/npu/utils.py:70: in synchronize
+    torch_npu.npu._lazy_init()
+/opt/buildtools/python-3.12.9/lib/python3.12/unittest/mock.py:1139: in __call__
+    return self._mock_call(*args, **kwargs)
+/opt/buildtools/python-3.12.9/lib/python3.12/unittest/mock.py:1143: in _mock_call
+    return self._execute_mock_call(*args, **kwargs)
+/opt/buildtools/python-3.12.9/lib/python3.12/unittest/mock.py:1198: in _execute_mock_call
+    raise effect
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/runner.py:341: in from_call
+    result: TResult | None = func()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/runner.py:242: in <lambda>
+    lambda: runtest_hook(item=item, **kwds), when=when, reraise=reraise
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/pluggy/_caller.py:197: in __call__
+    return self._hookexec(
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/pluggy/_manager.py:183: in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/threadexception.py:92: in pytest_runtest_call
+    yield from thread_exception_runtest_hook()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/threadexception.py:68: in thread_exception_runtest_hook
+    yield
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/unraisableexception.py:95: in pytest_runtest_call
+    yield from unraisable_exception_runtest_hook()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/unraisableexception.py:70: in unraisable_exception_runtest_hook
+    yield
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/logging.py:848: in pytest_runtest_call
+    yield from self._runtest_for(item, "call")
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/logging.py:831: in _runtest_for
+    yield
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/capture.py:879: in pytest_runtest_call
+    return (yield)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/skipping.py:257: in pytest_runtest_call
+    return (yield)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/runner.py:174: in pytest_runtest_call
+    item.runtest()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/python.py:1627: in runtest
+    self.ihook.pytest_pyfunc_call(pyfuncitem=self)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/pluggy/_caller.py:197: in __call__
+    return self._hookexec(
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/pluggy/_manager.py:183: in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/python.py:159: in pytest_pyfunc_call
+    result = testfunction(**testargs)
+tests/unit/v1/worker/npu/test_hccl_v41_graph_execution.py:84: in test_native_parent_callback_uses_actual_counts_and_one_unsliced_producer
+    case.transport.complete_graph_forward(case.reservation.decision.key)
+afd_plugin/connectors/npu/hccl_staged_transport.py:1198: in complete_graph_forward
+    self.finish_forward()
+afd_plugin/connectors/npu/hccl_staged_transport.py:1145: in finish_forward
+    self._finish_forward()
+afd_plugin/connectors/npu/hccl_staged_transport.py:1163: in _finish_forward
+    torch.npu.synchronize(self.local_device)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/torch_npu/npu/utils.py:70: in synchronize
+    torch_npu.npu._lazy_init()
+/opt/buildtools/python-3.12.9/lib/python3.12/unittest/mock.py:1139: in __call__
+    return self._mock_call(*args, **kwargs)
+/opt/buildtools/python-3.12.9/lib/python3.12/unittest/mock.py:1143: in _mock_call
+    return self._execute_mock_call(*args, **kwargs)
+/opt/buildtools/python-3.12.9/lib/python3.12/unittest/mock.py:1198: in _execute_mock_call
+    raise effect
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/runner.py:341: in from_call
+    result: TResult | None = func()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/runner.py:242: in <lambda>
+    lambda: runtest_hook(item=item, **kwds), when=when, reraise=reraise
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/pluggy/_caller.py:197: in __call__
+    return self._hookexec(
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/pluggy/_manager.py:183: in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/threadexception.py:92: in pytest_runtest_call
+    yield from thread_exception_runtest_hook()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/threadexception.py:68: in thread_exception_runtest_hook
+    yield
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/unraisableexception.py:95: in pytest_runtest_call
+    yield from unraisable_exception_runtest_hook()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/unraisableexception.py:70: in unraisable_exception_runtest_hook
+    yield
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/logging.py:848: in pytest_runtest_call
+    yield from self._runtest_for(item, "call")
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/logging.py:831: in _runtest_for
+    yield
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/capture.py:879: in pytest_runtest_call
+    return (yield)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/skipping.py:257: in pytest_runtest_call
+    return (yield)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/runner.py:174: in pytest_runtest_call
+    item.runtest()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/python.py:1627: in runtest
+    self.ihook.pytest_pyfunc_call(pyfuncitem=self)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/pluggy/_caller.py:197: in __call__
+    return self._hookexec(
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/pluggy/_manager.py:183: in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/python.py:159: in pytest_pyfunc_call
+    result = testfunction(**testargs)
+tests/unit/v1/worker/npu/test_hccl_v41_graph_execution.py:84: in test_native_parent_callback_uses_actual_counts_and_one_unsliced_producer
+    case.transport.complete_graph_forward(case.reservation.decision.key)
+afd_plugin/connectors/npu/hccl_staged_transport.py:1198: in complete_graph_forward
+    self.finish_forward()
+afd_plugin/connectors/npu/hccl_staged_transport.py:1145: in finish_forward
+    self._finish_forward()
+afd_plugin/connectors/npu/hccl_staged_transport.py:1163: in _finish_forward
+    torch.npu.synchronize(self.local_device)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/torch_npu/npu/utils.py:70: in synchronize
+    torch_npu.npu._lazy_init()
+/opt/buildtools/python-3.12.9/lib/python3.12/unittest/mock.py:1139: in __call__
+    return self._mock_call(*args, **kwargs)
+/opt/buildtools/python-3.12.9/lib/python3.12/unittest/mock.py:1143: in _mock_call
+    return self._execute_mock_call(*args, **kwargs)
+/opt/buildtools/python-3.12.9/lib/python3.12/unittest/mock.py:1198: in _execute_mock_call
+    raise effect
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/runner.py:341: in from_call
+    result: TResult | None = func()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/runner.py:242: in <lambda>
+    lambda: runtest_hook(item=item, **kwds), when=when, reraise=reraise
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/pluggy/_caller.py:197: in __call__
+    return self._hookexec(
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/pluggy/_manager.py:183: in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/threadexception.py:92: in pytest_runtest_call
+    yield from thread_exception_runtest_hook()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/threadexception.py:68: in thread_exception_runtest_hook
+    yield
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/unraisableexception.py:95: in pytest_runtest_call
+    yield from unraisable_exception_runtest_hook()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/unraisableexception.py:70: in unraisable_exception_runtest_hook
+    yield
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/logging.py:848: in pytest_runtest_call
+    yield from self._runtest_for(item, "call")
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/logging.py:831: in _runtest_for
+    yield
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/capture.py:879: in pytest_runtest_call
+    return (yield)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/skipping.py:257: in pytest_runtest_call
+    return (yield)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/runner.py:174: in pytest_runtest_call
+    item.runtest()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/python.py:1627: in runtest
+    self.ihook.pytest_pyfunc_call(pyfuncitem=self)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/pluggy/_caller.py:197: in __call__
+    return self._hookexec(
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/pluggy/_manager.py:183: in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/python.py:159: in pytest_pyfunc_call
+    result = testfunction(**testargs)
+tests/unit/v1/worker/npu/test_hccl_v41_graph_execution.py:84: in test_native_parent_callback_uses_actual_counts_and_one_unsliced_producer
+    case.transport.complete_graph_forward(case.reservation.decision.key)
+afd_plugin/connectors/npu/hccl_staged_transport.py:1198: in complete_graph_forward
+    self.finish_forward()
+afd_plugin/connectors/npu/hccl_staged_transport.py:1145: in finish_forward
+    self._finish_forward()
+afd_plugin/connectors/npu/hccl_staged_transport.py:1163: in _finish_forward
+    torch.npu.synchronize(self.local_device)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/torch_npu/npu/utils.py:70: in synchronize
+    torch_npu.npu._lazy_init()
+/opt/buildtools/python-3.12.9/lib/python3.12/unittest/mock.py:1139: in __call__
+    return self._mock_call(*args, **kwargs)
+/opt/buildtools/python-3.12.9/lib/python3.12/unittest/mock.py:1143: in _mock_call
+    return self._execute_mock_call(*args, **kwargs)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <MagicMock name='_lazy_init' id='281464566746864'>, args = ()
+kwargs = {}, effect = RuntimeError('CPU validation forbids NPU initialization')
+
+    def _execute_mock_call(self, /, *args, **kwargs):
+        # separate from _increment_mock_call so that awaited functions are
+        # executed separately from their call, also AsyncMock overrides this method
+    
+        effect = self.side_effect
+        if effect is not None:
+            if _is_exception(effect):
+>               raise effect
+E               RuntimeError: CPU validation forbids NPU initialization
+
+/opt/buildtools/python-3.12.9/lib/python3.12/unittest/mock.py:1198: RuntimeError
+_ test_native_parent_callback_uses_actual_counts_and_one_unsliced_producer[True-True-False] _
+
+graph_case = <function make_graph_execution_case at 0xfffb756e9620>
+warmup = False, engram = True, pipelined = True
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0xfffb757da3c0>
+
+    @pytest.mark.parametrize("warmup", [True, False])
+    @pytest.mark.parametrize("engram", [False, True])
+    @pytest.mark.parametrize("pipelined", [False, True])
+    def test_native_parent_callback_uses_actual_counts_and_one_unsliced_producer(
+        graph_case, warmup, engram, pipelined, monkeypatch
+    ):
+        case = graph_case(
+            warmup=warmup,
+            engram=engram,
+            pipeline_factory=(
+                lambda bank: attach_pipeline(monkeypatch, pipeline_module, bank).pipeline
+            )
+            if pipelined
+            else None,
+        )
+        prepared = case.runner.prepare(
+            case.batch, (), torch.zeros(1, 4, dtype=torch.int32), CUDAGraphMode.FULL, True
+        )
+        finish = case.runner.begin_capturable_run(
+            case.model, case.inputs, prepared, for_capture=True
+        )
+        parent = SimpleNamespace(ubatch_idx=-1)
+    
+        with override_forward_context(parent):
+            output, auxiliary = finish()
+            assert get_forward_context() is parent
+    
+        assert output.shape == (4, 4) and len(auxiliary) == 2
+        assert case.transport.plan.graph_execution == case.reservation.decision
+        assert [stage.attention_valid_tokens for stage in case.transport.plan.stages] == [
+            (0,),
+            (0,),
+        ]
+        assert all(
+            peer.messages[2].tolist() == [0, 0] for peer in case.model_case.endpoints
+        )
+        assert len(case.model_case.producer_parents) == int(engram)
+        assert case.model_case.joined == ([True] if engram else [])
+        # Completion is deliberately outside this native tensor callback.
+>       case.transport.complete_graph_forward(case.reservation.decision.key)
+
+tests/unit/v1/worker/npu/test_hccl_v41_graph_execution.py:84: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+afd_plugin/connectors/npu/hccl_staged_transport.py:1198: in complete_graph_forward
+    self.finish_forward()
+afd_plugin/connectors/npu/hccl_staged_transport.py:1145: in finish_forward
+    self._finish_forward()
+afd_plugin/connectors/npu/hccl_staged_transport.py:1163: in _finish_forward
+    torch.npu.synchronize(self.local_device)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/torch_npu/npu/utils.py:70: in synchronize
+    torch_npu.npu._lazy_init()
+/opt/buildtools/python-3.12.9/lib/python3.12/unittest/mock.py:1139: in __call__
+    return self._mock_call(*args, **kwargs)
+/opt/buildtools/python-3.12.9/lib/python3.12/unittest/mock.py:1143: in _mock_call
+    return self._execute_mock_call(*args, **kwargs)
+/opt/buildtools/python-3.12.9/lib/python3.12/unittest/mock.py:1198: in _execute_mock_call
+    raise effect
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/runner.py:341: in from_call
+    result: TResult | None = func()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/runner.py:242: in <lambda>
+    lambda: runtest_hook(item=item, **kwds), when=when, reraise=reraise
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/pluggy/_caller.py:197: in __call__
+    return self._hookexec(
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/pluggy/_manager.py:183: in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/threadexception.py:92: in pytest_runtest_call
+    yield from thread_exception_runtest_hook()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/threadexception.py:68: in thread_exception_runtest_hook
+    yield
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/unraisableexception.py:95: in pytest_runtest_call
+    yield from unraisable_exception_runtest_hook()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/unraisableexception.py:70: in unraisable_exception_runtest_hook
+    yield
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/logging.py:848: in pytest_runtest_call
+    yield from self._runtest_for(item, "call")
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/logging.py:831: in _runtest_for
+    yield
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/capture.py:879: in pytest_runtest_call
+    return (yield)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/skipping.py:257: in pytest_runtest_call
+    return (yield)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/runner.py:174: in pytest_runtest_call
+    item.runtest()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/python.py:1627: in runtest
+    self.ihook.pytest_pyfunc_call(pyfuncitem=self)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/pluggy/_caller.py:197: in __call__
+    return self._hookexec(
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/pluggy/_manager.py:183: in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/python.py:159: in pytest_pyfunc_call
+    result = testfunction(**testargs)
+tests/unit/v1/worker/npu/test_hccl_v41_graph_execution.py:84: in test_native_parent_callback_uses_actual_counts_and_one_unsliced_producer
+    case.transport.complete_graph_forward(case.reservation.decision.key)
+afd_plugin/connectors/npu/hccl_staged_transport.py:1198: in complete_graph_forward
+    self.finish_forward()
+afd_plugin/connectors/npu/hccl_staged_transport.py:1145: in finish_forward
+    self._finish_forward()
+afd_plugin/connectors/npu/hccl_staged_transport.py:1163: in _finish_forward
+    torch.npu.synchronize(self.local_device)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/torch_npu/npu/utils.py:70: in synchronize
+    torch_npu.npu._lazy_init()
+/opt/buildtools/python-3.12.9/lib/python3.12/unittest/mock.py:1139: in __call__
+    return self._mock_call(*args, **kwargs)
+/opt/buildtools/python-3.12.9/lib/python3.12/unittest/mock.py:1143: in _mock_call
+    return self._execute_mock_call(*args, **kwargs)
+/opt/buildtools/python-3.12.9/lib/python3.12/unittest/mock.py:1198: in _execute_mock_call
+    raise effect
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/runner.py:341: in from_call
+    result: TResult | None = func()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/runner.py:242: in <lambda>
+    lambda: runtest_hook(item=item, **kwds), when=when, reraise=reraise
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/pluggy/_caller.py:197: in __call__
+    return self._hookexec(
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/pluggy/_manager.py:183: in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/threadexception.py:92: in pytest_runtest_call
+    yield from thread_exception_runtest_hook()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/threadexception.py:68: in thread_exception_runtest_hook
+    yield
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/unraisableexception.py:95: in pytest_runtest_call
+    yield from unraisable_exception_runtest_hook()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/unraisableexception.py:70: in unraisable_exception_runtest_hook
+    yield
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/logging.py:848: in pytest_runtest_call
+    yield from self._runtest_for(item, "call")
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/logging.py:831: in _runtest_for
+    yield
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/capture.py:879: in pytest_runtest_call
+    return (yield)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/skipping.py:257: in pytest_runtest_call
+    return (yield)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/runner.py:174: in pytest_runtest_call
+    item.runtest()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/python.py:1627: in runtest
+    self.ihook.pytest_pyfunc_call(pyfuncitem=self)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/pluggy/_caller.py:197: in __call__
+    return self._hookexec(
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/pluggy/_manager.py:183: in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/python.py:159: in pytest_pyfunc_call
+    result = testfunction(**testargs)
+tests/unit/v1/worker/npu/test_hccl_v41_graph_execution.py:84: in test_native_parent_callback_uses_actual_counts_and_one_unsliced_producer
+    case.transport.complete_graph_forward(case.reservation.decision.key)
+afd_plugin/connectors/npu/hccl_staged_transport.py:1198: in complete_graph_forward
+    self.finish_forward()
+afd_plugin/connectors/npu/hccl_staged_transport.py:1145: in finish_forward
+    self._finish_forward()
+afd_plugin/connectors/npu/hccl_staged_transport.py:1163: in _finish_forward
+    torch.npu.synchronize(self.local_device)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/torch_npu/npu/utils.py:70: in synchronize
+    torch_npu.npu._lazy_init()
+/opt/buildtools/python-3.12.9/lib/python3.12/unittest/mock.py:1139: in __call__
+    return self._mock_call(*args, **kwargs)
+/opt/buildtools/python-3.12.9/lib/python3.12/unittest/mock.py:1143: in _mock_call
+    return self._execute_mock_call(*args, **kwargs)
+/opt/buildtools/python-3.12.9/lib/python3.12/unittest/mock.py:1198: in _execute_mock_call
+    raise effect
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/runner.py:341: in from_call
+    result: TResult | None = func()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/runner.py:242: in <lambda>
+    lambda: runtest_hook(item=item, **kwds), when=when, reraise=reraise
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/pluggy/_caller.py:197: in __call__
+    return self._hookexec(
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/pluggy/_manager.py:183: in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/threadexception.py:92: in pytest_runtest_call
+    yield from thread_exception_runtest_hook()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/threadexception.py:68: in thread_exception_runtest_hook
+    yield
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/unraisableexception.py:95: in pytest_runtest_call
+    yield from unraisable_exception_runtest_hook()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/unraisableexception.py:70: in unraisable_exception_runtest_hook
+    yield
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/logging.py:848: in pytest_runtest_call
+    yield from self._runtest_for(item, "call")
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/logging.py:831: in _runtest_for
+    yield
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/capture.py:879: in pytest_runtest_call
+    return (yield)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/skipping.py:257: in pytest_runtest_call
+    return (yield)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/runner.py:174: in pytest_runtest_call
+    item.runtest()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/python.py:1627: in runtest
+    self.ihook.pytest_pyfunc_call(pyfuncitem=self)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/pluggy/_caller.py:197: in __call__
+    return self._hookexec(
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/pluggy/_manager.py:183: in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/python.py:159: in pytest_pyfunc_call
+    result = testfunction(**testargs)
+tests/unit/v1/worker/npu/test_hccl_v41_graph_execution.py:84: in test_native_parent_callback_uses_actual_counts_and_one_unsliced_producer
+    case.transport.complete_graph_forward(case.reservation.decision.key)
+afd_plugin/connectors/npu/hccl_staged_transport.py:1198: in complete_graph_forward
+    self.finish_forward()
+afd_plugin/connectors/npu/hccl_staged_transport.py:1145: in finish_forward
+    self._finish_forward()
+afd_plugin/connectors/npu/hccl_staged_transport.py:1163: in _finish_forward
+    torch.npu.synchronize(self.local_device)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/torch_npu/npu/utils.py:70: in synchronize
+    torch_npu.npu._lazy_init()
+/opt/buildtools/python-3.12.9/lib/python3.12/unittest/mock.py:1139: in __call__
+    return self._mock_call(*args, **kwargs)
+/opt/buildtools/python-3.12.9/lib/python3.12/unittest/mock.py:1143: in _mock_call
+    return self._execute_mock_call(*args, **kwargs)
+/opt/buildtools/python-3.12.9/lib/python3.12/unittest/mock.py:1198: in _execute_mock_call
+    raise effect
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/runner.py:341: in from_call
+    result: TResult | None = func()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/runner.py:242: in <lambda>
+    lambda: runtest_hook(item=item, **kwds), when=when, reraise=reraise
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/pluggy/_caller.py:197: in __call__
+    return self._hookexec(
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/pluggy/_manager.py:183: in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/threadexception.py:92: in pytest_runtest_call
+    yield from thread_exception_runtest_hook()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/threadexception.py:68: in thread_exception_runtest_hook
+    yield
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/unraisableexception.py:95: in pytest_runtest_call
+    yield from unraisable_exception_runtest_hook()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/unraisableexception.py:70: in unraisable_exception_runtest_hook
+    yield
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/logging.py:848: in pytest_runtest_call
+    yield from self._runtest_for(item, "call")
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/logging.py:831: in _runtest_for
+    yield
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/capture.py:879: in pytest_runtest_call
+    return (yield)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/skipping.py:257: in pytest_runtest_call
+    return (yield)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/runner.py:174: in pytest_runtest_call
+    item.runtest()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/python.py:1627: in runtest
+    self.ihook.pytest_pyfunc_call(pyfuncitem=self)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/pluggy/_caller.py:197: in __call__
+    return self._hookexec(
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/pluggy/_manager.py:183: in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/python.py:159: in pytest_pyfunc_call
+    result = testfunction(**testargs)
+tests/unit/v1/worker/npu/test_hccl_v41_graph_execution.py:84: in test_native_parent_callback_uses_actual_counts_and_one_unsliced_producer
+    case.transport.complete_graph_forward(case.reservation.decision.key)
+afd_plugin/connectors/npu/hccl_staged_transport.py:1198: in complete_graph_forward
+    self.finish_forward()
+afd_plugin/connectors/npu/hccl_staged_transport.py:1145: in finish_forward
+    self._finish_forward()
+afd_plugin/connectors/npu/hccl_staged_transport.py:1163: in _finish_forward
+    torch.npu.synchronize(self.local_device)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/torch_npu/npu/utils.py:70: in synchronize
+    torch_npu.npu._lazy_init()
+/opt/buildtools/python-3.12.9/lib/python3.12/unittest/mock.py:1139: in __call__
+    return self._mock_call(*args, **kwargs)
+/opt/buildtools/python-3.12.9/lib/python3.12/unittest/mock.py:1143: in _mock_call
+    return self._execute_mock_call(*args, **kwargs)
+/opt/buildtools/python-3.12.9/lib/python3.12/unittest/mock.py:1198: in _execute_mock_call
+    raise effect
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/runner.py:341: in from_call
+    result: TResult | None = func()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/runner.py:242: in <lambda>
+    lambda: runtest_hook(item=item, **kwds), when=when, reraise=reraise
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/pluggy/_caller.py:197: in __call__
+    return self._hookexec(
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/pluggy/_manager.py:183: in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/threadexception.py:92: in pytest_runtest_call
+    yield from thread_exception_runtest_hook()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/threadexception.py:68: in thread_exception_runtest_hook
+    yield
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/unraisableexception.py:95: in pytest_runtest_call
+    yield from unraisable_exception_runtest_hook()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/unraisableexception.py:70: in unraisable_exception_runtest_hook
+    yield
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/logging.py:848: in pytest_runtest_call
+    yield from self._runtest_for(item, "call")
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/logging.py:831: in _runtest_for
+    yield
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/capture.py:879: in pytest_runtest_call
+    return (yield)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/skipping.py:257: in pytest_runtest_call
+    return (yield)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/runner.py:174: in pytest_runtest_call
+    item.runtest()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/python.py:1627: in runtest
+    self.ihook.pytest_pyfunc_call(pyfuncitem=self)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/pluggy/_caller.py:197: in __call__
+    return self._hookexec(
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/pluggy/_manager.py:183: in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/python.py:159: in pytest_pyfunc_call
+    result = testfunction(**testargs)
+tests/unit/v1/worker/npu/test_hccl_v41_graph_execution.py:84: in test_native_parent_callback_uses_actual_counts_and_one_unsliced_producer
+    case.transport.complete_graph_forward(case.reservation.decision.key)
+afd_plugin/connectors/npu/hccl_staged_transport.py:1198: in complete_graph_forward
+    self.finish_forward()
+afd_plugin/connectors/npu/hccl_staged_transport.py:1145: in finish_forward
+    self._finish_forward()
+afd_plugin/connectors/npu/hccl_staged_transport.py:1163: in _finish_forward
+    torch.npu.synchronize(self.local_device)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/torch_npu/npu/utils.py:70: in synchronize
+    torch_npu.npu._lazy_init()
+/opt/buildtools/python-3.12.9/lib/python3.12/unittest/mock.py:1139: in __call__
+    return self._mock_call(*args, **kwargs)
+/opt/buildtools/python-3.12.9/lib/python3.12/unittest/mock.py:1143: in _mock_call
+    return self._execute_mock_call(*args, **kwargs)
+/opt/buildtools/python-3.12.9/lib/python3.12/unittest/mock.py:1198: in _execute_mock_call
+    raise effect
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/runner.py:341: in from_call
+    result: TResult | None = func()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/runner.py:242: in <lambda>
+    lambda: runtest_hook(item=item, **kwds), when=when, reraise=reraise
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/pluggy/_caller.py:197: in __call__
+    return self._hookexec(
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/pluggy/_manager.py:183: in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/threadexception.py:92: in pytest_runtest_call
+    yield from thread_exception_runtest_hook()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/threadexception.py:68: in thread_exception_runtest_hook
+    yield
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/unraisableexception.py:95: in pytest_runtest_call
+    yield from unraisable_exception_runtest_hook()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/unraisableexception.py:70: in unraisable_exception_runtest_hook
+    yield
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/logging.py:848: in pytest_runtest_call
+    yield from self._runtest_for(item, "call")
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/logging.py:831: in _runtest_for
+    yield
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/capture.py:879: in pytest_runtest_call
+    return (yield)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/skipping.py:257: in pytest_runtest_call
+    return (yield)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/runner.py:174: in pytest_runtest_call
+    item.runtest()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/python.py:1627: in runtest
+    self.ihook.pytest_pyfunc_call(pyfuncitem=self)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/pluggy/_caller.py:197: in __call__
+    return self._hookexec(
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/pluggy/_manager.py:183: in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/python.py:159: in pytest_pyfunc_call
+    result = testfunction(**testargs)
+tests/unit/v1/worker/npu/test_hccl_v41_graph_execution.py:84: in test_native_parent_callback_uses_actual_counts_and_one_unsliced_producer
+    case.transport.complete_graph_forward(case.reservation.decision.key)
+afd_plugin/connectors/npu/hccl_staged_transport.py:1198: in complete_graph_forward
+    self.finish_forward()
+afd_plugin/connectors/npu/hccl_staged_transport.py:1145: in finish_forward
+    self._finish_forward()
+afd_plugin/connectors/npu/hccl_staged_transport.py:1163: in _finish_forward
+    torch.npu.synchronize(self.local_device)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/torch_npu/npu/utils.py:70: in synchronize
+    torch_npu.npu._lazy_init()
+/opt/buildtools/python-3.12.9/lib/python3.12/unittest/mock.py:1139: in __call__
+    return self._mock_call(*args, **kwargs)
+/opt/buildtools/python-3.12.9/lib/python3.12/unittest/mock.py:1143: in _mock_call
+    return self._execute_mock_call(*args, **kwargs)
+/opt/buildtools/python-3.12.9/lib/python3.12/unittest/mock.py:1198: in _execute_mock_call
+    raise effect
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/runner.py:341: in from_call
+    result: TResult | None = func()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/runner.py:242: in <lambda>
+    lambda: runtest_hook(item=item, **kwds), when=when, reraise=reraise
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/pluggy/_caller.py:197: in __call__
+    return self._hookexec(
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/pluggy/_manager.py:183: in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/threadexception.py:92: in pytest_runtest_call
+    yield from thread_exception_runtest_hook()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/threadexception.py:68: in thread_exception_runtest_hook
+    yield
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/unraisableexception.py:95: in pytest_runtest_call
+    yield from unraisable_exception_runtest_hook()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/unraisableexception.py:70: in unraisable_exception_runtest_hook
+    yield
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/logging.py:848: in pytest_runtest_call
+    yield from self._runtest_for(item, "call")
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/logging.py:831: in _runtest_for
+    yield
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/capture.py:879: in pytest_runtest_call
+    return (yield)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/skipping.py:257: in pytest_runtest_call
+    return (yield)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/runner.py:174: in pytest_runtest_call
+    item.runtest()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/python.py:1627: in runtest
+    self.ihook.pytest_pyfunc_call(pyfuncitem=self)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/pluggy/_caller.py:197: in __call__
+    return self._hookexec(
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/pluggy/_manager.py:183: in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/python.py:159: in pytest_pyfunc_call
+    result = testfunction(**testargs)
+tests/unit/v1/worker/npu/test_hccl_v41_graph_execution.py:84: in test_native_parent_callback_uses_actual_counts_and_one_unsliced_producer
+    case.transport.complete_graph_forward(case.reservation.decision.key)
+afd_plugin/connectors/npu/hccl_staged_transport.py:1198: in complete_graph_forward
+    self.finish_forward()
+afd_plugin/connectors/npu/hccl_staged_transport.py:1145: in finish_forward
+    self._finish_forward()
+afd_plugin/connectors/npu/hccl_staged_transport.py:1163: in _finish_forward
+    torch.npu.synchronize(self.local_device)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/torch_npu/npu/utils.py:70: in synchronize
+    torch_npu.npu._lazy_init()
+/opt/buildtools/python-3.12.9/lib/python3.12/unittest/mock.py:1139: in __call__
+    return self._mock_call(*args, **kwargs)
+/opt/buildtools/python-3.12.9/lib/python3.12/unittest/mock.py:1143: in _mock_call
+    return self._execute_mock_call(*args, **kwargs)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <MagicMock name='_lazy_init' id='281464566746864'>, args = ()
+kwargs = {}, effect = RuntimeError('CPU validation forbids NPU initialization')
+
+    def _execute_mock_call(self, /, *args, **kwargs):
+        # separate from _increment_mock_call so that awaited functions are
+        # executed separately from their call, also AsyncMock overrides this method
+    
+        effect = self.side_effect
+        if effect is not None:
+            if _is_exception(effect):
+>               raise effect
+E               RuntimeError: CPU validation forbids NPU initialization
+
+/opt/buildtools/python-3.12.9/lib/python3.12/unittest/mock.py:1198: RuntimeError
+__________ test_retired_reservation_cannot_launch_the_prepared_parent __________
+
+graph_case = <function make_graph_execution_case at 0xfffb756e9620>
+
+    def test_retired_reservation_cannot_launch_the_prepared_parent(graph_case):
+        case = graph_case()
+        prepared = case.runner.prepare(
+            case.batch, (), torch.zeros(1, 4, dtype=torch.int32), CUDAGraphMode.FULL, True
+        )
+        finish = case.runner.begin_capturable_run(
+            case.model, case.inputs, prepared, for_capture=True
+        )
+>       case.transport.complete_graph_forward(case.reservation.decision.key)
+
+tests/unit/v1/worker/npu/test_hccl_v41_graph_execution.py:161: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+afd_plugin/connectors/npu/hccl_staged_transport.py:1198: in complete_graph_forward
+    self.finish_forward()
+afd_plugin/connectors/npu/hccl_staged_transport.py:1145: in finish_forward
+    self._finish_forward()
+afd_plugin/connectors/npu/hccl_staged_transport.py:1163: in _finish_forward
+    torch.npu.synchronize(self.local_device)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/torch_npu/npu/utils.py:70: in synchronize
+    torch_npu.npu._lazy_init()
+/opt/buildtools/python-3.12.9/lib/python3.12/unittest/mock.py:1139: in __call__
+    return self._mock_call(*args, **kwargs)
+/opt/buildtools/python-3.12.9/lib/python3.12/unittest/mock.py:1143: in _mock_call
+    return self._execute_mock_call(*args, **kwargs)
+/opt/buildtools/python-3.12.9/lib/python3.12/unittest/mock.py:1198: in _execute_mock_call
+    raise effect
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/runner.py:341: in from_call
+    result: TResult | None = func()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/runner.py:242: in <lambda>
+    lambda: runtest_hook(item=item, **kwds), when=when, reraise=reraise
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/pluggy/_caller.py:197: in __call__
+    return self._hookexec(
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/pluggy/_manager.py:183: in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/threadexception.py:92: in pytest_runtest_call
+    yield from thread_exception_runtest_hook()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/threadexception.py:68: in thread_exception_runtest_hook
+    yield
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/unraisableexception.py:95: in pytest_runtest_call
+    yield from unraisable_exception_runtest_hook()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/unraisableexception.py:70: in unraisable_exception_runtest_hook
+    yield
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/logging.py:848: in pytest_runtest_call
+    yield from self._runtest_for(item, "call")
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/logging.py:831: in _runtest_for
+    yield
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/capture.py:879: in pytest_runtest_call
+    return (yield)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/skipping.py:257: in pytest_runtest_call
+    return (yield)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/runner.py:174: in pytest_runtest_call
+    item.runtest()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/python.py:1627: in runtest
+    self.ihook.pytest_pyfunc_call(pyfuncitem=self)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/pluggy/_caller.py:197: in __call__
+    return self._hookexec(
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/pluggy/_manager.py:183: in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/python.py:159: in pytest_pyfunc_call
+    result = testfunction(**testargs)
+tests/unit/v1/worker/npu/test_hccl_v41_graph_execution.py:84: in test_native_parent_callback_uses_actual_counts_and_one_unsliced_producer
+    case.transport.complete_graph_forward(case.reservation.decision.key)
+afd_plugin/connectors/npu/hccl_staged_transport.py:1198: in complete_graph_forward
+    self.finish_forward()
+afd_plugin/connectors/npu/hccl_staged_transport.py:1145: in finish_forward
+    self._finish_forward()
+afd_plugin/connectors/npu/hccl_staged_transport.py:1163: in _finish_forward
+    torch.npu.synchronize(self.local_device)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/torch_npu/npu/utils.py:70: in synchronize
+    torch_npu.npu._lazy_init()
+/opt/buildtools/python-3.12.9/lib/python3.12/unittest/mock.py:1139: in __call__
+    return self._mock_call(*args, **kwargs)
+/opt/buildtools/python-3.12.9/lib/python3.12/unittest/mock.py:1143: in _mock_call
+    return self._execute_mock_call(*args, **kwargs)
+/opt/buildtools/python-3.12.9/lib/python3.12/unittest/mock.py:1198: in _execute_mock_call
+    raise effect
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/runner.py:341: in from_call
+    result: TResult | None = func()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/runner.py:242: in <lambda>
+    lambda: runtest_hook(item=item, **kwds), when=when, reraise=reraise
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/pluggy/_caller.py:197: in __call__
+    return self._hookexec(
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/pluggy/_manager.py:183: in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/threadexception.py:92: in pytest_runtest_call
+    yield from thread_exception_runtest_hook()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/threadexception.py:68: in thread_exception_runtest_hook
+    yield
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/unraisableexception.py:95: in pytest_runtest_call
+    yield from unraisable_exception_runtest_hook()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/unraisableexception.py:70: in unraisable_exception_runtest_hook
+    yield
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/logging.py:848: in pytest_runtest_call
+    yield from self._runtest_for(item, "call")
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/logging.py:831: in _runtest_for
+    yield
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/capture.py:879: in pytest_runtest_call
+    return (yield)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/skipping.py:257: in pytest_runtest_call
+    return (yield)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/runner.py:174: in pytest_runtest_call
+    item.runtest()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/python.py:1627: in runtest
+    self.ihook.pytest_pyfunc_call(pyfuncitem=self)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/pluggy/_caller.py:197: in __call__
+    return self._hookexec(
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/pluggy/_manager.py:183: in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/python.py:159: in pytest_pyfunc_call
+    result = testfunction(**testargs)
+tests/unit/v1/worker/npu/test_hccl_v41_graph_execution.py:84: in test_native_parent_callback_uses_actual_counts_and_one_unsliced_producer
+    case.transport.complete_graph_forward(case.reservation.decision.key)
+afd_plugin/connectors/npu/hccl_staged_transport.py:1198: in complete_graph_forward
+    self.finish_forward()
+afd_plugin/connectors/npu/hccl_staged_transport.py:1145: in finish_forward
+    self._finish_forward()
+afd_plugin/connectors/npu/hccl_staged_transport.py:1163: in _finish_forward
+    torch.npu.synchronize(self.local_device)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/torch_npu/npu/utils.py:70: in synchronize
+    torch_npu.npu._lazy_init()
+/opt/buildtools/python-3.12.9/lib/python3.12/unittest/mock.py:1139: in __call__
+    return self._mock_call(*args, **kwargs)
+/opt/buildtools/python-3.12.9/lib/python3.12/unittest/mock.py:1143: in _mock_call
+    return self._execute_mock_call(*args, **kwargs)
+/opt/buildtools/python-3.12.9/lib/python3.12/unittest/mock.py:1198: in _execute_mock_call
+    raise effect
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/runner.py:341: in from_call
+    result: TResult | None = func()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/runner.py:242: in <lambda>
+    lambda: runtest_hook(item=item, **kwds), when=when, reraise=reraise
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/pluggy/_caller.py:197: in __call__
+    return self._hookexec(
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/pluggy/_manager.py:183: in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/threadexception.py:92: in pytest_runtest_call
+    yield from thread_exception_runtest_hook()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/threadexception.py:68: in thread_exception_runtest_hook
+    yield
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/unraisableexception.py:95: in pytest_runtest_call
+    yield from unraisable_exception_runtest_hook()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/unraisableexception.py:70: in unraisable_exception_runtest_hook
+    yield
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/logging.py:848: in pytest_runtest_call
+    yield from self._runtest_for(item, "call")
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/logging.py:831: in _runtest_for
+    yield
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/capture.py:879: in pytest_runtest_call
+    return (yield)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/skipping.py:257: in pytest_runtest_call
+    return (yield)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/runner.py:174: in pytest_runtest_call
+    item.runtest()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/python.py:1627: in runtest
+    self.ihook.pytest_pyfunc_call(pyfuncitem=self)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/pluggy/_caller.py:197: in __call__
+    return self._hookexec(
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/pluggy/_manager.py:183: in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/python.py:159: in pytest_pyfunc_call
+    result = testfunction(**testargs)
+tests/unit/v1/worker/npu/test_hccl_v41_graph_execution.py:84: in test_native_parent_callback_uses_actual_counts_and_one_unsliced_producer
+    case.transport.complete_graph_forward(case.reservation.decision.key)
+afd_plugin/connectors/npu/hccl_staged_transport.py:1198: in complete_graph_forward
+    self.finish_forward()
+afd_plugin/connectors/npu/hccl_staged_transport.py:1145: in finish_forward
+    self._finish_forward()
+afd_plugin/connectors/npu/hccl_staged_transport.py:1163: in _finish_forward
+    torch.npu.synchronize(self.local_device)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/torch_npu/npu/utils.py:70: in synchronize
+    torch_npu.npu._lazy_init()
+/opt/buildtools/python-3.12.9/lib/python3.12/unittest/mock.py:1139: in __call__
+    return self._mock_call(*args, **kwargs)
+/opt/buildtools/python-3.12.9/lib/python3.12/unittest/mock.py:1143: in _mock_call
+    return self._execute_mock_call(*args, **kwargs)
+/opt/buildtools/python-3.12.9/lib/python3.12/unittest/mock.py:1198: in _execute_mock_call
+    raise effect
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/runner.py:341: in from_call
+    result: TResult | None = func()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/runner.py:242: in <lambda>
+    lambda: runtest_hook(item=item, **kwds), when=when, reraise=reraise
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/pluggy/_caller.py:197: in __call__
+    return self._hookexec(
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/pluggy/_manager.py:183: in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/threadexception.py:92: in pytest_runtest_call
+    yield from thread_exception_runtest_hook()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/threadexception.py:68: in thread_exception_runtest_hook
+    yield
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/unraisableexception.py:95: in pytest_runtest_call
+    yield from unraisable_exception_runtest_hook()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/unraisableexception.py:70: in unraisable_exception_runtest_hook
+    yield
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/logging.py:848: in pytest_runtest_call
+    yield from self._runtest_for(item, "call")
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/logging.py:831: in _runtest_for
+    yield
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/capture.py:879: in pytest_runtest_call
+    return (yield)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/skipping.py:257: in pytest_runtest_call
+    return (yield)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/runner.py:174: in pytest_runtest_call
+    item.runtest()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/python.py:1627: in runtest
+    self.ihook.pytest_pyfunc_call(pyfuncitem=self)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/pluggy/_caller.py:197: in __call__
+    return self._hookexec(
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/pluggy/_manager.py:183: in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/python.py:159: in pytest_pyfunc_call
+    result = testfunction(**testargs)
+tests/unit/v1/worker/npu/test_hccl_v41_graph_execution.py:84: in test_native_parent_callback_uses_actual_counts_and_one_unsliced_producer
+    case.transport.complete_graph_forward(case.reservation.decision.key)
+afd_plugin/connectors/npu/hccl_staged_transport.py:1198: in complete_graph_forward
+    self.finish_forward()
+afd_plugin/connectors/npu/hccl_staged_transport.py:1145: in finish_forward
+    self._finish_forward()
+afd_plugin/connectors/npu/hccl_staged_transport.py:1163: in _finish_forward
+    torch.npu.synchronize(self.local_device)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/torch_npu/npu/utils.py:70: in synchronize
+    torch_npu.npu._lazy_init()
+/opt/buildtools/python-3.12.9/lib/python3.12/unittest/mock.py:1139: in __call__
+    return self._mock_call(*args, **kwargs)
+/opt/buildtools/python-3.12.9/lib/python3.12/unittest/mock.py:1143: in _mock_call
+    return self._execute_mock_call(*args, **kwargs)
+/opt/buildtools/python-3.12.9/lib/python3.12/unittest/mock.py:1198: in _execute_mock_call
+    raise effect
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/runner.py:341: in from_call
+    result: TResult | None = func()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/runner.py:242: in <lambda>
+    lambda: runtest_hook(item=item, **kwds), when=when, reraise=reraise
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/pluggy/_caller.py:197: in __call__
+    return self._hookexec(
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/pluggy/_manager.py:183: in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/threadexception.py:92: in pytest_runtest_call
+    yield from thread_exception_runtest_hook()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/threadexception.py:68: in thread_exception_runtest_hook
+    yield
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/unraisableexception.py:95: in pytest_runtest_call
+    yield from unraisable_exception_runtest_hook()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/unraisableexception.py:70: in unraisable_exception_runtest_hook
+    yield
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/logging.py:848: in pytest_runtest_call
+    yield from self._runtest_for(item, "call")
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/logging.py:831: in _runtest_for
+    yield
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/capture.py:879: in pytest_runtest_call
+    return (yield)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/skipping.py:257: in pytest_runtest_call
+    return (yield)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/runner.py:174: in pytest_runtest_call
+    item.runtest()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/python.py:1627: in runtest
+    self.ihook.pytest_pyfunc_call(pyfuncitem=self)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/pluggy/_caller.py:197: in __call__
+    return self._hookexec(
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/pluggy/_manager.py:183: in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/python.py:159: in pytest_pyfunc_call
+    result = testfunction(**testargs)
+tests/unit/v1/worker/npu/test_hccl_v41_graph_execution.py:84: in test_native_parent_callback_uses_actual_counts_and_one_unsliced_producer
+    case.transport.complete_graph_forward(case.reservation.decision.key)
+afd_plugin/connectors/npu/hccl_staged_transport.py:1198: in complete_graph_forward
+    self.finish_forward()
+afd_plugin/connectors/npu/hccl_staged_transport.py:1145: in finish_forward
+    self._finish_forward()
+afd_plugin/connectors/npu/hccl_staged_transport.py:1163: in _finish_forward
+    torch.npu.synchronize(self.local_device)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/torch_npu/npu/utils.py:70: in synchronize
+    torch_npu.npu._lazy_init()
+/opt/buildtools/python-3.12.9/lib/python3.12/unittest/mock.py:1139: in __call__
+    return self._mock_call(*args, **kwargs)
+/opt/buildtools/python-3.12.9/lib/python3.12/unittest/mock.py:1143: in _mock_call
+    return self._execute_mock_call(*args, **kwargs)
+/opt/buildtools/python-3.12.9/lib/python3.12/unittest/mock.py:1198: in _execute_mock_call
+    raise effect
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/runner.py:341: in from_call
+    result: TResult | None = func()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/runner.py:242: in <lambda>
+    lambda: runtest_hook(item=item, **kwds), when=when, reraise=reraise
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/pluggy/_caller.py:197: in __call__
+    return self._hookexec(
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/pluggy/_manager.py:183: in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/threadexception.py:92: in pytest_runtest_call
+    yield from thread_exception_runtest_hook()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/threadexception.py:68: in thread_exception_runtest_hook
+    yield
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/unraisableexception.py:95: in pytest_runtest_call
+    yield from unraisable_exception_runtest_hook()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/unraisableexception.py:70: in unraisable_exception_runtest_hook
+    yield
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/logging.py:848: in pytest_runtest_call
+    yield from self._runtest_for(item, "call")
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/logging.py:831: in _runtest_for
+    yield
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/capture.py:879: in pytest_runtest_call
+    return (yield)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/skipping.py:257: in pytest_runtest_call
+    return (yield)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/runner.py:174: in pytest_runtest_call
+    item.runtest()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/python.py:1627: in runtest
+    self.ihook.pytest_pyfunc_call(pyfuncitem=self)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/pluggy/_caller.py:197: in __call__
+    return self._hookexec(
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/pluggy/_manager.py:183: in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/python.py:159: in pytest_pyfunc_call
+    result = testfunction(**testargs)
+tests/unit/v1/worker/npu/test_hccl_v41_graph_execution.py:84: in test_native_parent_callback_uses_actual_counts_and_one_unsliced_producer
+    case.transport.complete_graph_forward(case.reservation.decision.key)
+afd_plugin/connectors/npu/hccl_staged_transport.py:1198: in complete_graph_forward
+    self.finish_forward()
+afd_plugin/connectors/npu/hccl_staged_transport.py:1145: in finish_forward
+    self._finish_forward()
+afd_plugin/connectors/npu/hccl_staged_transport.py:1163: in _finish_forward
+    torch.npu.synchronize(self.local_device)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/torch_npu/npu/utils.py:70: in synchronize
+    torch_npu.npu._lazy_init()
+/opt/buildtools/python-3.12.9/lib/python3.12/unittest/mock.py:1139: in __call__
+    return self._mock_call(*args, **kwargs)
+/opt/buildtools/python-3.12.9/lib/python3.12/unittest/mock.py:1143: in _mock_call
+    return self._execute_mock_call(*args, **kwargs)
+/opt/buildtools/python-3.12.9/lib/python3.12/unittest/mock.py:1198: in _execute_mock_call
+    raise effect
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/runner.py:341: in from_call
+    result: TResult | None = func()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/runner.py:242: in <lambda>
+    lambda: runtest_hook(item=item, **kwds), when=when, reraise=reraise
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/pluggy/_caller.py:197: in __call__
+    return self._hookexec(
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/pluggy/_manager.py:183: in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/threadexception.py:92: in pytest_runtest_call
+    yield from thread_exception_runtest_hook()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/threadexception.py:68: in thread_exception_runtest_hook
+    yield
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/unraisableexception.py:95: in pytest_runtest_call
+    yield from unraisable_exception_runtest_hook()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/unraisableexception.py:70: in unraisable_exception_runtest_hook
+    yield
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/logging.py:848: in pytest_runtest_call
+    yield from self._runtest_for(item, "call")
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/logging.py:831: in _runtest_for
+    yield
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/capture.py:879: in pytest_runtest_call
+    return (yield)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/skipping.py:257: in pytest_runtest_call
+    return (yield)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/runner.py:174: in pytest_runtest_call
+    item.runtest()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/python.py:1627: in runtest
+    self.ihook.pytest_pyfunc_call(pyfuncitem=self)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/pluggy/_caller.py:197: in __call__
+    return self._hookexec(
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/pluggy/_manager.py:183: in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/python.py:159: in pytest_pyfunc_call
+    result = testfunction(**testargs)
+tests/unit/v1/worker/npu/test_hccl_v41_graph_execution.py:84: in test_native_parent_callback_uses_actual_counts_and_one_unsliced_producer
+    case.transport.complete_graph_forward(case.reservation.decision.key)
+afd_plugin/connectors/npu/hccl_staged_transport.py:1198: in complete_graph_forward
+    self.finish_forward()
+afd_plugin/connectors/npu/hccl_staged_transport.py:1145: in finish_forward
+    self._finish_forward()
+afd_plugin/connectors/npu/hccl_staged_transport.py:1163: in _finish_forward
+    torch.npu.synchronize(self.local_device)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/torch_npu/npu/utils.py:70: in synchronize
+    torch_npu.npu._lazy_init()
+/opt/buildtools/python-3.12.9/lib/python3.12/unittest/mock.py:1139: in __call__
+    return self._mock_call(*args, **kwargs)
+/opt/buildtools/python-3.12.9/lib/python3.12/unittest/mock.py:1143: in _mock_call
+    return self._execute_mock_call(*args, **kwargs)
+/opt/buildtools/python-3.12.9/lib/python3.12/unittest/mock.py:1198: in _execute_mock_call
+    raise effect
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/runner.py:341: in from_call
+    result: TResult | None = func()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/runner.py:242: in <lambda>
+    lambda: runtest_hook(item=item, **kwds), when=when, reraise=reraise
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/pluggy/_caller.py:197: in __call__
+    return self._hookexec(
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/pluggy/_manager.py:183: in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/threadexception.py:92: in pytest_runtest_call
+    yield from thread_exception_runtest_hook()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/threadexception.py:68: in thread_exception_runtest_hook
+    yield
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/unraisableexception.py:95: in pytest_runtest_call
+    yield from unraisable_exception_runtest_hook()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/unraisableexception.py:70: in unraisable_exception_runtest_hook
+    yield
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/logging.py:848: in pytest_runtest_call
+    yield from self._runtest_for(item, "call")
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/logging.py:831: in _runtest_for
+    yield
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/capture.py:879: in pytest_runtest_call
+    return (yield)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/skipping.py:257: in pytest_runtest_call
+    return (yield)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/runner.py:174: in pytest_runtest_call
+    item.runtest()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/python.py:1627: in runtest
+    self.ihook.pytest_pyfunc_call(pyfuncitem=self)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/pluggy/_caller.py:197: in __call__
+    return self._hookexec(
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/pluggy/_manager.py:183: in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/python.py:159: in pytest_pyfunc_call
+    result = testfunction(**testargs)
+tests/unit/v1/worker/npu/test_hccl_v41_graph_execution.py:84: in test_native_parent_callback_uses_actual_counts_and_one_unsliced_producer
+    case.transport.complete_graph_forward(case.reservation.decision.key)
+afd_plugin/connectors/npu/hccl_staged_transport.py:1198: in complete_graph_forward
+    self.finish_forward()
+afd_plugin/connectors/npu/hccl_staged_transport.py:1145: in finish_forward
+    self._finish_forward()
+afd_plugin/connectors/npu/hccl_staged_transport.py:1163: in _finish_forward
+    torch.npu.synchronize(self.local_device)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/torch_npu/npu/utils.py:70: in synchronize
+    torch_npu.npu._lazy_init()
+/opt/buildtools/python-3.12.9/lib/python3.12/unittest/mock.py:1139: in __call__
+    return self._mock_call(*args, **kwargs)
+/opt/buildtools/python-3.12.9/lib/python3.12/unittest/mock.py:1143: in _mock_call
+    return self._execute_mock_call(*args, **kwargs)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <MagicMock name='_lazy_init' id='281464566746864'>, args = ()
+kwargs = {}, effect = RuntimeError('CPU validation forbids NPU initialization')
+
+    def _execute_mock_call(self, /, *args, **kwargs):
+        # separate from _increment_mock_call so that awaited functions are
+        # executed separately from their call, also AsyncMock overrides this method
+    
+        effect = self.side_effect
+        if effect is not None:
+            if _is_exception(effect):
+>               raise effect
+E               RuntimeError: CPU validation forbids NPU initialization
+
+/opt/buildtools/python-3.12.9/lib/python3.12/unittest/mock.py:1198: RuntimeError
+=============================== warnings summary ===============================
+tests/unit/compat/npu/test_kv_layout_connector.py::test_engram_pd_exports_original_history_after_native_prefill_truncation
+  /mnt/workspace/code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/torch_npu/utils/storage.py:55: UserWarning: TypedStorage is deprecated. It will be removed in the future and UntypedStorage will be the only storage class. This should only matter to you if you are using storages directly.  To access UntypedStorage directly, use tensor.untyped_storage() instead of tensor.storage()
+    if self.device.type != 'cpu':
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+- generated xml file: /mnt/workspace/tmp/afd-c0-20261104.hVgsIf/full-checkpoint-cpu-20261119.4hxdlp/results/junit.xml -
+=========================== short test summary info ============================
+FAILED tests/unit/compat/npu/test_feature_validation.py::test_full_checkpoint_candidate_preserves_weights_and_a_owned_history[True-False-True-1-attention]
+FAILED tests/unit/compat/npu/test_feature_validation.py::test_full_checkpoint_candidate_preserves_weights_and_a_owned_history[True-False-True-2-attention]
+FAILED tests/unit/compat/npu/test_feature_validation.py::test_full_checkpoint_candidate_preserves_weights_and_a_owned_history[True-True-True-1-attention]
+FAILED tests/unit/compat/npu/test_feature_validation.py::test_full_checkpoint_candidate_preserves_weights_and_a_owned_history[True-True-True-2-attention]
+FAILED tests/unit/compat/npu/test_kv_layout_connector.py::test_engram_pd_exports_original_history_after_native_prefill_truncation
+FAILED tests/unit/v1/worker/npu/test_hccl_v41_graph_execution.py::test_native_parent_callback_uses_actual_counts_and_one_unsliced_producer[False-False-True]
+FAILED tests/unit/v1/worker/npu/test_hccl_v41_graph_execution.py::test_native_parent_callback_uses_actual_counts_and_one_unsliced_producer[False-False-False]
+FAILED tests/unit/v1/worker/npu/test_hccl_v41_graph_execution.py::test_native_parent_callback_uses_actual_counts_and_one_unsliced_producer[False-True-True]
+FAILED tests/unit/v1/worker/npu/test_hccl_v41_graph_execution.py::test_native_parent_callback_uses_actual_counts_and_one_unsliced_producer[False-True-False]
+FAILED tests/unit/v1/worker/npu/test_hccl_v41_graph_execution.py::test_native_parent_callback_uses_actual_counts_and_one_unsliced_producer[True-False-True]
+FAILED tests/unit/v1/worker/npu/test_hccl_v41_graph_execution.py::test_native_parent_callback_uses_actual_counts_and_one_unsliced_producer[True-False-False]
+FAILED tests/unit/v1/worker/npu/test_hccl_v41_graph_execution.py::test_native_parent_callback_uses_actual_counts_and_one_unsliced_producer[True-True-True]
+FAILED tests/unit/v1/worker/npu/test_hccl_v41_graph_execution.py::test_native_parent_callback_uses_actual_counts_and_one_unsliced_producer[True-True-False]
+FAILED tests/unit/v1/worker/npu/test_hccl_v41_graph_execution.py::test_retired_reservation_cannot_launch_the_prepared_parent

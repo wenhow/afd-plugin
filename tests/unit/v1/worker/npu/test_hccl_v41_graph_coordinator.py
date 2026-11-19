@@ -128,6 +128,15 @@ def capture_case(coordinator_case, monkeypatch):
     return build
 
 
+@pytest.mark.parametrize("stages", [1, 2])
+def test_external_parent_engram_can_negotiate_native_graph_capture(
+    coordinator_case, stages
+):
+    case = coordinator_case(stages=stages, engram=True, external_engram=True)
+
+    assert case.coordinator.preflight_capture() is True
+
+
 @pytest.fixture
 def pipeline_capture_case(capture_case, monkeypatch):
     monkeypatch.setattr(

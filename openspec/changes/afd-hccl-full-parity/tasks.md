@@ -9,7 +9,16 @@
 锁定 vLLM 明确拒绝 Engram+DBO/microbatch，U2 真实模型属于新增适配；不把该限制
 扩大成所有 Engram 场景都不支持。新增 Engram 适配仍按中优先级审查实施。
 profiler、性能及服务启停/重启专项后置；必要资源清理、取消/随后请求和错误传播保留。
-已有实现、接口/CPU 和 NPU 组件证据按原范围保留，本次不增加完成勾选。
+已有实现、接口/CPU 和 NPU 组件证据按原范围保留；源码准入与设备验收分别记录。
+
+2026-11-19 用户继续授权完整功能开发，A5 手工同步验证；PD 设备安排稍后确定，
+先提供可配置脚本。本轮已补齐 TP4 组合入口、父 Engram 图外 producer/稳定输入、
+FFN 启动前角色校验及 PD 原始历史声明，详见
+[源码审查与验证](evidence/full-checkpoint-integration-20261119/README.md)。
+独立非 Engram 组件已有可审阅实现和验证，剩余完整权重缺口明确归属本轮状态接入，
+因此进入第 2 节新增适配；不等待依赖它的完整矩阵先验收。
+1,433 项 CPU 回归和 55 个真实首次 EngineArgs 配置通过，NPU 均未初始化。
+真实权重 eager/U1 首 token 差异仍待 A5 同 TP4 原生对照，其他组合也未获得完整模型验收。
 
 | 执行顺序 | 对应原任务 | 阶段边界与验收前置 |
 | --- | --- | --- |
@@ -20,7 +29,7 @@ profiler、性能及服务启停/重启专项后置；必要资源清理、取�
 | 完整矩阵与交付 | 2.7、1.8–1.12 | 已通过 U1 精确场景可单列；U2 与 H01–H15 最终范围保留，未完成格子仍 pending，性能/启停专项最后安排 |
 
 当前真实权重入口为 [完整 checkpoint 指导](../../../docs/npu/DSV41_A5_FULL_CHECKPOINT_VALIDATION_ZH.md)。
-A5 设备由用户手工执行；等待报告时继续独立审查和 CPU 工作。本轮仅修订计划与工作流。
+A5 设备由用户手工执行；等待报告时继续独立实现、审查和 CPU 工作。本轮已实施运行时代码。
 以下 11-16/11-17 安排保留为背景，具体执行顺序以上表为准。
 
 用户11-16随后调整验证分工：**DSpark相关设备功能验证改在A5，A3推进非DSpark功能**。
@@ -44,8 +53,8 @@ A5同TP4单层MoE及DSpark两场景已提交推送至`feat/dsv41-flash-hccl-v030
 
 ## 1. 高优先级实施与最终组合验收（原任务编号保留）
 
-- [ ] 1.3 【高/待中】先完成 DSpark×U2×Graph×多流的 target-only、aux merge、真实接受/拒绝、KV/采样历史和异常生命周期；Engram 新增适配及联合验收后置至 2.3–2.5，整项保持 pending。
-- [ ] 1.5 【高/待中】先完成目标 v0.30 PD 请求接入、KV/index、layer/component 和退出适配，不启用过时补丁或改上游；新增 Engram history/handoff 适配后置至 2.6。
+- [ ] 1.3 【源码已接入，联合验收待 A5】完成 DSpark×U2×Graph×多流的 target-only、aux merge、真实接受/拒绝、KV/采样历史和异常生命周期；本轮补齐完整权重组合准入与父状态接入，Engram 联合设备验收见 2.3–2.5，整项保持 pending。
+- [ ] 1.5 【源码已接入，联合验收待 A5】完成目标 v0.30 PD 请求接入、KV/index、layer/component 和退出适配，不启用过时补丁或改上游；本轮补齐 Engram 原始 history 声明与校验，设备 handoff 验收见 2.6。
 - [ ] 1.6 迁移 recipe/preflight/capture-size/拓扑校验和所有 overlap/诊断值记录，保留显式 0 覆盖。
 - [ ] 1.7 【低：功能后】对齐 A/F profiler 控制与 F 管理 RPC，验证启停/step/trace 不阻塞业务（H14）；已有实现保留，不阻塞功能开发验证。
 - [ ] 1.10 【高/待中；启停后置】优先并发/取消/随后请求及影响功能的错误传播；STOP专项/故障退出/新进程重启降低优先级，测试必要清理仍执行。Engram retire/history 联合验证待 2.2/2.5/2.6，旧 MTP 恢复后单列结果。
@@ -65,12 +74,12 @@ A5同TP4单层MoE及DSpark两场景已提交推送至`feat/dsv41-flash-hccl-v030
 不代表已在 NPU 验收。锁定版本变更另行评估，不自动跟随 main；补丁注明成本、作用域
 与移除条件。各任务中的 U1 及 U2 证据分阶段记录，全部原条件满足才勾选整项。
 
-- [ ] 2.1 【中：新增 U2 准入】高优先级独立工作具备后，复核锁定 vLLM/Ascend 对 Engram+DBO/microbatch 的明确拒绝、配置重建及 worker 校验链，设计插件内最小兼容接入并完成架构审查；保留非 AFD 拒绝语义与上游只读边界，不以单纯删除校验放行。
+- [x] 2.1 【新增 U2 准入：源码/架构/CPU 完成】高优先级独立工作具备后，复核锁定 vLLM/Ascend 对 Engram+DBO/microbatch 的明确拒绝、配置重建及 worker 校验链，设计插件内最小兼容接入并完成架构审查；保留非 AFD 拒绝语义与上游只读边界，不以单纯删除校验放行。见[本轮审查](evidence/full-checkpoint-integration-20261119/README.md)：1,433 CPU 通过，55 个真实首次 EngineArgs 及重复 native post-init 均通过、NPU 未初始化；其余完整模型验收仍 pending。
 - [ ] 2.2 【当前：原生 U1 复用验证；新增修复按中优先级】先保留原生 Engram 完成真实权重 eager/U1 的可比基线、输出差异和连续请求验证；复核 A/F 初始化、组/权重归属、请求结束/复用、chunk/dummy/空步、异常 retire 与资源回收，新增缺口登记后按中优先级审查修复；以真实历史和设备对照收口 C2 1.8/1.12，保留 A 所有权及 F 构造前隔离。
-- [ ] 2.3 【中：后置】补齐 eager/U2 父级一次 producer、lookup/mask 子视图、lookback 请求坐标、buffer lifetime 和双 consumer event 契约；含切分跨请求/跨 chunk、odd/empty、多轮及与 HC/pre_mix/shared-KV 的联合 NPU 对照，闭合 C4 1.7/1.10 的 Engram 依赖。
-- [ ] 2.4 【按依赖复核 Graph/U1；新增适配按中优先级】U1 基线后复核并验证原生 Engram 图路径；补齐实际 producer、稳定输入、事件 prime/refill/retire、capture/replay/miss→eager 及多流消费者缺口，U2 另依赖 2.1/2.3；验证请求/bucket 切换，完成 patch 审查及真实设备对照，闭合 C5 1.8 与 C6 的 Engram 依赖。
-- [ ] 2.5 【按依赖复核 DSpark/U1；新增适配按中优先级】先核对及验证 U1 的接受/拒绝/bonus/回退后 Engram history 与下一轮 lookback，再补实际缺口及 U2/Graph 组合；覆盖同 worker 连续轮次、取消/结束后的槽复用，真实 target/proposal/采样和设备结果对应，闭合 C3 1.8/2.1 与 C7 1.3 的 Engram 依赖。
-- [ ] 2.6 【按依赖复核 PD/U1；新增适配按中优先级】先核对及验证 U1 Prefill→Decode 的原生 Engram 历史、请求/token 坐标和 prefix/缓存接入；补实际 handoff 缺口及 U2 等 PD 五组合，覆盖取消/随后请求；F 不拥有该历史，不以 KV 到达替代 Engram 正确性，闭合 C7 1.5/1.9 的 Engram 依赖。
+- [ ] 2.3 【父准备/视图已复核，联合 NPU 待验】补齐 eager/U2 父级一次 producer、lookup/mask 子视图、lookback 请求坐标、buffer lifetime 和双 consumer event 契约；含切分跨请求/跨 chunk、odd/empty、多轮及与 HC/pre_mix/shared-KV 的联合 NPU 对照，闭合 C4 1.7/1.10 的 Engram 依赖。
+- [ ] 2.4 【图外 TP4 producer/稳定输入已接入，NPU 待验】U1 基线后验证原生 Engram 图路径；已补实际 producer、稳定输入及共享事件消费边界，保留 native retire；仍需真实 capture/replay/miss→eager、多流、请求/bucket 切换对照，闭合 C5 1.8 与 C6 的 Engram 依赖。
+- [ ] 2.5 【原生 history 已复用，NPU 待验】验证 U1 的接受/拒绝/bonus/回退后 Engram history 与下一轮 lookback，以及 U2/Graph 组合；覆盖同 worker 连续轮次、取消/结束后的槽复用，真实 target/proposal/采样和设备结果对应，闭合 C3 1.8/2.1 与 C7 1.3 的 Engram 依赖。
+- [ ] 2.6 【原始历史声明/校验已接入，NPU 待验】验证 U1 Prefill→Decode 的原生 Engram 历史、请求/token 坐标和 prefix/缓存接入，以及 U2 等 PD 五组合，覆盖取消/随后请求；F 不拥有该历史，不以 KV 到达替代 Engram 正确性，闭合 C7 1.5/1.9 的 Engram 依赖。PD 设备待定，使用可配置启动脚本。
 - [ ] 2.7 【中：后置】在前六项实际缺口闭合后，记录 Engram 对各模式的 NPU 对照/生命周期证据、资源成本与兼容补丁保留/移除结论，更新精确支持边界，作为原 1.8–1.12 完整矩阵验收的输入；不提前报告性能或全量交付通过。
 
 ## 3. 分支映射与普通旧 V4 MTP（保持原暂停策略）
@@ -1537,6 +1546,19 @@ A5设备结果待用户回传；完整模型、Engram、全五PD矩阵、拓扑/
 已有profiler/管理RPC异常传播修复同步保留，以保持生产、测试及A5包一致，不新增设备专项。
 373生产/单测路径与真实CPU源码一致，146生产模块与A5包逐字节一致。
 
+### 2026-11-17：A5集中验证回传，原生源码预检阻塞
+
+用户回传ZIP已[归档分析](evidence/a5-native-source-preflight-20261117/README.md)。
+AFD功能包SHA正确；194份原生Python源码中189匹配，差异仅为Ascend的五份源码，
+vLLM 126/126匹配。失败发生于原生运行库导入前，7个功能场景均未开始，不能计为功能
+通过或设备推理回归。软件包版本后缀不是当前editable源码Git身份。
+
+其中forward context/DSpark speculator有既有A5精确源码，确认包含MegaMoE/PD策略、
+draft配置及关联导入变化；ascend_config/platform/utils仍需实际字节。
+新增stdlib只读采集器，定向归档差异源码及实际HEAD/status/diff，保留严格源码门禁，
+不替换共享环境、修改上游或扩大运行时准入。用户可复用已有失败JSON，无需重跑7场景。
+实际源码收齐后的兼容审查与A5功能验证保持pending；本轮不变更任务勾选。
+
 ### 2026-11-17：A5原生源码已匹配，预检JIT阶段超时
 
 用户回退后[本次回传](evidence/a5-native-runtime-timeout-20261117/README.md)确认
@@ -1594,19 +1616,6 @@ Ruff及规划/保护检查通过。A5新几何与后续设备场景仍待重跑�
 CLI/真实子进程环境检查通过，含七场景metadata、无参数继承和错误路径拒绝。
 新冻结包只变更launcher，146生产与194原生身份锁不变；185Python编译、Ruff及
 规划/保护检查通过。实际A5库符号、CompressorV2与七场景仍待重跑，不变更任务勾选。
-
-### 2026-11-17：交付前在 A3 检查共用脚本
-
-[本轮记录](evidence/a3-functional-script-check-20261117/README.md)保留冻结版本与失败原件。
-`fcef50b` 串行 23 组通过；`63c5a44` QLI 新几何补验 14 组通过，并逐字节复用
-同源码的 9 种首配置与 386 项 CPU 检查，共覆盖 13 种真实配置。A3 NPU 1 的
-ND/NZ/BF16 读回、原生 Worker 79 参数采集和 KV 规划/分配通过，无推理/采样。
-结束八卡空闲，无所属进程残留，194 原生身份及运行库/工具链文件保持。
-
-`a4b3ab6` 最新 vendor CLI 在 A3 首次 3F/1P，原因是标准库测试子进程未继承
-父进程的 `-S`，site 初始化额外前置 FLA 路径。仅给两个测试子进程补 `-S` 后
-4 项通过；生产启动与冻结运行包不变。文档补充 A3 先验流程，不变更任务勾选。
-A5 专用 bootstrap/算子、七场景推理、A/F 数值、Engram 与性能仍待各自验收。
 
 ### 2026-11-17：CompressorV2最小输入宽度
 

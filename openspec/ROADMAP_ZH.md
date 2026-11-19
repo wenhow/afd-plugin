@@ -6,6 +6,12 @@
 eager/U1/U2、DBO、Graph 捕获/回放/回退、多流/拓扑、DSpark、PD、诊断和性能验收。**
 当前已有基础适配和多项 CPU/NPU 组件证据；**完整 AFD 模型输出等价尚未通过，项目未完成。**
 
+2026-11-19 继续开发增量：已接入保留原始量化/CPU Engram 的 TP4 完整权重候选，
+覆盖 DSpark/U1、U2、多流、Graph/U1/U2 和 PD；补齐父 Engram 图外 producer、
+稳定输入及 P→D 原始历史声明。1,433 项 CPU 回归与 55 个真实首次 EngineArgs 配置通过，
+NPU 均未初始化。源码/架构记录见 [C7 本轮证据](changes/afd-hccl-full-parity/evidence/full-checkpoint-integration-20261119/README.md)。
+这些是默认关闭的候选入口；A5 首 token 差异和每个完整模型格子仍待用户验证。
+
 **2026-11-19 目标澄清：近期先闭合保留原生 Engram 的真实权重 eager/U1 正确性，
 再按依赖验证 U1 下的 Graph、DSpark 和 PD；Engram+U2/DBO 列为新增适配。**
 此前“Engram 后置”仅约束新增适配，不表示所有含 Engram 的场景都不支持或都要等待。
@@ -32,7 +38,7 @@ eager/U1/U2、DBO、Graph 捕获/回放/回退、多流/拓扑、DSpark、PD、�
 
 近期交付与完整迁移分别报告：U1 精确场景验收通过后可独立记录，U2 的未完成项仍保留，
 不得将阶段交付称为 H01–H15 全部完成。当前完整模型输出等价、完整组合和性能仍 pending。
-本次仅调整计划与工作流，不实施运行时补丁或启动 NPU 实验。
+此前计划澄清已进入实施；本轮实现插件内状态接入并执行 CPU 检查，没有启动新的 A3/A5 推理实验。
 
 2026-11-17 的非 Engram 组件收口安排和已交付入口保留。A3 metadata 原因未确认，
 暂停追加 A3 设备定位；性能和服务启停专项继续后置，测试必要清理保留。
@@ -46,7 +52,8 @@ eager/U1/U2、DBO、Graph 捕获/回放/回退、多流/拓扑、DSpark、PD、�
 | 当前工作位置 | **C7：原生 Engram eager/U1 真实权重对照与首 token 差异收口；U1 组合按依赖推进，U2 新增适配单列。** 具体任务及历史证据见 [C7](changes/afd-hccl-full-parity/tasks.md)；A5 由用户手工验证，profiler、启停和性能后置 |
 
 当前真实权重入口见 [A5 完整 checkpoint 验证](../docs/npu/DSV41_A5_FULL_CHECKPOINT_VALIDATION_ZH.md)，
-以 eager/U1、原始量化权重和 A 侧原生 CPU Engram 为边界。下述 11-17 组件交付记录保留，
+新增十二种 standalone 与五类 PD 的可配置候选及同 TP4 原生对照；
+先收口 eager/U1 首 token，再逐格验收。下述 11-17 组件交付记录保留，
 其后实际 A5 报告及事后审计以 [C7 证据记录](changes/afd-hccl-full-parity/tasks.md)为准。
 
 11-17 的组件统一入口见 [A5 非 Engram 最小功能验证](../docs/npu/DSV41_A5_FUNCTIONAL_VALIDATION_ZH.md)：

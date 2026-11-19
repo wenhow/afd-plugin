@@ -1,0 +1,4 @@
+{
+  "tests/unit/model_executor/models/npu/test_deepseek_v41_engram.py": "58c00cdea9e26b1c59a78faf6dffe5b0c2ff0e89b744d2567feb71b4490b190d",
+  "tests/unit/model_executor/models/npu/test_deepseek_v41_graph.py": "e477792381879fd05f544c228a9c96b1a618b5380d7265ba09bd0bbad6a8a765"
+}
