@@ -40,7 +40,7 @@ def test_early_ascend_config_binding_preserves_async_attention(
         "parse_optional_afd_config",
         lambda _config, validate: SimpleNamespace(role=role),
     )
-    monkeypatch.setattr(runtime, "is_afd_async_dp", lambda _config: is_async)
+    monkeypatch.setattr(runtime, "uses_independent_dp_steps", lambda _config: is_async)
 
     applied = runtime.apply_afd_ascend_engine_core_config_patch_if_needed(config)
 

@@ -16,6 +16,7 @@ from afd_plugin.config import (
     WINDOW_CONNECTOR,
     AFDConfig,
     parse_afd_config,
+    uses_window_dspark,
 )
 from afd_plugin.v1.worker.cuda_graph import (
     cudagraph_mode_name,
@@ -258,15 +259,22 @@ def validate_npu_model_runner_v2_config(
             expected_role == "attention"
             and parallel.data_parallel_size <= 1
             and afd_config.connector != AFD_ASYNC_CONNECTOR
+            and not uses_window_dspark(vllm_config, afd_config)
         ):
             raise RuntimeError("AFD NPU ModelRunnerV2 DBO requires Attention DP > 1")
         if parallel.num_ubatches != 2:
             raise RuntimeError(
                 "AFD NPU ModelRunnerV2 DBO requires exactly two ubatches"
             )
-        if vllm_config.speculative_config is not None:
+        # Window-specific checks validate the V4.1 model and draft policy.
+        if vllm_config.speculative_config is not None and not (
+            uses_window_dspark(vllm_config, afd_config)
+            and int(afd_config.connector_extra_config.get("micro_batch_num", 1))
+            == parallel.num_ubatches
+        ):
             raise RuntimeError(
-                "AFD NPU ModelRunnerV2 DBO does not support speculative decoding"
+                "AFD NPU ModelRunnerV2 DBO supports speculative decoding "
+                "only for Window U2 Attention with DSpark"
             )
 
     from afd_plugin.model_executor.models.model_utils import (

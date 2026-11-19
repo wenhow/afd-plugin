@@ -14,6 +14,7 @@ from afd_plugin.config import (
     AFDConfig,
     is_afd_async_dp,
     parse_afd_config,
+    uses_window_dspark,
 )
 from afd_plugin.envs import async_cam_layered_gmm_enabled
 from afd_plugin.validation import cam_receive_capacity, requested_ffn_mode
@@ -199,7 +200,26 @@ def _fail_if_unsupported_window_features(
                 "DSV4.1 Window graph execution requires FULL_DECODE_ONLY"
             )
     if vllm_config.speculative_config is not None:
-        raise RuntimeError("DSV4.1 Window U1/U2 does not enable DSpark/MTP")
+        if not uses_window_dspark(vllm_config, afd_config):
+            raise RuntimeError("Window speculative decoding requires DSpark on Attention")
+        spec = vllm_config.speculative_config
+        if not vllm_config.model_config.enforce_eager:
+            if micro_batch_num != 2:
+                raise RuntimeError("Window DSpark target graphs require U2")
+            if spec.enable_adaptive_verification:
+                raise RuntimeError("Window U2 verification graphs require fixed draft width")
+        elif spec.enforce_eager is False:
+            raise RuntimeError("Window DSpark draft graphs require a U2 graph target")
+        draft = spec.draft_model_config.hf_text_config
+        if spec.num_speculative_tokens != draft.dspark_block_size:
+            raise RuntimeError("Use the checkpoint's dspark_block_size for Window DSpark")
+        # V4.1 captures inputs at one-based target layer IDs, in model order.
+        ids = list(draft.dspark_target_layer_ids)
+        depth = vllm_config.model_config.hf_text_config.num_hidden_layers
+        if not ids or ids != sorted(set(ids)) or ids[0] < 1 or ids[-1] > depth:
+            raise RuntimeError(
+                f"DSpark target layers {ids} must be unique, ordered and in 1..{depth}"
+            )
     if parallel.use_sequence_parallel_moe:
         raise RuntimeError("DSV4.1 Window U1/U2 does not enable MoE SP")
     if parallel.enable_eplb:

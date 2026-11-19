@@ -1543,7 +1543,9 @@ def test_native_dbo_initializes_two_workspace_lanes_before_runner(monkeypatch, d
     monkeypatch.setattr(
         attention_worker,
         "init_workspace_manager",
-        lambda device, lanes: events.append(("workspace", lanes)),
+        lambda device, ubatches, num_lanes: events.append(
+            ("workspace", ubatches, num_lanes)
+        ),
     )
 
     def runner(cfg, device):
@@ -1553,4 +1555,4 @@ def test_native_dbo_initializes_two_workspace_lanes_before_runner(monkeypatch, d
 
     monkeypatch.setattr(attention_worker, "AFDNPUAttentionModelRunnerV2", runner)
     attention_worker.AFDNPUAttentionWorker.init_device(worker)
-    assert events == [("validate", True), ("workspace", 2), ("runner", 2)]
+    assert events == [("validate", True), ("workspace", 2, 1), ("runner", 2)]

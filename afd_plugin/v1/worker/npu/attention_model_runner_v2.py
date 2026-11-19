@@ -13,6 +13,7 @@ from typing import TYPE_CHECKING
 import torch
 from vllm.config import CUDAGraphMode, ParallelConfig, VllmConfig
 from vllm.forward_context import ForwardContext
+from vllm.logger import init_logger
 from vllm.sequence import IntermediateTensors
 from vllm.v1.core.sched.output import SchedulerOutput
 from vllm.v1.kv_cache_interface import KVCacheConfig
@@ -36,7 +37,7 @@ from afd_plugin.compat.patches.npu.mrv2_ubatching import (
     use_async_cam_dbo_dispatch,
     use_npu_ubatch_factory,
 )
-from afd_plugin.config import AFDConfig, parse_afd_config
+from afd_plugin.config import AFDConfig, parse_afd_config, uses_window_dspark
 from afd_plugin.connectors import (
     AFDConnectorBase,
     AFDConnectorFactory,
@@ -52,7 +53,14 @@ from afd_plugin.v1.worker.attention_model_runner_v2 import (
     _use_afd_capture_input_preparation,
     _use_afd_ubatch_preparation,
 )
+from afd_plugin.v1.worker.npu.window_dspark import (
+    window_dspark_capture_descs,
+    window_dspark_draft_graph_sizes,
+)
 from afd_plugin.validation import validate_npu_model_runner_v2_config
+
+
+logger = init_logger(__name__)
 
 
 def _normalize_window_u2_capture_descs(
@@ -85,6 +93,7 @@ _AFD_FULLGRAPH_HOOK_MARKER = "_afd_fullgraph_replay_hook_active"
 def _use_afd_fullgraph_replay_hook(
     runner: AFDNPUAttentionModelRunnerV2,
     real_tokens: int,
+    *, verifying_drafts: bool = False,
 ) -> Iterator[None]:
     """Scope AFD full ACL-graph replay control to one graph manager instance."""
 
@@ -124,7 +133,14 @@ def _use_afd_fullgraph_replay_hook(
             # complete A/F transaction. Update their captured MLA records at
             # this graph-manager seam without publishing duplicate control.
             assert runner.ubatch_runner is not None
-            return runner.ubatch_runner.run_fullgraph(self, desc)
+            result = runner.ubatch_runner.run_fullgraph(self, desc)
+            if verifying_drafts:
+                logger.info_once(
+                    "Window DSpark target replayed U2 FULL verification graph "
+                    "(requests=%d, tokens=%d, query_width=%d)",
+                    desc.num_reqs, desc.num_tokens, desc.uniform_token_count,
+                )
+            return result
         previous_is_graph_replaying = getattr(
             runner,
             "_afd_is_graph_replaying",
@@ -343,8 +359,37 @@ class AFDNPUAttentionModelRunnerV2(AFDMetadataProviderMixin, NPUModelRunnerV2):
         kv_cache_allocation_context: AbstractContextManager | None = None,
     ) -> None:
         # ### PATCH START: create the native NPU ubatch adapter.
-        with use_npu_ubatch_factory(self):
+        draft_graph = (
+            self.speculator is not None
+            and uses_window_dspark(self.vllm_config, self.afd_config)
+            and self._uses_fixed_window_u2()
+            and not self.model_config.enforce_eager
+            and not self.speculative_config.enforce_eager
+        )
+        with (
+            use_npu_ubatch_factory(self),
+            window_dspark_draft_graph_sizes(self.speculator)
+            if draft_graph
+            else nullcontext(),
+        ):
             super().initialize_kv_cache(kv_cache_config, kv_cache_allocation_context)
+        if (
+            draft_graph
+            and self.speculative_config.enforce_eager is False
+            and not self.speculator.query_cudagraph_manager.needs_capture()
+        ):
+            raise RuntimeError(
+                "Window DSpark draft FULL graph was requested but the native "
+                "draft manager has no capture descriptors. Check the draft "
+                "attention backend and graph token budgets."
+            )
+        if draft_graph:
+            # Load the Ascend draft adapter only on a Window DSpark graph worker.
+            from afd_plugin.compat.patches.npu.dspark_replay import (
+                install_window_dspark_replay,
+            )
+
+            install_window_dspark_replay(self.speculator.query_cudagraph_manager)
         if self.ubatch_runner is not None:
             # Native MRV2 prepares only its own Attention builders. U2 owns an
             # independent builder per stage, so initialize their V4.1 source
@@ -406,7 +451,12 @@ class AFDNPUAttentionModelRunnerV2(AFDMetadataProviderMixin, NPUModelRunnerV2):
         manager = self.cudagraph_manager
         capture_descs = manager._capture_descs.get(CUDAGraphMode.FULL, [])
         if self._uses_fixed_window_u2():
-            capture_descs = _normalize_window_u2_capture_descs(capture_descs)
+            if uses_window_dspark(self.vllm_config, self.afd_config):
+                capture_descs = window_dspark_capture_descs(
+                    capture_descs, self.decode_query_len, self.max_num_reqs
+                )
+            else:
+                capture_descs = _normalize_window_u2_capture_descs(capture_descs)
             manager._capture_descs[CUDAGraphMode.FULL] = capture_descs
         # Native graph-memory profiling captures only this descriptor prefix.
         capture_descs = capture_descs[: manager._max_full_descs_to_capture]
@@ -500,13 +550,20 @@ class AFDNPUAttentionModelRunnerV2(AFDMetadataProviderMixin, NPUModelRunnerV2):
             _use_afd_fullgraph_replay_hook(
                 self,
                 int(scheduler_output.total_num_scheduled_tokens),
+                verifying_drafts=(
+                    not dummy_run and uses_window_dspark(self.vllm_config, self.afd_config)
+                    and bool(scheduler_output.scheduled_spec_decode_tokens)
+                ),
             )
             if use_fullgraph_replay_hook
             else nullcontext()
         )
         try:
             with (
-                skip_dp_coordination() if self.afd_config.async_dp else nullcontext(),
+                skip_dp_coordination()
+                if self.afd_config.async_dp
+                and not uses_window_dspark(self.vllm_config, self.afd_config)
+                else nullcontext(),
                 _use_camp2p_dp_padding(
                     self.afd_config.num_attention_ranks, self.afd_config.num_ffn_ranks
                 )
@@ -517,7 +574,13 @@ class AFDNPUAttentionModelRunnerV2(AFDMetadataProviderMixin, NPUModelRunnerV2):
                 use_async_cam_dbo_dispatch(
                     force_window_u2=(
                         self._uses_fixed_window_u2() and not dummy_run
-                    )
+                    ),
+                    dspark_query_width=(
+                        self.decode_query_len
+                        if self._uses_fixed_window_u2()
+                        and uses_window_dspark(self.vllm_config, self.afd_config)
+                        else None
+                    ),
                 )
                 if self.afd_config.async_dp and self.ubatch_runner is not None
                 else nullcontext(),

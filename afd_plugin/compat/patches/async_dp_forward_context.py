@@ -34,7 +34,7 @@ from vllm.config import CUDAGraphMode
 from afd_plugin.compat.vllm import (
     is_target_vllm_compatible as _is_target_vllm_compatible,
 )
-from afd_plugin.config import is_afd_async_dp
+from afd_plugin.config import uses_independent_dp_steps
 
 if TYPE_CHECKING:
     import torch
@@ -88,7 +88,7 @@ def set_forward_context(
     # ### PATCH START: AFD async-DP forward context metadata
     # AFD async-DP coordinates batches through connector flow, so skip vLLM's
     # native DPMetadata construction only for AFD async configs.
-    if not is_afd_async_dp(vllm_config) and (
+    if not uses_independent_dp_steps(vllm_config) and (
         (
             vllm_config.parallel_config.data_parallel_size > 1
             or vllm_config.parallel_config.use_sequence_parallel_moe

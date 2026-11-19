@@ -310,6 +310,21 @@ def is_afd_active(source: Any) -> bool:
     return parse_optional_afd_config(source, validate=True) is not None
 
 
+def uses_window_dspark(
+    vllm_config: VllmConfig, afd_config: AFDConfig | None = None
+) -> bool:
+    """Whether Attention uses a native DSpark drafter with A-side EP."""
+    spec = getattr(vllm_config, "speculative_config", None)
+    if spec is None or spec.method != "dspark":
+        return False
+    config = afd_config or parse_optional_afd_config(vllm_config, validate=False)
+    return bool(
+        config is not None
+        and config.connector == WINDOW_CONNECTOR
+        and config.is_attention_server
+    )
+
+
 def is_afd_async_dp(vllm_config: VllmConfig) -> bool:
     """Return whether ``vllm_config`` selects AFD's async connector mode.
 
@@ -324,6 +339,11 @@ def is_afd_async_dp(vllm_config: VllmConfig) -> bool:
         and config.async_dp
         and config.connector in AFD_ASYNC_DP_CONNECTORS
     )
+
+
+def uses_independent_dp_steps(vllm_config: VllmConfig) -> bool:
+    """An idle Attention rank must join the native DSpark draft MoE collectives."""
+    return is_afd_async_dp(vllm_config) and not uses_window_dspark(vllm_config)
 
 
 def validate_afd_config(
@@ -387,5 +407,7 @@ __all__ = [
     "is_afd_active",
     "parse_afd_config",
     "parse_optional_afd_config",
+    "uses_independent_dp_steps",
+    "uses_window_dspark",
     "validate_afd_config",
 ]

@@ -10,6 +10,7 @@ from afd_plugin.config import (
     WINDOW_CONNECTOR,
     is_afd_async_dp,
     parse_afd_config,
+    uses_window_dspark,
 )
 
 if TYPE_CHECKING:
@@ -92,6 +93,10 @@ def fix_all2all_backend_for_afd(vllm_config: VllmConfig) -> None:
     Rewriting its all2all backend disables model-owned token sharding even
     when EP/DP/TP requested it. Non-SP workers keep the legacy backend fix.
     """
+    # The draft executes native MoE collectives inside the Attention service.
+    # Retain the backend selected by Ascend for the configured EP topology.
+    if uses_window_dspark(vllm_config):
+        return
     parallel_config = vllm_config.parallel_config
     if (
         not parallel_config.use_sequence_parallel_moe

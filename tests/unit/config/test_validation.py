@@ -358,3 +358,48 @@ def test_mrv2_validator_rejects_before_importing_model_runtime(
 
     with pytest.raises(RuntimeError, match=expected_error):
         _run_mrv2_validator(mrv2_config, backend, role, overrides)
+
+
+@pytest.mark.parametrize(
+    "connector, role, method, slots, allowed",
+    [
+        ("WindowAFDConnector", "attention", "dspark", 2, True),
+        ("WindowAFDConnector", "attention", "mtp", 2, False),
+        ("WindowAFDConnector", "attention", "dspark", 1, False),
+        ("WindowAFDConnector", "ffn", "dspark", 2, False),
+        ("CAMP2pAFDConnector", "attention", "dspark", 2, False),
+    ],
+)
+def test_npu_dbo_speculative_deployment(mrv2_config, connector, role, method, slots, allowed):
+    overrides = {
+        **GRAPH,
+        **_symmetric_ranks(4, 1),
+        "afd.connector": connector,
+        "afd.async": connector == "WindowAFDConnector",
+        "afd.compute_gate_on_attention": connector == "WindowAFDConnector",
+        "afd.connector_extra_config": {"micro_batch_num": slots},
+        "model_config.hf_config.architectures": ["DeepseekV41ForCausalLM"],
+        "speculative_config": SimpleNamespace(method=method, enforce_eager=True),
+    }
+    if allowed:
+        _run_mrv2_validator(mrv2_config, "npu", role, overrides)
+    else:
+        with pytest.raises(RuntimeError, match="only for Window U2 Attention with DSpark"):
+            _run_mrv2_validator(mrv2_config, "npu", role, overrides)
+
+
+def test_window_dspark_local_target_does_not_require_multiple_attention_dp_ranks(
+    mrv2_config,
+):
+    overrides = {
+        **GRAPH,
+        **_symmetric_ranks(1, 1),
+        "afd.num_ffn_ranks": 4,
+        "afd.connector": "WindowAFDConnector",
+        "afd.async": True,
+        "afd.compute_gate_on_attention": True,
+        "afd.connector_extra_config": {"micro_batch_num": 2},
+        "model_config.hf_config.architectures": ["DeepseekV41ForCausalLM"],
+        "speculative_config": SimpleNamespace(method="dspark", enforce_eager=False),
+    }
+    _run_mrv2_validator(mrv2_config, "npu", "attention", overrides)

@@ -123,15 +123,40 @@ def _load_patch_module():
 @pytest.mark.parametrize("is_hybrid", [False, True])
 def test_patch_preserves_native_dbo_model_restrictions(monkeypatch, is_hybrid):
     _, config_module = _install_fake_vllm_config(monkeypatch)
-    native_restrictions = config_module.VllmConfig._get_dbo_unsupported_features
 
     _load_patch_module()
 
-    assert config_module.VllmConfig._get_dbo_unsupported_features is native_restrictions
     config = config_module.VllmConfig()
     config.additional_config = {"afd": {"role": "attention"}}
     config.model_config = SimpleNamespace(is_hybrid=is_hybrid)
     expected = ["dual batch overlap with hybrid models"] if is_hybrid else []
+    assert config._get_dbo_unsupported_features() == expected
+
+
+@pytest.mark.parametrize("method,expected_spec_block", [("dspark", False), ("mtp", True)])
+def test_window_dbo_checks_preserve_other_blockers(monkeypatch, method, expected_spec_block):
+    _, config_module = _install_fake_vllm_config(monkeypatch)
+    _set_fake_platform(is_cuda=False, device_type="npu")
+    spec_block = "dual batch overlap with speculative decoding"
+    other_block = "dual batch overlap with pipeline parallelism"
+    config_cls = config_module.VllmConfig
+    monkeypatch.setattr(config_cls, "_get_dbo_unsupported_features",
+                        lambda self: [spec_block, other_block])
+    _load_patch_module()
+    config = config_cls()
+    config.additional_config = {"afd": {
+        "role": "attention", "connector": "WindowAFDConnector",
+        "async": True, "compute_gate_on_attention": True,
+        "connector_extra_config": {"micro_batch_num": 2},
+    }}
+    config.speculative_config = SimpleNamespace(method=method)
+    config.parallel_config = SimpleNamespace(use_ubatching=True, num_ubatches=2)
+    config.model_config = SimpleNamespace(
+        architecture="DeepseekV41ForCausalLM",
+        multimodal_config=SimpleNamespace(language_model_only=True),
+        hf_text_config=SimpleNamespace(engram_layer_ids=[]),
+    )
+    expected = [spec_block, other_block] if expected_spec_block else [other_block]
     assert config._get_dbo_unsupported_features() == expected
 
 

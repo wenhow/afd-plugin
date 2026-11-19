@@ -15,7 +15,7 @@ from dataclasses import replace
 from typing import TYPE_CHECKING, Any
 
 import torch
-from vllm.config import ParallelConfig, VllmConfig
+from vllm.config import CUDAGraphMode, ParallelConfig, VllmConfig
 from vllm.utils import torch_utils
 from vllm.v1.kv_cache_interface import KVCacheConfig
 from vllm.v1.worker import ubatching
@@ -36,6 +36,7 @@ from vllm.v1.worker.utils import AttentionGroup
 from vllm_ascend.worker.v2.input_batch import AscendInputBatch
 
 from afd_plugin.config import is_afd_async_dp, parse_afd_config
+from afd_plugin.v1.worker.npu.window_dspark import verification_stage_ranges
 
 if TYPE_CHECKING:
     from afd_plugin.v1.worker.npu.attention_model_runner_v2 import (
@@ -152,7 +153,9 @@ def use_npu_ubatch_factory(runner: "AFDNPUAttentionModelRunnerV2") -> Iterator[N
 
 
 @contextmanager
-def use_async_cam_dbo_dispatch(*, force_window_u2: bool = False) -> Iterator[None]:
+def use_async_cam_dbo_dispatch(
+    *, force_window_u2: bool = False, dspark_query_width: int | None = None,
+) -> Iterator[None]:
     """Extend native DBO dispatch and keep Window U2 structurally fixed."""
     original_dispatch = model_runner.dispatch_cg_and_sync_dp
 
@@ -177,6 +180,55 @@ def use_async_cam_dbo_dispatch(*, force_window_u2: bool = False) -> Iterator[Non
         uniform_decode: bool = False,
         dp_sync: DPSyncState | None = None,
     ) -> tuple[BatchExecutionDescriptor, DPSyncState | None]:
+        if dspark_query_width is not None and allow_ubatching:
+            # The main model uses Window, so its target batch is local even
+            # when idle peers execute dummy steps. Only the A-side draft MoE
+            # needs the real DP agreement. All ranks enter one native sync.
+            target = BatchExecutionDescriptor(
+                cg_mode=CUDAGraphMode.NONE,
+                num_tokens=max(num_tokens, 2),
+                num_reqs=num_reqs,
+                num_ubatches=2,
+                num_active_loras=num_active_loras,
+            )
+            if (
+                force_window_u2
+                and not need_eager
+                and uniform_decode
+                and uniform_token_count == dspark_query_width
+                and cudagraph_manager is not None
+            ):
+                target = min(
+                    (
+                        desc for desc in cudagraph_manager.graphs
+                        if desc.cg_mode == CUDAGraphMode.FULL
+                        and desc.num_ubatches == 2
+                        and desc.uniform_token_count == dspark_query_width
+                        and desc.num_tokens >= num_tokens
+                        and desc.num_reqs is not None
+                        and desc.num_reqs >= num_reqs
+                        and desc.num_active_loras == num_active_loras
+                    ),
+                    key=lambda desc: desc.num_tokens,
+                    default=target,
+                )
+            _, sync = original_dispatch(
+                None,
+                num_reqs,
+                target.num_tokens,
+                uniform_token_count,
+                dp_size,
+                dp_rank,
+                max_query_len=max_query_len,
+                need_eager=True,
+                num_active_loras=num_active_loras,
+                parallel_config=parallel_config,
+                allow_ubatching=False,
+                uniform_decode=uniform_decode,
+                dp_sync=dp_sync,
+            )
+            return target, sync
+
         desc, sync = original_dispatch(
             cudagraph_manager,
             num_reqs,
@@ -255,8 +307,21 @@ def use_async_cam_child_dp_metadata() -> Iterator[None]:
 
 
 @contextmanager
-def use_npu_input_batch_slicing() -> Iterator[None]:
+def use_npu_input_batch_slicing(*, verification_width: int | None = None) -> Iterator[None]:
     original_slice = ubatch_utils._slice_input_batch
+    original_create = ubatch_utils.create_ubatch_slices
+
+    # Ascend pads query_start_loc by whole rows for a uniform FULL graph.
+    # Native slicing clamps an all-padding child back onto the last live
+    # request, changing its captured request count and its block-table rows.
+    def create_ubatch_slices(input_batch: InputBatch, num_ubatches: int):
+        rows = input_batch.num_reqs_after_padding
+        tokens = input_batch.num_tokens_after_padding
+        assert verification_width is not None and num_ubatches == 2
+        return [
+            UBatchSlice(reqs, toks)
+            for reqs, toks in verification_stage_ranges(rows, tokens, verification_width)
+        ]
 
     # Native replace() retains the Ascend subtype but leaves seq_lens_np whole.
     # Delegation preserves native query/sequence truncation. Apply exactly its
@@ -296,10 +361,13 @@ def use_npu_input_batch_slicing() -> Iterator[None]:
         # ### PATCH END: extend native slicing with Ascend host lengths.
 
     ubatch_utils._slice_input_batch = _slice_input_batch
+    if verification_width is not None:
+        ubatch_utils.create_ubatch_slices = create_ubatch_slices
     try:
         yield
     finally:
         ubatch_utils._slice_input_batch = original_slice
+        ubatch_utils.create_ubatch_slices = original_create
 
 
 @contextmanager
