@@ -1,0 +1,22 @@
+{
+  "success": true,
+  "new_NPU_execution": false,
+  "preexisting_modified_paths_preserved": 27,
+  "append_only_paths": [
+    "docs/npu/DSV41_A5_FUNCTIONAL_VALIDATION_ZH.md",
+    "docs/npu/DSV41_AFD_EAGER_QUALIFICATION_ZH.md",
+    "openspec/changes/afd-hccl-full-parity/tasks.md"
+  ],
+  "functional_frozen_artifacts_byte_identical": {
+    "runtime-source.tar.gz": true,
+    "bundle-lock.json": true,
+    "preparation.json": true
+  },
+  "python_sources_compiled": [
+    "tools/diagnostics/run_dsv41_a5_afd.py",
+    "tools/diagnostics/preflight_dsv41_a5_afd.py",
+    "tests/e2e/diagnostics/test_dsv41_a5_afd.py",
+    "openspec/changes/afd-hccl-full-parity/evidence/a5-full-checkpoint-guide-20261119/verify_native_pins.py"
+  ],
+  "production_changes_in_this_turn": false
+}

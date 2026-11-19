@@ -1766,3 +1766,17 @@ identity 字节保持。旧实际执行快照复现同一失败；修正后真�
 受控非 Engram Graph/U2/PD/DSpark 组件组合已有真实设备记录及独立事后审计，
 新版本入口生成成功顶层 summary 尚待后续自然运行，完整权重/Engram/物理重叠/
 性能及 1.3/1.8 等更大组合任务不提前勾选。
+
+### 2026-11-19：完整权重验证指导与当前源码预检对齐
+
+[完整权重指导](../../../docs/npu/DSV41_A5_FULL_CHECKPOINT_VALIDATION_ZH.md)
+复用既有 eager/U1 A4/F4 TP4、原始 safetensors 和 A 侧原生 CPU Engram 资格入口。
+预检原四份旧 4ec6dc77 哈希与当前锁不符，按只读 Git 对象对齐 7e37e29a，21 份原生
+身份全部核对；保留 checkpoint/config/index 与默认拒绝，不加兼容哈希或改上游。
+诊断入口增加输入 token 核对、首个输出分歧和无参考/无效参考状态，失败后仍保留
+独立 token-comparison.json 并汇入 summary；单短请求不自动判模型等价。
+具体源码/标准库回归及交付边界见
+[本轮证据](evidence/a5-full-checkpoint-guide-20261119/README.md)。
+生产代码、七场景冻结包及 Engram/U2/Graph 准入保持；没有新 NPU 执行。
+当前待用户按新指导回传实际载权/短请求/正常退出和原生参考；历史首 token 差异
+及完整数值/连续请求仍未闭合，1.3/1.8 等整项勾选不变。

@@ -643,3 +643,10 @@ summary 及三个角色最终 JSON，实际内层异常待补，不能从顶层�
 原始运行的失败 summary 保持原样，另存事后复核结果；新入口产生成功顶层 summary
 尚无新设备运行。本结果限于受控非 Engram 组件组合，完整训练权重推理、Engram、
 物理重叠和性能验收范围不变。
+
+### 2026-11-19：下一阶段为完整权重 eager/U1
+
+当前七个代表组件场景的分批证据及 Graph/U2 事后复核不替代完整模型验收。
+真实 checkpoint 请使用独立的[完整权重验证指导](DSV41_A5_FULL_CHECKPOINT_VALIDATION_ZH.md)，
+它实际执行 safetensors 载入、A4/F4 TP4、原生 A 侧 CPU Engram 和固定 32-token 请求；
+此处 dummy/C2 入口不改为加载完整模型，已通过的组件场景无需重跑。

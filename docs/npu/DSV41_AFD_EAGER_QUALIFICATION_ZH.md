@@ -192,3 +192,12 @@ F 使用插件独立入口 `afd_plugin.entrypoints.npu_ffn`，继承原生 `Sync
 proposal/acceptance/rejection 和状态。Graph/U2、PD、并发、精度和性能分别验收。
 此前原生三条短请求无需重跑；其退出记录仍按
 [原生补充说明](DSV41_A5_PARALLEL_MINIMAL_ZH.md)收尾。
+
+## 2026-11-19：当前源码锁下的完整权重操作
+
+本页历史 A5 结果保留原始版本与未通过项。当前预检已对齐 vLLM `ced6857a` /
+Ascend `7e37e29a`，不再接受旧 `4ec6dc77` 的四个不同源码哈希。
+请按[完整权重验证指导](DSV41_A5_FULL_CHECKPOINT_VALIDATION_ZH.md)执行：
+先预检，再显式 `--run` 做 A4/F4 真实 safetensors 载权和 32-token 短请求。
+新 `token-comparison.json` 保留输入核对、首个输出分歧及未提供/无效参考状态，
+并进入最终 summary；原有强制清理/正常退出条件和完整模型待验边界保持。

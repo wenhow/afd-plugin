@@ -1,0 +1,154 @@
+{
+  "success": false,
+  "scope": "read_only_locked_Git_source_check_not_NPU_execution",
+  "pins": [
+    {
+      "path": "vllm/config/vllm.py",
+      "git_revision": "ced6857afa0ea7b2e3f0846a62e1394e90f15607",
+      "locked_sha256": "956b812e5a719bcbfa3a3958801361b38b9c928c96b8c073311bbb96376dfb7a",
+      "preflight_sha256": "956b812e5a719bcbfa3a3958801361b38b9c928c96b8c073311bbb96376dfb7a",
+      "matches": true
+    },
+    {
+      "path": "vllm/v1/worker/gpu/model_runner.py",
+      "git_revision": "ced6857afa0ea7b2e3f0846a62e1394e90f15607",
+      "locked_sha256": "174c93db921c23cf0396eee4764be25b2bd2d4b6a06e9fa41ce3598b884ce8ce",
+      "preflight_sha256": "174c93db921c23cf0396eee4764be25b2bd2d4b6a06e9fa41ce3598b884ce8ce",
+      "matches": true
+    },
+    {
+      "path": "vllm/entrypoints/cli/main.py",
+      "git_revision": "ced6857afa0ea7b2e3f0846a62e1394e90f15607",
+      "locked_sha256": "5aac2864e27d6ccc09ec3a8f2630ebbfb74292b84f27d2ae1d4ea2a6f5ecd80c",
+      "preflight_sha256": "5aac2864e27d6ccc09ec3a8f2630ebbfb74292b84f27d2ae1d4ea2a6f5ecd80c",
+      "matches": true
+    },
+    {
+      "path": "vllm/v1/engine/core.py",
+      "git_revision": "ced6857afa0ea7b2e3f0846a62e1394e90f15607",
+      "locked_sha256": "268bf40534a853812867ae8e80040f190983cb364b41182b55969aace20c93f5",
+      "preflight_sha256": "268bf40534a853812867ae8e80040f190983cb364b41182b55969aace20c93f5",
+      "matches": true
+    },
+    {
+      "path": "vllm/v1/engine/utils.py",
+      "git_revision": "ced6857afa0ea7b2e3f0846a62e1394e90f15607",
+      "locked_sha256": "d09f86b107b3c63b62f40a6590036be5b711778ea997fc5a6af6de94fdd2ccd3",
+      "preflight_sha256": "d09f86b107b3c63b62f40a6590036be5b711778ea997fc5a6af6de94fdd2ccd3",
+      "matches": true
+    },
+    {
+      "path": "vllm/v1/engine/core_client.py",
+      "git_revision": "ced6857afa0ea7b2e3f0846a62e1394e90f15607",
+      "locked_sha256": "fd6ca0cb7499b3086eef2fc57674b7ace56ef1c648f09e92e144b255b79018f8",
+      "preflight_sha256": "fd6ca0cb7499b3086eef2fc57674b7ace56ef1c648f09e92e144b255b79018f8",
+      "matches": true
+    },
+    {
+      "path": "vllm/v1/executor/multiproc_executor.py",
+      "git_revision": "ced6857afa0ea7b2e3f0846a62e1394e90f15607",
+      "locked_sha256": "3ed0149a8a8e1550c4f062af40e645d1b734e70f99981bc5bf15f0360507648a",
+      "preflight_sha256": "3ed0149a8a8e1550c4f062af40e645d1b734e70f99981bc5bf15f0360507648a",
+      "matches": true
+    },
+    {
+      "path": "vllm/entrypoints/cli/serve.py",
+      "git_revision": "ced6857afa0ea7b2e3f0846a62e1394e90f15607",
+      "locked_sha256": "c182c88347f1eb3440a816986f1c2025a2ab2a13236cd68b0ad0146250d031ff",
+      "preflight_sha256": "c182c88347f1eb3440a816986f1c2025a2ab2a13236cd68b0ad0146250d031ff",
+      "matches": true
+    },
+    {
+      "path": "vllm_ascend/quantization/methods/w4a8/w4a8_mxfp4.py",
+      "git_revision": "7e37e29a7803d6897a7113088e2b771f83205bc0",
+      "locked_sha256": "3185d3c7194b95357c57c345b7b1e1041a3039d7cb3089d398a7d63a09fc96a5",
+      "preflight_sha256": "71240fac4f2eaa87300127d8f0e520c55596746ccbb52852357655499cb842f4",
+      "matches": false
+    },
+    {
+      "path": "vllm_ascend/worker/v2/spec_decode/dspark/speculator.py",
+      "git_revision": "7e37e29a7803d6897a7113088e2b771f83205bc0",
+      "locked_sha256": "51faf4e6b4d633863d1f7c74db84986fb7c15453e7ce0305d3d965abbd5d14c1",
+      "preflight_sha256": "0cce54c5b5218bb428d737158221a5953d59c34370f1cfbd7054d794c3111390",
+      "matches": false
+    },
+    {
+      "path": "vllm_ascend/ascend_forward_context.py",
+      "git_revision": "7e37e29a7803d6897a7113088e2b771f83205bc0",
+      "locked_sha256": "848112214c9f56371b4bf43a59d39fadbed0e0e864581e300a3a89778d4083cb",
+      "preflight_sha256": "714270fa4a2217247a46b1fb59fc86b9b271c055f2ced7113f566c1fb4c4c9bb",
+      "matches": false
+    },
+    {
+      "path": "vllm_ascend/ops/fused_moe/dataclass/fused_experts.py",
+      "git_revision": "7e37e29a7803d6897a7113088e2b771f83205bc0",
+      "locked_sha256": "02c344b5a234da681ef5d8d78c1666750f443c58ba2ca73766d76b350924a9fd",
+      "preflight_sha256": "f154ad3ed1ffcf5ec4ab4a46f3d7df74af07cd3b7f44b9e71ed3407994d0f590",
+      "matches": false
+    },
+    {
+      "path": "vllm_ascend/models/deepseek_v41/model.py",
+      "git_revision": "7e37e29a7803d6897a7113088e2b771f83205bc0",
+      "locked_sha256": "989aec6db1e344dca76159dcbef0d5876874facedaa36b47e993146d5b8a2b9f",
+      "preflight_sha256": "989aec6db1e344dca76159dcbef0d5876874facedaa36b47e993146d5b8a2b9f",
+      "matches": true
+    },
+    {
+      "path": "vllm_ascend/models/deepseek_v41/vl_model.py",
+      "git_revision": "7e37e29a7803d6897a7113088e2b771f83205bc0",
+      "locked_sha256": "bb98a2e2a0e24c18aafe17229eb593937aaed2e37c1fd7cc2003c45ce872d282",
+      "preflight_sha256": "bb98a2e2a0e24c18aafe17229eb593937aaed2e37c1fd7cc2003c45ce872d282",
+      "matches": true
+    },
+    {
+      "path": "vllm_ascend/models/deepseek_v41/engram/model_state.py",
+      "git_revision": "7e37e29a7803d6897a7113088e2b771f83205bc0",
+      "locked_sha256": "677cb13bb86ad80a154e0ff9a43620aa3344e7e93170a05e27aba0cc1f10aa8b",
+      "preflight_sha256": "677cb13bb86ad80a154e0ff9a43620aa3344e7e93170a05e27aba0cc1f10aa8b",
+      "matches": true
+    },
+    {
+      "path": "vllm_ascend/worker/v2/model_runner.py",
+      "git_revision": "7e37e29a7803d6897a7113088e2b771f83205bc0",
+      "locked_sha256": "a3471a9f181b45742b8f985c86137cdaafc2871d2ef6f96aa6a45236a242969b",
+      "preflight_sha256": "a3471a9f181b45742b8f985c86137cdaafc2871d2ef6f96aa6a45236a242969b",
+      "matches": true
+    },
+    {
+      "path": "vllm_ascend/models/deepseek_v41/mixed_quant_attention.py",
+      "git_revision": "7e37e29a7803d6897a7113088e2b771f83205bc0",
+      "locked_sha256": "dd16dbe509f5fab609979f0cc37ab37cdeeb5befa7c5586b14b3c268a124c5c1",
+      "preflight_sha256": "dd16dbe509f5fab609979f0cc37ab37cdeeb5befa7c5586b14b3c268a124c5c1",
+      "matches": true
+    },
+    {
+      "path": "vllm_ascend/device/device_op.py",
+      "git_revision": "7e37e29a7803d6897a7113088e2b771f83205bc0",
+      "locked_sha256": "a603e21fff2dabc06877fe6a1e52fe3637dec316b1a4cae7228a54037ec9766a",
+      "preflight_sha256": "a603e21fff2dabc06877fe6a1e52fe3637dec316b1a4cae7228a54037ec9766a",
+      "matches": true
+    },
+    {
+      "path": "vllm_ascend/attention/dsa_v41.py",
+      "git_revision": "7e37e29a7803d6897a7113088e2b771f83205bc0",
+      "locked_sha256": "d9a9f3c02eda7ba50fbfe3de1e42022921539cb2c7c16947f63ef60fbfb8adb4",
+      "preflight_sha256": "d9a9f3c02eda7ba50fbfe3de1e42022921539cb2c7c16947f63ef60fbfb8adb4",
+      "matches": true
+    },
+    {
+      "path": "vllm_ascend/models/deepseek_v41/cache_config.py",
+      "git_revision": "7e37e29a7803d6897a7113088e2b771f83205bc0",
+      "locked_sha256": "467dddca82e2528ebbec14c78682486a39bffb4f096675d8b1d2d140f1a7014b",
+      "preflight_sha256": "467dddca82e2528ebbec14c78682486a39bffb4f096675d8b1d2d140f1a7014b",
+      "matches": true
+    },
+    {
+      "path": "vllm_ascend/ops/packaged_attention.py",
+      "git_revision": "7e37e29a7803d6897a7113088e2b771f83205bc0",
+      "locked_sha256": "57b84d4c65884a353afe56aa6821bf22fd1a451c7d3ee15e5db4a0208a3873e9",
+      "preflight_sha256": "57b84d4c65884a353afe56aa6821bf22fd1a451c7d3ee15e5db4a0208a3873e9",
+      "matches": true
+    }
+  ],
+  "native_runtime_imports": []
+}

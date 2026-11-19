@@ -30,6 +30,8 @@ JSONValue: TypeAlias = (
 MAX_HEADER_BYTES = 64 * 1024**2
 HEADER_LENGTH_BYTES = 8
 GIT_TIMEOUT_SECONDS = 10
+VLLM_SOURCE_REVISION = "ced6857afa0ea7b2e3f0846a62e1394e90f15607"
+ASCEND_SOURCE_REVISION = "7e37e29a7803d6897a7113088e2b771f83205bc0"
 REQUIRED_PACKAGES = (
     "torch",
     "torch-npu",
@@ -62,9 +64,8 @@ class PreflightProfile:
     sources: tuple[SourceIdentity, ...]
 
 
-# vLLM is pinned to ced6857a; the bounded Ascend closure is the successful A5
-# checkout 4ec6dc77. The model/wrapper/Engram/runner files also match 7e37e29a.
-# These are byte identities, not a claim that the two whole revisions are equal.
+# Both bounded source closures match .agents/dsv41/sources.lock.json.
+# Historical A5 4ec6dc77 evidence remains separate; no legacy hash fallback.
 DEFAULT_PROFILE = PreflightProfile(
     "8be45ce0476004a3f529fd896115a4a2e800a129ad2d3ec05b16050f52e21879",
     "74b0686a3d2891980d5e303251b075a3bccae2c2ff650747db2620a649b98fa8",
@@ -113,22 +114,22 @@ DEFAULT_PROFILE = PreflightProfile(
         SourceIdentity(
             "vllm_ascend",
             "quantization/methods/w4a8/w4a8_mxfp4.py",
-            "71240fac4f2eaa87300127d8f0e520c55596746ccbb52852357655499cb842f4",
+            "3185d3c7194b95357c57c345b7b1e1041a3039d7cb3089d398a7d63a09fc96a5",
         ),
         SourceIdentity(
             "vllm_ascend",
             "worker/v2/spec_decode/dspark/speculator.py",
-            "0cce54c5b5218bb428d737158221a5953d59c34370f1cfbd7054d794c3111390",
+            "51faf4e6b4d633863d1f7c74db84986fb7c15453e7ce0305d3d965abbd5d14c1",
         ),
         SourceIdentity(
             "vllm_ascend",
             "ascend_forward_context.py",
-            "714270fa4a2217247a46b1fb59fc86b9b271c055f2ced7113f566c1fb4c4c9bb",
+            "848112214c9f56371b4bf43a59d39fadbed0e0e864581e300a3a89778d4083cb",
         ),
         SourceIdentity(
             "vllm_ascend",
             "ops/fused_moe/dataclass/fused_experts.py",
-            "f154ad3ed1ffcf5ec4ab4a46f3d7df74af07cd3b7f44b9e71ed3407994d0f590",
+            "02c344b5a234da681ef5d8d78c1666750f443c58ba2ca73766d76b350924a9fd",
         ),
         SourceIdentity(
             "vllm_ascend",
@@ -349,8 +350,8 @@ def collect_preflight(
         "tensor_payload_bytes_read": 0,
         "sources": {},
         "source_reference_commits": {
-            "vllm": "ced6857afa0ea7b2e3f0846a62e1394e90f15607",
-            "vllm_ascend": "4ec6dc7722ec4f7f8005a86570238ac4377c5d43",
+            "vllm": VLLM_SOURCE_REVISION,
+            "vllm_ascend": ASCEND_SOURCE_REVISION,
             "scope": "Bounded file identities only, not whole-revision equivalence",
         },
     }

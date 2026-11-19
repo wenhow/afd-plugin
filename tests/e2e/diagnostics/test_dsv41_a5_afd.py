@@ -1,0 +1,135 @@
+# SPDX-License-Identifier: Apache-2.0
+"""Host contracts for full-checkpoint diagnostics; no model or NPU execution."""
+
+from __future__ import annotations
+
+import importlib
+import io
+import json
+import sys
+import tempfile
+import unittest
+from pathlib import Path
+from unittest.mock import patch
+
+ROOT = Path(__file__).resolve().parents[3]
+EVIDENCE = ROOT / (
+    "openspec/changes/afd-hccl-full-parity/evidence/a5-full-checkpoint-guide-20261119"
+)
+
+
+def load_launcher():
+    with patch.object(sys, "path", [str(ROOT / "tools/diagnostics"), *sys.path]):
+        return importlib.import_module("run_dsv41_a5_afd")
+
+
+def completion(*, mismatch=None, prompt=(1, 2, 3)):
+    tokens = list(range(32))
+    if mismatch is not None:
+        tokens[mismatch] += 100
+    return {
+        "choices": [
+            {
+                "token_ids": tokens,
+                "prompt_token_ids": list(prompt),
+                "finish_reason": "length",
+            }
+        ],
+        "usage": {"completion_tokens": len(tokens)},
+    }
+
+
+class TestFullCheckpointPreflight(unittest.TestCase):
+    def test_preflight_matches_locked_git_source_identities(self):
+        launcher = load_launcher()
+        preflight = sys.modules[launcher.collect_preflight.__module__]
+        evidence = json.loads((EVIDENCE / "native-pins-red.json").read_text("utf-8"))
+        expected = {row["path"]: row["locked_sha256"] for row in evidence["pins"]}
+        actual = {
+            source.package + "/" + source.path: source.sha256
+            for source in preflight.DEFAULT_PROFILE.sources
+        }
+        self.assertEqual(actual, expected)
+
+
+class TestFullCheckpointRequest(unittest.TestCase):
+    def setUp(self):
+        temporary = tempfile.TemporaryDirectory(prefix="afd-checkpoint-response-")
+        self.addCleanup(temporary.cleanup)
+        self.directory = Path(temporary.name)
+        self.launcher = load_launcher()
+
+    def send(self, baseline=None):
+        reference = None
+        if baseline is not None:
+            reference = self.directory / "native.json"
+            reference.write_text(json.dumps(baseline), encoding="utf-8")
+        reply = io.BytesIO(json.dumps(completion()).encode())
+        reply.status = 200
+        with patch("urllib.request.urlopen", return_value=reply):
+            return self.launcher.send_request(self.directory, reference)
+
+    def comparison(self):
+        return json.loads((self.directory / "token-comparison.json").read_text("utf-8"))
+
+    def test_without_reference_only_execution_is_reported(self):
+        result = self.send()
+        self.assertTrue(result["passed"])
+        self.assertIsNone(result["reference_token_ids_match"])
+        comparison = self.comparison()
+        self.assertEqual(comparison["status"], "not_checked")
+        self.assertFalse(comparison["model_equivalence_accepted"])
+
+    def test_equal_prompt_and_output_tokens_are_recorded(self):
+        self.send(completion())
+        comparison = self.comparison()
+        self.assertEqual(comparison["status"], "tokens_match")
+        self.assertTrue(comparison["prompt_token_ids_match"])
+        self.assertIsNone(comparison["first_output_mismatch"])
+        self.assertFalse(comparison["model_equivalence_accepted"])
+
+    def test_differences_preserve_the_first_mismatch_before_failure(self):
+        cases = ((0, (1, 2, 3)), (31, (1, 2, 3)), (None, (9, 2, 3)))
+        for index, prompt in cases:
+            with self.subTest(index=index, prompt=prompt):
+                with self.assertRaises(RuntimeError):
+                    self.send(completion(mismatch=index, prompt=prompt))
+                comparison = self.comparison()
+                self.assertEqual(comparison["status"], "tokens_differ")
+                self.assertEqual(
+                    comparison["prompt_token_ids_match"], prompt == (1, 2, 3)
+                )
+                if index is not None:
+                    self.assertEqual(
+                        comparison["first_output_mismatch"],
+                        {
+                            "index": index,
+                            "reference_token_id": index + 100,
+                            "actual_token_id": index,
+                        },
+                    )
+
+    def test_missing_reference_prompt_is_rejected_with_a_report(self):
+        baseline = completion()
+        baseline["choices"][0].pop("prompt_token_ids")
+        with self.assertRaisesRegex(RuntimeError, "reference"):
+            self.send(baseline)
+        self.assertEqual(self.comparison()["status"], "invalid_reference")
+
+    def test_invalid_reference_files_cannot_be_treated_as_absent(self):
+        for content in ("null", "[]", "truncated-json"):
+            with self.subTest(content=content):
+                reference = self.directory / "invalid-reference.json"
+                reference.write_text(content, encoding="utf-8")
+                reply = io.BytesIO(json.dumps(completion()).encode())
+                reply.status = 200
+                with (
+                    patch("urllib.request.urlopen", return_value=reply),
+                    self.assertRaisesRegex(RuntimeError, "reference"),
+                ):
+                    self.launcher.send_request(self.directory, reference)
+                self.assertEqual(self.comparison()["status"], "invalid_reference")
+
+
+if __name__ == "__main__":
+    unittest.main()

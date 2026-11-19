@@ -504,6 +504,61 @@ def wait_ready(
     raise RuntimeError("startup timed out; server logs retain the first failure")
 
 
+def compare_response_tokens(
+    response: dict[str, JSONValue], baseline: dict[str, JSONValue] | None
+) -> dict[str, JSONValue]:
+    """Report exact token differences without claiming topology/model equivalence."""
+    choice = response["choices"][0]
+    tokens = choice["token_ids"]
+    prompt = choice.get("prompt_token_ids")
+    result: dict[str, JSONValue] = {
+        "status": "not_checked",
+        "model_equivalence_accepted": False,
+        "actual_token_ids": tokens,
+        "actual_prompt_token_ids": prompt,
+        "reference_token_ids_match": None,
+        "prompt_token_ids_match": None,
+        "first_output_mismatch": None,
+    }
+    if baseline is None:
+        return result
+    try:
+        assert len(baseline["choices"]) == 1
+        native = baseline["choices"][0]
+        expected = native["token_ids"]
+        expected_prompt = native["prompt_token_ids"]
+        assert native["finish_reason"] == "length"
+        assert isinstance(expected, list) and len(expected) == REQUEST_TOKENS
+        assert isinstance(expected_prompt, list) and expected_prompt
+        assert all(type(token) is int and token >= 0 for token in expected)
+        assert all(type(token) is int and token >= 0 for token in expected_prompt)
+    except (AssertionError, KeyError, TypeError) as error:
+        result.update(
+            status="invalid_reference", error=f"{type(error).__name__}: {error}"
+        )
+        return result
+    result.update(
+        reference_token_ids=expected,
+        reference_prompt_token_ids=expected_prompt,
+        reference_token_ids_match=tokens == expected,
+        prompt_token_ids_match=prompt == expected_prompt,
+        first_output_mismatch=next(
+            (
+                {"index": index, "reference_token_id": before, "actual_token_id": after}
+                for index, (before, after) in enumerate(
+                    zip(expected, tokens, strict=True)
+                )
+                if before != after
+            ),
+            None,
+        ),
+        status="tokens_match"
+        if tokens == expected and prompt == expected_prompt
+        else "tokens_differ",
+    )
+    return result
+
+
 def send_request(directory: Path, reference: Path | None) -> dict[str, JSONValue]:
     payload = {
         "model": "dsv41-afd",
@@ -543,18 +598,33 @@ def send_request(directory: Path, reference: Path | None) -> dict[str, JSONValue
         or response["usage"]["completion_tokens"] != REQUEST_TOKENS
     ):
         raise RuntimeError("completion did not return 32 token IDs with length finish")
-    matches = None
+    comparison = compare_response_tokens(response, None)
     if reference is not None:
-        baseline = json.loads(reference.read_bytes())
-        save_json(directory / "reference-response.json", baseline)
-        matches = tokens == baseline["choices"][0]["token_ids"]
-        if not matches:
-            raise RuntimeError("AFD token IDs differ from supplied native reference")
+        try:
+            raw = reference.read_bytes()
+            (directory / "reference-response.json").write_bytes(raw)
+            baseline = json.loads(raw)
+            if not isinstance(baseline, dict):
+                raise ValueError("native reference must be a completion JSON object")
+            comparison = compare_response_tokens(response, baseline)
+        except (OSError, ValueError) as error:
+            comparison.update(
+                status="invalid_reference", error=f"{type(error).__name__}: {error}"
+            )
+    save_json(directory / "token-comparison.json", comparison)
+    if comparison["status"] == "invalid_reference":
+        raise RuntimeError("invalid native reference; see token-comparison.json")
+    if comparison["status"] == "tokens_differ":
+        raise RuntimeError(
+            "AFD prompt/output tokens differ from native reference; "
+            "see token-comparison.json"
+        )
     return {
         "http_status": status,
         "tokens": len(tokens),
         "elapsed_seconds": time.monotonic() - started,
-        "reference_token_ids_match": matches,
+        "reference_token_ids_match": comparison["reference_token_ids_match"],
+        "prompt_token_ids_match": comparison["prompt_token_ids_match"],
         "passed": True,
     }
 
@@ -687,6 +757,9 @@ def run_candidate(
             result["npu_after_error"] = str(error)
             result["clean_shutdown"] = False
         result["finished_utc"] = utc_now()
+        comparison_path = directory / "token-comparison.json"
+        if comparison_path.is_file():
+            result["token_comparison"] = json.loads(comparison_path.read_bytes())
         if (
             result["request_passed"]
             and result["clean_shutdown"]

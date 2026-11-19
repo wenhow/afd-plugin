@@ -1,0 +1,95 @@
+{
+  "success": true,
+  "scope": "local_host_and_locked_source_checks_not_new_NPU_acceptance",
+  "new_NPU_execution": false,
+  "checks": [
+    {
+      "name": "host_regressions",
+      "command": ".venv/Scripts/python.exe -B -S -m unittest tests.e2e.diagnostics.test_dsv41_a5_afd tests.e2e.diagnostics.test_dsv41_a5_graph_observer tests.e2e.diagnostics.test_dsv41_a5_functional_validation",
+      "chunk_id": "14b318",
+      "wall_time_seconds": 10.0041661,
+      "original_token_count": 7,
+      "output": "...............................\nRan 31 tests in 11.030s\nOK\n",
+      "exit_code": 0
+    },
+    {
+      "name": "native_pins",
+      "command": ".venv/Scripts/python.exe -B -S openspec/changes/afd-hccl-full-parity/evidence/a5-full-checkpoint-guide-20261119/verify_native_pins.py --output openspec/changes/afd-hccl-full-parity/evidence/a5-full-checkpoint-guide-20261119/native-pins-green.json",
+      "chunk_id": "b6d604",
+      "wall_time_seconds": 1.2941003,
+      "exit_code": 0,
+      "original_token_count": 10,
+      "output": "{\"success\": true, \"pins_checked\": 21}\r\n"
+    },
+    {
+      "name": "ruff",
+      "command": ".venv/Scripts/python.exe -B -m ruff check tools/diagnostics/preflight_dsv41_a5_afd.py tools/diagnostics/run_dsv41_a5_afd.py tests/e2e/diagnostics/test_dsv41_a5_afd.py openspec/changes/afd-hccl-full-parity/evidence/a5-full-checkpoint-guide-20261119/verify_native_pins.py",
+      "chunk_id": "5c774b",
+      "wall_time_seconds": 0.5716625,
+      "exit_code": 0,
+      "original_token_count": 410,
+      "output": "All checks passed!\n",
+      "initial_failure": "SIM300 [*] Yoda condition detected\n  --> openspec\\changes\\afd-hccl-full-parity\\evidence\\a5-full-checkpoint-guide-20261119\\verify_native_pins.py:50:13\n   |\n48 |         \"pins\": rows,\n49 |         \"revision_labels_match_lock\": (\n50 |             preflight.VLLM_SOURCE_REVISION == repositories[\"vllm\"][\"commit\"]\n   |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n51 |             and preflight.ASCEND_SOURCE_REVISION == repositories[\"vllm_ascend\"][\"commit\"]\n52 |         ),\n   |\n\nSIM300 [*] Yoda condition detected\n  --> openspec\\changes\\afd-hccl-full-parity\\evidence\\a5-full-checkpoint-guide-20261119\\verify_native_pins.py:51:17\n   |\n49 |         \"revision_labels_match_lock\": (\n50 |             preflight.VLLM_SOURCE_REVISION == repositories[\"vllm\"][\"commit\"]\n51 |             and preflight.ASCEND_SOURCE_REVISION == repositories[\"vllm_ascend\"][\"commit\"]\n   |                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n52 |         ),\n53 |         \"native_runtime_imports\": sorted(\n   |\n\nE501 Line too long (89 > 88)\n  --> openspec\\changes\\afd-hccl-full-parity\\evidence\\a5-full-checkpoint-guide-20261119\\verify_native_pins.py:51:89\n   |\n49 |         \"revision_labels_match_lock\": (\n50 |             preflight.VLLM_SOURCE_REVISION == repositories[\"vllm\"][\"commit\"]\n51 |             and preflight.ASCEND_SOURCE_REVISION == repositories[\"vllm_ascend\"][\"commit\"]\n   |                                                                                         ^\n52 |         ),\n53 |         \"native_runtime_imports\": sorted(\n   |\n\nFound 3 errors.\n[*] 2 fixable with the `--fix` option.\n",
+      "resolution": "Format source verifier revision comparison; diagnostics and tests unchanged."
+    },
+    {
+      "name": "planning_check",
+      "command": ".venv/Scripts/python.exe -B .agents/dsv41/harness.py check",
+      "chunk_id": "396072",
+      "wall_time_seconds": 1.1032973,
+      "exit_code": 0,
+      "original_token_count": 39,
+      "output": "{\"ok\":true,\"files\":434,\"changes\":8,\"tasks\":109,\"source_objects\":56,\"skills\":3,\"phase\":\"implementation\",\"upstreams_unchanged\":true,\"validation_scope\":\"local plan checks; not official CLI or NPU qualification\"}",
+      "initial_failure": "{\"ok\": false, \"error\": \"Invalid local link in openspec\\\\changes\\\\afd-hccl-full-parity\\\\tasks.md: evidence/a5-full-checkpoint-guide-20261119/README.md\"}\r\n",
+      "resolution": "Create the referenced evidence README before final link check."
+    },
+    {
+      "name": "upstream_guard",
+      "command": ".venv/Scripts/python.exe -B .agents/dsv41/harness.py guard",
+      "chunk_id": "60139d",
+      "wall_time_seconds": 10.0049147,
+      "original_token_count": 0,
+      "output": "{\"ok\":true,\"upstreams\":[\"vllm\",\"vllm_ascend\",\"hccl_donor\"],\"unchanged\":true}",
+      "exit_code": 0
+    },
+    {
+      "name": "launcher_help",
+      "chunk_id": "17847c",
+      "wall_time_seconds": 0.251513,
+      "exit_code": 0,
+      "original_token_count": 230,
+      "output": "usage: run_dsv41_a5_afd.py [-h] [--model MODEL]\r\n                           --transformer-vendor TRANSFORMER_VENDOR\r\n                           [--output-root OUTPUT_ROOT]\r\n                           [--startup-timeout STARTUP_TIMEOUT]\r\n                           [--reference-response REFERENCE_RESPONSE] [--run]\r\n\r\nPreflight, or explicitly run one bounded A5 AFD eager/U1 request. The default\r\nonly inspects source/checkpoint files. --run launches independent A4/F4 TP4\r\nworlds, sends one request, then stops A before waiting for peer STOP and F\r\nteardown. This is a qualification candidate, not a support declaration.\r\n\r\noptions:\r\n  -h, --help            show this help message and exit\r\n  --model MODEL\r\n  --transformer-vendor TRANSFORMER_VENDOR\r\n  --output-root OUTPUT_ROOT\r\n  --startup-timeout STARTUP_TIMEOUT\r\n  --reference-response REFERENCE_RESPONSE\r\n  --run                 explicitly launch the A5 candidate\r\n"
+    },
+    {
+      "name": "preflight_help",
+      "chunk_id": "afe460",
+      "wall_time_seconds": 0.1966251,
+      "exit_code": 0,
+      "original_token_count": 142,
+      "output": "usage: preflight_dsv41_a5_afd.py [-h] --model MODEL --repo-root REPO_ROOT\r\n                                 --output OUTPUT\r\n\r\nCheck the bounded A5 AFD candidate without importing runtime packages. Reads\r\npackage metadata, source bytes and checkpoint headers only. No device,\r\noperator library, tensor payload, installation or service is touched. A\r\npassing report permits a candidate launch; it does not qualify full-model\r\nexecution.\r\n\r\noptions:\r\n  -h, --help            show this help message and exit\r\n  --model MODEL\r\n  --repo-root REPO_ROOT\r\n  --output OUTPUT\r\n"
+    },
+    {
+      "name": "shared_moe_launcher_help",
+      "chunk_id": "7ee33a",
+      "wall_time_seconds": 0.2552556,
+      "exit_code": 0,
+      "original_token_count": 321,
+      "output": "usage: run_dsv41_a5_moe_parity.py [-h] --model MODEL\r\n                                  --transformer-vendor TRANSFORMER_VENDOR\r\n                                  --output-root OUTPUT_ROOT\r\n                                  [--devices DEVICES] [--run]\r\n                                  [--comparison {native-tp1-tp4,native-vs-afd}]\r\n                                  [--setup-only]\r\n\r\nCollect one bounded A5 single-layer MoE diagnostic archive. The default only\r\ninspects checkpoint metadata and source files. --run explicitly loads one\r\nlayer in sequential native TP1/TP4 phases; --setup-only with --run checks\r\nimports/configuration without loading weights or executing kernels.\r\n--comparison native-vs-afd runs native TP4 and a constructor-free actual AFD\r\nFFN-layer TP4 component instead, with same-weight compute controls. Complete\r\nFFN construction, workers, runners and AFD transport are not exercised.\r\n\r\noptions:\r\n  -h, --help            show this help message and exit\r\n  --model MODEL\r\n  --transformer-vendor TRANSFORMER_VENDOR\r\n  --output-root OUTPUT_ROOT\r\n  --devices DEVICES     process-visible NPU ordinals after\r\n                        ASCEND_RT_VISIBLE_DEVICES remapping (default: 0,1,2,3)\r\n  --run\r\n  --comparison {native-tp1-tp4,native-vs-afd}\r\n  --setup-only\r\n"
+    },
+    {
+      "name": "source_and_local_work_preservation",
+      "chunk_id": "debd39",
+      "wall_time_seconds": 0.420448,
+      "exit_code": 0,
+      "original_token_count": 176,
+      "output": "{\"success\": true, \"new_NPU_execution\": false, \"preexisting_modified_paths_preserved\": 27, \"append_only_paths\": [\"docs/npu/DSV41_A5_FUNCTIONAL_VALIDATION_ZH.md\", \"docs/npu/DSV41_AFD_EAGER_QUALIFICATION_ZH.md\", \"openspec/changes/afd-hccl-full-parity/tasks.md\"], \"functional_frozen_artifacts_byte_identical\": {\"runtime-source.tar.gz\": true, \"bundle-lock.json\": true, \"preparation.json\": true}, \"python_sources_compiled\": [\"tools/diagnostics/run_dsv41_a5_afd.py\", \"tools/diagnostics/preflight_dsv41_a5_afd.py\", \"tests/e2e/diagnostics/test_dsv41_a5_afd.py\", \"openspec/changes/afd-hccl-full-parity/evidence/a5-full-checkpoint-guide-20261119/verify_native_pins.py\"], \"production_changes_in_this_turn\": false}\r\n"
+    }
+  ],
+  "initial_new_tests_red": {
+    "tests": 5,
+    "failures": 3,
+    "errors": 4,
+    "scope": "Includes subtest failures; captured before source/comparison changes"
+  },
+  "final_test_count": 31
+}
