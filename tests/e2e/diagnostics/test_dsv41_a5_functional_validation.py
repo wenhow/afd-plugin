@@ -247,6 +247,59 @@ class TestTransformerVendor(unittest.TestCase):
         self.assertEqual(normal["ASCEND_LAUNCH_BLOCKING"], "0")
 
 
+class TestDsparkFailureSummary(unittest.TestCase):
+    def setUp(self):
+        temporary = tempfile.TemporaryDirectory(dir=ROOT / ".tmp")
+        self.addCleanup(temporary.cleanup)
+        self.directory = Path(temporary.name)
+        self.launcher = load_launcher()
+
+    def test_inner_traceback_and_role_status_reach_the_failure_summary(self):
+        summary = self.directory / "summary.json"
+        summary.write_text(
+            json.dumps(
+                {
+                    "success": False,
+                    "traceback": "AssertionError: final protocol audit",
+                    "returncodes": {"kv_consumer": 0, "ffn_consumer": 0},
+                    "forced_killed_pids": [],
+                    "workers": {
+                        "kv_consumer": {"success": True},
+                        "ffn_consumer": {
+                            "success": False,
+                            "traceback": "worker failure details",
+                            "loaded_runtime_libraries": ["large fixture omitted"],
+                        },
+                    },
+                }
+            ),
+            encoding="utf-8",
+        )
+        original = summary.read_bytes()
+        detail = self.launcher.dspark_failure_summary(self.directory)
+        self.assertFalse(detail["success"])
+        self.assertEqual(detail["traceback"], "AssertionError: final protocol audit")
+        self.assertEqual(detail["returncodes"]["kv_consumer"], 0)
+        self.assertEqual(
+            detail["workers"]["ffn_consumer"],
+            {"success": False, "traceback": "worker failure details"},
+        )
+        self.assertEqual(summary.read_bytes(), original)
+
+    def test_missing_or_invalid_inner_summary_retains_a_diagnostic(self):
+        for raw in (None, b"{incomplete", b"\xff"):
+            with self.subTest(raw=raw):
+                summary = self.directory / "summary.json"
+                if raw is not None:
+                    summary.write_bytes(raw)
+                detail = self.launcher.dspark_failure_summary(self.directory)
+                self.assertEqual(detail["path"], str(summary))
+                self.assertEqual(detail["present"], raw is not None)
+                if raw is not None:
+                    self.assertIn("read_error", detail)
+                    self.assertEqual(summary.read_bytes(), raw)
+
+
 class TestInstalledVendorEnvironment(unittest.TestCase):
     def setUp(self):
         temporary = tempfile.TemporaryDirectory(dir=ROOT / ".tmp")

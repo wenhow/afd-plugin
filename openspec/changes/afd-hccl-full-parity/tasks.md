@@ -1737,3 +1737,16 @@ replay=0 和原检查，新增逐 stage 3 行校验及断言前最后批次记�
 native identity 字节保持，194 pins 核对、186 Python 编译、确定性重建和 21 项
 标准库 host/入口检查通过。原始 heap corruption、D=-6、内部三个 forced kill
 保持失败；Graph replay/取消替换/正常退出待 A5，1.3/1.8 等整项不提前勾选。
+
+### 2026-11-19：Graph/U2 已越过旧观察器断言，等待内层最终失败报告
+
+[当前部分证据和顶层失败摘要改进](evidence/a5-dspark-graph-final-audit-20261119/README.md)
+记录用户 9d66ef97 ZIP：source SHA 匹配 51a0954，reject accepted=true、四角色
+exit=0；Graph run `9ead09c9335949019bf137a913ff0774` 出现第三次 KV 传输和
+consumer-verified 标记，提供日志未见旧断言/heap corruption，但顶层 Graph
+process=1。该标记早于 observer 及 supervisor 的最终验证；不能判整体通过。
+缺少场景内 summary 和 P/D/F-consumer 最终 JSON，已请求既有报告，无需重跑；
+未知失败不猜测为 runtime 或审计错误。入口仅补 failed scene failure_summary，
+传递内层 traceback/退出码/角色错误并保持原失败。23 项标准库检查、冻结编译/
+pins/确定性及本地 harness 通过，146 份生产与 Graph helper 字节保持。
+当前 Graph/U2 验收和根因仍待缺失报告，1.3/1.8 等整项状态不变。

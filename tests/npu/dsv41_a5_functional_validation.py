@@ -9,6 +9,7 @@ scenes and two DSpark/PD components, sequentially, with bounded owned cleanup.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import shutil
@@ -64,6 +65,43 @@ def runtime_environment(
     if diagnose_native:
         environment["ASCEND_LAUNCH_BLOCKING"] = "1"
     return environment
+
+
+def dspark_failure_summary(output: Path) -> dict:
+    """Carry the inner failure to the outer report without altering acceptance."""
+    path = output / "summary.json"
+    detail = {"path": str(path), "present": path.is_file()}
+    if not detail["present"]:
+        return detail
+    try:
+        raw = path.read_bytes()
+        detail["sha256"] = hashlib.sha256(raw).hexdigest()
+        original = json.loads(raw.decode("utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError) as error:
+        detail["read_error"] = str(error)
+        return detail
+    if not isinstance(original, dict):
+        detail["read_error"] = "inner summary must be a JSON object"
+        return detail
+    for name in (
+        "run_id",
+        "success",
+        "traceback",
+        "returncodes",
+        "forced_killed_pids",
+        "timed_out",
+    ):
+        if name in original:
+            detail[name] = original[name]
+    detail["workers"] = {
+        role: {
+            name: worker[name]
+            for name in ("success", "traceback")
+            if name in worker
+        }
+        for role, worker in original.get("workers", {}).items()
+    }
+    return detail
 
 
 def probe_command(
@@ -626,6 +664,7 @@ def main() -> int:
             item = {"name": name, "process": process}
             report["scenes"].append(item)
             if not process["success"]:
+                item["failure_summary"] = dspark_failure_summary(output)
                 raise RuntimeError(f"DSpark/PD scene failed: {scene}")
             if args.run:
                 item["functional_verification"] = shared.verify_scene(scene, output)

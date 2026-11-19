@@ -612,3 +612,20 @@ python -B tests/npu/dsv41_a5_functional_validation.py \
 ```
 
 回传顶层 summary 和失败场景 JSON/log，普通五场景不用重跑。
+
+### 2026-11-19：Graph/U2 驱动完成标记已出现，等待最终内层失败报告
+
+[最新 ZIP 分析与诊断改进](../../openspec/changes/afd-hccl-full-parity/evidence/a5-dspark-graph-final-audit-20261119/README.md)
+确认源码 SHA 匹配 51a0954，reject 场景仍通过。Graph/U2 已出现替换请求的第三次
+KV 传输和 `consumer-verified.json`，提供的日志未见前轮计数断言或堆损坏；
+但顶层 Graph process returncode=1，不能判整个场景通过。该 ZIP 没有场景内
+summary 及三个角色最终 JSON，实际内层异常待补，不能从顶层通用报错推断根因。
+
+入口现将失败场景的内层 summary 路径/SHA、traceback、角色退出码及内嵌角色异常
+摘录到顶层 `scenes[].failure_summary`；保留失败状态和原始文件，不重试设备。
+23 项本地标准库检查通过；生产和 Graph helper 字节不变。本次只补诊断，尚未
+修正当前未知的内层失败。
+
+请提供既有运行中的
+`results/dsv41-a5-dspark-stage-observer-20261119/dspark-pd-graph-u2-cancel-replace/summary.json`。
+无需重跑设备；若它已包含完整 workers，通常不必再单独提供三个角色 JSON。

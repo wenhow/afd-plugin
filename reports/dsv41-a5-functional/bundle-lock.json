@@ -1,6 +1,6 @@
 {
   "baseline_archive_sha256": "af0c18647dc8f25bb42a901ae40a74bb0f796f75ceef23dc6259ca50964cebdd",
-  "launcher_sha256": "4f226ae2d736d7f1542b5baf5d930cf52c1f17d40921c57d752a3d261a3b35ac",
+  "launcher_sha256": "26df3075d319edd8ba8f519804d05721080b706ff5e0a03eafbfa0c68c87c220",
   "production_sources": {
     "afd_plugin/__init__.py": "8de4a19c7e5dbad62210b18632daca5a40d14509cff52301c6ac88552fabc941",
     "afd_plugin/async_cam_startup.py": "d46e7a6f221ee0ffc7c65f9691d6394fecf02e18030c7b18112d0723e9ececf0",
@@ -149,5 +149,5 @@
     "afd_plugin/v1/worker/ubatch_wrapper.py": "72612fc48659d27ee70c821dbdd313c752965395a626217be4ce249e1b1f4457",
     "afd_plugin/validation.py": "c4b5315d95d1f7ee95e8b43f9f37f88b06d985d381ce90ca1afc394dec82f234"
   },
-  "runtime_source_sha256": "c576f79af0732bfcedc3deab35d8e0edac34a0f56e4475a0e61a5193d2212379"
+  "runtime_source_sha256": "61859508bc2acbf18c12e097a14b27d3fa9204f93a817efbe91514183a7cf9e2"
 }

@@ -1,0 +1,11 @@
+{
+  "parent_commit": "51a0954c7d1f03424075887e65d516f5264ae8e6",
+  "parent_sha256": "c576f79af0732bfcedc3deab35d8e0edac34a0f56e4475a0e61a5193d2212379",
+  "runtime_source_sha256": "61859508bc2acbf18c12e097a14b27d3fa9204f93a817efbe91514183a7cf9e2",
+  "changed_members": [
+    "bundle-manifest.json",
+    "tests/npu/dsv41_a5_functional_validation.py"
+  ],
+  "production_files_byte_identical": 146,
+  "native_identity_byte_identical": true
+}
