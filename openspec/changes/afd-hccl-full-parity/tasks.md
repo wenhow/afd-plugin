@@ -20,6 +20,12 @@ FFN 启动前角色校验及 PD 原始历史声明，详见
 1,433 项 CPU 回归和 55 个真实首次 EngineArgs 配置通过，NPU 均未初始化。
 真实权重 eager/U1 首 token 差异仍待 A5 同 TP4 原生对照，其他组合也未获得完整模型验收。
 
+2026-11-19 首批完整权重矩阵回传：原生 TP4 与 AFD A4/F4 都停在预检，
+25 份锁源、checkpoint 配置/索引与结构检查通过；当前 Python 缺少
+`vllm-afd-plugin` 安装元数据及 `afd` 入口。未载权或执行请求，不能闭合 2.2/1.8。
+已补充同 Python、无依赖解析/下载、跳过算子编译的 editable 注册及只读核验步骤；
+详见[归档审阅](evidence/a5-full-checkpoint-plugin-registration-20261119/README.md)。
+
 | 执行顺序 | 对应原任务 | 阶段边界与验收前置 |
 | --- | --- | --- |
 | 先完成真实权重 eager/U1 对照 | 2.2、1.8，关联 C2 | 原始量化 checkpoint、A 侧原生 CPU Engram、F 隔离；历史首 token 差异未闭合，单次请求成功不等于等价 |

@@ -1,0 +1,113 @@
+{
+  "input_zip": "cf6518bc85c34bff9bbf0950003c88bd.zip",
+  "input_zip_sha256": "1d1c920a75d1ec1b62e5493cfa8ec298fb975e5729589e908a7e0a63159dec11",
+  "review_scope": "Offline archive review only; no installation, runtime import, service or NPU execution.",
+  "runs": [
+    {
+      "archive": "full-eager-u1-1wpm_sg2.tar.gz",
+      "sha256": "b6fdf3cc60dc753ef1bb1f0ca891c75ced23355b91d4fe828e441c06325e0e56",
+      "created_utc": "2026-11-19T06:27:03.918609+00:00",
+      "native_control": true,
+      "devices": [
+        0,
+        1,
+        2,
+        3
+      ],
+      "mode": "eager-u1",
+      "spec_tokens": 0,
+      "pd_role": null,
+      "plugin_git_head": "d0ae16adf59a016072a968487d57ac577614e19a",
+      "tracked_source_status": "",
+      "python": {
+        "executable": "/usr/local/python3.11.10/bin/python",
+        "version": "3.11.10 (main, Oct 12 2026, 02:41:10) [GCC 12.3.1 (openEuler 12.3.1-110.oe2403sp4)]"
+      },
+      "package_roots": {
+        "afd_plugin": "/home/z00569729/dsv41-afd/src/afd-plugin-dsv41-a5/afd_plugin",
+        "vllm": "/usr/local/python3.11.10/lib/python3.11/site-packages/vllm",
+        "vllm_ascend": "/opt/vllm-ascend/vllm_ascend"
+      },
+      "packages": {
+        "torch": "2.10.0",
+        "torch-npu": "2.10.0.post4",
+        "vllm": "0.30.0+empty",
+        "vllm-ascend": "0.19.1rc2.dev637+g2db8549c5",
+        "fastapi": "0.123.10",
+        "vllm-afd-plugin": null
+      },
+      "source_count": 25,
+      "all_sources_match": true,
+      "checkpoint_config_sha256": "8be45ce0476004a3f529fd896115a4a2e800a129ad2d3ec05b16050f52e21879",
+      "checkpoint_index_sha256": "74b0686a3d2891980d5e303251b075a3bccae2c2ff650747db2620a649b98fa8",
+      "checkpoint_structural_preflight_passed": true,
+      "payload_integrity_verified": false,
+      "preflight_passed": false,
+      "errors": [
+        "missing package metadata: vllm-afd-plugin",
+        "plugin entry point differs: afd"
+      ],
+      "device_probe_started": false,
+      "tensor_payload_bytes_read": 0,
+      "service_or_request_evidence_present": false
+    },
+    {
+      "archive": "full-eager-u1-2zhutj6p.tar.gz",
+      "sha256": "bb5265a744764c2562bdbec6c4dd340f6f6244b4cf80afa84df7680c410ab032",
+      "created_utc": "2026-11-19T06:28:06.099937+00:00",
+      "native_control": false,
+      "devices": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7
+      ],
+      "mode": "eager-u1",
+      "spec_tokens": 0,
+      "pd_role": null,
+      "plugin_git_head": "d0ae16adf59a016072a968487d57ac577614e19a",
+      "tracked_source_status": "",
+      "python": {
+        "executable": "/usr/local/python3.11.10/bin/python",
+        "version": "3.11.10 (main, Oct 12 2026, 02:41:10) [GCC 12.3.1 (openEuler 12.3.1-110.oe2403sp4)]"
+      },
+      "package_roots": {
+        "afd_plugin": "/home/z00569729/dsv41-afd/src/afd-plugin-dsv41-a5/afd_plugin",
+        "vllm": "/usr/local/python3.11.10/lib/python3.11/site-packages/vllm",
+        "vllm_ascend": "/opt/vllm-ascend/vllm_ascend"
+      },
+      "packages": {
+        "torch": "2.10.0",
+        "torch-npu": "2.10.0.post4",
+        "vllm": "0.30.0+empty",
+        "vllm-ascend": "0.19.1rc2.dev637+g2db8549c5",
+        "fastapi": "0.123.10",
+        "vllm-afd-plugin": null
+      },
+      "source_count": 25,
+      "all_sources_match": true,
+      "checkpoint_config_sha256": "8be45ce0476004a3f529fd896115a4a2e800a129ad2d3ec05b16050f52e21879",
+      "checkpoint_index_sha256": "74b0686a3d2891980d5e303251b075a3bccae2c2ff650747db2620a649b98fa8",
+      "checkpoint_structural_preflight_passed": true,
+      "payload_integrity_verified": false,
+      "preflight_passed": false,
+      "errors": [
+        "missing package metadata: vllm-afd-plugin",
+        "plugin entry point differs: afd"
+      ],
+      "device_probe_started": false,
+      "tensor_payload_bytes_read": 0,
+      "service_or_request_evidence_present": false
+    }
+  ],
+  "diagnosis": "Both runs lack vllm-afd-plugin distribution metadata and afd general-plugin entry point in the selected Python. The current checkout module is discoverable, but that does not create installed entry points.",
+  "action": "Register this checkout using the same Python with AFD_BUILD_ASCEND_OPS=0 and pip --no-deps --no-build-isolation --no-index -e .; verify metadata and source root, then run native TP4 first.",
+  "runtime_code_changed": false,
+  "source_gate_relaxed": false,
+  "hardware_acceptance": false,
+  "eager_u1_output_equivalence_established": false
+}

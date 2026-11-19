@@ -9,7 +9,9 @@
 
 从 `origin/feat/dsv41-flash-hccl-v030` 更新 A5 的独立干净 checkout；确认存在新脚本及
 `afd_plugin/model_executor/models/npu/deepseek_v41_engram.py`，旧 U1 提交没有本批功能。
-使用已有容器与算子 vendor，不安装或切换依赖。源码锁仍为 vLLM `ced6857a`、
+使用已有容器与算子 vendor，不安装或切换 vLLM、Ascend、torch、CANN 等运行依赖。
+当前 checkout 需要在同一个 Python 中注册为 editable AFD 插件，见下述准备步骤。
+源码锁仍为 vLLM `ced6857a`、
 Ascend `7e37e29a`。各个 AFD 实例使用八张卡，原生对照使用四张；PD 的 P/D
 必须同时驻留，设备安排尚未指定，由下述配置项声明。
 候选固定为文本、DP1/PP1/CP1、EP/SP 关闭、最大两请求、上下文 1024 token、
@@ -19,6 +21,39 @@ Ascend `7e37e29a`。各个 AFD 实例使用八张卡，原生对照使用四张�
 DSV41_PY=/usr/local/python3.11.10/bin/python
 DSV41_MODEL=/home/models/DeepSeek-V4.1-Flash
 DSV41_VENDOR=/usr/local/Ascend/ascend-toolkit/latest/opp/vendors/custom_transformer
+```
+
+在当前插件仓库根目录执行一次安装注册，沿用已有构建工具、跳过 Ascend 算子编译，
+不解析运行依赖或下载包。仅更新代码、能 import `afd_plugin` 或设置
+`VLLM_PLUGINS=...,afd` 都不会创建插件入口；vLLM 通过安装元数据发现 `afd`。
+
+```bash
+AFD_BUILD_ASCEND_OPS=0 "$DSV41_PY" -m pip install \
+  --no-deps --no-build-isolation --no-index -e .
+
+"$DSV41_PY" -B - <<'PY'
+from importlib.metadata import entry_points, version
+from importlib.util import find_spec
+from pathlib import Path
+
+print("vllm-afd-plugin:", version("vllm-afd-plugin"))
+entries = {entry.value for entry in entry_points(group="vllm.general_plugins")
+           if entry.name == "afd"}
+assert entries == {"afd_plugin:register_afd"}, entries
+root = Path(next(iter(find_spec("afd_plugin").submodule_search_locations))).resolve()
+assert root == Path.cwd().resolve() / "afd_plugin", root
+print("afd entry:", entries, "source:", root)
+PY
+```
+
+上述检查只读取安装元数据和顶层模块位置，不导入 vLLM/torch，不初始化 NPU。
+2026-11-19 回传的原生和 AFD 两次运行都因缺少该元数据/入口而停在预检；
+25 份锁源和 checkpoint 结构检查通过，但尚未载权、发送请求或生成可用原生参考。
+详见[归档审阅](../../openspec/changes/afd-hccl-full-parity/evidence/a5-full-checkpoint-plugin-registration-20261119/README.md)。
+
+注册检查通过后，定义入口并先运行原生：
+
+```bash
 full() {
   "$DSV41_PY" -B tools/diagnostics/run_dsv41_full_checkpoint.py \
     --model "$DSV41_MODEL" --transformer-vendor "$DSV41_VENDOR" \
