@@ -24,6 +24,10 @@ from vllm.v1.worker.dp_utils import skip_dp_coordination
 from vllm.v1.worker.gpu import cudagraph_utils as v2_cudagraph_utils
 from vllm.v1.worker.gpu import model_runner as v2_model_runner
 from vllm.v1.worker.gpu.dp_utils import DPSyncState
+from vllm_ascend.models.deepseek_v41.dspark import DeepseekV41DSparkAttention
+from vllm_ascend.models.deepseek_v41.mixed_quant_attention import (
+    MixedQuantPackedCacheOps,
+)
 from vllm_ascend.worker.v2.model_runner import NPUModelRunner as NPUModelRunnerV2
 
 from afd_plugin.compat.npu import fail_if_unsupported_npu_afd_features
@@ -61,6 +65,9 @@ from afd_plugin.connectors.npu.hccl_staged import (
 from afd_plugin.connectors.npu.hccl_staged_transport import HcclStagedTransport
 from afd_plugin.connectors.npu.p2p_hccl import P2pHcclAFDConnector
 from afd_plugin.model_executor.models.forward_context import use_afd_metadata_provider
+from afd_plugin.model_executor.models.npu.dsv41_packed_cache import (
+    AFDMixedQuantPackedCacheOps,
+)
 from afd_plugin.v1.worker.attention_metadata import (
     AFDMetadataProviderMixin,
     _resolve_world_ranks,
@@ -617,6 +624,10 @@ class AFDNPUAttentionModelRunnerV2(AFDMetadataProviderMixin, NPUModelRunnerV2):
     # load/ModelState lifecycle so Engram remains owned by the native runner.
     # The exact DSpark PD path also binds the actual loaded target/draft models;
     # KV storage is attached later by its existing native registration owner.
+    # A5 DSpark additionally selects the existing TP4 head adapter on its native
+    # draft instances before profiling/capture; native draft/cache/weights stay
+    # unchanged. This costs one load-time module walk and the adapter's existing
+    # 4x head work; remove this selection when the wheel accepts native 16 heads.
     # Remove when upstream exposes a connector callback after model loading.
     def load_model(
         self,
@@ -655,6 +666,29 @@ class AFDNPUAttentionModelRunnerV2(AFDMetadataProviderMixin, NPUModelRunnerV2):
         # ### PATCH END: AFD connector rendezvous
         try:
             super().load_model(load_dummy_weights, *args, **kwargs)
+            # ### PATCH START: native DSpark TP4 packed Attention
+            speculation = self.vllm_config.speculative_config
+            if (
+                is_deepseek_v41_model(self.vllm_config)
+                and speculation is not None
+                and speculation.method == "dspark"
+            ):
+                assert self.speculator is not None
+                adapted_draft_layers = 0
+                for module in self.speculator.model.modules():
+                    if (
+                        isinstance(module, DeepseekV41DSparkAttention)
+                        and module.packed_cache_ops is MixedQuantPackedCacheOps
+                    ):
+                        module.packed_cache_ops = AFDMixedQuantPackedCacheOps
+                        adapted_draft_layers += 1
+                if adapted_draft_layers:
+                    v2_model_runner.logger.info(
+                        "AFD DSpark: installed TP4 16-to-64 query-head adapter "
+                        "on %d native draft Attention layers.",
+                        adapted_draft_layers,
+                    )
+            # ### PATCH END: native DSpark TP4 packed Attention
             # ### PATCH START: AFD connector rendezvous
             if dspark_pd:
                 group = get_tp_group()

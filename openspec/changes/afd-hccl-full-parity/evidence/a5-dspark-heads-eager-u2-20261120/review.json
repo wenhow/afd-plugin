@@ -1,0 +1,24 @@
+{
+  "review_scope": "Local architectural review before implementation; device acceptance remains pending",
+  "upstream": {
+    "commit": "7e37e29a7803d6897a7113088e2b771f83205bc0",
+    "path": "vllm_ascend/worker/v2/model_runner.py",
+    "symbol": "NPUModelRunner.load_model",
+    "signature": "(self, load_dummy_weights: bool = False, *args, **kwargs) -> None"
+  },
+  "owner": "AFD Attention V2 load_model, after native target/draft load and before worker profiling/KV/capture",
+  "change": "Select existing AFDMixedQuantPackedCacheOps only on actual native DeepseekV41DSparkAttention instances using the exact native packed backend",
+  "reason": "The deployed A5 wheel rejects native TP4 draft query-head count 16; target already has the 16-to-64 adapter but the separate native draft is uncovered",
+  "preservation": [
+    "Native DSpark model, complete local MoE, parameters, cache and metadata remain owned by Ascend",
+    "No class-wide monkey patch, target RemoteMoE substitution or extra F transaction",
+    "A3 None and alternative backends remain unchanged",
+    "Other model families and speculative methods remain unchanged",
+    "Original native load failures continue to propagate through existing supervision"
+  ],
+  "delegation_exception": "Existing large native load lifecycle remains delegated because it owns memory profiling, target/draft construction, model state and sampling initialization; copying it for per-instance backend selection would duplicate those owners",
+  "cost": "One draft module traversal at startup; existing adapter pads 16 query/sink heads to 64 and crops output, so draft attention computes 4x heads; no KV/HCCL expansion",
+  "removal": "Remove selection and adapter when the pinned packed wheel accepts native 16 query heads",
+  "validation": "CPU public load seam followed by headwise arithmetic output with a 64-head-only test backend; no packed device kernel emulation or NPU qualification",
+  "status": "Reviewed owner, exact signature, isolation, cost and removal; no unresolved architectural finding for the backend-selection fix"
+}

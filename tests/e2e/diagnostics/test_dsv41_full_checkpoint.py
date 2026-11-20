@@ -125,13 +125,19 @@ class TestFullCheckpointPlans(unittest.TestCase):
 
     def test_repeatability_limits_active_requests_and_records_protocol(self):
         driver = load_driver()
-        for native in (True, False):
-            with self.subTest(native=native):
+        native_protocol = None
+        for native, mode in (
+            (True, "eager-u1"),
+            (False, "eager-u1"),
+            (False, "graph-u1"),
+        ):
+            with self.subTest(native=native, mode=mode):
                 plan = driver.make_plan(
                     Path("/model"),
                     Path("/vendor"),
                     ROOT,
                     native_control=native,
+                    mode=mode,
                     repeatability=True,
                 )
                 for settings in plan["roles"].values():
@@ -144,12 +150,21 @@ class TestFullCheckpointPlans(unittest.TestCase):
                 self.assertEqual(
                     plan["repeatability_protocol"]["client_concurrency"], 1
                 )
+                if native:
+                    native_protocol = plan["repeatability_protocol"]
+                if mode == "graph-u1":
+                    self.assertEqual(plan["repeatability_protocol"], native_protocol)
+                    compilation = json.loads(
+                        argv[argv.index("--compilation-config") + 1]
+                    )
+                    self.assertEqual(compilation["cudagraph_mode"], "FULL_DECODE_ONLY")
+                    self.assertNotIn("--enforce-eager", argv)
 
     def test_repeatability_rejects_combinations_and_insufficient_rounds(self):
         driver = load_driver()
         for options in (
             {"mode": "eager-u2"},
-            {"mode": "graph-u1"},
+            {"mode": "graph-u2"},
             {"spec_tokens": 1},
             {"pd_role": "consumer"},
             {"warmup_rounds": 0},

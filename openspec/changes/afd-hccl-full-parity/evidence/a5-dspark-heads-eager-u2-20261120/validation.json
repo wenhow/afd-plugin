@@ -1,0 +1,150 @@
+{
+  "host": {
+    "testcase_elements": 31,
+    "junit_tests_including_subtests": 66,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0
+  },
+  "scope": "CPU contracts and host diagnostics only; not A5 or numerical acceptance",
+  "source_pins": [
+    {
+      "path": "vllm/config/vllm.py",
+      "matches": true
+    },
+    {
+      "path": "vllm/v1/worker/gpu/model_runner.py",
+      "matches": true
+    },
+    {
+      "path": "vllm/entrypoints/cli/main.py",
+      "matches": true
+    },
+    {
+      "path": "vllm/v1/engine/core.py",
+      "matches": true
+    },
+    {
+      "path": "vllm/v1/engine/utils.py",
+      "matches": true
+    },
+    {
+      "path": "vllm/v1/engine/core_client.py",
+      "matches": true
+    },
+    {
+      "path": "vllm/v1/executor/multiproc_executor.py",
+      "matches": true
+    },
+    {
+      "path": "vllm/entrypoints/cli/serve.py",
+      "matches": true
+    },
+    {
+      "path": "vllm_ascend/quantization/methods/w4a8/w4a8_mxfp4.py",
+      "matches": true
+    },
+    {
+      "path": "vllm_ascend/worker/v2/spec_decode/dspark/speculator.py",
+      "matches": true
+    },
+    {
+      "path": "vllm_ascend/ascend_forward_context.py",
+      "matches": true
+    },
+    {
+      "path": "vllm_ascend/ops/fused_moe/dataclass/fused_experts.py",
+      "matches": true
+    },
+    {
+      "path": "vllm_ascend/models/deepseek_v41/model.py",
+      "matches": true
+    },
+    {
+      "path": "vllm_ascend/models/deepseek_v41/dspark.py",
+      "matches": true
+    },
+    {
+      "path": "vllm_ascend/models/deepseek_v41/vl_model.py",
+      "matches": true
+    },
+    {
+      "path": "vllm_ascend/models/deepseek_v41/engram/model_state.py",
+      "matches": true
+    },
+    {
+      "path": "vllm_ascend/worker/v2/model_runner.py",
+      "matches": true
+    },
+    {
+      "path": "vllm_ascend/models/deepseek_v41/mixed_quant_attention.py",
+      "matches": true
+    },
+    {
+      "path": "vllm_ascend/device/device_op.py",
+      "matches": true
+    },
+    {
+      "path": "vllm_ascend/attention/dsa_v41.py",
+      "matches": true
+    },
+    {
+      "path": "vllm_ascend/models/deepseek_v41/cache_config.py",
+      "matches": true
+    },
+    {
+      "path": "vllm_ascend/ops/packaged_attention.py",
+      "matches": true
+    },
+    {
+      "path": "vllm/config/engram.py",
+      "matches": true
+    },
+    {
+      "path": "vllm/engine/arg_utils.py",
+      "matches": true
+    },
+    {
+      "path": "vllm_ascend/worker/v2/aclgraph_utils.py",
+      "matches": true
+    },
+    {
+      "path": "vllm_ascend/worker/worker.py",
+      "matches": true
+    },
+    {
+      "path": "vllm_ascend/distributed/kv_transfer/kv_p2p/mooncake_hybrid_connector.py",
+      "matches": true
+    }
+  ],
+  "all_pins_match": true,
+  "current_cpu_snapshot_unchanged": true,
+  "ruff": "passed",
+  "ruff_format": "passed",
+  "git_diff_check": "passed",
+  "harness_check": {
+    "ok": true,
+    "upstreams_unchanged": true,
+    "scope": "local planning and upstream preservation only"
+  },
+  "hardware_acceptance": false,
+  "numerical_difference_resolved": false,
+  "remote_delivery": "User authorized scoped commit/push after validation; verify remote SHA separately",
+  "working_tree_cpu": {
+    "testcase_elements": 201,
+    "junit_tests_including_subtests": 201,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0
+  },
+  "cpu_delivery": {
+    "testcase_elements": 190,
+    "junit_tests_including_subtests": 190,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "scope": "HEAD 825fb438 plus only the 11 selected delivery files",
+    "artifact": "cpu-delivery-001/results/junit.xml",
+    "unrelated_local_changes_excluded": true
+  }
+}

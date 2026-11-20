@@ -183,6 +183,14 @@ class TestFullCheckpointPreflight(unittest.TestCase):
         preflight = sys.modules[launcher.collect_preflight.__module__]
         evidence = json.loads((EVIDENCE / "native-pins-red.json").read_text("utf-8"))
         expected = {row["path"]: row["locked_sha256"] for row in evidence["pins"]}
+        draft_pins = json.loads(
+            (
+                EVIDENCE.parent / "a5-dspark-heads-eager-u2-20261120/source-pins.json"
+            ).read_text("utf-8")
+        )
+        expected.update(
+            {row["path"]: row["locked_sha256"] for row in draft_pins["pins"]}
+        )
         actual = {
             source.package + "/" + source.path: source.sha256
             for source in preflight.DEFAULT_PROFILE.sources

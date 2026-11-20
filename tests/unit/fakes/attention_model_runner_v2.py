@@ -19,6 +19,7 @@ from afd_plugin.v1.worker.npu.hccl_v41_graph_coordinator import HcclV41GraphCoor
 from afd_plugin.v1.worker.npu.hccl_v41_graph_eager import HcclV41GraphEager
 from tests.unit.fakes.connector import FakeRoutedConnector
 from tests.unit.fakes.dspark_pd import make_dspark_pd_prefix_case
+from tests.unit.fakes.dsv41_packed_cache import make_dspark_packed_model
 from tests.unit.fakes.hccl import HcclLoopbackSession
 from tests.unit.fakes.hccl_v41_graph_coordinator import make_coordinator_case
 from tests.unit.fakes.hccl_v41_graph_eager import make_graph_eager_case
@@ -27,7 +28,13 @@ from tests.unit.fakes.vllm_config import hccl_vllm_config
 
 
 def make_legacy_attention_startup_case(
-    monkeypatch, *, other_connector=False, other_model=True, fail_load=False
+    monkeypatch,
+    *,
+    other_connector=False,
+    other_model=True,
+    fail_load=False,
+    dspark_backend=None,
+    dspark=False,
 ):
     """Actual A constructor/load with native allocation and queue-wire leaves.
 
@@ -38,6 +45,7 @@ def make_legacy_attention_startup_case(
         dtype=torch.bfloat16,
         compilation_mode=CompilationMode.NONE,
         cudagraph_mode=CUDAGraphMode.NONE,
+        dspark=dspark,
     )
     config.parallel_config.rank = 0
     fallback = FakeRoutedConnector()
@@ -53,6 +61,7 @@ def make_legacy_attention_startup_case(
             runner_module, "create_npu_runtime_connector", lambda *a, **k: fallback
         )
     events = []
+    draft = make_dspark_packed_model(dspark_backend) if dspark else None
 
     def native_init(owner, native_config, device):
         owner.vllm_config = native_config
@@ -64,6 +73,8 @@ def make_legacy_attention_startup_case(
         if fail_load:
             raise RuntimeError("controlled native load failure")
         events.append("native-load")
+        if draft is not None:
+            owner.speculator = SimpleNamespace(model=draft.model)
 
     monkeypatch.setattr(NPUModelRunner, "__init__", native_init)
     monkeypatch.setattr(NPUModelRunner, "load_model", native_load)
@@ -76,7 +87,9 @@ def make_legacy_attention_startup_case(
     wire = HcclLoopbackSession()
     monkeypatch.setattr(p2p_module, "HcclEagerTransport", wire.endpoint)
     owner = runner_module.AFDNPUAttentionModelRunnerV2(config, torch.device("npu", 0))
-    return SimpleNamespace(owner=owner, config=config, events=events, wire=wire)
+    return SimpleNamespace(
+        owner=owner, config=config, events=events, wire=wire, draft=draft
+    )
 
 
 def make_graph_runner_case(*, fail_close=False, stages=1, target_query_len=1):

@@ -1,0 +1,11 @@
+{
+  "exit_code": 1,
+  "npu_initialized_before": false,
+  "npu_initialized_after": false,
+  "native_pins_match": {
+    "models/deepseek_v41/dspark.py": true,
+    "models/deepseek_v41/mixed_quant_attention.py": true,
+    "models/deepseek_v41/model.py": true,
+    "worker/v2/model_runner.py": true
+  }
+}

@@ -107,7 +107,7 @@ def make_plan(
     if pd_role not in (None, "producer", "consumer"):
         raise ValueError("PD role must be producer or consumer")
     if repeatability and (
-        mode != "eager-u1"
+        mode not in ("eager-u1", "graph-u1")
         or spec_tokens
         or pd_role
         or warmup_rounds < repeatability_check.MIN_WARMUP_ROUNDS
@@ -115,7 +115,7 @@ def make_plan(
         or repeat_logprobs not in (0, repeatability_check.LOGPROB_CANDIDATES)
     ):
         raise ValueError(
-            "repeatability requires standalone eager/U1 without DSpark, "
+            "repeatability requires standalone eager/U1 or Graph/U1 without DSpark, "
             "at least one warmup round and two measured rounds, "
             "and --repeat-logprobs 0 or 5"
         )
@@ -462,7 +462,7 @@ def main() -> int:
     parser.add_argument(
         "--repeatability",
         action="store_true",
-        help="serial eager/U1 warmup and repeated requests before/after cancellation",
+        help="serial eager/U1 or Graph/U1 requests before/after cancellation",
     )
     parser.add_argument(
         "--warmup-rounds",

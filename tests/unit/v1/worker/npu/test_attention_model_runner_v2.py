@@ -44,6 +44,9 @@ from afd_plugin.model_executor.models import forward_context as context_module
 from afd_plugin.model_executor.models.npu.deepseek_v41 import (
     HCCL_V41_PARENT_FORWARD_KEY,
 )
+from afd_plugin.model_executor.models.npu.dsv41_packed_cache import (
+    native as packed_native,
+)
 from afd_plugin.v1.worker.npu import attention_model_runner_v2 as runner_module
 from afd_plugin.v1.worker.npu import hccl_v41_graph_coordinator as coordinator_module
 from tests.unit.fakes.attention_model_runner_v2 import (
@@ -56,6 +59,11 @@ from tests.unit.fakes.attention_model_runner_v2 import (
 from tests.unit.fakes.block_table import install_native_block_table_kernels_cpu
 from tests.unit.fakes.deepseek_v41 import PD_CPU_TARGET_TOKEN
 from tests.unit.fakes.dspark_speculator import make_dspark_proposal_case
+from tests.unit.fakes.dsv41_packed_cache import (
+    headwise_attention_with_sink,
+    make_packed_attention_inputs,
+    packed_64_head_attention_reference,
+)
 from tests.unit.fakes.engine_core import (
     make_native_output_engine_case,
     make_native_worker_output_case,
@@ -1888,6 +1896,67 @@ def automatic_eager_factory(monkeypatch):
         return case
 
     return create
+
+
+@pytest.fixture
+def packed_draft_load_case(monkeypatch):
+    monkeypatch.setattr(packed_native, "qsmla", packed_64_head_attention_reference)
+    monkeypatch.setattr(
+        packed_native.MixedQuantPackedCacheOps,
+        "qsmla",
+        staticmethod(packed_64_head_attention_reference),
+    )
+    return make_legacy_attention_startup_case(
+        monkeypatch, dspark=True, dspark_backend=packed_native.MixedQuantPackedCacheOps
+    )
+
+
+@pytest.mark.parametrize("tokens", [1, 3])
+def test_loaded_dspark_draft_accepts_tp4_queries(packed_draft_load_case, tokens):
+    case = packed_draft_load_case
+    inputs = make_packed_attention_inputs(tokens=tokens, compressed=False)
+    expected = headwise_attention_with_sink(*inputs.arguments(), **inputs.options())
+
+    case.owner.load_model()
+    output = case.draft.attention.packed_cache_ops.qsmla(
+        *inputs.arguments(), **inputs.options()
+    )
+
+    torch.testing.assert_close(output, expected, rtol=0, atol=0)
+    with pytest.raises(ValueError, match="N1 must be 64 .* got 16"):
+        case.draft.unrelated.packed_cache_ops.qsmla(
+            *inputs.arguments(), **inputs.options()
+        )
+
+
+@pytest.mark.parametrize("backend", [None, type])
+def test_dspark_load_keeps_alternative_attention_backends(
+    packed_draft_load_case, backend
+):
+    case = packed_draft_load_case
+    case.draft.attention.packed_cache_ops = backend
+
+    case.owner.load_model()
+
+    assert case.draft.attention.packed_cache_ops is backend
+
+
+@pytest.mark.parametrize("excluded", ["other-model", "other-method"])
+def test_other_drafts_keep_native_head_rejection(packed_draft_load_case, excluded):
+    case = packed_draft_load_case
+    if excluded == "other-model":
+        case.config.model_config.hf_config.model_type = "deepseek_v2"
+        case.config.model_config.hf_config.architectures = ["DeepseekV2ForCausalLM"]
+    else:
+        case.config.speculative_config.method = "mtp"
+    inputs = make_packed_attention_inputs(compressed=False)
+
+    case.owner.load_model()
+
+    with pytest.raises(ValueError, match="N1 must be 64 .* got 16"):
+        case.draft.attention.packed_cache_ops.qsmla(
+            *inputs.arguments(), **inputs.options()
+        )
 
 
 @pytest.mark.parametrize("graph", [False, True])

@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from types import SimpleNamespace
 
 import torch
+from vllm_ascend.models.deepseek_v41.dspark import DeepseekV41DSparkAttention
 from vllm_ascend.models.deepseek_v41.model import DeepseekV41Attention
 
 
@@ -21,6 +22,17 @@ def make_native_control_case(worker_cls, backend, *, tp_size=4):
         parallel_config=SimpleNamespace(tensor_parallel_size=tp_size)
     )
     return SimpleNamespace(worker=worker, model=model)
+
+
+def make_dspark_packed_model(backend):
+    """Native draft identity at the load seam; no weights or device execution."""
+    draft = DeepseekV41DSparkAttention.__new__(DeepseekV41DSparkAttention)
+    torch.nn.Module.__init__(draft)
+    draft.packed_cache_ops = backend
+    unrelated = torch.nn.Module()
+    unrelated.packed_cache_ops = backend
+    model = torch.nn.ModuleDict({"attention": draft, "unrelated": unrelated})
+    return SimpleNamespace(model=model, attention=draft, unrelated=unrelated)
 
 
 @dataclass

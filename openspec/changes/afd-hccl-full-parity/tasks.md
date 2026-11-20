@@ -62,6 +62,19 @@ AFD/Engram。本轮增加独立 `--repeatability`：单活动请求串行、预�
 主机协议/CLI 检查通过，设备复测待用户；2.2/1.8 及完整矩阵勾选不变。见
 [本轮输入、工具与验证](evidence/a5-eager-u1-repeatability-20261120/README.md)。
 
+2026-11-20 新回传三份组合及 `full-eager-u2-a3guux9z`：DSpark eager/U1 N=1 与
+Graph/U2 N=2 在原生 draft 的 packed Attention 抛出 16-head 拒绝；已在 A 侧
+载入后为实际 draft 实例选择现有 head adapter，保留原生 draft/权重/KV/采样。
+新增锁源检查覆盖原生 `dspark.py`。CPU load seam 修复前 2F/4P，修复后四个完整
+模块及签名表工作区回归 201P、交付范围冻结复核 190P，均 0F/E/S、NPU 未初始化；
+主机诊断检查通过。
+普通 eager/U2 与 Graph/U1 均生成两个 32-token 响应但输出对照失败，前者实际执行
+32 个 U2 parent；与旧 AFD eager/U1 也分别从第 5/14 个 token 分歧。
+原生自身重复性尚未闭合，未改动未定位的数值路径；补 Graph/U1 串行重复诊断，
+沿用稳定原生参考继续定位。用户已授权本轮提交并推送；
+1.3、1.8、2.2–2.5 仍 pending，未执行本轮 A5 复测。
+见[修复、架构审查及四份归档分析](evidence/a5-dspark-heads-eager-u2-20261120/README.md)。
+
 | 执行顺序 | 对应原任务 | 阶段边界与验收前置 |
 | --- | --- | --- |
 | 先完成真实权重 eager/U1 对照 | 2.2、1.8，关联 C2 | 原始量化 checkpoint、A 侧原生 CPU Engram、F 隔离；历史首 token 差异未闭合，单次请求成功不等于等价 |

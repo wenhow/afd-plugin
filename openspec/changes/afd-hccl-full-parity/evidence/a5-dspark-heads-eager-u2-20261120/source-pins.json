@@ -1,0 +1,9 @@
+{
+  "commit": "7e37e29a7803d6897a7113088e2b771f83205bc0",
+  "pins": [
+    {
+      "path": "vllm_ascend/models/deepseek_v41/dspark.py",
+      "locked_sha256": "fcee256905928917154d8dac94d6611bb83d02da441e8aa154a525ef51e6a601"
+    }
+  ]
+}

@@ -7,6 +7,7 @@ from types import SimpleNamespace
 
 from afd_plugin.connectors.npu.hccl_overlap import HcclOverlapSettings
 from tests.unit.fakes.attention_model_runner_v2 import make_graph_runner_case
+from tests.unit.fakes.dsv41_packed_cache import make_dspark_packed_model
 from tests.unit.fakes.hccl import HcclCpuDeviceRuntime, make_hccl_worker
 from tests.unit.fakes.hccl_v41_eager_bootstrap import make_eager_bootstrap_case
 from tests.unit.fakes.hccl_v41_graph_coordinator import make_coordinator_case
@@ -24,6 +25,10 @@ class BootstrapNativeLifecycle:
         self.case.events.append("native-load")
         if self.fail_load:
             raise RuntimeError("native load failed")
+        if owner.vllm_config.speculative_config is not None:
+            owner.speculator = SimpleNamespace(
+                model=make_dspark_packed_model(None).model
+            )
 
     def initialize_kv_cache(self, owner, config, allocation_context=None):
         self.case.events.append("native-kv")

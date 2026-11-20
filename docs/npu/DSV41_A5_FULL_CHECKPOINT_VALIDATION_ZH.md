@@ -104,7 +104,7 @@ curl --noproxy '*' --max-time 3 -i http://127.0.0.1:18031/health
 
 先确认原生目录的 `summary.json` 中 `request_passed=true`、`clean_shutdown=true`，
 以及 `repeatability.json` 中 `completed=true`、`passed=true`，
-再将本次打印的原生目录赋给 `DSV41_NATIVE`。若为 false，先处理其中的 `error`；
+再将本次打印的串行原生目录赋给 `DSV41_NATIVE_REPEAT`。若为 false，先处理其中的 `error`；
 打印了 `results:` 仅表示创建目录。2026-11-19 的 `full-eager-u1-1g5_98ms`
 因选定设备已被现存 vLLM 服务占用而在启动前退出，不能作为参考，详见
 [资源检查回传](../../openspec/changes/afd-hccl-full-parity/evidence/a5-native-resource-gate-20261119/README.md)。
@@ -112,9 +112,20 @@ curl --noproxy '*' --max-time 3 -i http://127.0.0.1:18031/health
 避免继续用不同 DP/EP 拓扑的旧结果作为等价基线。
 
 ```bash
-DSV41_NATIVE=/absolute/path/to/results/full-checkpoint/full-eager-u1-XXXXXXXX
-full --mode eager-u1 --repeatability --reference-run "$DSV41_NATIVE" --run
+DSV41_NATIVE_REPEAT=/absolute/path/to/results/full-checkpoint/full-eager-u1-XXXXXXXX
+full --mode eager-u1 --repeatability --reference-run "$DSV41_NATIVE_REPEAT" --run
 ```
+
+eager/U1 原生及 AFD 串行对照通过后，可以沿用该稳定原生目录定位 Graph/U1：
+
+```bash
+full --mode graph-u1 --repeatability --reference-run "$DSV41_NATIVE_REPEAT" --run
+```
+
+该诊断保留 Graph capture/replay，单活动请求，采集预热及取消前/后各轮输出；
+不因一次 token 不同提前结束全部轮次。U2 仍使用普通双请求矩阵，单活动请求的
+串行协议不能证明 U2 stage 执行。原生自身不稳定时先分析原生，不能将全部差异
+唯一归因 AFD 或 Graph。该扩展只增加诊断入口，不宣称修复了数值差异。
 
 原生不通过时，先回传原生自动生成的归档，不启动 AFD；原生通过后再运行并回传 AFD。
 串行诊断与旧双请求参考不能混用，脚本会在启动 AFD 前核对请求套件与完整诊断参数。
@@ -137,7 +148,8 @@ full --mode eager-u1 --repeatability --reference-run "$DSV41_NATIVE" --run
 已经成功返回 token 的采样路径。同一 prompt 的预热与实测请求参数相同。`--warmup-rounds` 默认 1、
 至少 1；`--repeat-rounds` 默认 3、至少 2；原生与 AFD 必须使用相同参数。
 客户端关闭连接不单独证明引擎完成取消；后续请求、服务日志和正常清理仍需一起审阅。
-该入口只允许 standalone eager/U1、DSpark 关闭，不将两个并发 HTTP 请求误称为固定调度批。
+该入口允许 standalone eager/U1 或 Graph/U1、DSpark 关闭，
+不将两个并发 HTTP 请求误称为固定调度批。
 
 `repeatability.json` 保存进度、各次请求和最终判定。纯 token 不一致会继续采集所有轮次，
 最终仍返回失败；HTTP、响应结构或缺失 logprobs 则立即停止并保存未完成报告和原始响应。
@@ -173,7 +185,8 @@ logprobs 不同于原始 logits；小差距不能单独证明误差可忽略，�
 ## standalone 十二种组合
 
 串行定位收口后，先用普通矩阵流程重建双请求原生参考；两种套件的目录格式和调度上限
-不同，不能混用。普通矩阵参考及首格命令如下，后续本节与 PD 的 `DSV41_NATIVE` 均指此目录：
+不同，不能混用。普通矩阵参考及首格命令如下，后续本节与 PD 的 `DSV41_NATIVE` 均指此目录；
+确认新原生目录 `summary.json` 的 `request_passed=true`、`clean_shutdown=true` 后再使用：
 
 ```bash
 full --native-control --run

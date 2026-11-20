@@ -138,6 +138,11 @@ DEFAULT_PROFILE = PreflightProfile(
         ),
         SourceIdentity(
             "vllm_ascend",
+            "models/deepseek_v41/dspark.py",
+            "fcee256905928917154d8dac94d6611bb83d02da441e8aa154a525ef51e6a601",
+        ),
+        SourceIdentity(
+            "vllm_ascend",
             "models/deepseek_v41/vl_model.py",
             "bb98a2e2a0e24c18aafe17229eb593937aaed2e37c1fd7cc2003c45ce872d282",
         ),
