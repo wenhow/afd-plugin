@@ -12,6 +12,10 @@ pytest.importorskip("vllm")
 pytest.importorskip("torch_npu")
 pytest.importorskip("vllm_ascend")
 
+from vllm_ascend.models.deepseek_v41.vl_model import (  # noqa: E402
+    AscendDeepseekV41ForCausalLM,
+)
+
 from afd_plugin.model_executor.models.npu.dsv41_packed_cache import (  # noqa: E402
     AFDMixedQuantPackedCacheOps,
     native,
@@ -85,7 +89,15 @@ def prefill_trace_worker(monkeypatch):
             logits[0, 223] = 4
             return logits
 
-    processor = LogitsProcessor()
+    wrapper_class = AscendDeepseekV41ForCausalLM
+    model = wrapper_class.__new__(wrapper_class)
+    torch.nn.Module.__init__(model)
+    language_class = wrapper_class.language_model_cls
+    language_model = language_class.__new__(language_class)
+    torch.nn.Module.__init__(language_model)
+    language_model.logits_processor = LogitsProcessor()
+    language_model.lm_head = torch.nn.Identity()
+    model.language_model = language_model
     batch = SimpleNamespace(
         num_reqs=1,
         num_draft_tokens=0,
@@ -101,12 +113,12 @@ def prefill_trace_worker(monkeypatch):
     worker.rank = 2
     worker.model_runner = SimpleNamespace(
         execute_model_state=SimpleNamespace(input_batch=batch),
-        model=SimpleNamespace(logits_processor=processor),
+        model=model,
     )
 
     def sample(owner, grammar_output):
-        logits = processor(
-            torch.nn.Identity(), torch.ones((1, 4), dtype=torch.bfloat16)
+        logits = owner.model_runner.model.compute_logits(
+            torch.ones((1, 4), dtype=torch.bfloat16)
         )
         logits[0, 223] = 2
         return logits

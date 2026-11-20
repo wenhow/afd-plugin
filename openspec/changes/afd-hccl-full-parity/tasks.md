@@ -78,8 +78,12 @@ Graph/U2 N=2 在原生 draft 的 packed Attention 抛出 16-head 拒绝；已在
 随后 A5 原生串行归档 `full-eager-u1-pz23il_b` 与 top-5 归档 `full-eager-u1-5zwijbpu`
 均完成 14 个请求并正常回收，数列 prompt 在取消前已分歧。top-5 归档的首步候选分数
 在生成历史为空时已经不同。本轮增加原生 TP4 可选首两步 trace，采集各 rank
-的 logits processor 输入摘要和原始 logits，供确定下一处排查边界。实机 trace
-待验证，2.2/1.8 和其余组合的验收状态保留。
+的 logits processor 输入摘要和原始 logits，供确定下一处排查边界。
+A5 `full-eager-u1-zywlcax3`（`beea901`）预检、算子探针及载权通过，首条预热请求
+因 trace 在包装层访问 `logits_processor` 而返回 HTTP 500，未产生 trace。
+按锁定 `vl_model.py` 的 `compute_logits` 委托，改用
+`language_model.logits_processor`。锁定委托方法与 CPU 张量回归修复前复现 2 项
+属性错误，修复后通过。实机 trace 待复测，2.2/1.8 和其余组合的验收状态保留。
 
 | 执行顺序 | 对应原任务 | 阶段边界与验收前置 |
 | --- | --- | --- |

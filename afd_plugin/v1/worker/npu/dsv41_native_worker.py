@@ -135,7 +135,9 @@ class DSV41NativeTP4PrefillTraceWorker(DSV41NativeTP4ControlWorker):
                 )
             )
 
-        with self.model_runner.model.logits_processor.register_forward_hook(observe):
+        # The registered V4.1 wrapper delegates compute_logits to its language model.
+        logits_processor = self.model_runner.model.language_model.logits_processor
+        with logits_processor.register_forward_hook(observe):
             output = super().sample_tokens(grammar_output)
         if len(snapshots) != 1:
             raise RuntimeError("native prefill trace expected exactly one logits call")
