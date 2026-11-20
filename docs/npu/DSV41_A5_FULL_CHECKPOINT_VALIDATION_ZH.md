@@ -203,6 +203,26 @@ full --native-control --repeatability --repeat-logprobs 5 --trace-native-prefill
 第二步还需核对首个生成 token 一致。张量复制会增加耗时，带 trace 的归档用于定位，
 脚本拒绝将其用作 AFD 参考。
 
+### 原生首个 prefill 逐层定位
+
+`full-eager-u1-4mrsrmjy` 已采齐 120 条原生 trace。数列 prompt 的首步 hidden state
+在输入 token、位置和采样行相同时仍然变化，取消前已复现。用同一个原生 TP4 环境执行：
+
+```bash
+AFD_DSV41_NATIVE_LAYER_TRACE=1 full --native-control --repeatability \
+  --repeat-logprobs 5 --trace-native-prefill --run
+```
+
+采集限于单个新请求的首个完整 prefill，最多 32 个 prompt token，覆盖现有两条
+测试 prompt。逐层记录位于 `attention-server.log` 的 `AFD native layer trace` 行。
+用已有首步 trace 的 `request_id`、`rank` 关联 embedding、每层入口和出口及最后
+norm 的前后。decoder 边界分别记录有效 token 的 `hidden_state` 和 `pre_mix`
+摘要。层间 Engram 更新发生在下一层入口前，比较上一层出口和下一层入口可将其与
+decoder 内部变化区分开。prefill 后会把临时快照复制到 CPU 并计算摘要，
+采集时的耗时及数值表现应按诊断运行解释。
+
+即使严格对照退出 1，也回传本次 `.tar.gz`。
+
 ## standalone 十二种组合
 
 串行定位收口后，先用普通矩阵流程重建双请求原生参考；两种套件的目录格式和调度上限

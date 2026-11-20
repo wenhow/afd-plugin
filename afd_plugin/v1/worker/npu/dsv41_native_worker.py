@@ -5,10 +5,13 @@
 import hashlib
 import json
 import math
+import os
+from contextlib import ExitStack
+from functools import partial
 
 import torch
 from vllm.logger import init_logger
-from vllm.v1.core.sched.output import GrammarOutput
+from vllm.v1.core.sched.output import GrammarOutput, SchedulerOutput
 from vllm.v1.outputs import AsyncModelRunnerOutput, ModelRunnerOutput
 from vllm_ascend.models.deepseek_v41.mixed_quant_attention import (
     MixedQuantPackedCacheOps,
@@ -22,6 +25,8 @@ from afd_plugin.model_executor.models.npu.dsv41_packed_cache import (
 
 PREFILL_TRACE_STEPS = 2
 PREFILL_TRACE_TOP_K = 5
+NATIVE_LAYER_TRACE_ENV = "AFD_DSV41_NATIVE_LAYER_TRACE"
+MAX_LAYER_TRACE_PROMPT_TOKENS = 32
 # Include the winning tokens and runners-up from the observed early divergence.
 PREFILL_TRACE_CANDIDATES = (1, 14, 223, 270, 455, 1528, 1999)
 
@@ -95,6 +100,107 @@ class DSV41NativeTP4ControlWorker(NPUWorker):
 
 class DSV41NativeTP4PrefillTraceWorker(DSV41NativeTP4ControlWorker):
     """Record the first prefill and decode logits for serial native requests."""
+
+    # Upstream: NPUWorker.execute_model, worker/worker.py @ Ascend 7e37e29a.
+    # Reason: the prefill hidden-state drift needs per-layer attribution.
+    # Functionality: observe full prompt rows at the native decoder boundaries.
+    # Signature: matches upstream; no added parameters.
+    # Delegate so the runner keeps its scheduling, cache and PP ownership.
+    # Cost: bounded device snapshots during forward, CPU hashes after forward.
+    # Remove the diagnostic once the prefill drift is located.
+    def execute_model(
+        self,
+        scheduler_output: "SchedulerOutput",
+    ) -> ModelRunnerOutput | AsyncModelRunnerOutput | None:
+        # ### PATCH START: optional first prefill layer trace
+        new_requests = scheduler_output.scheduled_new_reqs
+        if len(new_requests) != 1 or os.environ.get(NATIVE_LAYER_TRACE_ENV) != "1":
+            return super().execute_model(scheduler_output)
+        request = new_requests[0]
+        token_count = len(request.prompt_token_ids or ())
+        if (
+            not 0 < token_count <= MAX_LAYER_TRACE_PROMPT_TOKENS
+            or request.num_computed_tokens
+            or scheduler_output.num_scheduled_tokens != {request.req_id: token_count}
+        ):
+            return super().execute_model(scheduler_output)
+
+        captures: list[tuple[str, torch.Tensor, torch.Tensor | None]] = []
+
+        def snapshot(
+            boundary: str, hidden: torch.Tensor, pre_mix: torch.Tensor | None = None
+        ) -> None:
+            captures.append(
+                (
+                    boundary,
+                    hidden[:token_count].detach().clone(),
+                    pre_mix[:token_count].detach().clone()
+                    if pre_mix is not None
+                    else None,
+                )
+            )
+
+        def decoder_input(
+            boundary: str, _module: torch.nn.Module, args: tuple[torch.Tensor, ...]
+        ) -> None:
+            snapshot(boundary, args[1], args[2])
+
+        def norm_input(
+            _module: torch.nn.Module, args: tuple[torch.Tensor, ...]
+        ) -> None:
+            snapshot("norm.in", args[0])
+
+        def observe_output(
+            boundary: str,
+            _module: torch.nn.Module,
+            _args: tuple[torch.Tensor, ...],
+            value: torch.Tensor | tuple[torch.Tensor, torch.Tensor],
+        ) -> None:
+            if isinstance(value, tuple):
+                snapshot(boundary, *value)
+            else:
+                snapshot(boundary, value)
+
+        decoder = self.model_runner.model.language_model.model
+        with ExitStack() as hooks:
+            hooks.enter_context(
+                decoder.embed_tokens.register_forward_hook(
+                    partial(observe_output, "embedding.out")
+                )
+            )
+            for layer in decoder.layers:
+                boundary = f"layer.{layer.layer_idx}"
+                hooks.enter_context(
+                    layer.register_forward_pre_hook(
+                        partial(decoder_input, f"{boundary}.in")
+                    )
+                )
+                hooks.enter_context(
+                    layer.register_forward_hook(
+                        partial(observe_output, f"{boundary}.out")
+                    )
+                )
+            hooks.enter_context(decoder.norm.register_forward_pre_hook(norm_input))
+            hooks.enter_context(
+                decoder.norm.register_forward_hook(partial(observe_output, "norm.out"))
+            )
+            output = super().execute_model(scheduler_output)
+        logger = init_logger("vllm.afd_dsv41_native_control")
+        for boundary, hidden, pre_mix in captures:
+            record = {
+                "request_id": request.req_id,
+                "rank": self.rank,
+                "prompt_tokens": token_count,
+                "boundary": boundary,
+                "hidden_state": _tensor_identity(hidden.cpu()),
+            }
+            if pre_mix is not None:
+                record["pre_mix"] = _tensor_identity(pre_mix.cpu())
+            logger.info(
+                "AFD native layer trace %s", json.dumps(record, allow_nan=False)
+            )
+        return output
+        # ### PATCH END: optional first prefill layer trace
 
     # Upstream: NPUWorker.sample_tokens, worker/worker.py @ Ascend 7e37e29a.
     # Reason: response-level scores cannot locate changes before the sampler.

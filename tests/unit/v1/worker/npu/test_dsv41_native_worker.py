@@ -161,3 +161,98 @@ def test_native_prefill_trace_reports_unmodified_scores_for_first_two_steps(
     assert record["hidden_state"]["dtype"] == "torch.bfloat16"
     assert record["raw_logits"]["top5"][0] == [223, 4]
     assert record["raw_logits"]["candidates"]["223"] == 4
+
+
+@pytest.fixture
+def layer_trace_case(prefill_trace_worker, monkeypatch):
+    class Engram(torch.nn.Module):
+        def forward(self, hidden, lookup, mask, rotation):
+            return hidden + 5
+
+    class DecoderLayer(torch.nn.Module):
+        def __init__(self, index, engram=None):
+            super().__init__()
+            self.layer_idx = index
+            self.engram = engram
+
+        def forward(self, positions, hidden, pre_mix, scaling, input_ids=None):
+            return hidden + 1, pre_mix + 2
+
+        @staticmethod
+        def hc_collapse(hidden, pre_mix):
+            return (hidden * pre_mix.unsqueeze(-1)).sum(dim=1)
+
+    worker, _ = prefill_trace_worker
+    language = worker.model_runner.model.language_model
+    decoder_class = language.model_cls
+    decoder = decoder_class.__new__(decoder_class)
+    torch.nn.Module.__init__(decoder)
+    decoder.embed_tokens = torch.nn.Embedding.from_pretrained(torch.ones((4, 4)))
+    decoder.layers = torch.nn.ModuleList([DecoderLayer(0), DecoderLayer(1, Engram())])
+    decoder.norm = torch.nn.Identity()
+    decoder.shared_attention_state = SimpleNamespace(reset=lambda: None)
+    decoder.hc_mult = 2
+    decoder.aux_hidden_state_layers = ()
+    decoder.engram_rotated = False
+    decoder._mtp_hidden_buffer = None
+    language.model = decoder
+
+    def execute(owner, scheduler_output):
+        owner.model_runner.model.language_model.model(
+            torch.tensor([2, 3]),
+            torch.arange(2),
+            None,
+            engram_lookups={1: torch.zeros((2, 4))},
+            engram_mask=torch.ones(2, dtype=torch.bool),
+        )
+        return None
+
+    monkeypatch.setattr(NPUWorker, "execute_model", execute)
+    scheduled = SimpleNamespace(
+        scheduled_new_reqs=[
+            SimpleNamespace(
+                req_id="cmpl-layer-0", prompt_token_ids=[2, 3], num_computed_tokens=0
+            )
+        ],
+        num_scheduled_tokens={"cmpl-layer-0": 2},
+    )
+    return worker, scheduled
+
+
+@pytest.mark.parametrize("mode", ["full_prefill", "chunked_prefill", "disabled"])
+def test_native_layer_trace_keeps_layer_exit_separate_from_engram_update(
+    layer_trace_case, caplog, monkeypatch, mode
+):
+    worker, scheduled = layer_trace_case
+    monkeypatch.setenv(
+        "AFD_DSV41_NATIVE_LAYER_TRACE", "0" if mode == "disabled" else "1"
+    )
+    if mode == "chunked_prefill":
+        scheduled.num_scheduled_tokens["cmpl-layer-0"] = 1
+
+    with caplog.at_level(logging.INFO):
+        assert worker.execute_model(scheduled) is None
+
+    marker = "AFD native layer trace "
+    records = [
+        json.loads(m.removeprefix(marker))
+        for m in caplog.messages
+        if m.startswith(marker)
+    ]
+    if mode != "full_prefill":
+        assert records == []
+        return
+    assert [r["boundary"] for r in records] == [
+        "embedding.out",
+        "layer.0.in",
+        "layer.0.out",
+        "layer.1.in",
+        "layer.1.out",
+        "norm.in",
+        "norm.out",
+    ]
+    _, _, layer_exit, next_entry, *_ = records
+    assert next_entry["request_id"] == "cmpl-layer-0"
+    assert next_entry["hidden_state"]["shape"] == [2, 2, 4]
+    assert next_entry["hidden_state"] != layer_exit["hidden_state"]
+    assert next_entry["pre_mix"] == layer_exit["pre_mix"]
