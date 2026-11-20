@@ -22,6 +22,7 @@ from dataclasses import replace
 from functools import partial
 from pathlib import Path
 
+import dsv41_repeatability as repeatability_check
 import run_dsv41_a5_afd as launch
 from collect_dsv41_dspark_requests import validate_response
 from preflight_dsv41_a5_afd import DEFAULT_PROFILE, SourceIdentity
@@ -92,6 +93,10 @@ def make_plan(
     kv_ip: str = "127.0.0.1",
     port_offset: int = 0,
     stream_overlap: bool = True,
+    repeatability: bool = False,
+    warmup_rounds: int = repeatability_check.DEFAULT_WARMUP_ROUNDS,
+    repeat_rounds: int = repeatability_check.DEFAULT_REPEAT_ROUNDS,
+    repeat_logprobs: int = 0,
 ) -> dict:
     if mode not in MODES or spec_tokens not in (0, 1, 2):
         raise ValueError("unsupported full-checkpoint qualification mode")
@@ -101,6 +106,19 @@ def make_plan(
         raise ValueError("PD producer qualification uses eager U1")
     if pd_role not in (None, "producer", "consumer"):
         raise ValueError("PD role must be producer or consumer")
+    if repeatability and (
+        mode != "eager-u1"
+        or spec_tokens
+        or pd_role
+        or warmup_rounds < repeatability_check.MIN_WARMUP_ROUNDS
+        or repeat_rounds < repeatability_check.MIN_REPEAT_ROUNDS
+        or repeat_logprobs not in (0, repeatability_check.LOGPROB_CANDIDATES)
+    ):
+        raise ValueError(
+            "repeatability requires standalone eager/U1 without DSpark, "
+            "at least one warmup round and two measured rounds, "
+            "and --repeat-logprobs 0 or 5"
+        )
     plan = launch.make_plan(model, vendor, repo)
     selected = attention_devices if native_control else attention_devices + ffn_devices
     if (
@@ -141,7 +159,13 @@ def make_plan(
         ):
             env["AFD_HCCL_" + feature] = str(int(stream_overlap))
         env["AFD_HCCL_FFN_COMPUTE_SYNC_DIAGNOSTICS"] = "0"
-        set_option(argv, "--max-num-seqs", "2")
+        set_option(
+            argv,
+            "--max-num-seqs",
+            str(repeatability_check.MAX_ACTIVE_REQUESTS) if repeatability else "2",
+        )
+        if repeatability:
+            set_option(argv, "--logprobs-mode", "raw_logprobs")
         set_option(argv, "--max-num-batched-tokens", "128")
         argv[argv.index("--no-enable-chunked-prefill")] = "--enable-chunked-prefill"
         if u2:
@@ -238,7 +262,24 @@ def make_plan(
         ports=[port + port_offset for port in plan["ports"]],
         full_model_qualification=False,
         stream_overlap=stream_overlap,
+        request_suite="repeatability" if repeatability else "matrix",
     )
+    if repeatability:
+        plan["repeatability_protocol"] = {
+            "version": repeatability_check.PROTOCOL_VERSION,
+            "warmup_rounds": warmup_rounds,
+            "repeat_rounds": repeat_rounds,
+            "prompts": list(PROMPTS[:2]),
+            "max_num_seqs": repeatability_check.MAX_ACTIVE_REQUESTS,
+            "client_concurrency": repeatability_check.MAX_ACTIVE_REQUESTS,
+            "temperature": 0,
+            "seed": 0,
+            "output_tokens": launch.REQUEST_TOKENS,
+            "logprobs": repeat_logprobs,
+            "logprobs_mode": "raw_logprobs",
+            "return_tokens_as_token_ids": bool(repeat_logprobs),
+            "cancel_output_tokens": CANCEL_OUTPUT_TOKENS,
+        }
     if pd_role:
         plan["ports"].extend(
             range(DEFAULT_KV_PORT + port_offset, DEFAULT_KV_PORT + port_offset + 4)
@@ -418,6 +459,28 @@ def main() -> int:
     parser.add_argument("--prefill-url")
     parser.add_argument("--producer-stop-file", type=Path)
     parser.add_argument("--reference-run", type=Path)
+    parser.add_argument(
+        "--repeatability",
+        action="store_true",
+        help="serial eager/U1 warmup and repeated requests before/after cancellation",
+    )
+    parser.add_argument(
+        "--warmup-rounds",
+        type=int,
+        default=repeatability_check.DEFAULT_WARMUP_ROUNDS,
+    )
+    parser.add_argument(
+        "--repeat-rounds",
+        type=int,
+        default=repeatability_check.DEFAULT_REPEAT_ROUNDS,
+    )
+    parser.add_argument(
+        "--repeat-logprobs",
+        type=int,
+        choices=(0, repeatability_check.LOGPROB_CANDIDATES),
+        default=0,
+        help="optional top-5 score collection; default reuses the token-only path",
+    )
     parser.add_argument("--output-root", type=Path, required=True)
     parser.add_argument("--startup-timeout", type=int, default=3600)
     parser.add_argument("--run", action="store_true")
@@ -453,6 +516,10 @@ def main() -> int:
         kv_ip=args.kv_ip,
         port_offset=args.port_offset,
         stream_overlap=bool(args.stream_overlap),
+        repeatability=args.repeatability,
+        warmup_rounds=args.warmup_rounds,
+        repeat_rounds=args.repeat_rounds,
+        repeat_logprobs=args.repeat_logprobs,
     )
     args.output_root.mkdir(parents=True, exist_ok=True)
     directory = Path(
@@ -493,16 +560,43 @@ def main() -> int:
                 f"reference error={reference_summary.get('error', 'none')}. "
                 "See its summary.json; AFD services were not started."
             )
-    request_runner = (
-        partial(hold_producer, stop_file=args.producer_stop_file.resolve())
-        if args.pd_role == "producer"
-        else partial(
+        if reference_plan.get("request_suite", "matrix") != plan["request_suite"]:
+            raise ValueError(
+                "native reference request suite differs; AFD services were not started"
+            )
+        if args.repeatability:
+            reference_report = json.loads(
+                (args.reference_run / "repeatability.json").read_bytes()
+            )
+            if (
+                not reference_report["completed"]
+                or not reference_report["passed"]
+                or reference_report["protocol"] != plan["repeatability_protocol"]
+                or reference_plan["repeatability_protocol"]
+                != plan["repeatability_protocol"]
+            ):
+                raise ValueError(
+                    "native repeatability reference is incomplete, unstable or has "
+                    "different parameters; AFD services were not started"
+                )
+    if args.pd_role == "producer":
+        request_runner = partial(
+            hold_producer, stop_file=args.producer_stop_file.resolve()
+        )
+    elif args.repeatability:
+        request_runner = partial(
+            repeatability_check.run_repeatability,
+            api_url=plan["api_url"],
+            protocol=plan["repeatability_protocol"],
+            cancel=partial(cancel_stream, prefill_url=None, api_url=plan["api_url"]),
+        )
+    else:
+        request_runner = partial(
             run_requests,
             spec_tokens=args.spec_tokens,
             prefill_url=args.prefill_url,
             api_url=plan["api_url"],
         )
-    )
     previous_handler = signal.signal(signal.SIGTERM, launch.handle_termination)
     try:
         return launch.run_candidate(

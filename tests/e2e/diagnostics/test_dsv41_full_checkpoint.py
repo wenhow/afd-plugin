@@ -31,6 +31,53 @@ def response(prompt):
     }
 
 
+class RepeatabilityReplies:
+    """HTTP protocol fixture; never represents model or device computations."""
+
+    def __init__(self, difference=None):
+        self.difference = difference
+        self.completed = 0
+        self.cancelled = False
+
+    def open(self, request, **kwargs):
+        payload = json.loads(request.data)
+        if payload["stream"]:
+            self.cancelled = True
+            raw = b'data: {"choices":[{"text":"generated"}]}\n\n'
+        else:
+            body = response(payload["prompt"])
+            tokens = body["choices"][0]["token_ids"]
+            if (
+                self.difference == "all"
+                or (self.difference == "warmup" and self.completed < 2)
+                or (self.difference == "before" and self.completed == 4)
+                or (self.difference == "after" and self.cancelled)
+            ):
+                tokens[0] += 100
+            body["choices"][0]["logprobs"] = (
+                {
+                    "tokens": [f"token_id:{token}" for token in tokens],
+                    "token_logprobs": [-0.1] * len(tokens),
+                    "top_logprobs": [
+                        {
+                            f"token_id:{token + offset}": -0.1 - offset
+                            for offset in range(5)
+                        }
+                        for token in tokens
+                    ],
+                }
+                if payload.get("logprobs")
+                else None
+            )
+            if self.difference == "missing_logprobs":
+                body["choices"][0]["logprobs"] = None
+            self.completed += 1
+            raw = json.dumps(body).encode()
+        stream = io.BytesIO(raw)
+        stream.status = 200
+        return stream
+
+
 class TestFullCheckpointPlans(unittest.TestCase):
     def test_modes_keep_native_quantized_weights_and_cpu_engram(self):
         driver = load_driver()
@@ -75,6 +122,50 @@ class TestFullCheckpointPlans(unittest.TestCase):
             "afd_plugin.v1.worker.npu.dsv41_native_worker.DSV41NativeTP4ControlWorker",
         )
         self.assertEqual(plan["attention_head_adapter"], "tp4-query-16-to-64-v1")
+
+    def test_repeatability_limits_active_requests_and_records_protocol(self):
+        driver = load_driver()
+        for native in (True, False):
+            with self.subTest(native=native):
+                plan = driver.make_plan(
+                    Path("/model"),
+                    Path("/vendor"),
+                    ROOT,
+                    native_control=native,
+                    repeatability=True,
+                )
+                for settings in plan["roles"].values():
+                    argv = settings["argv"]
+                    self.assertEqual(argv[argv.index("--max-num-seqs") + 1], "1")
+                    self.assertEqual(
+                        argv[argv.index("--logprobs-mode") + 1], "raw_logprobs"
+                    )
+                self.assertEqual(plan["request_suite"], "repeatability")
+                self.assertEqual(
+                    plan["repeatability_protocol"]["client_concurrency"], 1
+                )
+
+    def test_repeatability_rejects_combinations_and_insufficient_rounds(self):
+        driver = load_driver()
+        for options in (
+            {"mode": "eager-u2"},
+            {"mode": "graph-u1"},
+            {"spec_tokens": 1},
+            {"pd_role": "consumer"},
+            {"warmup_rounds": 0},
+            {"repeat_rounds": 1},
+        ):
+            with (
+                self.subTest(options=options),
+                self.assertRaisesRegex(ValueError, "repeatability requires"),
+            ):
+                driver.make_plan(
+                    Path("/model"),
+                    Path("/vendor"),
+                    ROOT,
+                    repeatability=True,
+                    **options,
+                )
 
     def test_pd_config_keeps_equal_tp_and_attested_connector_on_declared_roles(self):
         driver = load_driver()
@@ -151,7 +242,7 @@ class TestFullCheckpointReference(unittest.TestCase):
         ):
             (self.reference / name).write_text(json.dumps(report))
 
-    def invoke_reference(self):
+    def invoke_reference(self, *options):
         driver = load_driver()
         argv = [
             "run_dsv41_full_checkpoint.py",
@@ -164,6 +255,7 @@ class TestFullCheckpointReference(unittest.TestCase):
             "--reference-run",
             str(self.reference),
             "--run",
+            *options,
         ]
         with (
             patch.object(sys, "argv", argv),
@@ -197,6 +289,180 @@ class TestFullCheckpointReference(unittest.TestCase):
         self.assertIn("attention_head_adapter=None", message)
         self.assertIn("tp4-query-16-to-64-v1", message)
         self.assertIn("AFD services were not started", message)
+
+    def test_matrix_reference_cannot_start_repeatability_services(self):
+        driver = load_driver()
+        driver.launch.save_json(
+            self.reference / "summary.json",
+            {
+                "request_passed": True,
+                "clean_shutdown": True,
+            },
+        )
+        driver.launch.save_json(
+            self.reference / "launch-plan.json",
+            {
+                "native_control": True,
+                "attention_head_adapter": driver.TP4_HEAD_ADAPTER,
+            },
+        )
+        message = self.invoke_reference("--repeatability")
+        self.assertIn("request suite differs", message)
+        self.assertIn("AFD services were not started", message)
+
+    def test_repeatability_reference_rejects_incomplete_or_different_protocol(self):
+        driver = load_driver()
+        plan = driver.make_plan(
+            Path("/model"),
+            Path("/vendor"),
+            ROOT,
+            native_control=True,
+            repeatability=True,
+        )
+        driver.launch.save_json(self.reference / "launch-plan.json", plan)
+        driver.launch.save_json(
+            self.reference / "summary.json",
+            {
+                "request_passed": True,
+                "clean_shutdown": True,
+            },
+        )
+        for completed, passed, protocol in (
+            (False, True, plan["repeatability_protocol"]),
+            (True, False, plan["repeatability_protocol"]),
+            (True, True, {**plan["repeatability_protocol"], "repeat_rounds": 9}),
+        ):
+            with self.subTest(completed=completed, passed=passed, protocol=protocol):
+                driver.launch.save_json(
+                    self.reference / "repeatability.json",
+                    {
+                        "completed": completed,
+                        "passed": passed,
+                        "protocol": protocol,
+                    },
+                )
+                message = self.invoke_reference("--repeatability")
+                self.assertIn(
+                    "incomplete, unstable or has different parameters", message
+                )
+                self.assertIn("AFD services were not started", message)
+
+
+class TestRepeatabilityRequests(unittest.TestCase):
+    def setUp(self):
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        self.directory = Path(temporary.name)
+        self.driver = load_driver()
+        self.protocol = self.driver.make_plan(
+            Path("/model"),
+            Path("/vendor"),
+            ROOT,
+            repeatability=True,
+            repeat_rounds=2,
+            repeat_logprobs=5,
+        )["repeatability_protocol"]
+
+    def run_suite(self, name, *, difference=None, reference=None):
+        directory = self.directory / name
+        directory.mkdir()
+        replies = RepeatabilityReplies(difference)
+        with patch("urllib.request.OpenerDirector.open", side_effect=replies.open):
+            report = self.driver.repeatability_check.run_repeatability(
+                directory,
+                reference,
+                api_url="http://127.0.0.1:18031",
+                protocol=self.protocol,
+                cancel=lambda target: self.driver.cancel_stream(
+                    target, prefill_url=None
+                ),
+            )
+        return report
+
+    def test_stable_measured_rounds_pass_with_warmup_difference_recorded(self):
+        report = self.run_suite("native", difference="warmup")
+        self.assertTrue(report["passed"])
+        self.assertFalse(report["warmup_matches_measured_baseline"])
+        self.assertTrue(report["before_cancel_stable"])
+        self.assertTrue(report["after_cancel_matches_before"])
+        self.assertFalse(report["model_equivalence_accepted"])
+        self.assertFalse(report["hardware_acceptance"])
+
+    def test_identical_native_reference_passes(self):
+        self.run_suite("native")
+        report = self.run_suite("afd", reference=self.directory / "native")
+        self.assertTrue(report["native_tokens_match"])
+        self.assertTrue(report["passed"])
+
+    def test_default_token_only_protocol_completes_without_logprobs(self):
+        self.protocol.update(logprobs=0, return_tokens_as_token_ids=False)
+        report = self.run_suite("native")
+        self.assertTrue(report["passed"])
+        response_path = (
+            self.directory / "native/before-cancel-00/request-00/response.json"
+        )
+        body = json.loads(response_path.read_bytes())
+        self.assertIsNone(body["choices"][0]["logprobs"])
+
+    def test_token_only_difference_fails_without_requiring_scores(self):
+        self.protocol.update(logprobs=0, return_tokens_as_token_ids=False)
+        with self.assertRaisesRegex(RuntimeError, "token comparison failed"):
+            self.run_suite("native", difference="after")
+        report = json.loads((self.directory / "native/repeatability.json").read_bytes())
+        self.assertTrue(report["completed"])
+        self.assertFalse(report["passed"])
+        divergent = next(
+            item for item in report["comparisons"] if item["status"] == "tokens_differ"
+        )
+        self.assertEqual(divergent["first_output_mismatch"]["index"], 0)
+        self.assertIsNone(divergent["first_divergence_logprobs"])
+
+    def test_differences_fail_after_saving_all_measured_rounds(self):
+        self.run_suite("native")
+        for difference, before, after, native in (
+            ("before", False, True, False),
+            ("after", True, False, False),
+            ("all", True, True, False),
+        ):
+            with self.subTest(difference=difference):
+                with self.assertRaisesRegex(RuntimeError, "token comparison failed"):
+                    self.run_suite(
+                        difference,
+                        difference=difference,
+                        reference=self.directory / "native",
+                    )
+                report = json.loads(
+                    (self.directory / difference / "repeatability.json").read_bytes()
+                )
+                self.assertTrue(report["completed"])
+                self.assertFalse(report["passed"])
+                self.assertEqual(len(report["requests"]), 10)
+                self.assertEqual(report["before_cancel_stable"], before)
+                self.assertEqual(report["after_cancel_matches_before"], after)
+                self.assertEqual(report["native_tokens_match"], native)
+                divergent = next(
+                    item
+                    for item in report["comparisons"]
+                    if item["status"] == "tokens_differ"
+                )
+                self.assertEqual(divergent["first_output_mismatch"]["index"], 0)
+                self.assertAlmostEqual(
+                    divergent["first_divergence_logprobs"]["actual"]["top1_minus_top2"],
+                    1.0,
+                )
+                self.assertTrue(
+                    (self.directory / difference / "cancel-first-chunk.json").is_file()
+                )
+
+    def test_missing_logprobs_leave_incomplete_report_and_response(self):
+        with self.assertRaisesRegex(ValueError, "token-ID logprobs"):
+            self.run_suite("bad", difference="missing_logprobs")
+        target = self.directory / "bad"
+        report = json.loads((target / "repeatability.json").read_bytes())
+        self.assertFalse(report["completed"])
+        self.assertFalse(report["passed"])
+        self.assertTrue((target / "warmup-00/request-00/response.json").is_file())
+        self.assertEqual(report["cancellation"], "not_started")
 
 
 class TestFullCheckpointRequests(unittest.TestCase):

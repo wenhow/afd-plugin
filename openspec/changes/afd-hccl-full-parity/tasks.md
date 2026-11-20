@@ -53,6 +53,15 @@ health.json 和等待进度；HTTP 200 与 curl exit 0 同时满足才通过，�
 本包清理后八卡 idle、无残留，但触发强制清理，2.2/1.8 不勾选。
 见[归档、架构审查与验证](evidence/a5-native-tp4-heads-20261120/README.md)。
 
+2026-11-20 随后回传 `full-eager-u1-pqdgncjt`：AFD 两个 HTTP 200 均返回 32 token，
+但分别从第 1、第 13 个 token 与原生分歧；A/F 正常退出、八卡回收，无强制清理/残留。
+参考原生 `full-eager-u1-7z0p69ts` 自身重复相同请求也在这两个位置分歧，不能直接归因
+AFD/Engram。本轮增加独立 `--repeatability`：单活动请求串行、预热、取消前/后各三轮，
+严格聚合输入/输出差异，默认复用 token-only 采样路径；可选 top-5 分数单独建参考。
+参考套件/参数/稳定性在 AFD 启动前核对，普通矩阵失败门保持。
+主机协议/CLI 检查通过，设备复测待用户；2.2/1.8 及完整矩阵勾选不变。见
+[本轮输入、工具与验证](evidence/a5-eager-u1-repeatability-20261120/README.md)。
+
 | 执行顺序 | 对应原任务 | 阶段边界与验收前置 |
 | --- | --- | --- |
 | 先完成真实权重 eager/U1 对照 | 2.2、1.8，关联 C2 | 原始量化 checkpoint、A 侧原生 CPU Engram、F 隔离；历史首 token 差异未闭合，单次请求成功不等于等价 |

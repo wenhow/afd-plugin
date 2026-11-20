@@ -14,8 +14,10 @@
 源码锁仍为 vLLM `ced6857a`、
 Ascend `7e37e29a`。各个 AFD 实例使用八张卡，原生对照使用四张；PD 的 P/D
 必须同时驻留，设备安排尚未指定，由下述配置项声明。
-候选固定为文本、DP1/PP1/CP1、EP/SP 关闭、最大两请求、上下文 1024 token、
+普通矩阵候选固定为文本、DP1/PP1/CP1、EP/SP 关闭、最大两请求、上下文 1024 token、
 调度块 128 token；真实 checkpoint 的层数、专家数和 Engram 保持原值。
+当前先用 `--repeatability` 将最大活动请求数及客户端并发都限制为 1，定位 eager/U1
+输出差异；该诊断不改变量化权重、TP4、原生 Engram 或既有 A/F 角色。
 
 ```bash
 DSV41_PY=/usr/local/python3.11.10/bin/python
@@ -69,7 +71,7 @@ full() {
     --model "$DSV41_MODEL" --transformer-vendor "$DSV41_VENDOR" \
     --output-root results/full-checkpoint "$@"
 }
-full --native-control --run
+full --native-control --repeatability --run
 ```
 
 等待就绪期间，启动器每 30 秒或状态变化时打印 `waiting for readiness`，并将最近一次
@@ -95,11 +97,13 @@ curl --noproxy '*' --max-time 3 -i http://127.0.0.1:18031/health
 2026-11-20 的 `full-eager-u1-yqxpk_w6` 已通过 curl 健康检查并发送首波双请求，
 均因原生 packed Attention 缺少上述适配而返回 HTTP 500：`N1 must be 64 ... got 16`。
 修复只补齐对照实例的 backend 选择，不改变 TP 数、checkpoint 或 Engram；
-更新后仍用同一 `full --native-control --run` 命令生成新参考。该包触发 owned 强制清理，
+当时使用 `full --native-control --run` 生成普通矩阵参考；当前先运行上面的串行复测。
+该包触发 owned 强制清理，
 最终设备空闲，但请求/正常退出均未通过，见
 [本轮审阅](../../openspec/changes/afd-hccl-full-parity/evidence/a5-native-tp4-heads-20261120/README.md)。
 
 先确认原生目录的 `summary.json` 中 `request_passed=true`、`clean_shutdown=true`，
+以及 `repeatability.json` 中 `completed=true`、`passed=true`，
 再将本次打印的原生目录赋给 `DSV41_NATIVE`。若为 false，先处理其中的 `error`；
 打印了 `results:` 仅表示创建目录。2026-11-19 的 `full-eager-u1-1g5_98ms`
 因选定设备已被现存 vLLM 服务占用而在启动前退出，不能作为参考，详见
@@ -109,13 +113,73 @@ curl --noproxy '*' --max-time 3 -i http://127.0.0.1:18031/health
 
 ```bash
 DSV41_NATIVE=/absolute/path/to/results/full-checkpoint/full-eager-u1-XXXXXXXX
-full --mode eager-u1 --reference-run "$DSV41_NATIVE" --run
+full --mode eager-u1 --repeatability --reference-run "$DSV41_NATIVE" --run
 ```
 
-先回传这两个归档。若输出不同，`request-XX/token-comparison.json` 会记录首个差异
-位置及两侧 token IDs，脚本退出非零；不得将后续组合记为已通过。
+原生不通过时，先回传原生自动生成的归档，不启动 AFD；原生通过后再运行并回传 AFD。
+串行诊断与旧双请求参考不能混用，脚本会在启动 AFD 前核对请求套件与完整诊断参数。
+
+### 当前 eager/U1 串行复测如何判读
+
+2026-11-20 的 `full-eager-u1-pqdgncjt` 已完成两个 HTTP 200、各 32 token 的 AFD
+生成请求，并正常退出、回收八卡。输出对照分别从第 1、第 13 个 token 分歧；此前
+原生 `full-eager-u1-7z0p69ts` 的相同请求重复执行也在这两个位置分歧。它们仍不足以
+确认输出等价或将根因归到 AFD/Engram，不能用旧参考直接放行后续矩阵。
+
+`--repeatability` 默认按以下顺序运行两个相同短 prompt，全部请求串行：
+
+1. 预热一轮：`warmup-00/request-00`、`request-01`。
+2. 取消前重复三轮：`before-cancel-00` 至 `before-cancel-02`。
+3. 流式请求收到首个非空文本块后关闭客户端，保存 `cancel-first-chunk.json`。
+4. 取消后重复三轮：`after-cancel-00` 至 `after-cancel-02`。
+
+共 14 次非流式请求，每次保留 32 个输出 token。默认不请求 logprobs，先复用此前
+已经成功返回 token 的采样路径。同一 prompt 的预热与实测请求参数相同。`--warmup-rounds` 默认 1、
+至少 1；`--repeat-rounds` 默认 3、至少 2；原生与 AFD 必须使用相同参数。
+客户端关闭连接不单独证明引擎完成取消；后续请求、服务日志和正常清理仍需一起审阅。
+该入口只允许 standalone eager/U1、DSpark 关闭，不将两个并发 HTTP 请求误称为固定调度批。
+
+`repeatability.json` 保存进度、各次请求和最终判定。纯 token 不一致会继续采集所有轮次，
+最终仍返回失败；HTTP、响应结构或缺失 logprobs 则立即停止并保存未完成报告和原始响应。
+普通矩阵的逐请求严格失败行为保持不变。
+
+| 字段 | 含义 |
+| --- | --- |
+| `completed` | 全部请求及比较完成，不等于通过 |
+| `warmup_matches_measured_baseline` | 预热输出是否与首个取消前实测一致，仅作诊断，不计入通过条件 |
+| `before_cancel_stable` | 取消前三轮同 prompt 的输入/输出 token 是否与首轮精确一致 |
+| `after_cancel_matches_before` | 取消后三轮是否与取消前首轮精确一致 |
+| `native_tokens_match` | AFD 实测是否与原生对应轮次的输入/输出精确一致；原生自身为 null |
+| `passed` | 取消前稳定、取消后保持一致，且提供原生参考时实测对照也全部一致 |
+
+发生输出分歧时，各请求目录的 `within_run-comparison.json` 和
+`native_reference-comparison.json`（AFD）保存首个分歧。默认 `first_divergence_logprobs=null`。
+
+需要候选分数时，另建一组原生/AFD 归档，两侧均增加 `--repeat-logprobs 5`，例如
+`full --native-control --repeatability --repeat-logprobs 5 --run`。响应保存用 token ID
+标识的 top-5 `raw_logprobs`，分歧报告另含两侧候选与 top1−top2 差距。
+不能复用未请求分数的参考；缺失或非有限分数会保留响应并明确失败，不静默降级。
+锁定 vLLM sampler 调用 `compute_topk_scores`，Ascend 对应补丁仍绑定旧名
+`compute_topk_logprobs`；该分支在本轮 A5 尚未实测，先不让新增分数采集干扰基础重复性定位。
+这项源码观察不等于已证实该分支设备失败，本轮没有新增采样器补丁。
+
+logprobs 不同于原始 logits；小差距不能单独证明误差可忽略，后续分歧步也因生成
+前缀不同而不能直接用于同输入数值比较。重复性通过同样不代表完整模型准确率通过。
+
+如果取消前就不稳定，先排查原生数值/状态与预热路径；如果只有取消后变化，再定位
+取消及槽位/历史复用。AFD 自身稳定、与稳定原生仍不同，才进一步采集层间边界定位。
+观察到的变化不能单独证明某个模块是根因。所有完整模型任务仍按原验收条件保留。
 
 ## standalone 十二种组合
+
+串行定位收口后，先用普通矩阵流程重建双请求原生参考；两种套件的目录格式和调度上限
+不同，不能混用。普通矩阵参考及首格命令如下，后续本节与 PD 的 `DSV41_NATIVE` 均指此目录：
+
+```bash
+full --native-control --run
+DSV41_NATIVE=/absolute/path/to/new/matrix/full-eager-u1-XXXXXXXX
+full --mode eager-u1 --reference-run "$DSV41_NATIVE" --run
+```
 
 `--mode` 取 `eager-u1`、`eager-u2`、`graph-u1`、`graph-u2`，
 `--spec-tokens` 取 `0`、`1`、`2`，分别对应 DSpark 关、N=1、N=2。

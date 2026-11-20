@@ -1,0 +1,336 @@
+{
+  "archive": {
+    "path": "6e06dda0ce0e4544bb6f383b9b75b004.gz",
+    "sha256": "ed578e580820a56c08baa7b47da4b22d2807e2f2ad985349f04768a858aeaf52"
+  },
+  "run": "full-eager-u1-pqdgncjt",
+  "head": "d3a6f27baae2d7651806f4c0d9887328360e66d9",
+  "source_files_matched": 26,
+  "preflight_passed": true,
+  "mode": "eager-u1",
+  "native_control": false,
+  "cpu_engram": true,
+  "summary": {
+    "request_passed": false,
+    "clean_shutdown": true,
+    "hardware_acceptance": false,
+    "error": "RuntimeError: AFD prompt/output tokens differ from native reference; see token-comparison.json",
+    "forced_cleanup": false,
+    "survivors": [],
+    "exit_codes": {
+      "packed-attention-probe": 0,
+      "ffn": 0,
+      "attention": 0
+    },
+    "ffn_markers": {
+      "peer_stop": true,
+      "engine_cleanup": true,
+      "launcher_exit": true,
+      "worker_ranks": [
+        0,
+        1,
+        2,
+        3
+      ]
+    },
+    "native_forced_cleanup_markers": [],
+    "npu_after": {
+      "exit_code": 0,
+      "idle_devices": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7
+      ],
+      "all_eight_idle": true
+    },
+    "finished_utc": "2026-11-20T02:30:29.375669+00:00",
+    "exit_code": 1
+  },
+  "token_comparisons": [
+    {
+      "request": 0,
+      "status": "tokens_differ",
+      "prompt_token_ids_match": true,
+      "first_output_mismatch_zero_based": {
+        "index": 0,
+        "reference_token_id": 33213,
+        "actual_token_id": 1999
+      },
+      "different_output_positions": 32,
+      "output_tokens": 32,
+      "reference_is_previous_native_response": true
+    },
+    {
+      "request": 1,
+      "status": "tokens_differ",
+      "prompt_token_ids_match": true,
+      "first_output_mismatch_zero_based": {
+        "index": 12,
+        "reference_token_id": 14,
+        "actual_token_id": 16
+      },
+      "different_output_positions": 13,
+      "output_tokens": 32,
+      "reference_is_previous_native_response": true
+    }
+  ],
+  "previous_native_repeat_comparisons": [
+    {
+      "requests": [
+        0,
+        2
+      ],
+      "payloads_byte_identical": true,
+      "prompt_token_ids_match": true,
+      "first_output_mismatch_zero_based": 0,
+      "different_output_positions": 32
+    },
+    {
+      "requests": [
+        1,
+        3
+      ],
+      "payloads_byte_identical": true,
+      "prompt_token_ids_match": true,
+      "first_output_mismatch_zero_based": 12,
+      "different_output_positions": 17
+    }
+  ],
+  "not_executed": [
+    "stream_cancel",
+    "requests_02_03",
+    "long_prompt_04",
+    "U2",
+    "Graph",
+    "DSpark",
+    "PD"
+  ],
+  "interpretation": "Two HTTP200 completions finished; strict native/AFD token comparison failed. Native repeat stability is also unresolved. Current evidence does not identify the numerical or state root cause.",
+  "input_files": {
+    "full-eager-u1-pqdgncjt": {
+      "attention-server.log": {
+        "bytes": 56217,
+        "sha256": "fa40165339dfb3e36a34eac90073d8383a5b23a83d90dd8f8c2a487dc8038bd4"
+      },
+      "ffn-server.log": {
+        "bytes": 38832,
+        "sha256": "897320748a4ab660e326441e2c5de1aabfba2fcfc65c1f129075165306e8c01e"
+      },
+      "health.json": {
+        "bytes": 211,
+        "sha256": "17639c1ebf5220891d094092b6ea60895789de22ebb21ece163a86e7a9beee1a"
+      },
+      "launch-plan.json": {
+        "bytes": 10390,
+        "sha256": "da491bbe03d36d336e79dad943bc5ef42bdb9d3606dee455fec8e8e0f8e004d3"
+      },
+      "lifecycle.json": {
+        "bytes": 2079,
+        "sha256": "e390f253133f712c2e012b5090b17231c08dfbf990eb2838ac0b237663b67259"
+      },
+      "npu-after-packed-probe.log": {
+        "bytes": 5733,
+        "sha256": "4d308b63512c9f69a7ec5547c141ea4d8e388ae5c5bb02710b3afeb057bd0a2b"
+      },
+      "npu-after.log": {
+        "bytes": 5733,
+        "sha256": "9498d1543cc7f733d3383fbab302344625a6fd543688ce13f29ecb141d1aafe6"
+      },
+      "npu-before.log": {
+        "bytes": 5733,
+        "sha256": "2809ed91ae6cbd44a02d0788d575327b34ea7ade85a93162747f045d7ff4e4f3"
+      },
+      "operator-probe.log": {
+        "bytes": 71,
+        "sha256": "ff891cee792699bda93a58cbedade103ebcce0382d2c89e40d17c46fd8241d51"
+      },
+      "packed-attention-probe-server.log": {
+        "bytes": 5003,
+        "sha256": "5bf41ac95d766dfd6bc7a30d094d86d07f6ffcb20ca52d6cb108ed90eaa82082"
+      },
+      "packed-attention-probe.json": {
+        "bytes": 4333,
+        "sha256": "77f7d30d47a8a17a2162fceb3a0905e5a55ba9bf3bd575b53bd2565da2cde504"
+      },
+      "preflight.json": {
+        "bytes": 23846,
+        "sha256": "0b35280f877bf4a2bebaadc15fba4dae190f61ffe50f9ea5b3e63d31f3cefa22"
+      },
+      "request-00/reference-response.json": {
+        "bytes": 902,
+        "sha256": "d9ba66cf29e0873d42d53c5a1be73de0159534e99691d6acfe88517d73305112"
+      },
+      "request-00/request.json": {
+        "bytes": 219,
+        "sha256": "c8a502916e8fc4b099c695fee5618b3e2a80571a3d8f9bf5a626ba7c8ef16575"
+      },
+      "request-00/response.json": {
+        "bytes": 875,
+        "sha256": "d910ca1c174d483a2b2e26118307c468181d370579cabf57b8d0b3a1d4b9b89d"
+      },
+      "request-00/token-comparison.json": {
+        "bytes": 1193,
+        "sha256": "816282c0b758d13cdeca40a023584db6b2a9ea044e9ce7a31dc3c792185e4815"
+      },
+      "request-01/reference-response.json": {
+        "bytes": 782,
+        "sha256": "e165df29553ece1fd1b78e77f91b78968920942c19b6dc1d157ec3e94012abe3"
+      },
+      "request-01/request.json": {
+        "bytes": 239,
+        "sha256": "39760bca1137b8067696c3a6f25ec9302ff2063e5d8e6042e885f4d6112ece1d"
+      },
+      "request-01/response.json": {
+        "bytes": 799,
+        "sha256": "241c7b8f1e4a1c7f16ab31e53ad2cac50f4b26f691c3715dfe5030d3a77f6d7a"
+      },
+      "request-01/token-comparison.json": {
+        "bytes": 1311,
+        "sha256": "36eafe05a83f7484c684f39f6382bdd188b9b7ff6b687757d2773048693c1a85"
+      },
+      "resources.json": {
+        "bytes": 311,
+        "sha256": "2d14a2d1dd1204d464ea824716d38b078a866ca4de9ee4e88a47952859c36e4c"
+      },
+      "summary.json": {
+        "bytes": 5517,
+        "sha256": "7164e3755933b83289d7e40ad0e471e0d58cfa5114b3894554cc2f05671de3b1"
+      }
+    },
+    "full-eager-u1-7z0p69ts": {
+      "attention-server.log": {
+        "bytes": 57337,
+        "sha256": "7b253568e14f17f51b7e1e4f864f09b63c8db82f73e02be412e96cd10e331f16"
+      },
+      "cancel-first-chunk.json": {
+        "bytes": 321,
+        "sha256": "5dcedef9c53960c2f9bcabcae2db5ff4be5a24dade2965510ffd8e4982ac61f0"
+      },
+      "cancel-request.json": {
+        "bytes": 201,
+        "sha256": "fcf4b4fb6f01ecf0f7abd2ab28866851b5c0aef561998790da1c2997f3d4d0de"
+      },
+      "health.json": {
+        "bytes": 211,
+        "sha256": "6a9ea04cbf4b01339227a77a6405e46f27988f497776aa821269887e8ef73567"
+      },
+      "launch-plan.json": {
+        "bytes": 5417,
+        "sha256": "f4b7907324b835019819ea74ac940b69391f88cbe928a9deb5e95715a61422a2"
+      },
+      "lifecycle.json": {
+        "bytes": 1900,
+        "sha256": "39a67ba770729eb8a7988e4f5a07f96c10a1812cddd454690e1858cab879d543"
+      },
+      "npu-after-packed-probe.log": {
+        "bytes": 5733,
+        "sha256": "f832637221cf1b6da3b33719dc6a6fbacfe9c72bb89c1552d76bbe6d00f7be10"
+      },
+      "npu-after.log": {
+        "bytes": 5733,
+        "sha256": "5ee84deaeea1cd507c0912f3800b351afe87a505cd6c1732c47f39bacfdfadd3"
+      },
+      "npu-before.log": {
+        "bytes": 5733,
+        "sha256": "934c32c363460caa16927d38c8fe722fc4d0c8a0eccc21ba94070a848959d2e2"
+      },
+      "operator-probe.log": {
+        "bytes": 71,
+        "sha256": "ff891cee792699bda93a58cbedade103ebcce0382d2c89e40d17c46fd8241d51"
+      },
+      "packed-attention-probe-server.log": {
+        "bytes": 5003,
+        "sha256": "54a66ed2fa02a5c8f90fa8300a3580eb2677bb0854097cfe4b1e955f6ba2e95e"
+      },
+      "packed-attention-probe.json": {
+        "bytes": 4333,
+        "sha256": "77f7d30d47a8a17a2162fceb3a0905e5a55ba9bf3bd575b53bd2565da2cde504"
+      },
+      "preflight.json": {
+        "bytes": 23846,
+        "sha256": "663129b5cea09e44efefc422ae387ecca551b6e4412072857fc02e111123be4d"
+      },
+      "request-00/request.json": {
+        "bytes": 219,
+        "sha256": "c8a502916e8fc4b099c695fee5618b3e2a80571a3d8f9bf5a626ba7c8ef16575"
+      },
+      "request-00/response.json": {
+        "bytes": 902,
+        "sha256": "d9ba66cf29e0873d42d53c5a1be73de0159534e99691d6acfe88517d73305112"
+      },
+      "request-00/token-comparison.json": {
+        "bytes": 643,
+        "sha256": "ba5889dd0c072521a6dbaf3cf4e65f0da33e30c7749b6751fad10215fdb74905"
+      },
+      "request-01/request.json": {
+        "bytes": 239,
+        "sha256": "39760bca1137b8067696c3a6f25ec9302ff2063e5d8e6042e885f4d6112ece1d"
+      },
+      "request-01/response.json": {
+        "bytes": 782,
+        "sha256": "e165df29553ece1fd1b78e77f91b78968920942c19b6dc1d157ec3e94012abe3"
+      },
+      "request-01/token-comparison.json": {
+        "bytes": 702,
+        "sha256": "399f72934eee982f53236b94e9319643a5e49ae8a431d4fb7d218ad0c5239ec8"
+      },
+      "request-02/request.json": {
+        "bytes": 219,
+        "sha256": "c8a502916e8fc4b099c695fee5618b3e2a80571a3d8f9bf5a626ba7c8ef16575"
+      },
+      "request-02/response.json": {
+        "bytes": 867,
+        "sha256": "0bd104a246bfb4cfa397bdab49eabd0389664e2cc92adc375b2fd260c0d624eb"
+      },
+      "request-02/token-comparison.json": {
+        "bytes": 636,
+        "sha256": "77e0cad7750c40c04353e0593affc164ccef3b65c31fae925ba1695dc3b1537c"
+      },
+      "request-03/request.json": {
+        "bytes": 239,
+        "sha256": "39760bca1137b8067696c3a6f25ec9302ff2063e5d8e6042e885f4d6112ece1d"
+      },
+      "request-03/response.json": {
+        "bytes": 786,
+        "sha256": "d4f963746496648221a37f31f02670b57773ab42365b7c2416fe44b2d82f5b9d"
+      },
+      "request-03/token-comparison.json": {
+        "bytes": 695,
+        "sha256": "d359aaf68d18dbcce3a105f0f249768c29558929ce490ebfd32fa4ba9c44db63"
+      },
+      "request-04/request.json": {
+        "bytes": 1268,
+        "sha256": "e7a55526b60e7aaf095d59866e2dc8ee241187748126e68277b64cb9bc7c03ed"
+      },
+      "request-04/response.json": {
+        "bytes": 1831,
+        "sha256": "2bb2289885ec4d3bc4b4c1c72c961b14281debe4e3ec8bffe51112b41198a7f2"
+      },
+      "request-04/token-comparison.json": {
+        "bytes": 2723,
+        "sha256": "cb776f13ba72ff0f39cb8a6cfe08deaa3b564af068694065dca1024b21098d95"
+      },
+      "request-matrix.json": {
+        "bytes": 1090,
+        "sha256": "04ab7ee3303890af7cd4c57e9547bf855865fb16ad1eafc3b2ef37630929a409"
+      },
+      "resources.json": {
+        "bytes": 311,
+        "sha256": "3e6f06b35a9368a302eccef897b00d3651f9a151224425d8554af9b89ac83555"
+      },
+      "summary.json": {
+        "bytes": 6383,
+        "sha256": "9648b4e6e9352bc22a83dd2e69ad9784971b830a8c343a28c32bf43ab5915669"
+      }
+    }
+  },
+  "previous_archive": {
+    "name": "3e76c4e71f12464b86e5b9a87470329a.zip",
+    "sha256": "093800b07f94c7b15eb240b97376355614bda2d4912d959ad286a6c67722549b"
+  }
+}
