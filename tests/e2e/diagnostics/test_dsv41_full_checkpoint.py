@@ -123,6 +123,38 @@ class TestFullCheckpointPlans(unittest.TestCase):
         )
         self.assertEqual(plan["attention_head_adapter"], "tp4-query-16-to-64-v1")
 
+    def test_native_prefill_trace_keeps_repeatability_protocol(self):
+        driver = load_driver()
+        options = dict(native_control=True, repeatability=True, repeat_logprobs=5)
+        paths = (Path("/model"), Path("/vendor"), ROOT)
+        baseline = driver.make_plan(*paths, **options)
+        trace = driver.make_plan(*paths, **options, trace_native_prefill=True)
+        self.assertEqual(
+            trace["repeatability_protocol"], baseline["repeatability_protocol"]
+        )
+        self.assertTrue(trace["trace_native_prefill"])
+        argv = trace["roles"]["attention"]["argv"]
+        self.assertTrue(
+            argv[argv.index("--worker-cls") + 1].endswith(
+                ".DSV41NativeTP4PrefillTraceWorker"
+            )
+        )
+
+    def test_native_prefill_trace_requires_native_repeatability(self):
+        driver = load_driver()
+        for options in ({"native_control": True}, {"repeatability": True}):
+            with (
+                self.subTest(options=options),
+                self.assertRaisesRegex(ValueError, "requires native repeatability"),
+            ):
+                driver.make_plan(
+                    Path("/model"),
+                    Path("/vendor"),
+                    ROOT,
+                    trace_native_prefill=True,
+                    **options,
+                )
+
     def test_repeatability_limits_active_requests_and_records_protocol(self):
         driver = load_driver()
         native_protocol = None
@@ -304,6 +336,23 @@ class TestFullCheckpointReference(unittest.TestCase):
         self.assertIn("attention_head_adapter=None", message)
         self.assertIn("tp4-query-16-to-64-v1", message)
         self.assertIn("AFD services were not started", message)
+
+    def test_native_prefill_trace_is_ineligible_even_if_requests_pass(self):
+        (self.reference / "summary.json").write_text(
+            json.dumps({"request_passed": True, "clean_shutdown": True})
+        )
+        plan = load_driver().make_plan(
+            Path("/model"),
+            Path("/vendor"),
+            ROOT,
+            native_control=True,
+            repeatability=True,
+            trace_native_prefill=True,
+        )
+        (self.reference / "launch-plan.json").write_text(json.dumps(plan))
+        self.assertIn(
+            "native prefill trace is diagnostic only", self.invoke_reference()
+        )
 
     def test_matrix_reference_cannot_start_repeatability_services(self):
         driver = load_driver()

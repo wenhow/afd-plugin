@@ -171,9 +171,9 @@ full --mode graph-u1 --repeatability --reference-run "$DSV41_NATIVE_REPEAT" --ru
 `full --native-control --repeatability --repeat-logprobs 5 --run`。响应保存用 token ID
 标识的 top-5 `raw_logprobs`，分歧报告另含两侧候选与 top1−top2 差距。
 不能复用未请求分数的参考；缺失或非有限分数会保留响应并明确失败，不静默降级。
-锁定 vLLM sampler 调用 `compute_topk_scores`，Ascend 对应补丁仍绑定旧名
-`compute_topk_logprobs`；该分支在本轮 A5 尚未实测，先不让新增分数采集干扰基础重复性定位。
-这项源码观察不等于已证实该分支设备失败，本轮没有新增采样器补丁。
+2026-11-20 的 `full-eager-u1-5zwijbpu` 已在 A5 采集全部 14 次响应的 top-5 分数。
+数列 prompt 的输入一致，七次首 token 都为 1，首步候选分数已有变化。
+取消前第 2、4 个输出 token 在相同生成前缀下复现候选排名翻转。
 
 logprobs 不同于原始 logits；小差距不能单独证明误差可忽略，后续分歧步也因生成
 前缀不同而不能直接用于同输入数值比较。重复性通过同样不代表完整模型准确率通过。
@@ -181,6 +181,27 @@ logprobs 不同于原始 logits；小差距不能单独证明误差可忽略，�
 如果取消前就不稳定，先排查原生数值/状态与预热路径；如果只有取消后变化，再定位
 取消及槽位/历史复用。AFD 自身稳定、与稳定原生仍不同，才进一步采集层间边界定位。
 观察到的变化不能单独证明某个模块是根因。所有完整模型任务仍按原验收条件保留。
+
+### 原生首步 logits 定位
+
+使用包含 `--trace-native-prefill` 的提交，从同一个 A5 checkout 执行：
+
+```bash
+full --native-control --repeatability --repeat-logprobs 5 --trace-native-prefill --run
+```
+
+继续使用两条 prompt、串行顺序及取消前后流程。设备使用原生 TP4 的四张卡。
+每个 TP rank 在请求的前两个生成步记录 `AFD native prefill trace` JSON 行。
+`attention-server.log` 中的 `request_id` 可用各 `response.json` 的 completion ID 关联。
+日志包含输入 token、位置、logits 行索引、传入 logits processor 的 hidden state
+摘要以及采样前 logits 的摘要、top-5 和固定候选值。
+
+回传本次 `diagnostics: ...tar.gz`，即使严格 token 对照使脚本退出 1 也回传。
+先比较同一 TP rank、相同输入和位置的首步。hidden state 摘要不同，则向模型前向
+逐层定位。hidden state 相同而原始 logits 不同，则检查输出头与 TP 汇聚。
+两者都相同但 HTTP 分数不同，则检查采样器和评分路径。
+第二步还需核对首个生成 token 一致。张量复制会增加耗时，带 trace 的归档用于定位，
+脚本拒绝将其用作 AFD 参考。
 
 ## standalone 十二种组合
 

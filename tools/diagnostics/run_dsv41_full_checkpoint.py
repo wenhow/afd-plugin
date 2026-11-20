@@ -97,11 +97,14 @@ def make_plan(
     warmup_rounds: int = repeatability_check.DEFAULT_WARMUP_ROUNDS,
     repeat_rounds: int = repeatability_check.DEFAULT_REPEAT_ROUNDS,
     repeat_logprobs: int = 0,
+    trace_native_prefill: bool = False,
 ) -> dict:
     if mode not in MODES or spec_tokens not in (0, 1, 2):
         raise ValueError("unsupported full-checkpoint qualification mode")
     if native_control and (mode != "eager-u1" or spec_tokens or pd_role):
         raise ValueError("native control requires eager U1 without DSpark/PD")
+    if trace_native_prefill and not (native_control and repeatability):
+        raise ValueError("native prefill trace requires native repeatability")
     if pd_role == "producer" and mode != "eager-u1":
         raise ValueError("PD producer qualification uses eager U1")
     if pd_role not in (None, "producer", "consumer"):
@@ -238,11 +241,15 @@ def make_plan(
         if native_control and role == "attention":
             additional.pop("afd")
             env["AFD_DSV41_FULL_QUALIFICATION"] = "0"
+            worker = (
+                "DSV41NativeTP4PrefillTraceWorker"
+                if trace_native_prefill
+                else "DSV41NativeTP4ControlWorker"
+            )
             set_option(
                 argv,
                 "--worker-cls",
-                "afd_plugin.v1.worker.npu.dsv41_native_worker."
-                "DSV41NativeTP4ControlWorker",
+                f"afd_plugin.v1.worker.npu.dsv41_native_worker.{worker}",
             )
         set_option(argv, "--additional-config", json.dumps(additional))
     if native_control:
@@ -264,6 +271,8 @@ def make_plan(
         stream_overlap=stream_overlap,
         request_suite="repeatability" if repeatability else "matrix",
     )
+    if trace_native_prefill:
+        plan["trace_native_prefill"] = True
     if repeatability:
         plan["repeatability_protocol"] = {
             "version": repeatability_check.PROTOCOL_VERSION,
@@ -481,12 +490,21 @@ def main() -> int:
         default=0,
         help="optional top-5 score collection; default reuses the token-only path",
     )
+    parser.add_argument(
+        "--trace-native-prefill",
+        action="store_true",
+        help="record the first two native sampling steps in attention-server.log",
+    )
     parser.add_argument("--output-root", type=Path, required=True)
     parser.add_argument("--startup-timeout", type=int, default=3600)
     parser.add_argument("--run", action="store_true")
     args = parser.parse_args()
     if args.run and sys.platform != "linux":
         parser.error("--run requires the A5 Linux container")
+    if args.trace_native_prefill and (
+        not (args.native_control and args.repeatability) or args.reference_run
+    ):
+        parser.error("--trace-native-prefill requires --native-control --repeatability")
     if args.pd_role == "consumer" and not args.prefill_url:
         parser.error("PD consumer requires --prefill-url")
     if args.pd_role == "producer" and (
@@ -520,6 +538,7 @@ def main() -> int:
         warmup_rounds=args.warmup_rounds,
         repeat_rounds=args.repeat_rounds,
         repeat_logprobs=args.repeat_logprobs,
+        trace_native_prefill=args.trace_native_prefill,
     )
     args.output_root.mkdir(parents=True, exist_ok=True)
     directory = Path(
@@ -540,6 +559,10 @@ def main() -> int:
         reference_plan = json.loads(
             (args.reference_run / "launch-plan.json").read_bytes()
         )
+        if reference_plan.get("trace_native_prefill"):
+            raise ValueError(
+                "native prefill trace is diagnostic only; AFD services were not started"
+            )
         reference_summary = json.loads(
             (args.reference_run / "summary.json").read_bytes()
         )

@@ -75,6 +75,12 @@ Graph/U2 N=2 在原生 draft 的 packed Attention 抛出 16-head 拒绝；已在
 1.3、1.8、2.2–2.5 仍 pending，未执行本轮 A5 复测。
 见[修复、架构审查及四份归档分析](evidence/a5-dspark-heads-eager-u2-20261120/README.md)。
 
+随后 A5 原生串行归档 `full-eager-u1-pz23il_b` 与 top-5 归档 `full-eager-u1-5zwijbpu`
+均完成 14 个请求并正常回收，数列 prompt 在取消前已分歧。top-5 归档的首步候选分数
+在生成历史为空时已经不同。本轮增加原生 TP4 可选首两步 trace，采集各 rank
+的 logits processor 输入摘要和原始 logits，供确定下一处排查边界。实机 trace
+待验证，2.2/1.8 和其余组合的验收状态保留。
+
 | 执行顺序 | 对应原任务 | 阶段边界与验收前置 |
 | --- | --- | --- |
 | 先完成真实权重 eager/U1 对照 | 2.2、1.8，关联 C2 | 原始量化 checkpoint、A 侧原生 CPU Engram、F 隔离；历史首 token 差异未闭合，单次请求成功不等于等价 |

@@ -1,11 +1,13 @@
 # SPDX-License-Identifier: Apache-2.0
 """Native-control backend selection contracts; no NPU execution."""
 
+import json
+import logging
 from types import SimpleNamespace
 
 import pytest
 
-pytest.importorskip("torch")
+torch = pytest.importorskip("torch")
 pytest.importorskip("vllm")
 pytest.importorskip("torch_npu")
 pytest.importorskip("vllm_ascend")
@@ -14,8 +16,10 @@ from afd_plugin.model_executor.models.npu.dsv41_packed_cache import (  # noqa: E
     AFDMixedQuantPackedCacheOps,
     native,
 )
+from afd_plugin.v1.worker.npu import dsv41_native_worker  # noqa: E402
 from afd_plugin.v1.worker.npu.dsv41_native_worker import (  # noqa: E402
     DSV41NativeTP4ControlWorker,
+    DSV41NativeTP4PrefillTraceWorker,
     NPUWorker,
 )
 from tests.unit.fakes.dsv41_packed_cache import make_native_control_case  # noqa: E402
@@ -71,3 +75,77 @@ def test_native_control_rejects_other_tp_sizes_before_loading(native_control_cas
     native_control_case.worker.vllm_config.parallel_config.tensor_parallel_size = 1
     with pytest.raises(ValueError, match="requires TP4"):
         native_control_case.worker.load_model()
+
+
+@pytest.fixture
+def prefill_trace_worker(monkeypatch):
+    class LogitsProcessor(torch.nn.Module):
+        def forward(self, head, hidden_states):
+            logits = torch.zeros((1, 2048), dtype=hidden_states.dtype)
+            logits[0, 223] = 4
+            return logits
+
+    processor = LogitsProcessor()
+    batch = SimpleNamespace(
+        num_reqs=1,
+        num_draft_tokens=0,
+        req_ids=["cmpl-trace-0"],
+        prefill_len_np=[2],
+        num_computed_tokens_np=[0],
+        num_tokens=2,
+        input_ids=torch.tensor([43, 16]),
+        positions=torch.tensor([0, 1]),
+        logits_indices=torch.tensor([1]),
+    )
+    worker = object.__new__(DSV41NativeTP4PrefillTraceWorker)
+    worker.rank = 2
+    worker.model_runner = SimpleNamespace(
+        execute_model_state=SimpleNamespace(input_batch=batch),
+        model=SimpleNamespace(logits_processor=processor),
+    )
+
+    def sample(owner, grammar_output):
+        logits = processor(
+            torch.nn.Identity(), torch.ones((1, 4), dtype=torch.bfloat16)
+        )
+        logits[0, 223] = 2
+        return logits
+
+    monkeypatch.setattr(NPUWorker, "sample_tokens", sample)
+    monkeypatch.setattr(dsv41_native_worker, "init_logger", logging.getLogger)
+    return worker, batch
+
+
+@pytest.mark.parametrize("step", [1, 2, 3])
+def test_native_prefill_trace_reports_unmodified_scores_for_first_two_steps(
+    prefill_trace_worker, caplog, step
+):
+    worker, batch = prefill_trace_worker
+    if step > 1:
+        batch.num_tokens = 1
+        batch.num_computed_tokens_np = [step]
+        batch.input_ids = torch.tensor([223])
+        batch.positions = torch.tensor([step])
+        batch.logits_indices = torch.tensor([0])
+
+    with caplog.at_level(logging.INFO):
+        sampled = worker.sample_tokens(None)
+
+    assert sampled[0, 223].item() == 2
+    marker = "AFD native prefill trace "
+    messages = [m.removeprefix(marker) for m in caplog.messages if m.startswith(marker)]
+    if step == 3:
+        assert messages == []
+        return
+    (message,) = messages
+    record = json.loads(message)
+    assert (record["request_id"], record["rank"], record["step"]) == (
+        "cmpl-trace-0",
+        2,
+        step,
+    )
+    assert record["input_ids"] == batch.input_ids.tolist()
+    assert record["positions"] == batch.positions.tolist()
+    assert record["hidden_state"]["dtype"] == "torch.bfloat16"
+    assert record["raw_logits"]["top5"][0] == [223, 4]
+    assert record["raw_logits"]["candidates"]["223"] == 4
