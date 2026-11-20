@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites><testsuite name="pytest" errors="2" failures="0" skipped="0" tests="2" time="0.973" timestamp="2026-11-20T09:39:49.859137+08:00" hostname="4ff038c993bf40219c03182f786a9def"><testcase classname="" name="tests.unit.v1.worker.npu.test_dsv41_native_worker" time="0.000"><error message="collection failure">ImportError while importing test module '/mnt/workspace/tmp/afd-c0-20261104.hVgsIf/native-tp4-control-cpu-2b9vavr8/snapshot/tests/unit/v1/worker/npu/test_dsv41_native_worker.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/opt/buildtools/python-3.12.9/lib/python3.12/importlib/__init__.py:90: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+tests/unit/v1/worker/npu/test_dsv41_native_worker.py:17: in &lt;module&gt;
+    from afd_plugin.v1.worker.npu.dsv41_native_worker import (  # noqa: E402
+afd_plugin/v1/worker/npu/dsv41_native_worker.py:10: in &lt;module&gt;
+    from vllm_ascend.worker.worker import NPUWorker
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/vllm_ascend/worker/worker.py:85: in &lt;module&gt;
+    from vllm_ascend.device_allocator.camem import CaMemAllocator
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/vllm_ascend/device_allocator/camem.py:27: in &lt;module&gt;
+    from acl.rt import memcpy  # type: ignore # noqa: F401
+E   ModuleNotFoundError: No module named 'acl'</error></testcase><testcase classname="" name="tests.unit.v1.worker.npu.test_attention_worker" time="0.000"><error message="collection failure">ImportError while importing test module '/mnt/workspace/tmp/afd-c0-20261104.hVgsIf/native-tp4-control-cpu-2b9vavr8/snapshot/tests/unit/v1/worker/npu/test_attention_worker.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/opt/buildtools/python-3.12.9/lib/python3.12/importlib/__init__.py:90: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+tests/unit/v1/worker/npu/test_attention_worker.py:19: in &lt;module&gt;
+    from vllm_ascend.worker import worker as native_worker
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/vllm_ascend/worker/worker.py:85: in &lt;module&gt;
+    from vllm_ascend.device_allocator.camem import CaMemAllocator
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/vllm_ascend/device_allocator/camem.py:27: in &lt;module&gt;
+    from acl.rt import memcpy  # type: ignore # noqa: F401
+E   ModuleNotFoundError: No module named 'acl'</error></testcase></testsuite></testsuites>

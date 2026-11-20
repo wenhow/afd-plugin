@@ -7,21 +7,33 @@ owners:
   - "@jiangkuaixue123"
 primary_code_paths:
   - "afd_plugin/model_executor/models/npu/dsv41_packed_cache.py"
+  - "afd_plugin/v1/worker/npu/dsv41_native_worker.py"
 related_code_paths:
   - "afd_plugin/model_executor/models/npu/deepseek_v41.py"
 depends_on:
   - "model_integration.md"
 validation_paths:
   - "tests/unit/model_executor/models/npu/test_dsv41_packed_cache.py"
+  - "tests/unit/v1/worker/npu/test_dsv41_native_worker.py"
   - "tests/npu/dsv41_packed_attention_probe.py"
 upstream_refs:
   - "vllm-ascend 7e37e29a7803d6897a7113088e2b771f83205bc0"
 verified_platform_refs:
-  - "CPU headwise reference only; packed A5 kernel acceptance pending"
-last_reviewed: 2026-11-12
+  - "CPU headwise reference and native-control selection contracts"
+  - "A5 packed component reports 2026-11-19/20; full-model acceptance pending"
+last_reviewed: 2026-11-20
 ---
 
 # DSV4.1 packed attention head adapter
+
+The explicit full-checkpoint native TP4 control uses
+`DSV41NativeTP4ControlWorker`, a direct native `NPUWorker` subclass. Its only
+override calls native weight loading and then selects the same head adapter
+on each exact native packed Attention backend before profiling. Native model,
+MoE, ModelRunner, Engram, cache state and distributed execution remain native.
+The launch plan labels this shared head adapter; it is a native control with
+query-head compatibility, not a claim that the unmodified A5 wheel supports TP4.
+The worker is selected only by that control command, with no global patch.
 
 The deployed A5 ds41 wheel rejects the first AFD TP4 request because it accepts
 64 query heads while each Attention rank supplies 16. The native packed-cache

@@ -70,6 +70,11 @@ class TestFullCheckpointPlans(unittest.TestCase):
         argv = plan["roles"]["attention"]["argv"]
         self.assertEqual(argv[argv.index("--tensor-parallel-size") + 1], "4")
         self.assertNotIn("afd", json.loads(argv[argv.index("--additional-config") + 1]))
+        self.assertEqual(
+            argv[argv.index("--worker-cls") + 1],
+            "afd_plugin.v1.worker.npu.dsv41_native_worker.DSV41NativeTP4ControlWorker",
+        )
+        self.assertEqual(plan["attention_head_adapter"], "tp4-query-16-to-64-v1")
 
     def test_pd_config_keeps_equal_tp_and_attested_connector_on_declared_roles(self):
         driver = load_driver()
@@ -146,7 +151,7 @@ class TestFullCheckpointReference(unittest.TestCase):
         ):
             (self.reference / name).write_text(json.dumps(report))
 
-    def test_failed_native_reference_reports_original_failure_before_afd_start(self):
+    def invoke_reference(self):
         driver = load_driver()
         argv = [
             "run_dsv41_full_checkpoint.py",
@@ -175,10 +180,22 @@ class TestFullCheckpointReference(unittest.TestCase):
         ):
             driver.main()
 
-        message = str(raised.exception)
+        return str(raised.exception)
+
+    def test_failed_native_reference_reports_original_failure_before_afd_start(self):
+        message = self.invoke_reference()
         self.assertIn(str(self.reference), message)
         self.assertIn("request_passed=False", message)
         self.assertIn(self.error, message)
+        self.assertIn("AFD services were not started", message)
+
+    def test_reference_without_matching_head_adapter_is_rejected(self):
+        (self.reference / "summary.json").write_text(
+            json.dumps({"request_passed": True, "clean_shutdown": True})
+        )
+        message = self.invoke_reference()
+        self.assertIn("attention_head_adapter=None", message)
+        self.assertIn("tp4-query-16-to-64-v1", message)
         self.assertIn("AFD services were not started", message)
 
 

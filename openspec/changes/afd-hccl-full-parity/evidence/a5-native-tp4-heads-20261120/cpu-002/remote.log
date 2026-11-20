@@ -1,0 +1,66 @@
+test_fixture_setup
+    return (yield)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/fixtures.py:1139: in pytest_fixture_setup
+    result = call_fixture_func(fixturefunc, request, kwargs)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/fixtures.py:897: in call_fixture_func
+    fixture_result = fixturefunc(**kwargs)
+tests/unit/v1/worker/npu/test_attention_worker.py:40: in native_pd_shutdown_case
+    case = make_native_pd_shutdown_case(
+tests/unit/fakes/kv_connector.py:1249: in make_native_pd_shutdown_case
+    assert owner.execute_model(scheduled) is None
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/torch/utils/_contextlib.py:124: in decorate_context
+    return func(*args, **kwargs)
+afd_plugin/v1/worker/npu/attention_model_runner_v2.py:977: in execute_model
+    return super().execute_model(
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/torch/utils/_contextlib.py:124: in decorate_context
+    return func(*args, **kwargs)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/vllm_ascend/worker/v2/model_runner.py:517: in execute_model
+    output = super().execute_model(
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/torch/utils/_contextlib.py:124: in decorate_context
+    return func(*args, **kwargs)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/vllm/v1/worker/gpu/model_runner.py:1948: in execute_model
+    model_output = self.model(**model_inputs)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/torch/nn/modules/module.py:1776: in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/torch/nn/modules/module.py:1787: in _call_impl
+    return forward_call(*args, **kwargs)
+afd_plugin/model_executor/models/npu/deepseek_v41.py:395: in forward
+    return invocation(
+afd_plugin/v1/worker/npu/hccl_v41_execution.py:141: in __call__
+    return execute_hccl_v41_stages(
+afd_plugin/v1/worker/npu/hccl_v41_execution.py:297: in execute_hccl_v41_stages
+    return _execute_hccl_v41_parent(
+afd_plugin/v1/worker/npu/hccl_v41_execution.py:390: in _execute_hccl_v41_parent
+    transport.finish_forward()
+afd_plugin/connectors/npu/hccl_staged_transport.py:1145: in finish_forward
+    self._finish_forward()
+afd_plugin/connectors/npu/hccl_staged_transport.py:1163: in _finish_forward
+    torch.npu.synchronize(self.local_device)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/torch_npu/npu/utils.py:70: in synchronize
+    torch_npu.npu._lazy_init()
+/opt/buildtools/python-3.12.9/lib/python3.12/unittest/mock.py:1139: in __call__
+    return self._mock_call(*args, **kwargs)
+/opt/buildtools/python-3.12.9/lib/python3.12/unittest/mock.py:1143: in _mock_call
+    return self._execute_mock_call(*args, **kwargs)
+/opt/buildtools/python-3.12.9/lib/python3.12/unittest/mock.py:1198: in _execute_mock_call
+    raise effect
+E   RuntimeError: CPU test forbids NPU initialization
+=============================== warnings summary ===============================
+tests/unit/v1/worker/npu/test_attention_worker.py::test_failed_pd_sampling_rejects_shutdown_before_native_release[native_pd_shutdown_case0]
+  /mnt/workspace/code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/torch_npu/utils/storage.py:55: UserWarning: TypedStorage is deprecated. It will be removed in the future and UntypedStorage will be the only storage class. This should only matter to you if you are using storages directly.  To access UntypedStorage directly, use tensor.untyped_storage() instead of tensor.storage()
+    if self.device.type != 'cpu':
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+- generated xml file: /mnt/workspace/tmp/afd-c0-20261104.hVgsIf/native-tp4-control-cpu-m_yet9i9/results/junit.xml -
+=========================== short test summary info ============================
+FAILED tests/unit/v1/worker/npu/test_attention_worker.py::test_successful_native_execute_is_one_step_including_legal_none[None]
+FAILED tests/unit/v1/worker/npu/test_attention_worker.py::test_successful_native_execute_is_one_step_including_legal_none[native-result]
+FAILED tests/unit/v1/worker/npu/test_attention_worker.py::test_idle_profile_request_is_pending_until_the_next_execute
+ERROR tests/unit/v1/worker/npu/test_attention_worker.py::test_failed_pd_sampling_rejects_shutdown_before_native_release[native_pd_shutdown_case0]
+ERROR tests/unit/v1/worker/npu/test_attention_worker.py::test_failed_pd_sampling_rejects_shutdown_before_native_release[native_pd_shutdown_case1]
+ERROR tests/unit/v1/worker/npu/test_attention_worker.py::test_successful_pd_shutdown_drains_before_native_release[native_pd_shutdown_case0]
+ERROR tests/unit/v1/worker/npu/test_attention_worker.py::test_successful_pd_shutdown_drains_before_native_release[native_pd_shutdown_case1]
+3 failed, 30 passed, 1 warning, 4 errors in 11.53s
+
+source_unchanged True
+Warning: Permanently added '[127.0.0.1]:43078' (ED25519) to the list of known hosts.

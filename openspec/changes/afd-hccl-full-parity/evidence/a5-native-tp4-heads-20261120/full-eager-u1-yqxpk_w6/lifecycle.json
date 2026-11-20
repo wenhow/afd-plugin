@@ -1,0 +1,126 @@
+[
+  {
+    "utc": "2026-11-20T01:27:13.701569+00:00",
+    "event": "spawned",
+    "role": "packed-attention-probe",
+    "pid": 20166
+  },
+  {
+    "utc": "2026-11-20T01:27:53.713456+00:00",
+    "event": "exited",
+    "role": "packed-attention-probe",
+    "exit_code": 0
+  },
+  {
+    "utc": "2026-11-20T01:27:58.712622+00:00",
+    "event": "packed_attention_probe_passed"
+  },
+  {
+    "utc": "2026-11-20T01:27:58.714926+00:00",
+    "event": "spawned",
+    "role": "attention",
+    "pid": 20322
+  },
+  {
+    "utc": "2026-11-20T01:27:58.721919+00:00",
+    "event": "waiting_for_ready",
+    "attention_health": false,
+    "ffn_service_loop": false
+  },
+  {
+    "utc": "2026-11-20T01:28:28.928971+00:00",
+    "event": "waiting_for_ready",
+    "attention_health": false,
+    "ffn_service_loop": false
+  },
+  {
+    "utc": "2026-11-20T01:28:59.140593+00:00",
+    "event": "waiting_for_ready",
+    "attention_health": false,
+    "ffn_service_loop": false
+  },
+  {
+    "utc": "2026-11-20T01:29:29.370441+00:00",
+    "event": "waiting_for_ready",
+    "attention_health": false,
+    "ffn_service_loop": false
+  },
+  {
+    "utc": "2026-11-20T01:29:59.604247+00:00",
+    "event": "waiting_for_ready",
+    "attention_health": false,
+    "ffn_service_loop": false
+  },
+  {
+    "utc": "2026-11-20T01:30:29.828769+00:00",
+    "event": "waiting_for_ready",
+    "attention_health": false,
+    "ffn_service_loop": false
+  },
+  {
+    "utc": "2026-11-20T01:30:52.993719+00:00",
+    "event": "ready",
+    "attention_health": true,
+    "ffn_service_loop": false
+  },
+  {
+    "utc": "2026-11-20T01:30:54.370312+00:00",
+    "event": "failed",
+    "error": "RuntimeError: completion HTTP 500"
+  },
+  {
+    "utc": "2026-11-20T01:30:54.370626+00:00",
+    "event": "signal",
+    "role": "attention",
+    "signal": "SIGINT",
+    "target": "root"
+  },
+  {
+    "utc": "2026-11-20T01:30:57.373274+00:00",
+    "event": "exited",
+    "role": "attention",
+    "exit_code": 0
+  },
+  {
+    "utc": "2026-11-20T01:30:57.374349+00:00",
+    "event": "forced_cleanup",
+    "signal": "SIGTERM",
+    "processes": [
+      {
+        "role": "attention",
+        "pid": 20453,
+        "start_ticks": 56851656,
+        "parent": 1,
+        "session": 20322
+      },
+      {
+        "role": "attention",
+        "pid": 20538,
+        "start_ticks": 56852707,
+        "parent": 1,
+        "session": 20322
+      },
+      {
+        "role": "attention",
+        "pid": 20539,
+        "start_ticks": 56852707,
+        "parent": 1,
+        "session": 20322
+      },
+      {
+        "role": "attention",
+        "pid": 20540,
+        "start_ticks": 56852707,
+        "parent": 1,
+        "session": 20322
+      },
+      {
+        "role": "attention",
+        "pid": 20541,
+        "start_ticks": 56852707,
+        "parent": 1,
+        "session": 20322
+      }
+    ]
+  }
+]

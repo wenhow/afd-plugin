@@ -6,6 +6,21 @@ from dataclasses import dataclass
 from types import SimpleNamespace
 
 import torch
+from vllm_ascend.models.deepseek_v41.model import DeepseekV41Attention
+
+
+def make_native_control_case(worker_cls, backend, *, tp_size=4):
+    attention = DeepseekV41Attention.__new__(DeepseekV41Attention)
+    torch.nn.Module.__init__(attention)
+    attention.packed_cache_ops = backend
+    unrelated = torch.nn.Module()
+    unrelated.packed_cache_ops = backend
+    model = torch.nn.ModuleDict({"attention": attention, "unrelated": unrelated})
+    worker = object.__new__(worker_cls)
+    worker.vllm_config = SimpleNamespace(
+        parallel_config=SimpleNamespace(tensor_parallel_size=tp_size)
+    )
+    return SimpleNamespace(worker=worker, model=model)
 
 
 @dataclass

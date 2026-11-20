@@ -44,6 +44,15 @@ health.json 和等待进度；HTTP 200 与 curl exit 0 同时满足才通过，�
 使用无代理 opener。缺少 curl 会立即报错，连接/HTTP/超时错误保留在报告中。
 见[主机验证](evidence/a5-curl-readiness-cpu-20261119/README.md)，不改变 A5 任务状态。
 
+2026-11-20 原生 `full-eager-u1-yqxpk_w6` 的预检/packed probe/curl HTTP 200 均通过，
+首波双请求进入模型后因 wheel 限制 `N1 must be 64 ... got 16` 返回 HTTP 500。
+原生对照未接入 AFD 已有的 per-Attention head adapter；已补齐显式控制 worker，
+仅在原生载权后替换本实例的 backend，原生模型/ModelRunner/MoE/Engram 保留。
+计划标记相同 adapter，参考准入核对标记；新增父 worker 锁源检查。
+19 项真实依赖 CPU 适配/选择契约通过，NPU 未初始化；完整请求和正常退出仍待 A5。
+本包清理后八卡 idle、无残留，但触发强制清理，2.2/1.8 不勾选。
+见[归档、架构审查与验证](evidence/a5-native-tp4-heads-20261120/README.md)。
+
 | 执行顺序 | 对应原任务 | 阶段边界与验收前置 |
 | --- | --- | --- |
 | 先完成真实权重 eager/U1 对照 | 2.2、1.8，关联 C2 | 原始量化 checkpoint、A 侧原生 CPU Engram、F 隔离；历史首 token 差异未闭合，单次请求成功不等于等价 |

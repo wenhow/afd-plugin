@@ -1,0 +1,48 @@
+{
+  "scope": "CPU and host contracts only; A5 archive reviewed offline. No NPU initialized or full model run by this session.",
+  "host_test_methods_passed": 21,
+  "cpu_targeted_cases_passed": 19,
+  "cpu_targeted_artifacts": "cpu-003/",
+  "cpu_baseline_comparison": "cpu-002 has seven legacy worker test failures/errors identical by node id, kind and message to unmodified base cpu-004-baseline; retained, not counted as passes.",
+  "cpu_initial_attempt": "cpu-001 collection failed because runner environment overwrote the CANN PYTHONPATH; corrected in subsequent attempts.",
+  "signature_review": {
+    "upstream": "vllm_ascend/worker/worker.py:NPUWorker.load_model",
+    "commit": "7e37e29a7803d6897a7113088e2b771f83205bc0",
+    "sha256": "51cfb3da18046af8c72ccefe940de5f24d9502bfdae75b941e1798c0a165cda4",
+    "signature": "load_model(self) -> None",
+    "ast_parameters_and_return_match": true
+  },
+  "cpu_command": "python -B -X utf8 .tmp/run_native_control_cpu_20261120.py (001-003, then --baseline for 004); frozen source manifests and executed remote runner copies retained in cpu-*",
+  "checks": [
+    {
+      "name": "host_tests",
+      "command": ".venv/Scripts/python.exe -B -X utf8 -m pytest tests/e2e/diagnostics/test_dsv41_a5_afd.py tests/e2e/diagnostics/test_dsv41_full_checkpoint.py -q -p no:cacheprovider --junitxml=openspec/changes/afd-hccl-full-parity/evidence/a5-native-tp4-heads-20261120/host-tests.xml",
+      "exit_code": 0,
+      "output": ".....................                                [100%]\r\n"
+    },
+    {
+      "name": "ruff",
+      "command": ".venv/Scripts/ruff.exe check afd_plugin/v1/worker/npu/dsv41_native_worker.py tests/unit/v1/worker/npu/test_dsv41_native_worker.py tests/unit/fakes/dsv41_packed_cache.py tools/diagnostics/run_dsv41_full_checkpoint.py tests/e2e/diagnostics/test_dsv41_full_checkpoint.py",
+      "exit_code": 0,
+      "output": "All checks passed!\n"
+    },
+    {
+      "name": "format",
+      "command": ".venv/Scripts/ruff.exe format --check afd_plugin/v1/worker/npu/dsv41_native_worker.py tests/unit/v1/worker/npu/test_dsv41_native_worker.py tests/unit/fakes/dsv41_packed_cache.py tools/diagnostics/run_dsv41_full_checkpoint.py tests/e2e/diagnostics/test_dsv41_full_checkpoint.py",
+      "exit_code": 0,
+      "output": "5 files already formatted\n"
+    },
+    {
+      "name": "harness_check",
+      "command": "python -B -X utf8 .agents/dsv41/harness.py check",
+      "exit_code": 0,
+      "output": "{\r\n  \"ok\": true,\r\n  \"files\": 434,\r\n  \"changes\": 8,\r\n  \"tasks\": 109,\r\n  \"source_objects\": 56,\r\n  \"skills\": 3,\r\n  \"phase\": \"implementation\",\r\n  \"upstreams_unchanged\": true,\r\n  \"validation_scope\": \"local plan checks; not official CLI or NPU qualification\"\r\n}\r\n"
+    },
+    {
+      "name": "upstream_guard",
+      "command": "python -B -X utf8 .agents/dsv41/harness.py guard",
+      "exit_code": 0,
+      "output": "{\r\n  \"ok\": true,\r\n  \"upstreams\": [\r\n    \"vllm\",\r\n    \"vllm_ascend\",\r\n    \"hccl_donor\"\r\n  ],\r\n  \"unchanged\": true\r\n}\r\n"
+    }
+  ]
+}

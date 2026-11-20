@@ -30,6 +30,7 @@ MODES = ("eager-u1", "eager-u2", "graph-u1", "graph-u2")
 PD_MODULE = "afd_plugin.compat.npu.kv_layout_connector"
 CANCEL_OUTPUT_TOKENS = 256
 DEFAULT_KV_PORT = 14579
+TP4_HEAD_ADAPTER = "tp4-query-16-to-64-v1"
 FULL_CHECKPOINT_PROFILE = replace(
     DEFAULT_PROFILE,
     sources=DEFAULT_PROFILE.sources
@@ -48,6 +49,11 @@ FULL_CHECKPOINT_PROFILE = replace(
             "vllm_ascend",
             "worker/v2/aclgraph_utils.py",
             "b2271eb4aab5876e85370897236a99ece7e9a9541b05f2fc0dd923b32bb8193d",
+        ),
+        SourceIdentity(
+            "vllm_ascend",
+            "worker/worker.py",
+            "51cfb3da18046af8c72ccefe940de5f24d9502bfdae75b941e1798c0a165cda4",
         ),
         SourceIdentity(
             "vllm_ascend",
@@ -208,6 +214,12 @@ def make_plan(
         if native_control and role == "attention":
             additional.pop("afd")
             env["AFD_DSV41_FULL_QUALIFICATION"] = "0"
+            set_option(
+                argv,
+                "--worker-cls",
+                "afd_plugin.v1.worker.npu.dsv41_native_worker."
+                "DSV41NativeTP4ControlWorker",
+            )
         set_option(argv, "--additional-config", json.dumps(additional))
     if native_control:
         plan["roles"].pop("ffn")
@@ -218,6 +230,7 @@ def make_plan(
         native_control=native_control,
         pd_role=pd_role,
         native_tp_size=4,
+        attention_head_adapter=TP4_HEAD_ADAPTER,
         cpu_engram=True,
         required_devices=4 if native_control else 8,
         physical_devices=list(selected),
@@ -463,16 +476,20 @@ def main() -> int:
         reference_summary = json.loads(
             (args.reference_run / "summary.json").read_bytes()
         )
+        reference_adapter = reference_plan.get("attention_head_adapter")
         if (
             not reference_plan["native_control"]
             or not reference_summary["request_passed"]
             or not reference_summary["clean_shutdown"]
+            or reference_adapter != TP4_HEAD_ADAPTER
         ):
             raise ValueError(
                 f"native TP4 reference {args.reference_run} is unusable: "
                 f"native_control={reference_plan['native_control']}, "
                 f"request_passed={reference_summary['request_passed']}, "
                 f"clean_shutdown={reference_summary['clean_shutdown']}; "
+                f"attention_head_adapter={reference_adapter!r} "
+                f"(expected {TP4_HEAD_ADAPTER!r}); "
                 f"reference error={reference_summary.get('error', 'none')}. "
                 "See its summary.json; AFD services were not started."
             )

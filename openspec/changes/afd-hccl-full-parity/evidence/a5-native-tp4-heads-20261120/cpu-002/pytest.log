@@ -1,0 +1,2036 @@
+...................EEEE..FFF.........                                    [100%]
+==================================== ERRORS ====================================
+_ ERROR at setup of test_failed_pd_sampling_rejects_shutdown_before_native_release[native_pd_shutdown_case0] _
+tests/unit/v1/worker/npu/test_attention_worker.py:40: in native_pd_shutdown_case
+    case = make_native_pd_shutdown_case(
+tests/unit/fakes/kv_connector.py:1249: in make_native_pd_shutdown_case
+    assert owner.execute_model(scheduled) is None
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/torch/utils/_contextlib.py:124: in decorate_context
+    return func(*args, **kwargs)
+afd_plugin/v1/worker/npu/attention_model_runner_v2.py:977: in execute_model
+    return super().execute_model(
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/torch/utils/_contextlib.py:124: in decorate_context
+    return func(*args, **kwargs)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/vllm_ascend/worker/v2/model_runner.py:517: in execute_model
+    output = super().execute_model(
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/torch/utils/_contextlib.py:124: in decorate_context
+    return func(*args, **kwargs)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/vllm/v1/worker/gpu/model_runner.py:1948: in execute_model
+    model_output = self.model(**model_inputs)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/torch/nn/modules/module.py:1776: in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/torch/nn/modules/module.py:1787: in _call_impl
+    return forward_call(*args, **kwargs)
+afd_plugin/model_executor/models/npu/deepseek_v41.py:395: in forward
+    return invocation(
+afd_plugin/v1/worker/npu/hccl_v41_execution.py:141: in __call__
+    return execute_hccl_v41_stages(
+afd_plugin/v1/worker/npu/hccl_v41_execution.py:297: in execute_hccl_v41_stages
+    return _execute_hccl_v41_parent(
+afd_plugin/v1/worker/npu/hccl_v41_execution.py:390: in _execute_hccl_v41_parent
+    transport.finish_forward()
+afd_plugin/connectors/npu/hccl_staged_transport.py:1145: in finish_forward
+    self._finish_forward()
+afd_plugin/connectors/npu/hccl_staged_transport.py:1163: in _finish_forward
+    torch.npu.synchronize(self.local_device)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/torch_npu/npu/utils.py:70: in synchronize
+    torch_npu.npu._lazy_init()
+/opt/buildtools/python-3.12.9/lib/python3.12/unittest/mock.py:1139: in __call__
+    return self._mock_call(*args, **kwargs)
+/opt/buildtools/python-3.12.9/lib/python3.12/unittest/mock.py:1143: in _mock_call
+    return self._execute_mock_call(*args, **kwargs)
+/opt/buildtools/python-3.12.9/lib/python3.12/unittest/mock.py:1198: in _execute_mock_call
+    raise effect
+E   RuntimeError: CPU test forbids NPU initialization
+---------------------------- Captured stdout setup -----------------------------
+INFO 11-20 09:40:29 [mooncake_hybrid_connector.py:1426] Initializing Mooncake Scheduler source-engine
+INFO 11-20 09:40:29 [kv_layout_connector.py:1092] num_blocks: 4
+INFO 11-20 09:40:29 [scheduler.py:288] Chunked prefill is enabled with max_num_batched_tokens=16.
+INFO 11-20 09:40:29 [factory.py:62] Creating v1 connector with name: MooncakeHybridConnector and engine_id: destination-scheduler-engine
+INFO 11-20 09:40:29 [mooncake_hybrid_connector.py:1426] Initializing Mooncake Scheduler destination-scheduler-engine
+INFO 11-20 09:40:29 [kv_layout_connector.py:1092] num_blocks: 64
+INFO 11-20 09:40:29 [kv_layout_connector.py:2362] KV cache transfer for request request-1 took 0.47 ms. local_ip 192.169.91.106 local_device_id 0 remote_session_id 192.169.91.106:9876
+_ ERROR at setup of test_failed_pd_sampling_rejects_shutdown_before_native_release[native_pd_shutdown_case1] _
+tests/unit/v1/worker/npu/test_attention_worker.py:40: in native_pd_shutdown_case
+    case = make_native_pd_shutdown_case(
+tests/unit/fakes/kv_connector.py:1249: in make_native_pd_shutdown_case
+    assert owner.execute_model(scheduled) is None
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/torch/utils/_contextlib.py:124: in decorate_context
+    return func(*args, **kwargs)
+afd_plugin/v1/worker/npu/attention_model_runner_v2.py:977: in execute_model
+    return super().execute_model(
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/torch/utils/_contextlib.py:124: in decorate_context
+    return func(*args, **kwargs)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/vllm_ascend/worker/v2/model_runner.py:517: in execute_model
+    output = super().execute_model(
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/torch/utils/_contextlib.py:124: in decorate_context
+    return func(*args, **kwargs)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/vllm/v1/worker/gpu/model_runner.py:1935: in execute_model
+    model_output = self.ubatch_runner.run(
+afd_plugin/v1/worker/npu/hccl_v41_ubatch_runner.py:385: in run
+    return self.run_staged(
+afd_plugin/v1/worker/npu/hccl_v41_ubatch_runner.py:428: in run_staged
+    return execute_hccl_v41_stages(
+afd_plugin/v1/worker/npu/hccl_v41_execution.py:297: in execute_hccl_v41_stages
+    return _execute_hccl_v41_parent(
+afd_plugin/v1/worker/npu/hccl_v41_execution.py:390: in _execute_hccl_v41_parent
+    transport.finish_forward()
+afd_plugin/connectors/npu/hccl_staged_transport.py:1145: in finish_forward
+    self._finish_forward()
+afd_plugin/connectors/npu/hccl_staged_transport.py:1163: in _finish_forward
+    torch.npu.synchronize(self.local_device)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/torch_npu/npu/utils.py:70: in synchronize
+    torch_npu.npu._lazy_init()
+/opt/buildtools/python-3.12.9/lib/python3.12/unittest/mock.py:1139: in __call__
+    return self._mock_call(*args, **kwargs)
+/opt/buildtools/python-3.12.9/lib/python3.12/unittest/mock.py:1143: in _mock_call
+    return self._execute_mock_call(*args, **kwargs)
+/opt/buildtools/python-3.12.9/lib/python3.12/unittest/mock.py:1198: in _execute_mock_call
+    raise effect
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/runner.py:341: in from_call
+    result: TResult | None = func()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/runner.py:242: in <lambda>
+    lambda: runtest_hook(item=item, **kwds), when=when, reraise=reraise
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/pluggy/_caller.py:197: in __call__
+    return self._hookexec(
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/pluggy/_manager.py:183: in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/unraisableexception.py:90: in pytest_runtest_setup
+    yield from unraisable_exception_runtest_hook()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/unraisableexception.py:70: in unraisable_exception_runtest_hook
+    yield
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/logging.py:842: in pytest_runtest_setup
+    yield from self._runtest_for(item, "setup")
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/logging.py:831: in _runtest_for
+    yield
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/capture.py:874: in pytest_runtest_setup
+    return (yield)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/threadexception.py:87: in pytest_runtest_setup
+    yield from thread_exception_runtest_hook()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/threadexception.py:68: in thread_exception_runtest_hook
+    yield
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/runner.py:160: in pytest_runtest_setup
+    item.session._setupstate.setup(item)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/runner.py:514: in setup
+    col.setup()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/python.py:1630: in setup
+    self._request._fillfixtures()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/fixtures.py:696: in _fillfixtures
+    item.funcargs[argname] = self.getfixturevalue(argname)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/fixtures.py:531: in getfixturevalue
+    fixturedef = self._get_active_fixturedef(argname)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/fixtures.py:616: in _get_active_fixturedef
+    fixturedef.execute(request=subrequest)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/fixtures.py:1090: in execute
+    result = ihook.pytest_fixture_setup(fixturedef=self, request=request)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/pluggy/_caller.py:197: in __call__
+    return self._hookexec(
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/pluggy/_manager.py:183: in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/pluggy/_execution.py:64: in run_old_style_hookwrapper
+    return result.get_result()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/pluggy/_execution.py:49: in run_old_style_hookwrapper
+    res = yield
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/setuponly.py:36: in pytest_fixture_setup
+    return (yield)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/fixtures.py:1139: in pytest_fixture_setup
+    result = call_fixture_func(fixturefunc, request, kwargs)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/fixtures.py:897: in call_fixture_func
+    fixture_result = fixturefunc(**kwargs)
+tests/unit/v1/worker/npu/test_attention_worker.py:40: in native_pd_shutdown_case
+    case = make_native_pd_shutdown_case(
+tests/unit/fakes/kv_connector.py:1249: in make_native_pd_shutdown_case
+    assert owner.execute_model(scheduled) is None
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/torch/utils/_contextlib.py:124: in decorate_context
+    return func(*args, **kwargs)
+afd_plugin/v1/worker/npu/attention_model_runner_v2.py:977: in execute_model
+    return super().execute_model(
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/torch/utils/_contextlib.py:124: in decorate_context
+    return func(*args, **kwargs)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/vllm_ascend/worker/v2/model_runner.py:517: in execute_model
+    output = super().execute_model(
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/torch/utils/_contextlib.py:124: in decorate_context
+    return func(*args, **kwargs)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/vllm/v1/worker/gpu/model_runner.py:1948: in execute_model
+    model_output = self.model(**model_inputs)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/torch/nn/modules/module.py:1776: in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/torch/nn/modules/module.py:1787: in _call_impl
+    return forward_call(*args, **kwargs)
+afd_plugin/model_executor/models/npu/deepseek_v41.py:395: in forward
+    return invocation(
+afd_plugin/v1/worker/npu/hccl_v41_execution.py:141: in __call__
+    return execute_hccl_v41_stages(
+afd_plugin/v1/worker/npu/hccl_v41_execution.py:297: in execute_hccl_v41_stages
+    return _execute_hccl_v41_parent(
+afd_plugin/v1/worker/npu/hccl_v41_execution.py:390: in _execute_hccl_v41_parent
+    transport.finish_forward()
+afd_plugin/connectors/npu/hccl_staged_transport.py:1145: in finish_forward
+    self._finish_forward()
+afd_plugin/connectors/npu/hccl_staged_transport.py:1163: in _finish_forward
+    torch.npu.synchronize(self.local_device)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/torch_npu/npu/utils.py:70: in synchronize
+    torch_npu.npu._lazy_init()
+/opt/buildtools/python-3.12.9/lib/python3.12/unittest/mock.py:1139: in __call__
+    return self._mock_call(*args, **kwargs)
+/opt/buildtools/python-3.12.9/lib/python3.12/unittest/mock.py:1143: in _mock_call
+    return self._execute_mock_call(*args, **kwargs)
+/opt/buildtools/python-3.12.9/lib/python3.12/unittest/mock.py:1198: in _execute_mock_call
+    raise effect
+E   RuntimeError: CPU test forbids NPU initialization
+---------------------------- Captured stdout setup -----------------------------
+INFO 11-20 09:40:29 [mooncake_hybrid_connector.py:1426] Initializing Mooncake Scheduler source-engine
+INFO 11-20 09:40:29 [kv_layout_connector.py:1092] num_blocks: 4
+INFO 11-20 09:40:29 [factory.py:62] Creating v1 connector with name: MooncakeHybridConnector and engine_id: destination-scheduler-engine
+INFO 11-20 09:40:29 [mooncake_hybrid_connector.py:1426] Initializing Mooncake Scheduler destination-scheduler-engine
+INFO 11-20 09:40:29 [kv_layout_connector.py:1092] num_blocks: 64
+INFO 11-20 09:40:29 [kv_layout_connector.py:2362] KV cache transfer for request request-1 took 0.40 ms. local_ip 192.169.91.106 local_device_id 0 remote_session_id 192.169.91.106:9876
+_ ERROR at setup of test_successful_pd_shutdown_drains_before_native_release[native_pd_shutdown_case0] _
+tests/unit/v1/worker/npu/test_attention_worker.py:40: in native_pd_shutdown_case
+    case = make_native_pd_shutdown_case(
+tests/unit/fakes/kv_connector.py:1249: in make_native_pd_shutdown_case
+    assert owner.execute_model(scheduled) is None
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/torch/utils/_contextlib.py:124: in decorate_context
+    return func(*args, **kwargs)
+afd_plugin/v1/worker/npu/attention_model_runner_v2.py:977: in execute_model
+    return super().execute_model(
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/torch/utils/_contextlib.py:124: in decorate_context
+    return func(*args, **kwargs)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/vllm_ascend/worker/v2/model_runner.py:517: in execute_model
+    output = super().execute_model(
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/torch/utils/_contextlib.py:124: in decorate_context
+    return func(*args, **kwargs)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/vllm/v1/worker/gpu/model_runner.py:1948: in execute_model
+    model_output = self.model(**model_inputs)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/torch/nn/modules/module.py:1776: in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/torch/nn/modules/module.py:1787: in _call_impl
+    return forward_call(*args, **kwargs)
+afd_plugin/model_executor/models/npu/deepseek_v41.py:395: in forward
+    return invocation(
+afd_plugin/v1/worker/npu/hccl_v41_execution.py:141: in __call__
+    return execute_hccl_v41_stages(
+afd_plugin/v1/worker/npu/hccl_v41_execution.py:297: in execute_hccl_v41_stages
+    return _execute_hccl_v41_parent(
+afd_plugin/v1/worker/npu/hccl_v41_execution.py:390: in _execute_hccl_v41_parent
+    transport.finish_forward()
+afd_plugin/connectors/npu/hccl_staged_transport.py:1145: in finish_forward
+    self._finish_forward()
+afd_plugin/connectors/npu/hccl_staged_transport.py:1163: in _finish_forward
+    torch.npu.synchronize(self.local_device)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/torch_npu/npu/utils.py:70: in synchronize
+    torch_npu.npu._lazy_init()
+/opt/buildtools/python-3.12.9/lib/python3.12/unittest/mock.py:1139: in __call__
+    return self._mock_call(*args, **kwargs)
+/opt/buildtools/python-3.12.9/lib/python3.12/unittest/mock.py:1143: in _mock_call
+    return self._execute_mock_call(*args, **kwargs)
+/opt/buildtools/python-3.12.9/lib/python3.12/unittest/mock.py:1198: in _execute_mock_call
+    raise effect
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/runner.py:341: in from_call
+    result: TResult | None = func()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/runner.py:242: in <lambda>
+    lambda: runtest_hook(item=item, **kwds), when=when, reraise=reraise
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/pluggy/_caller.py:197: in __call__
+    return self._hookexec(
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/pluggy/_manager.py:183: in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/unraisableexception.py:90: in pytest_runtest_setup
+    yield from unraisable_exception_runtest_hook()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/unraisableexception.py:70: in unraisable_exception_runtest_hook
+    yield
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/logging.py:842: in pytest_runtest_setup
+    yield from self._runtest_for(item, "setup")
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/logging.py:831: in _runtest_for
+    yield
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/capture.py:874: in pytest_runtest_setup
+    return (yield)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/threadexception.py:87: in pytest_runtest_setup
+    yield from thread_exception_runtest_hook()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/threadexception.py:68: in thread_exception_runtest_hook
+    yield
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/runner.py:160: in pytest_runtest_setup
+    item.session._setupstate.setup(item)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/runner.py:514: in setup
+    col.setup()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/python.py:1630: in setup
+    self._request._fillfixtures()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/fixtures.py:696: in _fillfixtures
+    item.funcargs[argname] = self.getfixturevalue(argname)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/fixtures.py:531: in getfixturevalue
+    fixturedef = self._get_active_fixturedef(argname)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/fixtures.py:616: in _get_active_fixturedef
+    fixturedef.execute(request=subrequest)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/fixtures.py:1090: in execute
+    result = ihook.pytest_fixture_setup(fixturedef=self, request=request)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/pluggy/_caller.py:197: in __call__
+    return self._hookexec(
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/pluggy/_manager.py:183: in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/pluggy/_execution.py:64: in run_old_style_hookwrapper
+    return result.get_result()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/pluggy/_execution.py:49: in run_old_style_hookwrapper
+    res = yield
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/setuponly.py:36: in pytest_fixture_setup
+    return (yield)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/fixtures.py:1139: in pytest_fixture_setup
+    result = call_fixture_func(fixturefunc, request, kwargs)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/fixtures.py:897: in call_fixture_func
+    fixture_result = fixturefunc(**kwargs)
+tests/unit/v1/worker/npu/test_attention_worker.py:40: in native_pd_shutdown_case
+    case = make_native_pd_shutdown_case(
+tests/unit/fakes/kv_connector.py:1249: in make_native_pd_shutdown_case
+    assert owner.execute_model(scheduled) is None
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/torch/utils/_contextlib.py:124: in decorate_context
+    return func(*args, **kwargs)
+afd_plugin/v1/worker/npu/attention_model_runner_v2.py:977: in execute_model
+    return super().execute_model(
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/torch/utils/_contextlib.py:124: in decorate_context
+    return func(*args, **kwargs)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/vllm_ascend/worker/v2/model_runner.py:517: in execute_model
+    output = super().execute_model(
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/torch/utils/_contextlib.py:124: in decorate_context
+    return func(*args, **kwargs)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/vllm/v1/worker/gpu/model_runner.py:1935: in execute_model
+    model_output = self.ubatch_runner.run(
+afd_plugin/v1/worker/npu/hccl_v41_ubatch_runner.py:385: in run
+    return self.run_staged(
+afd_plugin/v1/worker/npu/hccl_v41_ubatch_runner.py:428: in run_staged
+    return execute_hccl_v41_stages(
+afd_plugin/v1/worker/npu/hccl_v41_execution.py:297: in execute_hccl_v41_stages
+    return _execute_hccl_v41_parent(
+afd_plugin/v1/worker/npu/hccl_v41_execution.py:390: in _execute_hccl_v41_parent
+    transport.finish_forward()
+afd_plugin/connectors/npu/hccl_staged_transport.py:1145: in finish_forward
+    self._finish_forward()
+afd_plugin/connectors/npu/hccl_staged_transport.py:1163: in _finish_forward
+    torch.npu.synchronize(self.local_device)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/torch_npu/npu/utils.py:70: in synchronize
+    torch_npu.npu._lazy_init()
+/opt/buildtools/python-3.12.9/lib/python3.12/unittest/mock.py:1139: in __call__
+    return self._mock_call(*args, **kwargs)
+/opt/buildtools/python-3.12.9/lib/python3.12/unittest/mock.py:1143: in _mock_call
+    return self._execute_mock_call(*args, **kwargs)
+/opt/buildtools/python-3.12.9/lib/python3.12/unittest/mock.py:1198: in _execute_mock_call
+    raise effect
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/runner.py:341: in from_call
+    result: TResult | None = func()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/runner.py:242: in <lambda>
+    lambda: runtest_hook(item=item, **kwds), when=when, reraise=reraise
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/pluggy/_caller.py:197: in __call__
+    return self._hookexec(
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/pluggy/_manager.py:183: in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/unraisableexception.py:90: in pytest_runtest_setup
+    yield from unraisable_exception_runtest_hook()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/unraisableexception.py:70: in unraisable_exception_runtest_hook
+    yield
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/logging.py:842: in pytest_runtest_setup
+    yield from self._runtest_for(item, "setup")
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/logging.py:831: in _runtest_for
+    yield
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/capture.py:874: in pytest_runtest_setup
+    return (yield)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/threadexception.py:87: in pytest_runtest_setup
+    yield from thread_exception_runtest_hook()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/threadexception.py:68: in thread_exception_runtest_hook
+    yield
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/runner.py:160: in pytest_runtest_setup
+    item.session._setupstate.setup(item)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/runner.py:514: in setup
+    col.setup()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/python.py:1630: in setup
+    self._request._fillfixtures()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/fixtures.py:696: in _fillfixtures
+    item.funcargs[argname] = self.getfixturevalue(argname)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/fixtures.py:531: in getfixturevalue
+    fixturedef = self._get_active_fixturedef(argname)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/fixtures.py:616: in _get_active_fixturedef
+    fixturedef.execute(request=subrequest)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/fixtures.py:1090: in execute
+    result = ihook.pytest_fixture_setup(fixturedef=self, request=request)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/pluggy/_caller.py:197: in __call__
+    return self._hookexec(
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/pluggy/_manager.py:183: in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/pluggy/_execution.py:64: in run_old_style_hookwrapper
+    return result.get_result()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/pluggy/_execution.py:49: in run_old_style_hookwrapper
+    res = yield
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/setuponly.py:36: in pytest_fixture_setup
+    return (yield)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/fixtures.py:1139: in pytest_fixture_setup
+    result = call_fixture_func(fixturefunc, request, kwargs)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/fixtures.py:897: in call_fixture_func
+    fixture_result = fixturefunc(**kwargs)
+tests/unit/v1/worker/npu/test_attention_worker.py:40: in native_pd_shutdown_case
+    case = make_native_pd_shutdown_case(
+tests/unit/fakes/kv_connector.py:1249: in make_native_pd_shutdown_case
+    assert owner.execute_model(scheduled) is None
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/torch/utils/_contextlib.py:124: in decorate_context
+    return func(*args, **kwargs)
+afd_plugin/v1/worker/npu/attention_model_runner_v2.py:977: in execute_model
+    return super().execute_model(
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/torch/utils/_contextlib.py:124: in decorate_context
+    return func(*args, **kwargs)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/vllm_ascend/worker/v2/model_runner.py:517: in execute_model
+    output = super().execute_model(
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/torch/utils/_contextlib.py:124: in decorate_context
+    return func(*args, **kwargs)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/vllm/v1/worker/gpu/model_runner.py:1948: in execute_model
+    model_output = self.model(**model_inputs)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/torch/nn/modules/module.py:1776: in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/torch/nn/modules/module.py:1787: in _call_impl
+    return forward_call(*args, **kwargs)
+afd_plugin/model_executor/models/npu/deepseek_v41.py:395: in forward
+    return invocation(
+afd_plugin/v1/worker/npu/hccl_v41_execution.py:141: in __call__
+    return execute_hccl_v41_stages(
+afd_plugin/v1/worker/npu/hccl_v41_execution.py:297: in execute_hccl_v41_stages
+    return _execute_hccl_v41_parent(
+afd_plugin/v1/worker/npu/hccl_v41_execution.py:390: in _execute_hccl_v41_parent
+    transport.finish_forward()
+afd_plugin/connectors/npu/hccl_staged_transport.py:1145: in finish_forward
+    self._finish_forward()
+afd_plugin/connectors/npu/hccl_staged_transport.py:1163: in _finish_forward
+    torch.npu.synchronize(self.local_device)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/torch_npu/npu/utils.py:70: in synchronize
+    torch_npu.npu._lazy_init()
+/opt/buildtools/python-3.12.9/lib/python3.12/unittest/mock.py:1139: in __call__
+    return self._mock_call(*args, **kwargs)
+/opt/buildtools/python-3.12.9/lib/python3.12/unittest/mock.py:1143: in _mock_call
+    return self._execute_mock_call(*args, **kwargs)
+/opt/buildtools/python-3.12.9/lib/python3.12/unittest/mock.py:1198: in _execute_mock_call
+    raise effect
+E   RuntimeError: CPU test forbids NPU initialization
+---------------------------- Captured stdout setup -----------------------------
+INFO 11-20 09:40:30 [mooncake_hybrid_connector.py:1426] Initializing Mooncake Scheduler source-engine
+INFO 11-20 09:40:30 [kv_layout_connector.py:1092] num_blocks: 4
+INFO 11-20 09:40:30 [factory.py:62] Creating v1 connector with name: MooncakeHybridConnector and engine_id: destination-scheduler-engine
+INFO 11-20 09:40:30 [mooncake_hybrid_connector.py:1426] Initializing Mooncake Scheduler destination-scheduler-engine
+INFO 11-20 09:40:30 [kv_layout_connector.py:1092] num_blocks: 64
+INFO 11-20 09:40:30 [kv_layout_connector.py:2362] KV cache transfer for request request-1 took 0.39 ms. local_ip 192.169.91.106 local_device_id 0 remote_session_id 192.169.91.106:9876
+_ ERROR at setup of test_successful_pd_shutdown_drains_before_native_release[native_pd_shutdown_case1] _
+tests/unit/v1/worker/npu/test_attention_worker.py:40: in native_pd_shutdown_case
+    case = make_native_pd_shutdown_case(
+tests/unit/fakes/kv_connector.py:1249: in make_native_pd_shutdown_case
+    assert owner.execute_model(scheduled) is None
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/torch/utils/_contextlib.py:124: in decorate_context
+    return func(*args, **kwargs)
+afd_plugin/v1/worker/npu/attention_model_runner_v2.py:977: in execute_model
+    return super().execute_model(
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/torch/utils/_contextlib.py:124: in decorate_context
+    return func(*args, **kwargs)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/vllm_ascend/worker/v2/model_runner.py:517: in execute_model
+    output = super().execute_model(
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/torch/utils/_contextlib.py:124: in decorate_context
+    return func(*args, **kwargs)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/vllm/v1/worker/gpu/model_runner.py:1935: in execute_model
+    model_output = self.ubatch_runner.run(
+afd_plugin/v1/worker/npu/hccl_v41_ubatch_runner.py:385: in run
+    return self.run_staged(
+afd_plugin/v1/worker/npu/hccl_v41_ubatch_runner.py:428: in run_staged
+    return execute_hccl_v41_stages(
+afd_plugin/v1/worker/npu/hccl_v41_execution.py:297: in execute_hccl_v41_stages
+    return _execute_hccl_v41_parent(
+afd_plugin/v1/worker/npu/hccl_v41_execution.py:390: in _execute_hccl_v41_parent
+    transport.finish_forward()
+afd_plugin/connectors/npu/hccl_staged_transport.py:1145: in finish_forward
+    self._finish_forward()
+afd_plugin/connectors/npu/hccl_staged_transport.py:1163: in _finish_forward
+    torch.npu.synchronize(self.local_device)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/torch_npu/npu/utils.py:70: in synchronize
+    torch_npu.npu._lazy_init()
+/opt/buildtools/python-3.12.9/lib/python3.12/unittest/mock.py:1139: in __call__
+    return self._mock_call(*args, **kwargs)
+/opt/buildtools/python-3.12.9/lib/python3.12/unittest/mock.py:1143: in _mock_call
+    return self._execute_mock_call(*args, **kwargs)
+/opt/buildtools/python-3.12.9/lib/python3.12/unittest/mock.py:1198: in _execute_mock_call
+    raise effect
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/runner.py:341: in from_call
+    result: TResult | None = func()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/runner.py:242: in <lambda>
+    lambda: runtest_hook(item=item, **kwds), when=when, reraise=reraise
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/pluggy/_caller.py:197: in __call__
+    return self._hookexec(
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/pluggy/_manager.py:183: in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/unraisableexception.py:90: in pytest_runtest_setup
+    yield from unraisable_exception_runtest_hook()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/unraisableexception.py:70: in unraisable_exception_runtest_hook
+    yield
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/logging.py:842: in pytest_runtest_setup
+    yield from self._runtest_for(item, "setup")
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/logging.py:831: in _runtest_for
+    yield
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/capture.py:874: in pytest_runtest_setup
+    return (yield)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/threadexception.py:87: in pytest_runtest_setup
+    yield from thread_exception_runtest_hook()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/threadexception.py:68: in thread_exception_runtest_hook
+    yield
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/runner.py:160: in pytest_runtest_setup
+    item.session._setupstate.setup(item)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/runner.py:514: in setup
+    col.setup()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/python.py:1630: in setup
+    self._request._fillfixtures()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/fixtures.py:696: in _fillfixtures
+    item.funcargs[argname] = self.getfixturevalue(argname)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/fixtures.py:531: in getfixturevalue
+    fixturedef = self._get_active_fixturedef(argname)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/fixtures.py:616: in _get_active_fixturedef
+    fixturedef.execute(request=subrequest)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/fixtures.py:1090: in execute
+    result = ihook.pytest_fixture_setup(fixturedef=self, request=request)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/pluggy/_caller.py:197: in __call__
+    return self._hookexec(
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/pluggy/_manager.py:183: in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/pluggy/_execution.py:64: in run_old_style_hookwrapper
+    return result.get_result()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/pluggy/_execution.py:49: in run_old_style_hookwrapper
+    res = yield
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/setuponly.py:36: in pytest_fixture_setup
+    return (yield)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/fixtures.py:1139: in pytest_fixture_setup
+    result = call_fixture_func(fixturefunc, request, kwargs)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/fixtures.py:897: in call_fixture_func
+    fixture_result = fixturefunc(**kwargs)
+tests/unit/v1/worker/npu/test_attention_worker.py:40: in native_pd_shutdown_case
+    case = make_native_pd_shutdown_case(
+tests/unit/fakes/kv_connector.py:1249: in make_native_pd_shutdown_case
+    assert owner.execute_model(scheduled) is None
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/torch/utils/_contextlib.py:124: in decorate_context
+    return func(*args, **kwargs)
+afd_plugin/v1/worker/npu/attention_model_runner_v2.py:977: in execute_model
+    return super().execute_model(
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/torch/utils/_contextlib.py:124: in decorate_context
+    return func(*args, **kwargs)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/vllm_ascend/worker/v2/model_runner.py:517: in execute_model
+    output = super().execute_model(
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/torch/utils/_contextlib.py:124: in decorate_context
+    return func(*args, **kwargs)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/vllm/v1/worker/gpu/model_runner.py:1948: in execute_model
+    model_output = self.model(**model_inputs)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/torch/nn/modules/module.py:1776: in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/torch/nn/modules/module.py:1787: in _call_impl
+    return forward_call(*args, **kwargs)
+afd_plugin/model_executor/models/npu/deepseek_v41.py:395: in forward
+    return invocation(
+afd_plugin/v1/worker/npu/hccl_v41_execution.py:141: in __call__
+    return execute_hccl_v41_stages(
+afd_plugin/v1/worker/npu/hccl_v41_execution.py:297: in execute_hccl_v41_stages
+    return _execute_hccl_v41_parent(
+afd_plugin/v1/worker/npu/hccl_v41_execution.py:390: in _execute_hccl_v41_parent
+    transport.finish_forward()
+afd_plugin/connectors/npu/hccl_staged_transport.py:1145: in finish_forward
+    self._finish_forward()
+afd_plugin/connectors/npu/hccl_staged_transport.py:1163: in _finish_forward
+    torch.npu.synchronize(self.local_device)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/torch_npu/npu/utils.py:70: in synchronize
+    torch_npu.npu._lazy_init()
+/opt/buildtools/python-3.12.9/lib/python3.12/unittest/mock.py:1139: in __call__
+    return self._mock_call(*args, **kwargs)
+/opt/buildtools/python-3.12.9/lib/python3.12/unittest/mock.py:1143: in _mock_call
+    return self._execute_mock_call(*args, **kwargs)
+/opt/buildtools/python-3.12.9/lib/python3.12/unittest/mock.py:1198: in _execute_mock_call
+    raise effect
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/runner.py:341: in from_call
+    result: TResult | None = func()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/runner.py:242: in <lambda>
+    lambda: runtest_hook(item=item, **kwds), when=when, reraise=reraise
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/pluggy/_caller.py:197: in __call__
+    return self._hookexec(
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/pluggy/_manager.py:183: in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/unraisableexception.py:90: in pytest_runtest_setup
+    yield from unraisable_exception_runtest_hook()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/unraisableexception.py:70: in unraisable_exception_runtest_hook
+    yield
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/logging.py:842: in pytest_runtest_setup
+    yield from self._runtest_for(item, "setup")
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/logging.py:831: in _runtest_for
+    yield
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/capture.py:874: in pytest_runtest_setup
+    return (yield)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/threadexception.py:87: in pytest_runtest_setup
+    yield from thread_exception_runtest_hook()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/threadexception.py:68: in thread_exception_runtest_hook
+    yield
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/runner.py:160: in pytest_runtest_setup
+    item.session._setupstate.setup(item)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/runner.py:514: in setup
+    col.setup()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/python.py:1630: in setup
+    self._request._fillfixtures()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/fixtures.py:696: in _fillfixtures
+    item.funcargs[argname] = self.getfixturevalue(argname)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/fixtures.py:531: in getfixturevalue
+    fixturedef = self._get_active_fixturedef(argname)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/fixtures.py:616: in _get_active_fixturedef
+    fixturedef.execute(request=subrequest)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/fixtures.py:1090: in execute
+    result = ihook.pytest_fixture_setup(fixturedef=self, request=request)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/pluggy/_caller.py:197: in __call__
+    return self._hookexec(
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/pluggy/_manager.py:183: in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/pluggy/_execution.py:64: in run_old_style_hookwrapper
+    return result.get_result()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/pluggy/_execution.py:49: in run_old_style_hookwrapper
+    res = yield
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/setuponly.py:36: in pytest_fixture_setup
+    return (yield)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/fixtures.py:1139: in pytest_fixture_setup
+    result = call_fixture_func(fixturefunc, request, kwargs)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/fixtures.py:897: in call_fixture_func
+    fixture_result = fixturefunc(**kwargs)
+tests/unit/v1/worker/npu/test_attention_worker.py:40: in native_pd_shutdown_case
+    case = make_native_pd_shutdown_case(
+tests/unit/fakes/kv_connector.py:1249: in make_native_pd_shutdown_case
+    assert owner.execute_model(scheduled) is None
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/torch/utils/_contextlib.py:124: in decorate_context
+    return func(*args, **kwargs)
+afd_plugin/v1/worker/npu/attention_model_runner_v2.py:977: in execute_model
+    return super().execute_model(
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/torch/utils/_contextlib.py:124: in decorate_context
+    return func(*args, **kwargs)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/vllm_ascend/worker/v2/model_runner.py:517: in execute_model
+    output = super().execute_model(
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/torch/utils/_contextlib.py:124: in decorate_context
+    return func(*args, **kwargs)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/vllm/v1/worker/gpu/model_runner.py:1935: in execute_model
+    model_output = self.ubatch_runner.run(
+afd_plugin/v1/worker/npu/hccl_v41_ubatch_runner.py:385: in run
+    return self.run_staged(
+afd_plugin/v1/worker/npu/hccl_v41_ubatch_runner.py:428: in run_staged
+    return execute_hccl_v41_stages(
+afd_plugin/v1/worker/npu/hccl_v41_execution.py:297: in execute_hccl_v41_stages
+    return _execute_hccl_v41_parent(
+afd_plugin/v1/worker/npu/hccl_v41_execution.py:390: in _execute_hccl_v41_parent
+    transport.finish_forward()
+afd_plugin/connectors/npu/hccl_staged_transport.py:1145: in finish_forward
+    self._finish_forward()
+afd_plugin/connectors/npu/hccl_staged_transport.py:1163: in _finish_forward
+    torch.npu.synchronize(self.local_device)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/torch_npu/npu/utils.py:70: in synchronize
+    torch_npu.npu._lazy_init()
+/opt/buildtools/python-3.12.9/lib/python3.12/unittest/mock.py:1139: in __call__
+    return self._mock_call(*args, **kwargs)
+/opt/buildtools/python-3.12.9/lib/python3.12/unittest/mock.py:1143: in _mock_call
+    return self._execute_mock_call(*args, **kwargs)
+/opt/buildtools/python-3.12.9/lib/python3.12/unittest/mock.py:1198: in _execute_mock_call
+    raise effect
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/runner.py:341: in from_call
+    result: TResult | None = func()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/runner.py:242: in <lambda>
+    lambda: runtest_hook(item=item, **kwds), when=when, reraise=reraise
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/pluggy/_caller.py:197: in __call__
+    return self._hookexec(
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/pluggy/_manager.py:183: in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/unraisableexception.py:90: in pytest_runtest_setup
+    yield from unraisable_exception_runtest_hook()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/unraisableexception.py:70: in unraisable_exception_runtest_hook
+    yield
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/logging.py:842: in pytest_runtest_setup
+    yield from self._runtest_for(item, "setup")
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/logging.py:831: in _runtest_for
+    yield
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/capture.py:874: in pytest_runtest_setup
+    return (yield)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/threadexception.py:87: in pytest_runtest_setup
+    yield from thread_exception_runtest_hook()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/threadexception.py:68: in thread_exception_runtest_hook
+    yield
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/runner.py:160: in pytest_runtest_setup
+    item.session._setupstate.setup(item)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/runner.py:514: in setup
+    col.setup()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/python.py:1630: in setup
+    self._request._fillfixtures()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/fixtures.py:696: in _fillfixtures
+    item.funcargs[argname] = self.getfixturevalue(argname)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/fixtures.py:531: in getfixturevalue
+    fixturedef = self._get_active_fixturedef(argname)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/fixtures.py:616: in _get_active_fixturedef
+    fixturedef.execute(request=subrequest)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/fixtures.py:1090: in execute
+    result = ihook.pytest_fixture_setup(fixturedef=self, request=request)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/pluggy/_caller.py:197: in __call__
+    return self._hookexec(
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/pluggy/_manager.py:183: in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/pluggy/_execution.py:64: in run_old_style_hookwrapper
+    return result.get_result()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/pluggy/_execution.py:49: in run_old_style_hookwrapper
+    res = yield
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/setuponly.py:36: in pytest_fixture_setup
+    return (yield)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/fixtures.py:1139: in pytest_fixture_setup
+    result = call_fixture_func(fixturefunc, request, kwargs)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/fixtures.py:897: in call_fixture_func
+    fixture_result = fixturefunc(**kwargs)
+tests/unit/v1/worker/npu/test_attention_worker.py:40: in native_pd_shutdown_case
+    case = make_native_pd_shutdown_case(
+tests/unit/fakes/kv_connector.py:1249: in make_native_pd_shutdown_case
+    assert owner.execute_model(scheduled) is None
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/torch/utils/_contextlib.py:124: in decorate_context
+    return func(*args, **kwargs)
+afd_plugin/v1/worker/npu/attention_model_runner_v2.py:977: in execute_model
+    return super().execute_model(
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/torch/utils/_contextlib.py:124: in decorate_context
+    return func(*args, **kwargs)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/vllm_ascend/worker/v2/model_runner.py:517: in execute_model
+    output = super().execute_model(
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/torch/utils/_contextlib.py:124: in decorate_context
+    return func(*args, **kwargs)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/vllm/v1/worker/gpu/model_runner.py:1948: in execute_model
+    model_output = self.model(**model_inputs)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/torch/nn/modules/module.py:1776: in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/torch/nn/modules/module.py:1787: in _call_impl
+    return forward_call(*args, **kwargs)
+afd_plugin/model_executor/models/npu/deepseek_v41.py:395: in forward
+    return invocation(
+afd_plugin/v1/worker/npu/hccl_v41_execution.py:141: in __call__
+    return execute_hccl_v41_stages(
+afd_plugin/v1/worker/npu/hccl_v41_execution.py:297: in execute_hccl_v41_stages
+    return _execute_hccl_v41_parent(
+afd_plugin/v1/worker/npu/hccl_v41_execution.py:390: in _execute_hccl_v41_parent
+    transport.finish_forward()
+afd_plugin/connectors/npu/hccl_staged_transport.py:1145: in finish_forward
+    self._finish_forward()
+afd_plugin/connectors/npu/hccl_staged_transport.py:1163: in _finish_forward
+    torch.npu.synchronize(self.local_device)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/torch_npu/npu/utils.py:70: in synchronize
+    torch_npu.npu._lazy_init()
+/opt/buildtools/python-3.12.9/lib/python3.12/unittest/mock.py:1139: in __call__
+    return self._mock_call(*args, **kwargs)
+/opt/buildtools/python-3.12.9/lib/python3.12/unittest/mock.py:1143: in _mock_call
+    return self._execute_mock_call(*args, **kwargs)
+/opt/buildtools/python-3.12.9/lib/python3.12/unittest/mock.py:1198: in _execute_mock_call
+    raise effect
+E   RuntimeError: CPU test forbids NPU initialization
+---------------------------- Captured stdout setup -----------------------------
+INFO 11-20 09:40:31 [mooncake_hybrid_connector.py:1426] Initializing Mooncake Scheduler source-engine
+INFO 11-20 09:40:31 [kv_layout_connector.py:1092] num_blocks: 4
+INFO 11-20 09:40:31 [factory.py:62] Creating v1 connector with name: MooncakeHybridConnector and engine_id: destination-scheduler-engine
+INFO 11-20 09:40:31 [mooncake_hybrid_connector.py:1426] Initializing Mooncake Scheduler destination-scheduler-engine
+INFO 11-20 09:40:31 [kv_layout_connector.py:1092] num_blocks: 64
+INFO 11-20 09:40:31 [kv_layout_connector.py:2362] KV cache transfer for request request-1 took 0.36 ms. local_ip 192.169.91.106 local_device_id 0 remote_session_id 192.169.91.106:9876
+=================================== FAILURES ===================================
+____ test_successful_native_execute_is_one_step_including_legal_none[None] _____
+tests/unit/v1/worker/npu/test_attention_worker.py:141: in test_successful_native_execute_is_one_step_including_legal_none
+    assert (
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/torch/utils/_contextlib.py:124: in decorate_context
+    return func(*args, **kwargs)
+afd_plugin/v1/worker/npu/attention_model_runner_v2.py:956: in execute_model
+    with graph_execution.execution_scope(
+/opt/buildtools/python-3.12.9/lib/python3.12/contextlib.py:144: in __exit__
+    next(self.gen)
+afd_plugin/v1/worker/npu/hccl_v41_graph_eager.py:226: in execution_scope
+    self.transport.finish_forward()
+afd_plugin/connectors/npu/hccl_staged_transport.py:1145: in finish_forward
+    self._finish_forward()
+afd_plugin/connectors/npu/hccl_staged_transport.py:1163: in _finish_forward
+    torch.npu.synchronize(self.local_device)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/torch_npu/npu/utils.py:70: in synchronize
+    torch_npu.npu._lazy_init()
+/opt/buildtools/python-3.12.9/lib/python3.12/unittest/mock.py:1139: in __call__
+    return self._mock_call(*args, **kwargs)
+/opt/buildtools/python-3.12.9/lib/python3.12/unittest/mock.py:1143: in _mock_call
+    return self._execute_mock_call(*args, **kwargs)
+/opt/buildtools/python-3.12.9/lib/python3.12/unittest/mock.py:1198: in _execute_mock_call
+    raise effect
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/runner.py:341: in from_call
+    result: TResult | None = func()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/runner.py:242: in <lambda>
+    lambda: runtest_hook(item=item, **kwds), when=when, reraise=reraise
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/pluggy/_caller.py:197: in __call__
+    return self._hookexec(
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/pluggy/_manager.py:183: in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/unraisableexception.py:90: in pytest_runtest_setup
+    yield from unraisable_exception_runtest_hook()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/unraisableexception.py:70: in unraisable_exception_runtest_hook
+    yield
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/logging.py:842: in pytest_runtest_setup
+    yield from self._runtest_for(item, "setup")
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/logging.py:831: in _runtest_for
+    yield
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/capture.py:874: in pytest_runtest_setup
+    return (yield)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/threadexception.py:87: in pytest_runtest_setup
+    yield from thread_exception_runtest_hook()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/threadexception.py:68: in thread_exception_runtest_hook
+    yield
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/runner.py:160: in pytest_runtest_setup
+    item.session._setupstate.setup(item)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/runner.py:514: in setup
+    col.setup()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/python.py:1630: in setup
+    self._request._fillfixtures()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/fixtures.py:696: in _fillfixtures
+    item.funcargs[argname] = self.getfixturevalue(argname)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/fixtures.py:531: in getfixturevalue
+    fixturedef = self._get_active_fixturedef(argname)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/fixtures.py:616: in _get_active_fixturedef
+    fixturedef.execute(request=subrequest)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/fixtures.py:1090: in execute
+    result = ihook.pytest_fixture_setup(fixturedef=self, request=request)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/pluggy/_caller.py:197: in __call__
+    return self._hookexec(
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/pluggy/_manager.py:183: in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/pluggy/_execution.py:64: in run_old_style_hookwrapper
+    return result.get_result()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/pluggy/_execution.py:49: in run_old_style_hookwrapper
+    res = yield
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/setuponly.py:36: in pytest_fixture_setup
+    return (yield)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/fixtures.py:1139: in pytest_fixture_setup
+    result = call_fixture_func(fixturefunc, request, kwargs)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/fixtures.py:897: in call_fixture_func
+    fixture_result = fixturefunc(**kwargs)
+tests/unit/v1/worker/npu/test_attention_worker.py:40: in native_pd_shutdown_case
+    case = make_native_pd_shutdown_case(
+tests/unit/fakes/kv_connector.py:1249: in make_native_pd_shutdown_case
+    assert owner.execute_model(scheduled) is None
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/torch/utils/_contextlib.py:124: in decorate_context
+    return func(*args, **kwargs)
+afd_plugin/v1/worker/npu/attention_model_runner_v2.py:977: in execute_model
+    return super().execute_model(
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/torch/utils/_contextlib.py:124: in decorate_context
+    return func(*args, **kwargs)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/vllm_ascend/worker/v2/model_runner.py:517: in execute_model
+    output = super().execute_model(
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/torch/utils/_contextlib.py:124: in decorate_context
+    return func(*args, **kwargs)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/vllm/v1/worker/gpu/model_runner.py:1935: in execute_model
+    model_output = self.ubatch_runner.run(
+afd_plugin/v1/worker/npu/hccl_v41_ubatch_runner.py:385: in run
+    return self.run_staged(
+afd_plugin/v1/worker/npu/hccl_v41_ubatch_runner.py:428: in run_staged
+    return execute_hccl_v41_stages(
+afd_plugin/v1/worker/npu/hccl_v41_execution.py:297: in execute_hccl_v41_stages
+    return _execute_hccl_v41_parent(
+afd_plugin/v1/worker/npu/hccl_v41_execution.py:390: in _execute_hccl_v41_parent
+    transport.finish_forward()
+afd_plugin/connectors/npu/hccl_staged_transport.py:1145: in finish_forward
+    self._finish_forward()
+afd_plugin/connectors/npu/hccl_staged_transport.py:1163: in _finish_forward
+    torch.npu.synchronize(self.local_device)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/torch_npu/npu/utils.py:70: in synchronize
+    torch_npu.npu._lazy_init()
+/opt/buildtools/python-3.12.9/lib/python3.12/unittest/mock.py:1139: in __call__
+    return self._mock_call(*args, **kwargs)
+/opt/buildtools/python-3.12.9/lib/python3.12/unittest/mock.py:1143: in _mock_call
+    return self._execute_mock_call(*args, **kwargs)
+/opt/buildtools/python-3.12.9/lib/python3.12/unittest/mock.py:1198: in _execute_mock_call
+    raise effect
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/runner.py:341: in from_call
+    result: TResult | None = func()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/runner.py:242: in <lambda>
+    lambda: runtest_hook(item=item, **kwds), when=when, reraise=reraise
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/pluggy/_caller.py:197: in __call__
+    return self._hookexec(
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/pluggy/_manager.py:183: in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/unraisableexception.py:90: in pytest_runtest_setup
+    yield from unraisable_exception_runtest_hook()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/unraisableexception.py:70: in unraisable_exception_runtest_hook
+    yield
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/logging.py:842: in pytest_runtest_setup
+    yield from self._runtest_for(item, "setup")
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/logging.py:831: in _runtest_for
+    yield
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/capture.py:874: in pytest_runtest_setup
+    return (yield)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/threadexception.py:87: in pytest_runtest_setup
+    yield from thread_exception_runtest_hook()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/threadexception.py:68: in thread_exception_runtest_hook
+    yield
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/runner.py:160: in pytest_runtest_setup
+    item.session._setupstate.setup(item)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/runner.py:514: in setup
+    col.setup()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/python.py:1630: in setup
+    self._request._fillfixtures()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/fixtures.py:696: in _fillfixtures
+    item.funcargs[argname] = self.getfixturevalue(argname)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/fixtures.py:531: in getfixturevalue
+    fixturedef = self._get_active_fixturedef(argname)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/fixtures.py:616: in _get_active_fixturedef
+    fixturedef.execute(request=subrequest)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/fixtures.py:1090: in execute
+    result = ihook.pytest_fixture_setup(fixturedef=self, request=request)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/pluggy/_caller.py:197: in __call__
+    return self._hookexec(
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/pluggy/_manager.py:183: in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/pluggy/_execution.py:64: in run_old_style_hookwrapper
+    return result.get_result()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/pluggy/_execution.py:49: in run_old_style_hookwrapper
+    res = yield
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/setuponly.py:36: in pytest_fixture_setup
+    return (yield)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/fixtures.py:1139: in pytest_fixture_setup
+    result = call_fixture_func(fixturefunc, request, kwargs)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/fixtures.py:897: in call_fixture_func
+    fixture_result = fixturefunc(**kwargs)
+tests/unit/v1/worker/npu/test_attention_worker.py:40: in native_pd_shutdown_case
+    case = make_native_pd_shutdown_case(
+tests/unit/fakes/kv_connector.py:1249: in make_native_pd_shutdown_case
+    assert owner.execute_model(scheduled) is None
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/torch/utils/_contextlib.py:124: in decorate_context
+    return func(*args, **kwargs)
+afd_plugin/v1/worker/npu/attention_model_runner_v2.py:977: in execute_model
+    return super().execute_model(
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/torch/utils/_contextlib.py:124: in decorate_context
+    return func(*args, **kwargs)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/vllm_ascend/worker/v2/model_runner.py:517: in execute_model
+    output = super().execute_model(
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/torch/utils/_contextlib.py:124: in decorate_context
+    return func(*args, **kwargs)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/vllm/v1/worker/gpu/model_runner.py:1948: in execute_model
+    model_output = self.model(**model_inputs)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/torch/nn/modules/module.py:1776: in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/torch/nn/modules/module.py:1787: in _call_impl
+    return forward_call(*args, **kwargs)
+afd_plugin/model_executor/models/npu/deepseek_v41.py:395: in forward
+    return invocation(
+afd_plugin/v1/worker/npu/hccl_v41_execution.py:141: in __call__
+    return execute_hccl_v41_stages(
+afd_plugin/v1/worker/npu/hccl_v41_execution.py:297: in execute_hccl_v41_stages
+    return _execute_hccl_v41_parent(
+afd_plugin/v1/worker/npu/hccl_v41_execution.py:390: in _execute_hccl_v41_parent
+    transport.finish_forward()
+afd_plugin/connectors/npu/hccl_staged_transport.py:1145: in finish_forward
+    self._finish_forward()
+afd_plugin/connectors/npu/hccl_staged_transport.py:1163: in _finish_forward
+    torch.npu.synchronize(self.local_device)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/torch_npu/npu/utils.py:70: in synchronize
+    torch_npu.npu._lazy_init()
+/opt/buildtools/python-3.12.9/lib/python3.12/unittest/mock.py:1139: in __call__
+    return self._mock_call(*args, **kwargs)
+/opt/buildtools/python-3.12.9/lib/python3.12/unittest/mock.py:1143: in _mock_call
+    return self._execute_mock_call(*args, **kwargs)
+/opt/buildtools/python-3.12.9/lib/python3.12/unittest/mock.py:1198: in _execute_mock_call
+    raise effect
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/runner.py:341: in from_call
+    result: TResult | None = func()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/runner.py:242: in <lambda>
+    lambda: runtest_hook(item=item, **kwds), when=when, reraise=reraise
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/pluggy/_caller.py:197: in __call__
+    return self._hookexec(
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/pluggy/_manager.py:183: in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/unraisableexception.py:90: in pytest_runtest_setup
+    yield from unraisable_exception_runtest_hook()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/unraisableexception.py:70: in unraisable_exception_runtest_hook
+    yield
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/logging.py:842: in pytest_runtest_setup
+    yield from self._runtest_for(item, "setup")
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/logging.py:831: in _runtest_for
+    yield
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/capture.py:874: in pytest_runtest_setup
+    return (yield)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/threadexception.py:87: in pytest_runtest_setup
+    yield from thread_exception_runtest_hook()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/threadexception.py:68: in thread_exception_runtest_hook
+    yield
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/runner.py:160: in pytest_runtest_setup
+    item.session._setupstate.setup(item)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/runner.py:514: in setup
+    col.setup()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/python.py:1630: in setup
+    self._request._fillfixtures()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/fixtures.py:696: in _fillfixtures
+    item.funcargs[argname] = self.getfixturevalue(argname)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/fixtures.py:531: in getfixturevalue
+    fixturedef = self._get_active_fixturedef(argname)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/fixtures.py:616: in _get_active_fixturedef
+    fixturedef.execute(request=subrequest)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/fixtures.py:1090: in execute
+    result = ihook.pytest_fixture_setup(fixturedef=self, request=request)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/pluggy/_caller.py:197: in __call__
+    return self._hookexec(
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/pluggy/_manager.py:183: in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/pluggy/_execution.py:64: in run_old_style_hookwrapper
+    return result.get_result()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/pluggy/_execution.py:49: in run_old_style_hookwrapper
+    res = yield
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/setuponly.py:36: in pytest_fixture_setup
+    return (yield)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/fixtures.py:1139: in pytest_fixture_setup
+    result = call_fixture_func(fixturefunc, request, kwargs)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/fixtures.py:897: in call_fixture_func
+    fixture_result = fixturefunc(**kwargs)
+tests/unit/v1/worker/npu/test_attention_worker.py:40: in native_pd_shutdown_case
+    case = make_native_pd_shutdown_case(
+tests/unit/fakes/kv_connector.py:1249: in make_native_pd_shutdown_case
+    assert owner.execute_model(scheduled) is None
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/torch/utils/_contextlib.py:124: in decorate_context
+    return func(*args, **kwargs)
+afd_plugin/v1/worker/npu/attention_model_runner_v2.py:977: in execute_model
+    return super().execute_model(
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/torch/utils/_contextlib.py:124: in decorate_context
+    return func(*args, **kwargs)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/vllm_ascend/worker/v2/model_runner.py:517: in execute_model
+    output = super().execute_model(
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/torch/utils/_contextlib.py:124: in decorate_context
+    return func(*args, **kwargs)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/vllm/v1/worker/gpu/model_runner.py:1935: in execute_model
+    model_output = self.ubatch_runner.run(
+afd_plugin/v1/worker/npu/hccl_v41_ubatch_runner.py:385: in run
+    return self.run_staged(
+afd_plugin/v1/worker/npu/hccl_v41_ubatch_runner.py:428: in run_staged
+    return execute_hccl_v41_stages(
+afd_plugin/v1/worker/npu/hccl_v41_execution.py:297: in execute_hccl_v41_stages
+    return _execute_hccl_v41_parent(
+afd_plugin/v1/worker/npu/hccl_v41_execution.py:390: in _execute_hccl_v41_parent
+    transport.finish_forward()
+afd_plugin/connectors/npu/hccl_staged_transport.py:1145: in finish_forward
+    self._finish_forward()
+afd_plugin/connectors/npu/hccl_staged_transport.py:1163: in _finish_forward
+    torch.npu.synchronize(self.local_device)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/torch_npu/npu/utils.py:70: in synchronize
+    torch_npu.npu._lazy_init()
+/opt/buildtools/python-3.12.9/lib/python3.12/unittest/mock.py:1139: in __call__
+    return self._mock_call(*args, **kwargs)
+/opt/buildtools/python-3.12.9/lib/python3.12/unittest/mock.py:1143: in _mock_call
+    return self._execute_mock_call(*args, **kwargs)
+/opt/buildtools/python-3.12.9/lib/python3.12/unittest/mock.py:1198: in _execute_mock_call
+    raise effect
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/runner.py:341: in from_call
+    result: TResult | None = func()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/runner.py:242: in <lambda>
+    lambda: runtest_hook(item=item, **kwds), when=when, reraise=reraise
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/pluggy/_caller.py:197: in __call__
+    return self._hookexec(
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/pluggy/_manager.py:183: in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/unraisableexception.py:90: in pytest_runtest_setup
+    yield from unraisable_exception_runtest_hook()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/unraisableexception.py:70: in unraisable_exception_runtest_hook
+    yield
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/logging.py:842: in pytest_runtest_setup
+    yield from self._runtest_for(item, "setup")
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/logging.py:831: in _runtest_for
+    yield
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/capture.py:874: in pytest_runtest_setup
+    return (yield)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/threadexception.py:87: in pytest_runtest_setup
+    yield from thread_exception_runtest_hook()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/threadexception.py:68: in thread_exception_runtest_hook
+    yield
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/runner.py:160: in pytest_runtest_setup
+    item.session._setupstate.setup(item)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/runner.py:514: in setup
+    col.setup()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/python.py:1630: in setup
+    self._request._fillfixtures()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/fixtures.py:696: in _fillfixtures
+    item.funcargs[argname] = self.getfixturevalue(argname)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/fixtures.py:531: in getfixturevalue
+    fixturedef = self._get_active_fixturedef(argname)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/fixtures.py:616: in _get_active_fixturedef
+    fixturedef.execute(request=subrequest)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/fixtures.py:1090: in execute
+    result = ihook.pytest_fixture_setup(fixturedef=self, request=request)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/pluggy/_caller.py:197: in __call__
+    return self._hookexec(
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/pluggy/_manager.py:183: in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/pluggy/_execution.py:64: in run_old_style_hookwrapper
+    return result.get_result()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/pluggy/_execution.py:49: in run_old_style_hookwrapper
+    res = yield
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/setuponly.py:36: in pytest_fixture_setup
+    return (yield)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/fixtures.py:1139: in pytest_fixture_setup
+    result = call_fixture_func(fixturefunc, request, kwargs)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/fixtures.py:897: in call_fixture_func
+    fixture_result = fixturefunc(**kwargs)
+tests/unit/v1/worker/npu/test_attention_worker.py:40: in native_pd_shutdown_case
+    case = make_native_pd_shutdown_case(
+tests/unit/fakes/kv_connector.py:1249: in make_native_pd_shutdown_case
+    assert owner.execute_model(scheduled) is None
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/torch/utils/_contextlib.py:124: in decorate_context
+    return func(*args, **kwargs)
+afd_plugin/v1/worker/npu/attention_model_runner_v2.py:977: in execute_model
+    return super().execute_model(
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/torch/utils/_contextlib.py:124: in decorate_context
+    return func(*args, **kwargs)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/vllm_ascend/worker/v2/model_runner.py:517: in execute_model
+    output = super().execute_model(
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/torch/utils/_contextlib.py:124: in decorate_context
+    return func(*args, **kwargs)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/vllm/v1/worker/gpu/model_runner.py:1948: in execute_model
+    model_output = self.model(**model_inputs)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/torch/nn/modules/module.py:1776: in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/torch/nn/modules/module.py:1787: in _call_impl
+    return forward_call(*args, **kwargs)
+afd_plugin/model_executor/models/npu/deepseek_v41.py:395: in forward
+    return invocation(
+afd_plugin/v1/worker/npu/hccl_v41_execution.py:141: in __call__
+    return execute_hccl_v41_stages(
+afd_plugin/v1/worker/npu/hccl_v41_execution.py:297: in execute_hccl_v41_stages
+    return _execute_hccl_v41_parent(
+afd_plugin/v1/worker/npu/hccl_v41_execution.py:390: in _execute_hccl_v41_parent
+    transport.finish_forward()
+afd_plugin/connectors/npu/hccl_staged_transport.py:1145: in finish_forward
+    self._finish_forward()
+afd_plugin/connectors/npu/hccl_staged_transport.py:1163: in _finish_forward
+    torch.npu.synchronize(self.local_device)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/torch_npu/npu/utils.py:70: in synchronize
+    torch_npu.npu._lazy_init()
+/opt/buildtools/python-3.12.9/lib/python3.12/unittest/mock.py:1139: in __call__
+    return self._mock_call(*args, **kwargs)
+/opt/buildtools/python-3.12.9/lib/python3.12/unittest/mock.py:1143: in _mock_call
+    return self._execute_mock_call(*args, **kwargs)
+/opt/buildtools/python-3.12.9/lib/python3.12/unittest/mock.py:1198: in _execute_mock_call
+    raise effect
+E   RuntimeError: CPU test forbids NPU initialization
+_ test_successful_native_execute_is_one_step_including_legal_none[native-result] _
+tests/unit/v1/worker/npu/test_attention_worker.py:141: in test_successful_native_execute_is_one_step_including_legal_none
+    assert (
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/torch/utils/_contextlib.py:124: in decorate_context
+    return func(*args, **kwargs)
+afd_plugin/v1/worker/npu/attention_model_runner_v2.py:956: in execute_model
+    with graph_execution.execution_scope(
+/opt/buildtools/python-3.12.9/lib/python3.12/contextlib.py:144: in __exit__
+    next(self.gen)
+afd_plugin/v1/worker/npu/hccl_v41_graph_eager.py:226: in execution_scope
+    self.transport.finish_forward()
+afd_plugin/connectors/npu/hccl_staged_transport.py:1145: in finish_forward
+    self._finish_forward()
+afd_plugin/connectors/npu/hccl_staged_transport.py:1163: in _finish_forward
+    torch.npu.synchronize(self.local_device)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/torch_npu/npu/utils.py:70: in synchronize
+    torch_npu.npu._lazy_init()
+/opt/buildtools/python-3.12.9/lib/python3.12/unittest/mock.py:1139: in __call__
+    return self._mock_call(*args, **kwargs)
+/opt/buildtools/python-3.12.9/lib/python3.12/unittest/mock.py:1143: in _mock_call
+    return self._execute_mock_call(*args, **kwargs)
+/opt/buildtools/python-3.12.9/lib/python3.12/unittest/mock.py:1198: in _execute_mock_call
+    raise effect
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/runner.py:341: in from_call
+    result: TResult | None = func()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/runner.py:242: in <lambda>
+    lambda: runtest_hook(item=item, **kwds), when=when, reraise=reraise
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/pluggy/_caller.py:197: in __call__
+    return self._hookexec(
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/pluggy/_manager.py:183: in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/threadexception.py:92: in pytest_runtest_call
+    yield from thread_exception_runtest_hook()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/threadexception.py:68: in thread_exception_runtest_hook
+    yield
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/unraisableexception.py:95: in pytest_runtest_call
+    yield from unraisable_exception_runtest_hook()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/unraisableexception.py:70: in unraisable_exception_runtest_hook
+    yield
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/logging.py:848: in pytest_runtest_call
+    yield from self._runtest_for(item, "call")
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/logging.py:831: in _runtest_for
+    yield
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/capture.py:879: in pytest_runtest_call
+    return (yield)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/skipping.py:257: in pytest_runtest_call
+    return (yield)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/runner.py:174: in pytest_runtest_call
+    item.runtest()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/python.py:1627: in runtest
+    self.ihook.pytest_pyfunc_call(pyfuncitem=self)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/pluggy/_caller.py:197: in __call__
+    return self._hookexec(
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/pluggy/_manager.py:183: in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/python.py:159: in pytest_pyfunc_call
+    result = testfunction(**testargs)
+tests/unit/v1/worker/npu/test_attention_worker.py:141: in test_successful_native_execute_is_one_step_including_legal_none
+    assert (
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/torch/utils/_contextlib.py:124: in decorate_context
+    return func(*args, **kwargs)
+afd_plugin/v1/worker/npu/attention_model_runner_v2.py:956: in execute_model
+    with graph_execution.execution_scope(
+/opt/buildtools/python-3.12.9/lib/python3.12/contextlib.py:144: in __exit__
+    next(self.gen)
+afd_plugin/v1/worker/npu/hccl_v41_graph_eager.py:226: in execution_scope
+    self.transport.finish_forward()
+afd_plugin/connectors/npu/hccl_staged_transport.py:1145: in finish_forward
+    self._finish_forward()
+afd_plugin/connectors/npu/hccl_staged_transport.py:1163: in _finish_forward
+    torch.npu.synchronize(self.local_device)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/torch_npu/npu/utils.py:70: in synchronize
+    torch_npu.npu._lazy_init()
+/opt/buildtools/python-3.12.9/lib/python3.12/unittest/mock.py:1139: in __call__
+    return self._mock_call(*args, **kwargs)
+/opt/buildtools/python-3.12.9/lib/python3.12/unittest/mock.py:1143: in _mock_call
+    return self._execute_mock_call(*args, **kwargs)
+/opt/buildtools/python-3.12.9/lib/python3.12/unittest/mock.py:1198: in _execute_mock_call
+    raise effect
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/runner.py:341: in from_call
+    result: TResult | None = func()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/runner.py:242: in <lambda>
+    lambda: runtest_hook(item=item, **kwds), when=when, reraise=reraise
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/pluggy/_caller.py:197: in __call__
+    return self._hookexec(
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/pluggy/_manager.py:183: in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/unraisableexception.py:90: in pytest_runtest_setup
+    yield from unraisable_exception_runtest_hook()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/unraisableexception.py:70: in unraisable_exception_runtest_hook
+    yield
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/logging.py:842: in pytest_runtest_setup
+    yield from self._runtest_for(item, "setup")
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/logging.py:831: in _runtest_for
+    yield
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/capture.py:874: in pytest_runtest_setup
+    return (yield)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/threadexception.py:87: in pytest_runtest_setup
+    yield from thread_exception_runtest_hook()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/threadexception.py:68: in thread_exception_runtest_hook
+    yield
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/runner.py:160: in pytest_runtest_setup
+    item.session._setupstate.setup(item)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/runner.py:514: in setup
+    col.setup()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/python.py:1630: in setup
+    self._request._fillfixtures()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/fixtures.py:696: in _fillfixtures
+    item.funcargs[argname] = self.getfixturevalue(argname)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/fixtures.py:531: in getfixturevalue
+    fixturedef = self._get_active_fixturedef(argname)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/fixtures.py:616: in _get_active_fixturedef
+    fixturedef.execute(request=subrequest)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/fixtures.py:1090: in execute
+    result = ihook.pytest_fixture_setup(fixturedef=self, request=request)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/pluggy/_caller.py:197: in __call__
+    return self._hookexec(
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/pluggy/_manager.py:183: in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/pluggy/_execution.py:64: in run_old_style_hookwrapper
+    return result.get_result()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/pluggy/_execution.py:49: in run_old_style_hookwrapper
+    res = yield
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/setuponly.py:36: in pytest_fixture_setup
+    return (yield)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/fixtures.py:1139: in pytest_fixture_setup
+    result = call_fixture_func(fixturefunc, request, kwargs)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/fixtures.py:897: in call_fixture_func
+    fixture_result = fixturefunc(**kwargs)
+tests/unit/v1/worker/npu/test_attention_worker.py:40: in native_pd_shutdown_case
+    case = make_native_pd_shutdown_case(
+tests/unit/fakes/kv_connector.py:1249: in make_native_pd_shutdown_case
+    assert owner.execute_model(scheduled) is None
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/torch/utils/_contextlib.py:124: in decorate_context
+    return func(*args, **kwargs)
+afd_plugin/v1/worker/npu/attention_model_runner_v2.py:977: in execute_model
+    return super().execute_model(
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/torch/utils/_contextlib.py:124: in decorate_context
+    return func(*args, **kwargs)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/vllm_ascend/worker/v2/model_runner.py:517: in execute_model
+    output = super().execute_model(
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/torch/utils/_contextlib.py:124: in decorate_context
+    return func(*args, **kwargs)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/vllm/v1/worker/gpu/model_runner.py:1935: in execute_model
+    model_output = self.ubatch_runner.run(
+afd_plugin/v1/worker/npu/hccl_v41_ubatch_runner.py:385: in run
+    return self.run_staged(
+afd_plugin/v1/worker/npu/hccl_v41_ubatch_runner.py:428: in run_staged
+    return execute_hccl_v41_stages(
+afd_plugin/v1/worker/npu/hccl_v41_execution.py:297: in execute_hccl_v41_stages
+    return _execute_hccl_v41_parent(
+afd_plugin/v1/worker/npu/hccl_v41_execution.py:390: in _execute_hccl_v41_parent
+    transport.finish_forward()
+afd_plugin/connectors/npu/hccl_staged_transport.py:1145: in finish_forward
+    self._finish_forward()
+afd_plugin/connectors/npu/hccl_staged_transport.py:1163: in _finish_forward
+    torch.npu.synchronize(self.local_device)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/torch_npu/npu/utils.py:70: in synchronize
+    torch_npu.npu._lazy_init()
+/opt/buildtools/python-3.12.9/lib/python3.12/unittest/mock.py:1139: in __call__
+    return self._mock_call(*args, **kwargs)
+/opt/buildtools/python-3.12.9/lib/python3.12/unittest/mock.py:1143: in _mock_call
+    return self._execute_mock_call(*args, **kwargs)
+/opt/buildtools/python-3.12.9/lib/python3.12/unittest/mock.py:1198: in _execute_mock_call
+    raise effect
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/runner.py:341: in from_call
+    result: TResult | None = func()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/runner.py:242: in <lambda>
+    lambda: runtest_hook(item=item, **kwds), when=when, reraise=reraise
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/pluggy/_caller.py:197: in __call__
+    return self._hookexec(
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/pluggy/_manager.py:183: in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/unraisableexception.py:90: in pytest_runtest_setup
+    yield from unraisable_exception_runtest_hook()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/unraisableexception.py:70: in unraisable_exception_runtest_hook
+    yield
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/logging.py:842: in pytest_runtest_setup
+    yield from self._runtest_for(item, "setup")
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/logging.py:831: in _runtest_for
+    yield
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/capture.py:874: in pytest_runtest_setup
+    return (yield)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/threadexception.py:87: in pytest_runtest_setup
+    yield from thread_exception_runtest_hook()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/threadexception.py:68: in thread_exception_runtest_hook
+    yield
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/runner.py:160: in pytest_runtest_setup
+    item.session._setupstate.setup(item)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/runner.py:514: in setup
+    col.setup()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/python.py:1630: in setup
+    self._request._fillfixtures()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/fixtures.py:696: in _fillfixtures
+    item.funcargs[argname] = self.getfixturevalue(argname)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/fixtures.py:531: in getfixturevalue
+    fixturedef = self._get_active_fixturedef(argname)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/fixtures.py:616: in _get_active_fixturedef
+    fixturedef.execute(request=subrequest)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/fixtures.py:1090: in execute
+    result = ihook.pytest_fixture_setup(fixturedef=self, request=request)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/pluggy/_caller.py:197: in __call__
+    return self._hookexec(
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/pluggy/_manager.py:183: in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/pluggy/_execution.py:64: in run_old_style_hookwrapper
+    return result.get_result()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/pluggy/_execution.py:49: in run_old_style_hookwrapper
+    res = yield
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/setuponly.py:36: in pytest_fixture_setup
+    return (yield)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/fixtures.py:1139: in pytest_fixture_setup
+    result = call_fixture_func(fixturefunc, request, kwargs)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/fixtures.py:897: in call_fixture_func
+    fixture_result = fixturefunc(**kwargs)
+tests/unit/v1/worker/npu/test_attention_worker.py:40: in native_pd_shutdown_case
+    case = make_native_pd_shutdown_case(
+tests/unit/fakes/kv_connector.py:1249: in make_native_pd_shutdown_case
+    assert owner.execute_model(scheduled) is None
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/torch/utils/_contextlib.py:124: in decorate_context
+    return func(*args, **kwargs)
+afd_plugin/v1/worker/npu/attention_model_runner_v2.py:977: in execute_model
+    return super().execute_model(
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/torch/utils/_contextlib.py:124: in decorate_context
+    return func(*args, **kwargs)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/vllm_ascend/worker/v2/model_runner.py:517: in execute_model
+    output = super().execute_model(
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/torch/utils/_contextlib.py:124: in decorate_context
+    return func(*args, **kwargs)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/vllm/v1/worker/gpu/model_runner.py:1948: in execute_model
+    model_output = self.model(**model_inputs)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/torch/nn/modules/module.py:1776: in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/torch/nn/modules/module.py:1787: in _call_impl
+    return forward_call(*args, **kwargs)
+afd_plugin/model_executor/models/npu/deepseek_v41.py:395: in forward
+    return invocation(
+afd_plugin/v1/worker/npu/hccl_v41_execution.py:141: in __call__
+    return execute_hccl_v41_stages(
+afd_plugin/v1/worker/npu/hccl_v41_execution.py:297: in execute_hccl_v41_stages
+    return _execute_hccl_v41_parent(
+afd_plugin/v1/worker/npu/hccl_v41_execution.py:390: in _execute_hccl_v41_parent
+    transport.finish_forward()
+afd_plugin/connectors/npu/hccl_staged_transport.py:1145: in finish_forward
+    self._finish_forward()
+afd_plugin/connectors/npu/hccl_staged_transport.py:1163: in _finish_forward
+    torch.npu.synchronize(self.local_device)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/torch_npu/npu/utils.py:70: in synchronize
+    torch_npu.npu._lazy_init()
+/opt/buildtools/python-3.12.9/lib/python3.12/unittest/mock.py:1139: in __call__
+    return self._mock_call(*args, **kwargs)
+/opt/buildtools/python-3.12.9/lib/python3.12/unittest/mock.py:1143: in _mock_call
+    return self._execute_mock_call(*args, **kwargs)
+/opt/buildtools/python-3.12.9/lib/python3.12/unittest/mock.py:1198: in _execute_mock_call
+    raise effect
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/runner.py:341: in from_call
+    result: TResult | None = func()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/runner.py:242: in <lambda>
+    lambda: runtest_hook(item=item, **kwds), when=when, reraise=reraise
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/pluggy/_caller.py:197: in __call__
+    return self._hookexec(
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/pluggy/_manager.py:183: in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/unraisableexception.py:90: in pytest_runtest_setup
+    yield from unraisable_exception_runtest_hook()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/unraisableexception.py:70: in unraisable_exception_runtest_hook
+    yield
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/logging.py:842: in pytest_runtest_setup
+    yield from self._runtest_for(item, "setup")
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/logging.py:831: in _runtest_for
+    yield
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/capture.py:874: in pytest_runtest_setup
+    return (yield)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/threadexception.py:87: in pytest_runtest_setup
+    yield from thread_exception_runtest_hook()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/threadexception.py:68: in thread_exception_runtest_hook
+    yield
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/runner.py:160: in pytest_runtest_setup
+    item.session._setupstate.setup(item)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/runner.py:514: in setup
+    col.setup()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/python.py:1630: in setup
+    self._request._fillfixtures()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/fixtures.py:696: in _fillfixtures
+    item.funcargs[argname] = self.getfixturevalue(argname)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/fixtures.py:531: in getfixturevalue
+    fixturedef = self._get_active_fixturedef(argname)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/fixtures.py:616: in _get_active_fixturedef
+    fixturedef.execute(request=subrequest)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/fixtures.py:1090: in execute
+    result = ihook.pytest_fixture_setup(fixturedef=self, request=request)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/pluggy/_caller.py:197: in __call__
+    return self._hookexec(
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/pluggy/_manager.py:183: in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/pluggy/_execution.py:64: in run_old_style_hookwrapper
+    return result.get_result()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/pluggy/_execution.py:49: in run_old_style_hookwrapper
+    res = yield
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/setuponly.py:36: in pytest_fixture_setup
+    return (yield)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/fixtures.py:1139: in pytest_fixture_setup
+    result = call_fixture_func(fixturefunc, request, kwargs)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/fixtures.py:897: in call_fixture_func
+    fixture_result = fixturefunc(**kwargs)
+tests/unit/v1/worker/npu/test_attention_worker.py:40: in native_pd_shutdown_case
+    case = make_native_pd_shutdown_case(
+tests/unit/fakes/kv_connector.py:1249: in make_native_pd_shutdown_case
+    assert owner.execute_model(scheduled) is None
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/torch/utils/_contextlib.py:124: in decorate_context
+    return func(*args, **kwargs)
+afd_plugin/v1/worker/npu/attention_model_runner_v2.py:977: in execute_model
+    return super().execute_model(
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/torch/utils/_contextlib.py:124: in decorate_context
+    return func(*args, **kwargs)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/vllm_ascend/worker/v2/model_runner.py:517: in execute_model
+    output = super().execute_model(
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/torch/utils/_contextlib.py:124: in decorate_context
+    return func(*args, **kwargs)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/vllm/v1/worker/gpu/model_runner.py:1935: in execute_model
+    model_output = self.ubatch_runner.run(
+afd_plugin/v1/worker/npu/hccl_v41_ubatch_runner.py:385: in run
+    return self.run_staged(
+afd_plugin/v1/worker/npu/hccl_v41_ubatch_runner.py:428: in run_staged
+    return execute_hccl_v41_stages(
+afd_plugin/v1/worker/npu/hccl_v41_execution.py:297: in execute_hccl_v41_stages
+    return _execute_hccl_v41_parent(
+afd_plugin/v1/worker/npu/hccl_v41_execution.py:390: in _execute_hccl_v41_parent
+    transport.finish_forward()
+afd_plugin/connectors/npu/hccl_staged_transport.py:1145: in finish_forward
+    self._finish_forward()
+afd_plugin/connectors/npu/hccl_staged_transport.py:1163: in _finish_forward
+    torch.npu.synchronize(self.local_device)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/torch_npu/npu/utils.py:70: in synchronize
+    torch_npu.npu._lazy_init()
+/opt/buildtools/python-3.12.9/lib/python3.12/unittest/mock.py:1139: in __call__
+    return self._mock_call(*args, **kwargs)
+/opt/buildtools/python-3.12.9/lib/python3.12/unittest/mock.py:1143: in _mock_call
+    return self._execute_mock_call(*args, **kwargs)
+/opt/buildtools/python-3.12.9/lib/python3.12/unittest/mock.py:1198: in _execute_mock_call
+    raise effect
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/runner.py:341: in from_call
+    result: TResult | None = func()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/runner.py:242: in <lambda>
+    lambda: runtest_hook(item=item, **kwds), when=when, reraise=reraise
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/pluggy/_caller.py:197: in __call__
+    return self._hookexec(
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/pluggy/_manager.py:183: in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/unraisableexception.py:90: in pytest_runtest_setup
+    yield from unraisable_exception_runtest_hook()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/unraisableexception.py:70: in unraisable_exception_runtest_hook
+    yield
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/logging.py:842: in pytest_runtest_setup
+    yield from self._runtest_for(item, "setup")
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/logging.py:831: in _runtest_for
+    yield
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/capture.py:874: in pytest_runtest_setup
+    return (yield)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/threadexception.py:87: in pytest_runtest_setup
+    yield from thread_exception_runtest_hook()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/threadexception.py:68: in thread_exception_runtest_hook
+    yield
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/runner.py:160: in pytest_runtest_setup
+    item.session._setupstate.setup(item)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/runner.py:514: in setup
+    col.setup()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/python.py:1630: in setup
+    self._request._fillfixtures()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/fixtures.py:696: in _fillfixtures
+    item.funcargs[argname] = self.getfixturevalue(argname)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/fixtures.py:531: in getfixturevalue
+    fixturedef = self._get_active_fixturedef(argname)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/fixtures.py:616: in _get_active_fixturedef
+    fixturedef.execute(request=subrequest)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/fixtures.py:1090: in execute
+    result = ihook.pytest_fixture_setup(fixturedef=self, request=request)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/pluggy/_caller.py:197: in __call__
+    return self._hookexec(
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/pluggy/_manager.py:183: in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/pluggy/_execution.py:64: in run_old_style_hookwrapper
+    return result.get_result()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/pluggy/_execution.py:49: in run_old_style_hookwrapper
+    res = yield
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/setuponly.py:36: in pytest_fixture_setup
+    return (yield)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/fixtures.py:1139: in pytest_fixture_setup
+    result = call_fixture_func(fixturefunc, request, kwargs)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/fixtures.py:897: in call_fixture_func
+    fixture_result = fixturefunc(**kwargs)
+tests/unit/v1/worker/npu/test_attention_worker.py:40: in native_pd_shutdown_case
+    case = make_native_pd_shutdown_case(
+tests/unit/fakes/kv_connector.py:1249: in make_native_pd_shutdown_case
+    assert owner.execute_model(scheduled) is None
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/torch/utils/_contextlib.py:124: in decorate_context
+    return func(*args, **kwargs)
+afd_plugin/v1/worker/npu/attention_model_runner_v2.py:977: in execute_model
+    return super().execute_model(
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/torch/utils/_contextlib.py:124: in decorate_context
+    return func(*args, **kwargs)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/vllm_ascend/worker/v2/model_runner.py:517: in execute_model
+    output = super().execute_model(
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/torch/utils/_contextlib.py:124: in decorate_context
+    return func(*args, **kwargs)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/vllm/v1/worker/gpu/model_runner.py:1948: in execute_model
+    model_output = self.model(**model_inputs)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/torch/nn/modules/module.py:1776: in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/torch/nn/modules/module.py:1787: in _call_impl
+    return forward_call(*args, **kwargs)
+afd_plugin/model_executor/models/npu/deepseek_v41.py:395: in forward
+    return invocation(
+afd_plugin/v1/worker/npu/hccl_v41_execution.py:141: in __call__
+    return execute_hccl_v41_stages(
+afd_plugin/v1/worker/npu/hccl_v41_execution.py:297: in execute_hccl_v41_stages
+    return _execute_hccl_v41_parent(
+afd_plugin/v1/worker/npu/hccl_v41_execution.py:390: in _execute_hccl_v41_parent
+    transport.finish_forward()
+afd_plugin/connectors/npu/hccl_staged_transport.py:1145: in finish_forward
+    self._finish_forward()
+afd_plugin/connectors/npu/hccl_staged_transport.py:1163: in _finish_forward
+    torch.npu.synchronize(self.local_device)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/torch_npu/npu/utils.py:70: in synchronize
+    torch_npu.npu._lazy_init()
+/opt/buildtools/python-3.12.9/lib/python3.12/unittest/mock.py:1139: in __call__
+    return self._mock_call(*args, **kwargs)
+/opt/buildtools/python-3.12.9/lib/python3.12/unittest/mock.py:1143: in _mock_call
+    return self._execute_mock_call(*args, **kwargs)
+/opt/buildtools/python-3.12.9/lib/python3.12/unittest/mock.py:1198: in _execute_mock_call
+    raise effect
+E   RuntimeError: CPU test forbids NPU initialization
+_________ test_idle_profile_request_is_pending_until_the_next_execute __________
+tests/unit/v1/worker/npu/test_attention_worker.py:156: in test_idle_profile_request_is_pending_until_the_next_execute
+    case.owner.execute_model(SimpleNamespace(total_num_scheduled_tokens=0))
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/torch/utils/_contextlib.py:124: in decorate_context
+    return func(*args, **kwargs)
+afd_plugin/v1/worker/npu/attention_model_runner_v2.py:956: in execute_model
+    with graph_execution.execution_scope(
+/opt/buildtools/python-3.12.9/lib/python3.12/contextlib.py:144: in __exit__
+    next(self.gen)
+afd_plugin/v1/worker/npu/hccl_v41_graph_eager.py:226: in execution_scope
+    self.transport.finish_forward()
+afd_plugin/connectors/npu/hccl_staged_transport.py:1145: in finish_forward
+    self._finish_forward()
+afd_plugin/connectors/npu/hccl_staged_transport.py:1163: in _finish_forward
+    torch.npu.synchronize(self.local_device)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/torch_npu/npu/utils.py:70: in synchronize
+    torch_npu.npu._lazy_init()
+/opt/buildtools/python-3.12.9/lib/python3.12/unittest/mock.py:1139: in __call__
+    return self._mock_call(*args, **kwargs)
+/opt/buildtools/python-3.12.9/lib/python3.12/unittest/mock.py:1143: in _mock_call
+    return self._execute_mock_call(*args, **kwargs)
+/opt/buildtools/python-3.12.9/lib/python3.12/unittest/mock.py:1198: in _execute_mock_call
+    raise effect
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/runner.py:341: in from_call
+    result: TResult | None = func()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/runner.py:242: in <lambda>
+    lambda: runtest_hook(item=item, **kwds), when=when, reraise=reraise
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/pluggy/_caller.py:197: in __call__
+    return self._hookexec(
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/pluggy/_manager.py:183: in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/threadexception.py:92: in pytest_runtest_call
+    yield from thread_exception_runtest_hook()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/threadexception.py:68: in thread_exception_runtest_hook
+    yield
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/unraisableexception.py:95: in pytest_runtest_call
+    yield from unraisable_exception_runtest_hook()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/unraisableexception.py:70: in unraisable_exception_runtest_hook
+    yield
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/logging.py:848: in pytest_runtest_call
+    yield from self._runtest_for(item, "call")
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/logging.py:831: in _runtest_for
+    yield
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/capture.py:879: in pytest_runtest_call
+    return (yield)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/skipping.py:257: in pytest_runtest_call
+    return (yield)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/runner.py:174: in pytest_runtest_call
+    item.runtest()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/python.py:1627: in runtest
+    self.ihook.pytest_pyfunc_call(pyfuncitem=self)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/pluggy/_caller.py:197: in __call__
+    return self._hookexec(
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/pluggy/_manager.py:183: in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/python.py:159: in pytest_pyfunc_call
+    result = testfunction(**testargs)
+tests/unit/v1/worker/npu/test_attention_worker.py:141: in test_successful_native_execute_is_one_step_including_legal_none
+    assert (
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/torch/utils/_contextlib.py:124: in decorate_context
+    return func(*args, **kwargs)
+afd_plugin/v1/worker/npu/attention_model_runner_v2.py:956: in execute_model
+    with graph_execution.execution_scope(
+/opt/buildtools/python-3.12.9/lib/python3.12/contextlib.py:144: in __exit__
+    next(self.gen)
+afd_plugin/v1/worker/npu/hccl_v41_graph_eager.py:226: in execution_scope
+    self.transport.finish_forward()
+afd_plugin/connectors/npu/hccl_staged_transport.py:1145: in finish_forward
+    self._finish_forward()
+afd_plugin/connectors/npu/hccl_staged_transport.py:1163: in _finish_forward
+    torch.npu.synchronize(self.local_device)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/torch_npu/npu/utils.py:70: in synchronize
+    torch_npu.npu._lazy_init()
+/opt/buildtools/python-3.12.9/lib/python3.12/unittest/mock.py:1139: in __call__
+    return self._mock_call(*args, **kwargs)
+/opt/buildtools/python-3.12.9/lib/python3.12/unittest/mock.py:1143: in _mock_call
+    return self._execute_mock_call(*args, **kwargs)
+/opt/buildtools/python-3.12.9/lib/python3.12/unittest/mock.py:1198: in _execute_mock_call
+    raise effect
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/runner.py:341: in from_call
+    result: TResult | None = func()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/runner.py:242: in <lambda>
+    lambda: runtest_hook(item=item, **kwds), when=when, reraise=reraise
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/pluggy/_caller.py:197: in __call__
+    return self._hookexec(
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/pluggy/_manager.py:183: in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/threadexception.py:92: in pytest_runtest_call
+    yield from thread_exception_runtest_hook()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/threadexception.py:68: in thread_exception_runtest_hook
+    yield
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/unraisableexception.py:95: in pytest_runtest_call
+    yield from unraisable_exception_runtest_hook()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/unraisableexception.py:70: in unraisable_exception_runtest_hook
+    yield
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/logging.py:848: in pytest_runtest_call
+    yield from self._runtest_for(item, "call")
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/logging.py:831: in _runtest_for
+    yield
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/capture.py:879: in pytest_runtest_call
+    return (yield)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/skipping.py:257: in pytest_runtest_call
+    return (yield)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/runner.py:174: in pytest_runtest_call
+    item.runtest()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/python.py:1627: in runtest
+    self.ihook.pytest_pyfunc_call(pyfuncitem=self)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/pluggy/_caller.py:197: in __call__
+    return self._hookexec(
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/pluggy/_manager.py:183: in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/python.py:159: in pytest_pyfunc_call
+    result = testfunction(**testargs)
+tests/unit/v1/worker/npu/test_attention_worker.py:141: in test_successful_native_execute_is_one_step_including_legal_none
+    assert (
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/torch/utils/_contextlib.py:124: in decorate_context
+    return func(*args, **kwargs)
+afd_plugin/v1/worker/npu/attention_model_runner_v2.py:956: in execute_model
+    with graph_execution.execution_scope(
+/opt/buildtools/python-3.12.9/lib/python3.12/contextlib.py:144: in __exit__
+    next(self.gen)
+afd_plugin/v1/worker/npu/hccl_v41_graph_eager.py:226: in execution_scope
+    self.transport.finish_forward()
+afd_plugin/connectors/npu/hccl_staged_transport.py:1145: in finish_forward
+    self._finish_forward()
+afd_plugin/connectors/npu/hccl_staged_transport.py:1163: in _finish_forward
+    torch.npu.synchronize(self.local_device)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/torch_npu/npu/utils.py:70: in synchronize
+    torch_npu.npu._lazy_init()
+/opt/buildtools/python-3.12.9/lib/python3.12/unittest/mock.py:1139: in __call__
+    return self._mock_call(*args, **kwargs)
+/opt/buildtools/python-3.12.9/lib/python3.12/unittest/mock.py:1143: in _mock_call
+    return self._execute_mock_call(*args, **kwargs)
+/opt/buildtools/python-3.12.9/lib/python3.12/unittest/mock.py:1198: in _execute_mock_call
+    raise effect
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/runner.py:341: in from_call
+    result: TResult | None = func()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/runner.py:242: in <lambda>
+    lambda: runtest_hook(item=item, **kwds), when=when, reraise=reraise
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/pluggy/_caller.py:197: in __call__
+    return self._hookexec(
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/pluggy/_manager.py:183: in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/unraisableexception.py:90: in pytest_runtest_setup
+    yield from unraisable_exception_runtest_hook()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/unraisableexception.py:70: in unraisable_exception_runtest_hook
+    yield
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/logging.py:842: in pytest_runtest_setup
+    yield from self._runtest_for(item, "setup")
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/logging.py:831: in _runtest_for
+    yield
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/capture.py:874: in pytest_runtest_setup
+    return (yield)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/threadexception.py:87: in pytest_runtest_setup
+    yield from thread_exception_runtest_hook()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/threadexception.py:68: in thread_exception_runtest_hook
+    yield
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/runner.py:160: in pytest_runtest_setup
+    item.session._setupstate.setup(item)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/runner.py:514: in setup
+    col.setup()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/python.py:1630: in setup
+    self._request._fillfixtures()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/fixtures.py:696: in _fillfixtures
+    item.funcargs[argname] = self.getfixturevalue(argname)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/fixtures.py:531: in getfixturevalue
+    fixturedef = self._get_active_fixturedef(argname)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/fixtures.py:616: in _get_active_fixturedef
+    fixturedef.execute(request=subrequest)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/fixtures.py:1090: in execute
+    result = ihook.pytest_fixture_setup(fixturedef=self, request=request)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/pluggy/_caller.py:197: in __call__
+    return self._hookexec(
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/pluggy/_manager.py:183: in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/pluggy/_execution.py:64: in run_old_style_hookwrapper
+    return result.get_result()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/pluggy/_execution.py:49: in run_old_style_hookwrapper
+    res = yield
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/setuponly.py:36: in pytest_fixture_setup
+    return (yield)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/fixtures.py:1139: in pytest_fixture_setup
+    result = call_fixture_func(fixturefunc, request, kwargs)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/fixtures.py:897: in call_fixture_func
+    fixture_result = fixturefunc(**kwargs)
+tests/unit/v1/worker/npu/test_attention_worker.py:40: in native_pd_shutdown_case
+    case = make_native_pd_shutdown_case(
+tests/unit/fakes/kv_connector.py:1249: in make_native_pd_shutdown_case
+    assert owner.execute_model(scheduled) is None
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/torch/utils/_contextlib.py:124: in decorate_context
+    return func(*args, **kwargs)
+afd_plugin/v1/worker/npu/attention_model_runner_v2.py:977: in execute_model
+    return super().execute_model(
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/torch/utils/_contextlib.py:124: in decorate_context
+    return func(*args, **kwargs)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/vllm_ascend/worker/v2/model_runner.py:517: in execute_model
+    output = super().execute_model(
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/torch/utils/_contextlib.py:124: in decorate_context
+    return func(*args, **kwargs)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/vllm/v1/worker/gpu/model_runner.py:1935: in execute_model
+    model_output = self.ubatch_runner.run(
+afd_plugin/v1/worker/npu/hccl_v41_ubatch_runner.py:385: in run
+    return self.run_staged(
+afd_plugin/v1/worker/npu/hccl_v41_ubatch_runner.py:428: in run_staged
+    return execute_hccl_v41_stages(
+afd_plugin/v1/worker/npu/hccl_v41_execution.py:297: in execute_hccl_v41_stages
+    return _execute_hccl_v41_parent(
+afd_plugin/v1/worker/npu/hccl_v41_execution.py:390: in _execute_hccl_v41_parent
+    transport.finish_forward()
+afd_plugin/connectors/npu/hccl_staged_transport.py:1145: in finish_forward
+    self._finish_forward()
+afd_plugin/connectors/npu/hccl_staged_transport.py:1163: in _finish_forward
+    torch.npu.synchronize(self.local_device)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/torch_npu/npu/utils.py:70: in synchronize
+    torch_npu.npu._lazy_init()
+/opt/buildtools/python-3.12.9/lib/python3.12/unittest/mock.py:1139: in __call__
+    return self._mock_call(*args, **kwargs)
+/opt/buildtools/python-3.12.9/lib/python3.12/unittest/mock.py:1143: in _mock_call
+    return self._execute_mock_call(*args, **kwargs)
+/opt/buildtools/python-3.12.9/lib/python3.12/unittest/mock.py:1198: in _execute_mock_call
+    raise effect
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/runner.py:341: in from_call
+    result: TResult | None = func()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/runner.py:242: in <lambda>
+    lambda: runtest_hook(item=item, **kwds), when=when, reraise=reraise
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/pluggy/_caller.py:197: in __call__
+    return self._hookexec(
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/pluggy/_manager.py:183: in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/unraisableexception.py:90: in pytest_runtest_setup
+    yield from unraisable_exception_runtest_hook()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/unraisableexception.py:70: in unraisable_exception_runtest_hook
+    yield
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/logging.py:842: in pytest_runtest_setup
+    yield from self._runtest_for(item, "setup")
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/logging.py:831: in _runtest_for
+    yield
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/capture.py:874: in pytest_runtest_setup
+    return (yield)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/threadexception.py:87: in pytest_runtest_setup
+    yield from thread_exception_runtest_hook()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/threadexception.py:68: in thread_exception_runtest_hook
+    yield
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/runner.py:160: in pytest_runtest_setup
+    item.session._setupstate.setup(item)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/runner.py:514: in setup
+    col.setup()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/python.py:1630: in setup
+    self._request._fillfixtures()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/fixtures.py:696: in _fillfixtures
+    item.funcargs[argname] = self.getfixturevalue(argname)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/fixtures.py:531: in getfixturevalue
+    fixturedef = self._get_active_fixturedef(argname)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/fixtures.py:616: in _get_active_fixturedef
+    fixturedef.execute(request=subrequest)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/fixtures.py:1090: in execute
+    result = ihook.pytest_fixture_setup(fixturedef=self, request=request)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/pluggy/_caller.py:197: in __call__
+    return self._hookexec(
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/pluggy/_manager.py:183: in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/pluggy/_execution.py:64: in run_old_style_hookwrapper
+    return result.get_result()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/pluggy/_execution.py:49: in run_old_style_hookwrapper
+    res = yield
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/setuponly.py:36: in pytest_fixture_setup
+    return (yield)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/fixtures.py:1139: in pytest_fixture_setup
+    result = call_fixture_func(fixturefunc, request, kwargs)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/fixtures.py:897: in call_fixture_func
+    fixture_result = fixturefunc(**kwargs)
+tests/unit/v1/worker/npu/test_attention_worker.py:40: in native_pd_shutdown_case
+    case = make_native_pd_shutdown_case(
+tests/unit/fakes/kv_connector.py:1249: in make_native_pd_shutdown_case
+    assert owner.execute_model(scheduled) is None
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/torch/utils/_contextlib.py:124: in decorate_context
+    return func(*args, **kwargs)
+afd_plugin/v1/worker/npu/attention_model_runner_v2.py:977: in execute_model
+    return super().execute_model(
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/torch/utils/_contextlib.py:124: in decorate_context
+    return func(*args, **kwargs)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/vllm_ascend/worker/v2/model_runner.py:517: in execute_model
+    output = super().execute_model(
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/torch/utils/_contextlib.py:124: in decorate_context
+    return func(*args, **kwargs)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/vllm/v1/worker/gpu/model_runner.py:1948: in execute_model
+    model_output = self.model(**model_inputs)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/torch/nn/modules/module.py:1776: in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/torch/nn/modules/module.py:1787: in _call_impl
+    return forward_call(*args, **kwargs)
+afd_plugin/model_executor/models/npu/deepseek_v41.py:395: in forward
+    return invocation(
+afd_plugin/v1/worker/npu/hccl_v41_execution.py:141: in __call__
+    return execute_hccl_v41_stages(
+afd_plugin/v1/worker/npu/hccl_v41_execution.py:297: in execute_hccl_v41_stages
+    return _execute_hccl_v41_parent(
+afd_plugin/v1/worker/npu/hccl_v41_execution.py:390: in _execute_hccl_v41_parent
+    transport.finish_forward()
+afd_plugin/connectors/npu/hccl_staged_transport.py:1145: in finish_forward
+    self._finish_forward()
+afd_plugin/connectors/npu/hccl_staged_transport.py:1163: in _finish_forward
+    torch.npu.synchronize(self.local_device)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/torch_npu/npu/utils.py:70: in synchronize
+    torch_npu.npu._lazy_init()
+/opt/buildtools/python-3.12.9/lib/python3.12/unittest/mock.py:1139: in __call__
+    return self._mock_call(*args, **kwargs)
+/opt/buildtools/python-3.12.9/lib/python3.12/unittest/mock.py:1143: in _mock_call
+    return self._execute_mock_call(*args, **kwargs)
+/opt/buildtools/python-3.12.9/lib/python3.12/unittest/mock.py:1198: in _execute_mock_call
+    raise effect
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/runner.py:341: in from_call
+    result: TResult | None = func()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/runner.py:242: in <lambda>
+    lambda: runtest_hook(item=item, **kwds), when=when, reraise=reraise
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/pluggy/_caller.py:197: in __call__
+    return self._hookexec(
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/pluggy/_manager.py:183: in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/unraisableexception.py:90: in pytest_runtest_setup
+    yield from unraisable_exception_runtest_hook()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/unraisableexception.py:70: in unraisable_exception_runtest_hook
+    yield
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/logging.py:842: in pytest_runtest_setup
+    yield from self._runtest_for(item, "setup")
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/logging.py:831: in _runtest_for
+    yield
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/capture.py:874: in pytest_runtest_setup
+    return (yield)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/threadexception.py:87: in pytest_runtest_setup
+    yield from thread_exception_runtest_hook()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/threadexception.py:68: in thread_exception_runtest_hook
+    yield
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/runner.py:160: in pytest_runtest_setup
+    item.session._setupstate.setup(item)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/runner.py:514: in setup
+    col.setup()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/python.py:1630: in setup
+    self._request._fillfixtures()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/fixtures.py:696: in _fillfixtures
+    item.funcargs[argname] = self.getfixturevalue(argname)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/fixtures.py:531: in getfixturevalue
+    fixturedef = self._get_active_fixturedef(argname)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/fixtures.py:616: in _get_active_fixturedef
+    fixturedef.execute(request=subrequest)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/fixtures.py:1090: in execute
+    result = ihook.pytest_fixture_setup(fixturedef=self, request=request)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/pluggy/_caller.py:197: in __call__
+    return self._hookexec(
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/pluggy/_manager.py:183: in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/pluggy/_execution.py:64: in run_old_style_hookwrapper
+    return result.get_result()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/pluggy/_execution.py:49: in run_old_style_hookwrapper
+    res = yield
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/setuponly.py:36: in pytest_fixture_setup
+    return (yield)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/fixtures.py:1139: in pytest_fixture_setup
+    result = call_fixture_func(fixturefunc, request, kwargs)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/fixtures.py:897: in call_fixture_func
+    fixture_result = fixturefunc(**kwargs)
+tests/unit/v1/worker/npu/test_attention_worker.py:40: in native_pd_shutdown_case
+    case = make_native_pd_shutdown_case(
+tests/unit/fakes/kv_connector.py:1249: in make_native_pd_shutdown_case
+    assert owner.execute_model(scheduled) is None
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/torch/utils/_contextlib.py:124: in decorate_context
+    return func(*args, **kwargs)
+afd_plugin/v1/worker/npu/attention_model_runner_v2.py:977: in execute_model
+    return super().execute_model(
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/torch/utils/_contextlib.py:124: in decorate_context
+    return func(*args, **kwargs)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/vllm_ascend/worker/v2/model_runner.py:517: in execute_model
+    output = super().execute_model(
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/torch/utils/_contextlib.py:124: in decorate_context
+    return func(*args, **kwargs)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/vllm/v1/worker/gpu/model_runner.py:1935: in execute_model
+    model_output = self.ubatch_runner.run(
+afd_plugin/v1/worker/npu/hccl_v41_ubatch_runner.py:385: in run
+    return self.run_staged(
+afd_plugin/v1/worker/npu/hccl_v41_ubatch_runner.py:428: in run_staged
+    return execute_hccl_v41_stages(
+afd_plugin/v1/worker/npu/hccl_v41_execution.py:297: in execute_hccl_v41_stages
+    return _execute_hccl_v41_parent(
+afd_plugin/v1/worker/npu/hccl_v41_execution.py:390: in _execute_hccl_v41_parent
+    transport.finish_forward()
+afd_plugin/connectors/npu/hccl_staged_transport.py:1145: in finish_forward
+    self._finish_forward()
+afd_plugin/connectors/npu/hccl_staged_transport.py:1163: in _finish_forward
+    torch.npu.synchronize(self.local_device)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/torch_npu/npu/utils.py:70: in synchronize
+    torch_npu.npu._lazy_init()
+/opt/buildtools/python-3.12.9/lib/python3.12/unittest/mock.py:1139: in __call__
+    return self._mock_call(*args, **kwargs)
+/opt/buildtools/python-3.12.9/lib/python3.12/unittest/mock.py:1143: in _mock_call
+    return self._execute_mock_call(*args, **kwargs)
+/opt/buildtools/python-3.12.9/lib/python3.12/unittest/mock.py:1198: in _execute_mock_call
+    raise effect
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/runner.py:341: in from_call
+    result: TResult | None = func()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/runner.py:242: in <lambda>
+    lambda: runtest_hook(item=item, **kwds), when=when, reraise=reraise
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/pluggy/_caller.py:197: in __call__
+    return self._hookexec(
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/pluggy/_manager.py:183: in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/unraisableexception.py:90: in pytest_runtest_setup
+    yield from unraisable_exception_runtest_hook()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/unraisableexception.py:70: in unraisable_exception_runtest_hook
+    yield
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/logging.py:842: in pytest_runtest_setup
+    yield from self._runtest_for(item, "setup")
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/logging.py:831: in _runtest_for
+    yield
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/capture.py:874: in pytest_runtest_setup
+    return (yield)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/threadexception.py:87: in pytest_runtest_setup
+    yield from thread_exception_runtest_hook()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/threadexception.py:68: in thread_exception_runtest_hook
+    yield
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/runner.py:160: in pytest_runtest_setup
+    item.session._setupstate.setup(item)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/runner.py:514: in setup
+    col.setup()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/python.py:1630: in setup
+    self._request._fillfixtures()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/fixtures.py:696: in _fillfixtures
+    item.funcargs[argname] = self.getfixturevalue(argname)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/fixtures.py:531: in getfixturevalue
+    fixturedef = self._get_active_fixturedef(argname)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/fixtures.py:616: in _get_active_fixturedef
+    fixturedef.execute(request=subrequest)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/fixtures.py:1090: in execute
+    result = ihook.pytest_fixture_setup(fixturedef=self, request=request)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/pluggy/_caller.py:197: in __call__
+    return self._hookexec(
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/pluggy/_manager.py:183: in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/pluggy/_execution.py:64: in run_old_style_hookwrapper
+    return result.get_result()
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/pluggy/_execution.py:49: in run_old_style_hookwrapper
+    res = yield
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/setuponly.py:36: in pytest_fixture_setup
+    return (yield)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/fixtures.py:1139: in pytest_fixture_setup
+    result = call_fixture_func(fixturefunc, request, kwargs)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/_pytest/fixtures.py:897: in call_fixture_func
+    fixture_result = fixturefunc(**kwargs)
+tests/unit/v1/worker/npu/test_attention_worker.py:40: in native_pd_shutdown_case
+    case = make_native_pd_shutdown_case(
+tests/unit/fakes/kv_connector.py:1249: in make_native_pd_shutdown_case
+    assert owner.execute_model(scheduled) is None
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/torch/utils/_contextlib.py:124: in decorate_context
+    return func(*args, **kwargs)
+afd_plugin/v1/worker/npu/attention_model_runner_v2.py:977: in execute_model
+    return super().execute_model(
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/torch/utils/_contextlib.py:124: in decorate_context
+    return func(*args, **kwargs)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/vllm_ascend/worker/v2/model_runner.py:517: in execute_model
+    output = super().execute_model(
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/torch/utils/_contextlib.py:124: in decorate_context
+    return func(*args, **kwargs)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/vllm/v1/worker/gpu/model_runner.py:1948: in execute_model
+    model_output = self.model(**model_inputs)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/torch/nn/modules/module.py:1776: in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/torch/nn/modules/module.py:1787: in _call_impl
+    return forward_call(*args, **kwargs)
+afd_plugin/model_executor/models/npu/deepseek_v41.py:395: in forward
+    return invocation(
+afd_plugin/v1/worker/npu/hccl_v41_execution.py:141: in __call__
+    return execute_hccl_v41_stages(
+afd_plugin/v1/worker/npu/hccl_v41_execution.py:297: in execute_hccl_v41_stages
+    return _execute_hccl_v41_parent(
+afd_plugin/v1/worker/npu/hccl_v41_execution.py:390: in _execute_hccl_v41_parent
+    transport.finish_forward()
+afd_plugin/connectors/npu/hccl_staged_transport.py:1145: in finish_forward
+    self._finish_forward()
+afd_plugin/connectors/npu/hccl_staged_transport.py:1163: in _finish_forward
+    torch.npu.synchronize(self.local_device)
+../../../../code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/torch_npu/npu/utils.py:70: in synchronize
+    torch_npu.npu._lazy_init()
+/opt/buildtools/python-3.12.9/lib/python3.12/unittest/mock.py:1139: in __call__
+    return self._mock_call(*args, **kwargs)
+/opt/buildtools/python-3.12.9/lib/python3.12/unittest/mock.py:1143: in _mock_call
+    return self._execute_mock_call(*args, **kwargs)
+/opt/buildtools/python-3.12.9/lib/python3.12/unittest/mock.py:1198: in _execute_mock_call
+    raise effect
+E   RuntimeError: CPU test forbids NPU initialization
+=============================== warnings summary ===============================
+tests/unit/v1/worker/npu/test_attention_worker.py::test_failed_pd_sampling_rejects_shutdown_before_native_release[native_pd_shutdown_case0]
+  /mnt/workspace/code/.venvs/afd-v030-dsv41-c0/lib/python3.12/site-packages/torch_npu/utils/storage.py:55: UserWarning: TypedStorage is deprecated. It will be removed in the future and UntypedStorage will be the only storage class. This should only matter to you if you are using storages directly.  To access UntypedStorage directly, use tensor.untyped_storage() instead of tensor.storage()
+    if self.device.type != 'cpu':
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+- generated xml file: /mnt/workspace/tmp/afd-c0-20261104.hVgsIf/native-tp4-control-cpu-m_yet9i9/results/junit.xml -
+=========================== short test summary info ============================
+FAILED tests/unit/v1/worker/npu/test_attention_worker.py::test_successful_native_execute_is_one_step_including_legal_none[None]
+FAILED tests/unit/v1/worker/npu/test_attention_worker.py::test_successful_native_execute_is_one_step_including_legal_none[native-result]
+FAILED tests/unit/v1/worker/npu/test_attention_worker.py::test_idle_profile_request_is_pending_until_the_next_execute
+ERROR tests/unit/v1/worker/npu/test_attention_worker.py::test_failed_pd_sampling_rejects_shutdown_before_native_release[native_pd_shutdown_case0]
+ERROR tests/unit/v1/worker/npu/test_attention_worker.py::test_failed_pd_sampling_rejects_shutdown_before_native_release[native_pd_shutdown_case1]
+ERROR tests/unit/v1/worker/npu/test_attention_worker.py::test_successful_pd_shutdown_drains_before_native_release[native_pd_shutdown_case0]
+ERROR tests/unit/v1/worker/npu/test_attention_worker.py::test_successful_pd_shutdown_drains_before_native_release[native_pd_shutdown_case1]
+3 failed, 30 passed, 1 warning, 4 errors in 11.53s

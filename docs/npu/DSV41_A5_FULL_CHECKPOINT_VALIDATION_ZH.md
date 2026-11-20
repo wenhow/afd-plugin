@@ -51,7 +51,12 @@ PY
 25 份锁源和 checkpoint 结构检查通过，但尚未载权、发送请求或生成可用原生参考。
 详见[归档审阅](../../openspec/changes/afd-hccl-full-parity/evidence/a5-full-checkpoint-plugin-registration-20261119/README.md)。
 
-注册检查通过后，定义入口并先运行原生：
+注册检查通过后，定义入口并先运行原生 TP4 对照。2026-11-20 起，该入口显式选择
+`DSV41NativeTP4ControlWorker`：保留原生模型、ModelRunner、MoE 和 Engram，
+仅在载权后为本实例的 packed Attention 接入与 AFD 相同的 16→64 query-head 适配。
+当前 A5 wheel 不接受 TP4 的 16 heads；此对照不表示完全未适配的上游支持 TP4。
+`launch-plan.json` 中的 `attention_head_adapter` 应为 `tp4-query-16-to-64-v1`，
+AFD 参考准入同时要求该标记，避免混用旧对照。该 worker 的锁源加入本入口预检。
 
 运行前用 `npu-smi info` 确认选定卡的进程表为空。默认原生使用 0–3，AFD 使用
 0–7；若已有服务占用，先通过该服务自己的启动/管理终端正常停止，再核对资源。
@@ -86,6 +91,13 @@ curl --noproxy '*' --max-time 3 -i http://127.0.0.1:18031/health
 旧包没有健康检查错误记录，无法确认具体 HTTP 原因；代理干扰仅为本机已复现的失败路径。
 此包缺少 `summary.json` 和最终资源快照，仍不能作为参考，见
 [就绪等待审阅](../../openspec/changes/afd-hccl-full-parity/evidence/a5-native-readiness-20261119/README.md)。
+
+2026-11-20 的 `full-eager-u1-yqxpk_w6` 已通过 curl 健康检查并发送首波双请求，
+均因原生 packed Attention 缺少上述适配而返回 HTTP 500：`N1 must be 64 ... got 16`。
+修复只补齐对照实例的 backend 选择，不改变 TP 数、checkpoint 或 Engram；
+更新后仍用同一 `full --native-control --run` 命令生成新参考。该包触发 owned 强制清理，
+最终设备空闲，但请求/正常退出均未通过，见
+[本轮审阅](../../openspec/changes/afd-hccl-full-parity/evidence/a5-native-tp4-heads-20261120/README.md)。
 
 先确认原生目录的 `summary.json` 中 `request_passed=true`、`clean_shutdown=true`，
 再将本次打印的原生目录赋给 `DSV41_NATIVE`。若为 false，先处理其中的 `error`；

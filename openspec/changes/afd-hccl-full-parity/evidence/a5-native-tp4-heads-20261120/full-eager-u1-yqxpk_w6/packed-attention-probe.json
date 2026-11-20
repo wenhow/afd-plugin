@@ -1,0 +1,190 @@
+{
+  "scope": "real A5 packed-cache writes and TP4 qsmla head independence only",
+  "passed": true,
+  "versions": {
+    "python": "3.11.10 (main, Oct 12 2026, 02:41:10) [GCC 12.3.1 (openEuler 12.3.1-110.oe2403sp4)]",
+    "torch": "2.10.0",
+    "torch-npu": "2.10.0.post4",
+    "vllm": "0.30.0+empty",
+    "vllm-ascend": "0.19.1rc2.dev637+g2db8549c5",
+    "cann-ops-transformer": "1.0.0"
+  },
+  "relative_tolerance": 0.01,
+  "absolute_tolerance": 0.002,
+  "cases": [
+    {
+      "phase": "prefill",
+      "tokens": 3,
+      "start_position": 0,
+      "compressed": false,
+      "passed": true,
+      "stage": "completed",
+      "q_shape": [
+        3,
+        16,
+        512
+      ],
+      "native_q_shape": [
+        3,
+        64,
+        512
+      ],
+      "ori_cache_shape": [
+        1,
+        128,
+        1,
+        544
+      ],
+      "cmp_cache_shape": null,
+      "output_shape": [
+        3,
+        16,
+        512
+      ],
+      "output_dtype": "torch.bfloat16",
+      "output_contiguous": true,
+      "max_abs_diff_native_zero": 0.0,
+      "max_abs_diff_native_nonzero": 0.0,
+      "max_abs_diff_extra_heads": 0.0,
+      "output_max_absolute_value": 0.1826171875,
+      "scheduling_metadata_unchanged": true,
+      "inputs_and_caches_unchanged": true
+    },
+    {
+      "phase": "prefill",
+      "tokens": 3,
+      "start_position": 0,
+      "compressed": true,
+      "passed": true,
+      "stage": "completed",
+      "q_shape": [
+        3,
+        16,
+        512
+      ],
+      "native_q_shape": [
+        3,
+        64,
+        512
+      ],
+      "ori_cache_shape": [
+        1,
+        128,
+        1,
+        544
+      ],
+      "cmp_cache_shape": [
+        1,
+        128,
+        1,
+        320
+      ],
+      "output_shape": [
+        3,
+        16,
+        512
+      ],
+      "output_dtype": "torch.bfloat16",
+      "output_contiguous": true,
+      "max_abs_diff_native_zero": 0.0,
+      "max_abs_diff_native_nonzero": 0.0,
+      "max_abs_diff_extra_heads": 0.0,
+      "output_max_absolute_value": 0.296875,
+      "scheduling_metadata_unchanged": true,
+      "inputs_and_caches_unchanged": true
+    },
+    {
+      "phase": "decode",
+      "tokens": 1,
+      "start_position": 5,
+      "compressed": false,
+      "passed": true,
+      "stage": "completed",
+      "q_shape": [
+        1,
+        16,
+        512
+      ],
+      "native_q_shape": [
+        1,
+        64,
+        512
+      ],
+      "ori_cache_shape": [
+        1,
+        128,
+        1,
+        544
+      ],
+      "cmp_cache_shape": null,
+      "output_shape": [
+        1,
+        16,
+        512
+      ],
+      "output_dtype": "torch.bfloat16",
+      "output_contiguous": true,
+      "max_abs_diff_native_zero": 0.0,
+      "max_abs_diff_native_nonzero": 0.0,
+      "max_abs_diff_extra_heads": 0.0,
+      "output_max_absolute_value": 0.07177734375,
+      "scheduling_metadata_unchanged": true,
+      "inputs_and_caches_unchanged": true
+    },
+    {
+      "phase": "decode",
+      "tokens": 1,
+      "start_position": 5,
+      "compressed": true,
+      "passed": true,
+      "stage": "completed",
+      "q_shape": [
+        1,
+        16,
+        512
+      ],
+      "native_q_shape": [
+        1,
+        64,
+        512
+      ],
+      "ori_cache_shape": [
+        1,
+        128,
+        1,
+        544
+      ],
+      "cmp_cache_shape": [
+        1,
+        128,
+        1,
+        320
+      ],
+      "output_shape": [
+        1,
+        16,
+        512
+      ],
+      "output_dtype": "torch.bfloat16",
+      "output_contiguous": true,
+      "max_abs_diff_native_zero": 0.0,
+      "max_abs_diff_native_nonzero": 0.0,
+      "max_abs_diff_extra_heads": 0.0,
+      "output_max_absolute_value": 0.1748046875,
+      "scheduling_metadata_unchanged": true,
+      "inputs_and_caches_unchanged": true
+    }
+  ],
+  "device": "npu:0",
+  "device_name": "Ascend950DT_9582",
+  "torch": "2.10.0+cpu",
+  "torch_npu": "2.10.0.post4",
+  "native_source": {
+    "file": "/opt/vllm-ascend/vllm_ascend/models/deepseek_v41/mixed_quant_attention.py",
+    "sha256": "dd16dbe509f5fab609979f0cc37ab37cdeeb5befa7c5586b14b3c268a124c5c1"
+  },
+  "adapter_source": {
+    "file": "/home/z00569729/dsv41-afd/src/afd-plugin-dsv41-a5/afd_plugin/model_executor/models/npu/dsv41_packed_cache.py",
+    "sha256": "dc79cb4b21510b5c53b1f5e66ff4169c987bfb67b86a8a1b0ea1b2da63783941"
+  }
+}

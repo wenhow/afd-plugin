@@ -1,0 +1,120 @@
+{
+  "input_file": "34fc5dae2eb34a73bfb0fb722fa329f8.gz",
+  "input_sha256": "16ebc80ef9af01d8e78bc61a7f336245abb8c8864e6c2a217f2d26cc05a1c622",
+  "scope": "Offline A5 archive review; no A5 connection or NPU execution. Process IDs describe archived snapshots only.",
+  "run": "full-eager-u1-yqxpk_w6",
+  "plugin_head": "1dcd2f0d9eb16ab5c014efc7c589d7a34b574c1f",
+  "preflight_passed": true,
+  "source_files_match": true,
+  "source_count": 25,
+  "health": {
+    "utc": "2026-11-20T01:30:52.986887+00:00",
+    "url": "http://127.0.0.1:18031/health",
+    "connection": "direct",
+    "client": "curl",
+    "exit_code": 0,
+    "status_code": 200,
+    "error": null,
+    "passed": true
+  },
+  "native_control": true,
+  "topology": "TP4 native, devices 0-3, original quantized checkpoint and CPU-offload Engram, DSpark/PD off",
+  "root_error": "ValueError: N1 must be 64 (the only supported query-head count), got 16",
+  "first_error_time_Asia_Shanghai": "2026-11-20 09:30:54",
+  "failed_requests": [
+    "request-00",
+    "request-01"
+  ],
+  "request_passed": false,
+  "clean_shutdown": false,
+  "forced_cleanup": true,
+  "survivors": [],
+  "npu_after": {
+    "exit_code": 0,
+    "idle_devices": [
+      0,
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7
+    ],
+    "all_eight_idle": true
+  },
+  "full_model_qualification": false,
+  "original_files": {
+    "attention-server.log": {
+      "bytes": 175492,
+      "sha256": "da90b7a27010358cfcdcb0ad4ecf3d9e4d2464cc4c886e51826453b6a625828a"
+    },
+    "health.json": {
+      "bytes": 211,
+      "sha256": "6088d5b3f2dd7f8eeb2b73afbff16188618f35d6a81c32e01dc8766b479e789c"
+    },
+    "launch-plan.json": {
+      "bytes": 5256,
+      "sha256": "622d143b56ee5d0793a087987ccf0b10151cbd3ce4f84c1955f20857a23fbad4"
+    },
+    "lifecycle.json": {
+      "bytes": 2812,
+      "sha256": "2625b19551c73f5dceae31e241dda83a34f36e12de0be5794cf5b804ccd08513"
+    },
+    "npu-after-packed-probe.log": {
+      "bytes": 5733,
+      "sha256": "e48750af784d743432150d11044143f1e0befce58eba929cdc073c81b25ec6d1"
+    },
+    "npu-after.log": {
+      "bytes": 5733,
+      "sha256": "14b42b5b70232d4a0b248221fe6e6c5d3d2b058ac1524b894c7183f0a085b027"
+    },
+    "npu-before.log": {
+      "bytes": 5733,
+      "sha256": "aff15a27709bb6b9d423cc1a6cd34369a9f1fb31bee32b445c3812c0cd83217e"
+    },
+    "operator-probe.log": {
+      "bytes": 71,
+      "sha256": "ff891cee792699bda93a58cbedade103ebcce0382d2c89e40d17c46fd8241d51"
+    },
+    "packed-attention-probe-server.log": {
+      "bytes": 5003,
+      "sha256": "5e9885127f2ca9332c6534cbf8468a4ca0a71f3e45689f5040ffce95cadd3270"
+    },
+    "packed-attention-probe.json": {
+      "bytes": 4333,
+      "sha256": "77f7d30d47a8a17a2162fceb3a0905e5a55ba9bf3bd575b53bd2565da2cde504"
+    },
+    "preflight.json": {
+      "bytes": 23539,
+      "sha256": "be21715b118f9f4334741c1deb7171264e855db61dc5267cb8d73c5678abc4d9"
+    },
+    "request-00/request.json": {
+      "bytes": 219,
+      "sha256": "c8a502916e8fc4b099c695fee5618b3e2a80571a3d8f9bf5a626ba7c8ef16575"
+    },
+    "request-00/response.json": {
+      "bytes": 153,
+      "sha256": "21868750e8634ce54c6bfe07dff1b8b5dba67bf4f62c6186081d55af17694629"
+    },
+    "request-01/request.json": {
+      "bytes": 239,
+      "sha256": "39760bca1137b8067696c3a6f25ec9302ff2063e5d8e6042e885f4d6112ece1d"
+    },
+    "request-01/response.json": {
+      "bytes": 153,
+      "sha256": "21868750e8634ce54c6bfe07dff1b8b5dba67bf4f62c6186081d55af17694629"
+    },
+    "resources.json": {
+      "bytes": 311,
+      "sha256": "9615c28cf7b2d68ca854d1b5ea50495e166ce40054986f63f07fd09111c95848"
+    },
+    "summary.json": {
+      "bytes": 5238,
+      "sha256": "a686ca33be1a2ad7372c06d286a8e8b9e5130ceaffd7275a8be9208b18e22c8d"
+    }
+  },
+  "excluded_archive_files": {
+    ".attention-server.log.swp": "Editor swap file, unrelated to runtime evidence; retained only in the supplied archive/local extraction."
+  }
+}
