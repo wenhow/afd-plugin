@@ -51,6 +51,33 @@ def case(monkeypatch, plan):
     return case
 
 
+@pytest.mark.parametrize("role_rank", [0, 1, 2, 3])
+def test_ep_forwards_complete_dp_counts_and_executes_padding_only_rank(
+    monkeypatch, role_rank
+):
+    plan = HcclParentPlan(
+        "ep-ffn",
+        (0, 2),
+        (HcclStageLayout(0, (2, 0, 4, 1), (3, 0, 5, 2), 4),),
+    )
+    case = make_staged_ffn_case(
+        AFDNPUFFNModelRunner, plan, role_rank=role_rank, expert_parallel=True
+    )
+    monkeypatch.setattr(runner_module, "ascend_forward_context", case.context.activate)
+    runner_module.execute_hccl_v41_parent(case.runner, case.peer)
+    outputs = [m for m in case.peer.messages if m[0] == "OUTPUT"]
+    assert len(outputs) == len(plan.layer_indices)
+    for _, layer, stage, output in outputs:
+        torch.testing.assert_close(
+            output,
+            staged_ffn_expected_output(case.peer.inputs[layer, stage], layer),
+            rtol=0,
+            atol=0,
+        )
+        assert output.shape[0] == (3, 1, 5, 2)[role_rank]
+    assert case.peer.messages[-1] == ("COMPLETE", plan.transaction_id)
+
+
 def test_eager_binding_rejects_a_session_from_another_connector_wire(case):
     connector = object.__new__(HcclStagedAFDConnector)
     connector.transport = case.peer

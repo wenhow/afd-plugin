@@ -98,3 +98,30 @@ EngineCore busy-loop/shutdown 与 MP IPC 成功链也已完成 A3 组件验证�
 同硬件同请求比较 native、eager/U1、eager/U2 开/关、Graph/U2 全开/全关，再测 DSpark/PD。
 报告 TTFT/TPOT、总吞吐、真实 acceptance、实际卡数/每卡效率、HBM/冷捕获成本。
 未验收格子保持 pending，不通过缩小矩阵或 C1 完成来宣告整体完成。
+
+## 2026-11-20：TP1 / DP / EP 架构增量
+
+用户授权参考锁定供体 `4ddd69a3` 开发 EP。复用现有 v3 staged HCCL 传输和
+原生 DeepseekV41MoE，不复制旧 V1 runner，不修改 vLLM / Ascend。
+首版为对称 A/F、TP1、DP=角色 rank 数、eager/U1；真实权重资格入口固定 A4/F4。
+
+- HELLO 增加默认关闭的 `expert_parallel`；所有 peers 必须一致，EP-off 字节保持。
+- EP 要求 local counts v1、max_stages=1、Graph/pipeline=0；不支持的组合建组前拒绝。
+- AFD role_rank 和原生 WORLD rank 都包含 DP；engine-local `parallel.rank` 保持 0。
+- A0 收集每个 A 的真实计数，所有 F 从同一 parent 推导完整角色 DP token 向量。
+- 同一原生 DP wave 可以混合 target 和 idle dummy，包括 A0 空闲的情况。全局 plan
+  有 target 才选 target，否则为 dummy；idle dummy 必须 valid=0。profile/warmup 严格一致。
+- 仅全局空 stage 可以跳过；局部无有效 token 的 F 仍调用原生 MoE，参与 EP 通信。
+- 原生 MoE 管理专家分片、shared experts、FP32 gate 和 EP 通信；AFD 不重复 reduce。
+- A 保留 HC/pre_mix、Engram ModelState、shared KV/index 和 U1 DPMetadata；CPU Engram
+  使用原生 DP 共享。F 的 DSpark/PD 原始声明在隔离前拒绝，不能剥离后误准入。
+- 原生 TP1/DP4/EP4 对照与 F4 对齐；TP1 不使用 TP4 的 16→64 适配或其专项 probe。
+
+原生 manager.monitor_engine_liveness 在第一个 engine 退出后终止其余 engines。
+EP launcher 改为等待所有本地 F 正常退出，首个成功后用 shutdown timeout 限制剩余清理；
+失败和超时仍交由原生 client 清理。真实 EP 集合通信退出证据保持待 A5 验收。
+
+代价为每个 parent 的现有 v3 counts/control barrier 和完整 hidden/FP32/ID 传输；
+F 的 DP tensor 每 stage 构造一次。EP all-to-all 由原生选择；HBM 峰值需要实测。
+本增量修改 AFD 自有边界，无新增上游函数复制或猴补丁。若原生 runner 提供可直接
+消费的 A/F MoE 服务边界，再迁移并删除自有同步 glue。CPU 合约通过不代表设备验收。

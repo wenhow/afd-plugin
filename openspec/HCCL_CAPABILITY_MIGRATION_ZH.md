@@ -8,6 +8,12 @@
 
 ## 当前排期：先验证原生 Engram/U1，新增 Engram 适配单列
 
+2026-11-20 用户授权参考供体开发 EP。新增对称 A/F、TP1、角色 DP/EP 的 eager/U1
+路径；完整权重资格入口为 A4/F4、DP4/EP4，见
+[操作指导](../docs/npu/DSV41_A5_EP_VALIDATION_ZH.md)。该增量不改变 H01–H15 整项
+勾选或旧设备证据，进度仅记 [C7 的 EP1–EP7](changes/afd-hccl-full-parity/tasks.md)。
+EP Graph/U2/DSpark/PD 组合仍需后续迁移及设备验收；原 EP-off 路径保留。
+
 按 [2026-11-19 目标澄清](ROADMAP_ZH.md#engram-priority)，近期先闭合原始量化 checkpoint
 保留原生 Engram 的 eager/U1 正确性，再按依赖验证 Graph/U1、DSpark/U1 和 PD/U1。
 新增 Engram 适配仍按中优先级审查实施，原有独立组件证据保留。

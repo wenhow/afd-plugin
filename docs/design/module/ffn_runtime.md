@@ -481,3 +481,12 @@ optional control-plane split. Connector metadata ownership, transfer state
 separation, and the public shape of the connector work-item interface remain
 open in [#88](https://github.com/JiusiServe/afd-plugin/issues/88) and
 [#105](https://github.com/JiusiServe/afd-plugin/issues/105).
+
+
+The TP1/DP/EP eager-U1 path keeps the native complete MoE and EP groups. The
+serial F consumer derives the complete DP padded-token vector from the accepted
+parent layout and supplies it to native forward context on every F rank. Local
+zero-valid ranks still execute padding rows and native collectives; only a
+globally empty stage skips compute. A/F transport remains a separate v3 world.
+This EP path has CPU configuration/protocol evidence only until A5 acceptance;
+EP Graph/U2/DSpark/PD admission remains closed.

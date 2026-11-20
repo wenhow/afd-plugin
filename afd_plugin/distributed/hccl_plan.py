@@ -109,6 +109,8 @@ class HcclPlanCapabilities:
     target_query_len: int = 1
     # Select a session family; this is not a downgradeable support flag.
     eager_pipeline_version: int = 0
+    # Native TP1/DP/EP is a separate, peer-agreed eager/U1 session family.
+    expert_parallel: bool = False
 
     def validate(self) -> None:
         _integer("hidden_size", self.hidden_size, minimum=1)
@@ -131,6 +133,20 @@ class HcclPlanCapabilities:
         _integer("local_counts_version", self.local_counts_version, maximum=1)
         _integer("graph_execution_version", self.graph_execution_version, maximum=1)
         _integer("eager_pipeline_version", self.eager_pipeline_version, maximum=1)
+        if type(self.expert_parallel) is not bool:
+            raise ValueError("expert_parallel must be a boolean")
+        if self.expert_parallel and not (
+            self.native_tp_size == 1
+            and self.attention_size == self.ffn_size
+            and self.local_counts_version == 1
+            and self.max_stages == 1
+            and self.graph_execution_version == self.eager_pipeline_version == 0
+            and self.target_query_len == 1
+        ):
+            raise ValueError(
+                "expert_parallel requires symmetric TP1/DP roles, local counts v1 "
+                "and eager U1 without Graph or pipeline execution"
+            )
         if self.eager_pipeline_version == 1 and not (
             self.graph_execution_version == 0
             and self.max_stages == MAX_HCCL_STAGES
@@ -169,8 +185,10 @@ class HcclPlanCapabilities:
                 f"{self.graph_exchange_order} requires Graph v1, U2 "
                 "and paired TP1/TP2/TP4"
             )
-        if self.local_counts_version == 1 and not (
-            self.attention_size == self.ffn_size == self.native_tp_size
+        if (
+            self.local_counts_version == 1
+            and not self.expert_parallel
+            and not (self.attention_size == self.ffn_size == self.native_tp_size)
         ):
             raise ValueError(
                 "local count collection requires one native TP world per role"
@@ -190,6 +208,7 @@ class HcclPlanCapabilities:
             ("attention_size", self.attention_size, peer.attention_size),
             ("ffn_size", self.ffn_size, peer.ffn_size),
             ("native_tp_size", self.native_tp_size, peer.native_tp_size),
+            ("expert_parallel", self.expert_parallel, peer.expert_parallel),
             (
                 "local_counts_version",
                 self.local_counts_version,
@@ -228,6 +247,7 @@ class HcclPlanCapabilities:
             self.graph_exchange_order,
             self.target_query_len,
             self.eager_pipeline_version,
+            self.expert_parallel,
         )
 
 
@@ -545,6 +565,8 @@ def encode_hccl_plan_message(message: HcclPlanMessage) -> bytes:
             capability_payload["target_query_len"] = cap.target_query_len
         if cap.eager_pipeline_version:
             capability_payload["eager_pipeline_version"] = cap.eager_pipeline_version
+        if cap.expert_parallel:
+            capability_payload["expert_parallel"] = cap.expert_parallel
         payload["capabilities"] = capability_payload
     if message.plan is not None:
         payload["plan"] = _plan_payload(message.plan)
@@ -605,8 +627,12 @@ def _decode_capabilities(value: JsonValue) -> HcclPlanCapabilities:
             "graph_exchange_order",
             "target_query_len",
             "eager_pipeline_version",
+            "expert_parallel",
         },
     )
+    expert_parallel = cap.get("expert_parallel", False)
+    if not isinstance(expert_parallel, bool):
+        raise ValueError("expert_parallel must be a boolean")
     result = HcclPlanCapabilities(
         _integer("hidden_size", cap["hidden_size"], minimum=1),
         _integer("vocab_size", cap["vocab_size"], minimum=1, maximum=MAX_INT32 + 1),
@@ -633,6 +659,7 @@ def _decode_capabilities(value: JsonValue) -> HcclPlanCapabilities:
         _integer(
             "eager_pipeline_version", cap.get("eager_pipeline_version", 0), maximum=1
         ),
+        expert_parallel,
     )
     result.validate()
     return result

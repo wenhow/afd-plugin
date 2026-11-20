@@ -79,6 +79,60 @@ class RepeatabilityReplies:
 
 
 class TestFullCheckpointPlans(unittest.TestCase):
+    def test_ep_plans_select_tp1_dp4_native_and_af_roles(self):
+        driver = load_driver()
+        for native in (False, True):
+            with self.subTest(native=native):
+                plan = driver.make_plan(
+                    Path("/model"),
+                    Path("/vendor"),
+                    ROOT,
+                    expert_parallel=True,
+                    native_control=native,
+                )
+                self.assertEqual(plan["native_tp_size"], 1)
+                self.assertEqual(plan["native_dp_size"], 4)
+                self.assertIsNone(plan["attention_head_adapter"])
+                for settings in plan["roles"].values():
+                    argv = settings["argv"]
+                    self.assertIn("--enable-expert-parallel", argv)
+                    self.assertEqual(
+                        argv[argv.index("--tensor-parallel-size") + 1], "1"
+                    )
+                    self.assertEqual(argv[argv.index("--data-parallel-size") + 1], "4")
+                    self.assertEqual(
+                        argv[argv.index("--data-parallel-size-local") + 1], "4"
+                    )
+                    self.assertEqual(
+                        argv[argv.index("--engram-config.dp_shared_memory") + 1], "true"
+                    )
+                if native:
+                    argv = plan["roles"]["attention"]["argv"]
+                    self.assertEqual(
+                        argv[argv.index("--worker-cls") + 1],
+                        "vllm_ascend.worker.worker.NPUWorker",
+                    )
+
+    def test_ep_plan_rejects_unintegrated_combinations(self):
+        driver = load_driver()
+        for options in (
+            {"mode": "eager-u2"},
+            {"mode": "graph-u1"},
+            {"spec_tokens": 1},
+            {"pd_role": "consumer"},
+        ):
+            with (
+                self.subTest(options=options),
+                self.assertRaisesRegex(ValueError, "EP qualification requires"),
+            ):
+                driver.make_plan(
+                    Path("/model"),
+                    Path("/vendor"),
+                    ROOT,
+                    expert_parallel=True,
+                    **options,
+                )
+
     def test_modes_keep_native_quantized_weights_and_cpu_engram(self):
         driver = load_driver()
         for mode in driver.MODES:

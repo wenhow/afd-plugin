@@ -16,7 +16,7 @@ from unittest.mock import patch
 import run_dsv41_full_checkpoint as launch
 
 
-def check_matrix(model: Path, output: Path) -> int:
+def check_matrix(model: Path, output: Path, *, expert_parallel: bool = False) -> int:
     # Explicit diagnostic entry only; no model construction or device execution.
     import torch
     import torch_npu  # noqa: F401
@@ -62,6 +62,8 @@ def check_matrix(model: Path, output: Path) -> int:
             ]
             + [("eager-u1", steps, "producer") for steps in (0, 1, 2)]
         )
+        if expert_parallel:
+            scenarios = [("native", 0, None), ("eager-u1", 0, None)]
         for mode, steps, pd_role in scenarios:
             plan = launch.make_plan(
                 model,
@@ -71,6 +73,7 @@ def check_matrix(model: Path, output: Path) -> int:
                 spec_tokens=steps,
                 pd_role=pd_role,
                 native_control=mode == "native",
+                expert_parallel=expert_parallel,
             )
             for role, settings in plan["roles"].items():
                 record = {
@@ -109,13 +112,31 @@ def check_matrix(model: Path, output: Path) -> int:
                         )
                         assert config.model_config.quantization == "deepseek_v4_fp8"
                         assert config.load_config.load_format == "safetensors"
+                        assert (
+                            config.parallel_config.enable_expert_parallel
+                            is expert_parallel
+                        )
+                        assert config.parallel_config.tensor_parallel_size == (
+                            1 if expert_parallel else 4
+                        )
+                        assert config.parallel_config.data_parallel_size == (
+                            4 if expert_parallel else 1
+                        )
                         assert config.engram_config.cpu_offload is True
+                        assert config.engram_config.dp_shared_memory is expert_parallel
+                        assert config.parallel_config.use_sequence_parallel_moe is False
                         assert (config.speculative_config is not None) is bool(steps)
                         assert (config.kv_transfer_config is not None) is bool(pd_role)
                         record.update(
                             passed=True,
                             quantization=config.model_config.quantization,
+                            native_tp_size=config.parallel_config.tensor_parallel_size,
+                            native_dp_size=config.parallel_config.data_parallel_size,
+                            local_dp_size=config.parallel_config.data_parallel_size_local,
+                            expert_parallel=config.parallel_config.enable_expert_parallel,
+                            all2all_backend=config.parallel_config.all2all_backend,
                             cpu_engram=config.engram_config.cpu_offload,
+                            engram_dp_shared_memory=config.engram_config.dp_shared_memory,
                             use_ubatching=config.parallel_config.use_ubatching,
                             num_ubatches=config.parallel_config.num_ubatches,
                             cudagraph_mode=config.compilation_config.cudagraph_mode.name,
@@ -148,10 +169,15 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--model", required=True, type=Path)
     parser.add_argument("--output", required=True, type=Path)
+    parser.add_argument("--expert-parallel", action="store_true")
     args = parser.parse_args()
     if args.output.exists():
         parser.error("--output must be a new result file")
-    return check_matrix(args.model.resolve(), args.output.resolve())
+    return check_matrix(
+        args.model.resolve(),
+        args.output.resolve(),
+        expert_parallel=args.expert_parallel,
+    )
 
 
 if __name__ == "__main__":

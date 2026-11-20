@@ -39,6 +39,7 @@ def npu_parallel_config(**overrides):
         "data_parallel_size": 1,
         "data_parallel_rank": 0,
         "enable_dbo": False,
+        "enable_expert_parallel": False,
         "enable_eplb": False,
         "enable_elastic_ep": False,
         "enable_fault_tolerance": False,
@@ -203,6 +204,24 @@ def v41_eager_qualification_config(
     config.engram_config = SimpleNamespace(
         cpu_offload=True, dp_shared_memory=False, embedding_across_dp=False
     )
+    return config
+
+
+def configure_hccl_ep(config, *, dp_size=4, dp_rank=0):
+    """Select one TP1/DP/EP role while preserving its checkpoint metadata."""
+    vars(config.parallel_config).update(
+        tensor_parallel_size=1,
+        data_parallel_size=dp_size,
+        data_parallel_size_local=dp_size,
+        data_parallel_rank=dp_rank,
+        rank=0,
+        enable_expert_parallel=True,
+    )
+    config.additional_config["afd"].update(
+        num_attention_ranks=dp_size, num_ffn_ranks=dp_size
+    )
+    if config.engram_config is not None:
+        config.engram_config.dp_shared_memory = True
     return config
 
 

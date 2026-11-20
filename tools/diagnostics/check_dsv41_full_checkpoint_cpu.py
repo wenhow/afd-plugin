@@ -13,6 +13,9 @@ from pathlib import Path
 from unittest.mock import patch
 
 TEST_PATHS = (
+    "tests/unit/connectors/npu/test_hccl_config.py",
+    "tests/unit/connectors/npu/test_hccl_staged_transport.py",
+    "tests/unit/v1/worker/npu/test_hccl_v41_ffn_runner.py",
     "tests/unit/entrypoints/test_npu_ffn.py",
     "tests/unit/distributed/test_hccl_plan.py",
     "tests/unit/connectors/npu/test_hccl_eager_pipeline.py",

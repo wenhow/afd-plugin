@@ -1,5 +1,9 @@
 # DSV4.1 A5：完整权重功能矩阵验证
 
+2026-11-20 新增 [TP1 / DP4 / EP4 验证入口](DSV41_A5_EP_VALIDATION_ZH.md)。
+按当前用户方向先运行该入口的原生 TP1 对照和 A4/F4 EP 候选；下文 TP4 保留为
+既有 EP-off 诊断配置。两条路径的参考结果不可混用，EP 的 A5 验收仍待实际执行。
+
 2026-11-19 开发入口扩展为 `tools/diagnostics/run_dsv41_full_checkpoint.py`。
 使用原始量化 checkpoint、CPU offload Engram、TP4 A4/F4。新入口默认只生成命令计划；
 `--run` 才执行预检、载权、请求和必要清理。CPU/配置通过不能替代下面逐格 A5 验收。

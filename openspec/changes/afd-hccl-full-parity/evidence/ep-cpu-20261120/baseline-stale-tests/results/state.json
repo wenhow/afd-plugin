@@ -1,0 +1,15 @@
+{
+  "exit_code": 1,
+  "npu_initialized_before": false,
+  "npu_initialized_after": false,
+  "native_pins_match": {
+    "vllm/config/parallel.py": true,
+    "vllm_ascend/models/deepseek_v41/model.py": true
+  },
+  "packages": {
+    "torch": "2.10.0",
+    "torch-npu": "2.10.0.post4",
+    "vllm": "0.30.0+empty",
+    "vllm-ascend": "0.1.dev1+g7e37e29a7"
+  }
+}

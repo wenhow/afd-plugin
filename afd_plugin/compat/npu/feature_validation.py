@@ -56,6 +56,7 @@ V41_FUNCTIONAL_MAX_SEQUENCES = 2
 V41_FUNCTIONAL_MAX_SPECULATIVE_TOKENS = 2
 V41_FULL_QUALIFICATION_ENV = "AFD_DSV41_FULL_QUALIFICATION"
 V41_FULL_MAX_SEQUENCES = 2
+V41_EP_QUALIFICATION_ROLE_SIZE = 4
 
 
 def _validate_v41_eager_qualification(
@@ -64,9 +65,9 @@ def _validate_v41_eager_qualification(
     """Admit one explicit hardware qualification candidate, not model support.
 
     Keep the ordinary connector validator in charge of text/BF16/V2, native
-    rank pairing, eager U1, F gate and EP/SP/Graph restrictions. This narrower
+    rank pairing or TP1/DP/EP, F gate and execution restrictions. This narrower
     candidate adds a fixed topology, real weight loading and A-owned host
-    Engram. The worker still runs its normal runtime validation afterwards.
+    Engram, using native DP sharing for EP. Worker validation still runs later.
     """
     # Worker/backend isolation: the HCCL validator imports torch and native
     # compilation enums. Unsupported/default V4.1 stays CPU-importable.
@@ -86,6 +87,7 @@ def _validate_v41_eager_qualification(
     if not full and vllm_config.kv_transfer_config is not None:
         raise ValueError("V4.1 eager qualification requires KV transfer/PD off")
     parallel = vllm_config.parallel_config
+    ep = full and parallel.enable_expert_parallel
     if full:
         validate_deepseek_v41_graph_speculation(vllm_config)
         speculative = vllm_config.speculative_config
@@ -111,12 +113,17 @@ def _validate_v41_eager_qualification(
         validate_staged_hccl_runtime(
             vllm_config,
             afd_config,
-            role_rank=parallel.rank,
+            role_rank=parallel.data_parallel_rank if ep else parallel.rank,
             graph=not vllm_config.model_config.enforce_eager,
         )
     else:
         validate_hccl_runtime(vllm_config, afd_config, role_rank=parallel.rank)
-    if parallel.tensor_parallel_size != V41_EAGER_QUALIFICATION_TP_SIZE:
+    if ep and (
+        afd_config.num_attention_ranks != V41_EP_QUALIFICATION_ROLE_SIZE
+        or afd_config.num_ffn_ranks != V41_EP_QUALIFICATION_ROLE_SIZE
+    ):
+        raise ValueError("V4.1 EP qualification requires A4/F4 with native TP1/DP4")
+    if not ep and parallel.tensor_parallel_size != V41_EAGER_QUALIFICATION_TP_SIZE:
         raise ValueError("V4.1 eager qualification requires A4/F4 with native TP4")
     model = vllm_config.model_config
     # The connector validator owns text admission. Native language-only V4.1
@@ -169,12 +176,12 @@ def _validate_v41_eager_qualification(
         if (
             engram is None
             or engram.cpu_offload is not True
-            or engram.dp_shared_memory is not False
+            or engram.dp_shared_memory is not ep
             or engram.embedding_across_dp is not False
         ):
             raise ValueError(
                 "V4.1 eager qualification requires Attention CPU Engram "
-                "without DP sharing"
+                + ("with DP sharing for EP" if ep else "without DP sharing")
             )
     elif engram is not None:
         raise ValueError("V4.1 eager qualification requires FFN Engram isolation")

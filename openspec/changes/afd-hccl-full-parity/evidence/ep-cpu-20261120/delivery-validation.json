@@ -1,0 +1,28 @@
+{
+  "base_commit": "f29b74d9b3d820391e072984a81f4cd230e9b3c1",
+  "scope": "EP source, tests, diagnostics, documentation and evidence only",
+  "isolated_worktree": true,
+  "canonical_git_source_bytes": true,
+  "source_identity": "cpu-delivery/identity.json",
+  "source_archive_sha256": "45cb2e83d375217204e32caf64b709f0009119cb8f471c68edc5de0bcbae9769",
+  "manifest_entries": 399,
+  "cpu": {
+    "tests": 1761,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0
+  },
+  "host": {
+    "tests": 79,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0
+  },
+  "native_configuration_scenarios": 3,
+  "native_configuration_passed": true,
+  "npu_initialized_before": false,
+  "npu_initialized_after": false,
+  "source_unchanged": true,
+  "excluded_prior_uncommitted_work": true,
+  "hardware_acceptance": false
+}

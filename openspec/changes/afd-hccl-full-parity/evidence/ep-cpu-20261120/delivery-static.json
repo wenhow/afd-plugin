@@ -1,0 +1,20 @@
+{
+  "syntax_files": 28,
+  "checks": [
+    {
+      "args": [
+        "check"
+      ],
+      "exit_code": 0,
+      "output": "All checks passed!\n"
+    },
+    {
+      "args": [
+        "format",
+        "--check"
+      ],
+      "exit_code": 0,
+      "output": "28 files already formatted\n"
+    }
+  ]
+}

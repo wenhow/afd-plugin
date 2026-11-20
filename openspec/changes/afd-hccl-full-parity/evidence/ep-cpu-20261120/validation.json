@@ -1,0 +1,131 @@
+{
+  "scope": "implementation, CPU contracts and native EngineArgs construction only",
+  "topology": {
+    "attention_ranks": 4,
+    "ffn_ranks": 4,
+    "native_tp_size": 1,
+    "native_dp_size": 4,
+    "expert_parallel": true,
+    "logical_ubatches": 1,
+    "execution": "eager"
+  },
+  "source_identity": "cpu-final/identity.json",
+  "current_snapshot_matches": true,
+  "snapshot_manifest_entries": 417,
+  "local_existing_source_entries": 416,
+  "pytest": {
+    "cpu": {
+      "tests": 1859,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "host": {
+      "tests": 79,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    }
+  },
+  "native_configuration": {
+    "passed": true,
+    "npu_initialized_before": false,
+    "npu_initialized_after": false,
+    "checkpoint_config_sha256": "8be45ce0476004a3f529fd896115a4a2e800a129ad2d3ec05b16050f52e21879",
+    "checkpoint_config_unchanged": true,
+    "weight_loading": false,
+    "model_construction": false,
+    "hardware_acceptance": false,
+    "scenarios": [
+      {
+        "mode": "native",
+        "steps": 0,
+        "pd_role": null,
+        "role": "attention",
+        "passed": true,
+        "quantization": "deepseek_v4_fp8",
+        "native_tp_size": 1,
+        "native_dp_size": 4,
+        "local_dp_size": 4,
+        "expert_parallel": true,
+        "all2all_backend": "flashinfer_all2allv",
+        "cpu_engram": true,
+        "engram_dp_shared_memory": true,
+        "use_ubatching": false,
+        "num_ubatches": 0,
+        "cudagraph_mode": "NONE",
+        "native_revalidation_passed": true
+      },
+      {
+        "mode": "eager-u1",
+        "steps": 0,
+        "pd_role": null,
+        "role": "attention",
+        "passed": true,
+        "quantization": "deepseek_v4_fp8",
+        "native_tp_size": 1,
+        "native_dp_size": 4,
+        "local_dp_size": 4,
+        "expert_parallel": true,
+        "all2all_backend": "flashinfer_all2allv",
+        "cpu_engram": true,
+        "engram_dp_shared_memory": true,
+        "use_ubatching": false,
+        "num_ubatches": 0,
+        "cudagraph_mode": "NONE",
+        "native_revalidation_passed": true
+      },
+      {
+        "mode": "eager-u1",
+        "steps": 0,
+        "pd_role": null,
+        "role": "ffn",
+        "passed": true,
+        "quantization": "deepseek_v4_fp8",
+        "native_tp_size": 1,
+        "native_dp_size": 4,
+        "local_dp_size": 4,
+        "expert_parallel": true,
+        "all2all_backend": "flashinfer_all2allv",
+        "cpu_engram": true,
+        "engram_dp_shared_memory": true,
+        "use_ubatching": false,
+        "num_ubatches": 0,
+        "cudagraph_mode": "NONE",
+        "native_revalidation_passed": true
+      }
+    ]
+  },
+  "cpu_state": {
+    "exit_code": 0,
+    "npu_initialized_before": false,
+    "npu_initialized_after": false,
+    "native_pins_match": {
+      "vllm/config/parallel.py": true,
+      "vllm_ascend/models/deepseek_v41/model.py": true
+    },
+    "packages": {
+      "torch": "2.10.0",
+      "torch-npu": "2.10.0.post4",
+      "vllm": "0.30.0+empty",
+      "vllm-ascend": "0.1.dev1+g7e37e29a7"
+    }
+  },
+  "remote_summary": {
+    "exit_code": 0,
+    "source_unchanged": true,
+    "hardware_acceptance": false
+  },
+  "static_check_passed": true,
+  "readonly_guard_passed": true,
+  "npu_acceptance": false,
+  "full_checkpoint_weight_loading": false,
+  "performance_acceptance": false,
+  "delivery_performed": false,
+  "pending": [
+    "A5 real-weight EP/HCCL and per-rank expert memory",
+    "native-vs-AFD tokens and continuous/cancelled requests",
+    "idle-DP collective and normal all-engine shutdown",
+    "EP with Graph/U2/DBO/DSpark/PD"
+  ]
+}

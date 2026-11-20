@@ -26,6 +26,76 @@ def graph_round():
     return make_graph_control_round()
 
 
+@pytest.mark.parametrize("size", [1, 2, 4])
+def test_ep_session_roundtrips_and_projects_all_ffn_dp_counts(size):
+    cap = HcclPlanCapabilities(
+        16,
+        1024,
+        32,
+        (0, 1),
+        size,
+        size,
+        max_stages=1,
+        local_counts_version=1,
+        expert_parallel=True,
+    )
+    hello = HcclPlanMessage("HELLO", role="ffn", world_rank=0, capabilities=cap)
+    assert decode_hccl_plan_message(encode_hccl_plan_message(hello)) == hello
+    assert cap.negotiate(cap) == cap
+    valid = tuple(range(size))
+    padded = tuple(2 * count for count in valid)
+    stage = HcclStageLayout(0, valid, padded, size)
+    plan = HcclParentPlan("ep-counts", cap.layer_indices, (stage,))
+    plan.validate(cap)
+    assert stage.ffn_padded_tokens == (
+        tuple(max(1, count) for count in padded) if any(padded) else (0,) * size
+    )
+
+
+@pytest.mark.parametrize(
+    "change",
+    [
+        {"native_tp_size": 2},
+        {"max_stages": 2},
+        {"local_counts_version": 0},
+        {"graph_execution_version": 1},
+        {"eager_pipeline_version": 1},
+        {"ffn_size": 2},
+        {"expert_parallel": 1},
+    ],
+)
+def test_ep_session_rejects_unintegrated_combinations_before_handshake(change):
+    cap = HcclPlanCapabilities(
+        16,
+        1024,
+        32,
+        (0,),
+        4,
+        4,
+        max_stages=1,
+        local_counts_version=1,
+        expert_parallel=True,
+    )
+    with pytest.raises(ValueError, match="expert_parallel"):
+        replace(cap, **change).validate()
+
+
+def test_ep_and_non_ep_peers_cannot_negotiate_a_shared_session():
+    cap = HcclPlanCapabilities(
+        16,
+        1024,
+        32,
+        (0,),
+        1,
+        1,
+        max_stages=1,
+        local_counts_version=1,
+        expert_parallel=True,
+    )
+    with pytest.raises(ValueError, match="peer expert_parallel does not match"):
+        cap.negotiate(replace(cap, expert_parallel=False))
+
+
 @pytest.fixture
 def eager_pipeline_capabilities(capabilities):
     return replace(

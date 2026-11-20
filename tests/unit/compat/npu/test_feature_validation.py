@@ -20,14 +20,15 @@ from tests.unit.fakes.vllm_config import (
     async_moe_config as _async_moe_config,
 )
 from tests.unit.fakes.vllm_config import (
-    npu_vllm_config as _vllm_config,
-)
-from tests.unit.fakes.vllm_config import (
+    configure_hccl_ep,
     v41_dspark_config,
     v41_dummy_qualification_config,
     v41_eager_qualification_config,
     v41_full_qualification_config,
     v41_functional_qualification_config,
+)
+from tests.unit.fakes.vllm_config import (
+    npu_vllm_config as _vllm_config,
 )
 
 TWO_UBATCH_DBO = dict(
@@ -160,6 +161,28 @@ def v41_full_candidate():
         )
 
     return build
+
+
+@pytest.mark.parametrize("role", ["attention", "ffn"])
+@pytest.mark.parametrize("rank", [0, 3])
+def test_ep_full_candidate_preserves_native_dp_and_a_owned_engram(
+    monkeypatch, v41_full_candidate, role, rank
+):
+    source = configure_hccl_ep(v41_full_candidate(role=role), dp_rank=rank)
+    original = deepcopy(source)
+    config = get_npu_ffn_config(source) if role == "ffn" else source
+    monkeypatch.setenv("AFD_DSV41_FULL_QUALIFICATION", "1")
+    fail_if_unsupported_npu_afd_features(config)
+    assert source == original
+    assert config.parallel_config.data_parallel_rank == rank
+    assert config.parallel_config.enable_expert_parallel
+    assert (
+        config.engram_config is None
+        if role == "ffn"
+        else (
+            config.engram_config.cpu_offload and config.engram_config.dp_shared_memory
+        )
+    )
 
 
 @pytest.mark.parametrize("role", ["attention", "ffn"])

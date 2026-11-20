@@ -85,6 +85,7 @@ def make_plan(
     mode: str = "eager-u1",
     spec_tokens: int = 0,
     native_control: bool = False,
+    expert_parallel: bool = False,
     pd_role: str | None = None,
     engine_id: str | None = None,
     attention_devices: tuple[int, ...] = (0, 1, 2, 3),
@@ -103,6 +104,10 @@ def make_plan(
         raise ValueError("unsupported full-checkpoint qualification mode")
     if native_control and (mode != "eager-u1" or spec_tokens or pd_role):
         raise ValueError("native control requires eager U1 without DSpark/PD")
+    if expert_parallel and (
+        mode != "eager-u1" or spec_tokens or pd_role or trace_native_prefill
+    ):
+        raise ValueError("EP qualification requires eager U1 without DSpark/PD/trace")
     if trace_native_prefill and not (native_control and repeatability):
         raise ValueError("native prefill trace requires native repeatability")
     if pd_role == "producer" and mode != "eager-u1":
@@ -151,6 +156,13 @@ def make_plan(
         if role == "attention":
             set_option(argv, "--host", bind_host)
         env.update(AFD_DSV41_EAGER_QUALIFICATION="0", AFD_DSV41_FULL_QUALIFICATION="1")
+        if expert_parallel:
+            set_option(argv, "--tensor-parallel-size", "1")
+            set_option(argv, "--data-parallel-size", "4")
+            set_option(argv, "--data-parallel-size-local", "4")
+            argv[argv.index("--no-enable-expert-parallel")] = "--enable-expert-parallel"
+            set_option(argv, "--all2all-backend", "flashinfer_all2allv")
+            set_option(argv, "--engram-config.dp_shared_memory", "true")
         env["AFD_HCCL_STAGE_DIAGNOSTICS"] = "1"
         for feature in (
             "EAGER_U2_STREAM_OVERLAP",
@@ -249,7 +261,9 @@ def make_plan(
             set_option(
                 argv,
                 "--worker-cls",
-                f"afd_plugin.v1.worker.npu.dsv41_native_worker.{worker}",
+                "vllm_ascend.worker.worker.NPUWorker"
+                if expert_parallel
+                else f"afd_plugin.v1.worker.npu.dsv41_native_worker.{worker}",
             )
         set_option(argv, "--additional-config", json.dumps(additional))
     if native_control:
@@ -260,8 +274,10 @@ def make_plan(
         spec_tokens=spec_tokens,
         native_control=native_control,
         pd_role=pd_role,
-        native_tp_size=4,
-        attention_head_adapter=TP4_HEAD_ADAPTER,
+        native_tp_size=1 if expert_parallel else 4,
+        native_dp_size=4 if expert_parallel else 1,
+        expert_parallel=expert_parallel,
+        attention_head_adapter=None if expert_parallel else TP4_HEAD_ADAPTER,
         cpu_engram=True,
         required_devices=4 if native_control else 8,
         physical_devices=list(selected),
@@ -457,6 +473,11 @@ def main() -> int:
     parser.add_argument("--mode", choices=MODES, default="eager-u1")
     parser.add_argument("--spec-tokens", type=int, choices=(0, 1, 2), default=0)
     parser.add_argument("--native-control", action="store_true")
+    parser.add_argument(
+        "--expert-parallel",
+        action="store_true",
+        help="qualify TP1/DP4/EP4 eager U1 on both roles",
+    )
     parser.add_argument("--pd-role", choices=("producer", "consumer"))
     parser.add_argument("--engine-id")
     parser.add_argument("--attention-devices", default="0,1,2,3")
@@ -517,7 +538,9 @@ def main() -> int:
         and args.pd_role != "producer"
         and args.reference_run is None
     ):
-        parser.error("execution requires --reference-run from the TP4 native control")
+        parser.error(
+            "execution requires --reference-run from the matching native control"
+        )
     repo = Path(__file__).resolve().parents[2]
     plan = make_plan(
         args.model.resolve(),
@@ -526,6 +549,7 @@ def main() -> int:
         mode=args.mode,
         spec_tokens=args.spec_tokens,
         native_control=args.native_control,
+        expert_parallel=args.expert_parallel,
         pd_role=args.pd_role,
         engine_id=args.engine_id,
         attention_devices=tuple(map(int, args.attention_devices.split(","))),
@@ -571,15 +595,18 @@ def main() -> int:
             not reference_plan["native_control"]
             or not reference_summary["request_passed"]
             or not reference_summary["clean_shutdown"]
-            or reference_adapter != TP4_HEAD_ADAPTER
+            or reference_adapter != plan["attention_head_adapter"]
+            or reference_plan.get("native_tp_size", 4) != plan["native_tp_size"]
+            or reference_plan.get("native_dp_size", 1) != plan["native_dp_size"]
+            or reference_plan.get("expert_parallel", False) != plan["expert_parallel"]
         ):
             raise ValueError(
-                f"native TP4 reference {args.reference_run} is unusable: "
+                f"native reference {args.reference_run} is unusable: "
                 f"native_control={reference_plan['native_control']}, "
                 f"request_passed={reference_summary['request_passed']}, "
                 f"clean_shutdown={reference_summary['clean_shutdown']}; "
                 f"attention_head_adapter={reference_adapter!r} "
-                f"(expected {TP4_HEAD_ADAPTER!r}); "
+                f"(expected {plan['attention_head_adapter']!r}); "
                 f"reference error={reference_summary.get('error', 'none')}. "
                 "See its summary.json; AFD services were not started."
             )

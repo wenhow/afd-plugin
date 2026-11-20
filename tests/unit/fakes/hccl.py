@@ -39,7 +39,7 @@ from afd_plugin.distributed.hccl_plan import (
     encode_hccl_plan_message,
 )
 from tests.unit.fakes.connector import FakeRoutedConnector
-from tests.unit.fakes.vllm_config import hccl_vllm_config
+from tests.unit.fakes.vllm_config import configure_hccl_ep, hccl_vllm_config
 
 ROUTER_DELTA_SCALE = 4_096
 WORKER_JOIN_TIMEOUT_SECONDS = 3
@@ -481,10 +481,11 @@ class StagedFFNPeer:
 class StagedFFNContractModel(torch.nn.Module):
     """Check native compute context while exposing raw FP32/ID propagation."""
 
-    def __init__(self, context, plan, role_rank, *, fail=False):
+    def __init__(self, context, plan, role_rank, *, fail=False, expert_parallel=False):
         super().__init__()
         self.context, self.plan, self.role_rank = context, plan, role_rank
         self.fail = fail
+        self.expert_parallel = expert_parallel
 
     def compute_ffn_output(
         self,
@@ -510,7 +511,12 @@ class StagedFFNContractModel(torch.nn.Module):
             or metadata.tokens_unpadded_lens
             != [sum(peer.valid_tokens for peer in peers)]
             or context.num_tokens != rows
-            or context.num_tokens_across_dp.tolist() != [rows]
+            or context.num_tokens_across_dp.tolist()
+            != (
+                list(self.plan.stages[metadata.stage_idx].ffn_padded_tokens)
+                if self.expert_parallel
+                else [rows]
+            )
             or context.in_profile_run != (self.plan.mode == "profile")
             or context.moe_layer_index != layer_idx
             or context.model_instance is not self
@@ -602,7 +608,9 @@ def make_staged_ffn_service_case(runner_type, worker_type, plans):
     return case
 
 
-def make_staged_ffn_case(runner_type, plan: HcclParentPlan, *, role_rank=0):
+def make_staged_ffn_case(
+    runner_type, plan: HcclParentPlan, *, role_rank=0, expert_parallel=False
+):
     """Build an already-accepted parent without worker/device initialization."""
     peer = StagedFFNPeer(plan, role_rank=role_rank)
     config = hccl_vllm_config(
@@ -613,10 +621,14 @@ def make_staged_ffn_case(runner_type, plan: HcclParentPlan, *, role_rank=0):
         tensor_parallel_size=plan.stages[0].native_tp_size,
     )
     config.parallel_config.rank = role_rank
+    if expert_parallel:
+        configure_hccl_ep(config, dp_size=plan.stages[0].ffn_size, dp_rank=role_rank)
     config.model_config.hf_config.num_hidden_layers = max(plan.layer_indices) + 1
     connector = SimpleNamespace(vllm_config=config)
     context = HcclCpuForwardContext()
-    model = StagedFFNContractModel(context, plan, role_rank)
+    model = StagedFFNContractModel(
+        context, plan, role_rank, expert_parallel=expert_parallel
+    )
     runner = make_hccl_runner(runner_type, connector, model)
     return SimpleNamespace(runner=runner, peer=peer, context=context, plan=plan)
 

@@ -26,6 +26,7 @@ from afd_plugin.compat.npu.runtime_config import (
 from afd_plugin.config import HCCL_P2P_CONNECTOR, AFDConfig, parse_afd_config
 from afd_plugin.connectors.base import ConnectorExtraInfo
 from afd_plugin.connectors.npu.hccl_protocol import MAX_TARGET_LAYERS, HcclCapabilities
+from afd_plugin.distributed.hccl import MAX_HCCL_STAGES
 from afd_plugin.distributed.hccl_plan import HcclPlanCapabilities
 
 if TYPE_CHECKING:
@@ -101,7 +102,7 @@ def validate_staged_hccl_runtime(
     graph: bool = False,
     target_shape: DeepseekV41TargetShape | None = None,
 ) -> HcclPlanCapabilities:
-    """Describe a V4.1 DP1 native-TP component without admitting models.
+    """Describe a V4.1 native-TP or TP1/DP/EP component.
 
     Logical U1 and native U2 share the counts-enabled protocol. The existing
     model guard still controls production admission; this allocates no groups.
@@ -131,6 +132,10 @@ def validate_staged_hccl_runtime(
         attention_size=afd_config.num_attention_ranks,
         ffn_size=afd_config.num_ffn_ranks,
         native_tp_size=caps.native_tp_size,
+        max_stages=(
+            1 if vllm_config.parallel_config.enable_expert_parallel else MAX_HCCL_STAGES
+        ),
+        expert_parallel=vllm_config.parallel_config.enable_expert_parallel,
         local_counts_version=1,
         graph_execution_version=1 if graph else 0,
         graph_exchange_order=HcclExtraInfo.from_mapping(
@@ -159,13 +164,14 @@ def uses_staged_hccl_graph_runtime(
 
 
 def uses_staged_hccl_runtime(vllm_config: VllmConfig, afd_config: AFDConfig) -> bool:
-    """Select Graph U1/U2 or eager U2 before either role rendezvous."""
+    """Select Graph U1/U2, eager U2 or TP1/DP/EP before rendezvous."""
     graph = uses_staged_hccl_graph_runtime(vllm_config, afd_config)
     selected = (
         afd_config.connector == HCCL_P2P_CONNECTOR
         and is_deepseek_v41_model(vllm_config)
         and (
             graph
+            or vllm_config.parallel_config.enable_expert_parallel
             or vllm_config.parallel_config.enable_dbo
             or vllm_config.parallel_config.use_ubatching
         )
@@ -205,7 +211,12 @@ def validate_staged_hccl_binding(
     if (
         device.type != "npu"
         or device.index != transport.local_device
-        or vllm_config.parallel_config.rank != transport.role_rank
+        or (
+            vllm_config.parallel_config.data_parallel_rank
+            if caps.expert_parallel
+            else vllm_config.parallel_config.rank
+        )
+        != transport.role_rank
         or transport.closed
         or transport.terminal
         or transport.plan is not None
@@ -240,10 +251,12 @@ def _validate_hccl_runtime(
     afd_config.validate()
     if afd_config.connector != HCCL_P2P_CONNECTOR:
         raise ValueError("HCCL runtime requires P2pHcclAFDConnector")
-    if (
-        type(role_rank) is not int
-        or not 0 <= role_rank < afd_config.num_attention_ranks
-    ):
+    role_size = (
+        afd_config.num_attention_ranks
+        if afd_config.is_attention_server
+        else afd_config.num_ffn_ranks
+    )
+    if type(role_rank) is not int or not 0 <= role_rank < role_size:
         raise ValueError(
             "P2pHcclAFDConnector requires role_rank in the configured TP range"
         )
@@ -251,24 +264,40 @@ def _validate_hccl_runtime(
         raise ValueError("P2pHcclAFDConnector requires ModelRunner V2")
 
     parallel = vllm_config.parallel_config
-    if (
-        type(parallel.tensor_parallel_size) is not int
-        or parallel.tensor_parallel_size != afd_config.num_attention_ranks
+    ep = staged and parallel.enable_expert_parallel
+    if ep and (
+        parallel.tensor_parallel_size != 1
+        or parallel.data_parallel_size != role_size
+        or parallel.data_parallel_rank != role_rank
+        or parallel.rank != 0
+        or parallel.enable_dbo
+        or parallel.use_ubatching
+        or parallel.num_ubatches not in (0, 1)
+        or graph
+        or vllm_config.speculative_config is not None
+        or vllm_config.kv_transfer_config is not None
     ):
+        raise ValueError(
+            "HCCL EP requires TP1, DP equal to role size, matching DP rank "
+            "and eager U1 without Graph/DBO/DSpark/PD"
+        )
+    if type(
+        parallel.tensor_parallel_size
+    ) is not int or parallel.tensor_parallel_size != (1 if ep else role_size):
         raise ValueError(
             "P2pHcclAFDConnector requires tensor_parallel_size equal to A/F ranks"
         )
     for name, size in (
         ("pipeline_parallel_size", parallel.pipeline_parallel_size),
-        ("data_parallel_size", parallel.data_parallel_size),
+        ("data_parallel_size", 1 if ep else parallel.data_parallel_size),
         ("prefill_context_parallel_size", parallel.prefill_context_parallel_size),
         ("decode_context_parallel_size", parallel.decode_context_parallel_size),
     ):
         if size != 1:
             raise ValueError(f"P2pHcclAFDConnector requires {name}=1")
-    if parallel.data_parallel_rank != 0:
+    if not ep and parallel.data_parallel_rank != 0:
         raise ValueError("P2pHcclAFDConnector requires data_parallel_rank=0")
-    if parallel.enable_expert_parallel:
+    if parallel.enable_expert_parallel and not ep:
         raise ValueError("P2pHcclAFDConnector does not support expert parallelism")
     if parallel.enable_eplb or parallel.enable_elastic_ep:
         raise ValueError("P2pHcclAFDConnector does not support EPLB or elastic EP")
@@ -366,7 +395,7 @@ def _validate_hccl_runtime(
         max_tokens=min(extra.max_tokens or scheduler_capacity, scheduler_capacity),
         layer_indices=tuple(range(layer_count)),
         native_tp_size=parallel.tensor_parallel_size,
-        pair_rank=role_rank,
+        pair_rank=0 if ep else role_rank,
     )
     capabilities.validate()
     return capabilities

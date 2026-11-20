@@ -1,0 +1,9 @@
+{
+  "ok": true,
+  "upstreams": [
+    "vllm",
+    "vllm_ascend",
+    "hccl_donor"
+  ],
+  "unchanged": true
+}

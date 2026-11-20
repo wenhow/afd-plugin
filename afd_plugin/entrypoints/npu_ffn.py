@@ -12,7 +12,9 @@ from __future__ import annotations
 
 import os
 import signal
+import time
 from collections.abc import Sequence
+from multiprocessing import connection
 from types import FrameType
 
 from vllm.config import VllmConfig
@@ -36,6 +38,7 @@ from afd_plugin.config import HCCL_P2P_CONNECTOR, parse_afd_config
 from afd_plugin.validation import validate_npu_model_runner_v2_config
 
 SUCCESS_MESSAGE = "AFD FFN launcher exited with all engine exit codes zero."
+DEFAULT_FFN_EXIT_GRACE_SECONDS = 30
 
 
 class AFDFFNClient(SyncMPClient):
@@ -60,15 +63,19 @@ def validate_ffn_configuration(vllm_config: VllmConfig) -> None:
     if afd_config.connector != HCCL_P2P_CONNECTOR:
         raise ValueError("standalone NPU FFN requires P2pHcclAFDConnector")
     parallel = vllm_config.parallel_config
+    ep_size = afd_config.num_ffn_ranks if parallel.enable_expert_parallel else 1
     if (
         parallel.distributed_executor_backend != "mp"
-        or parallel.data_parallel_size != 1
-        or parallel.data_parallel_size_local != 1
+        or parallel.data_parallel_size != ep_size
+        or parallel.data_parallel_size_local != ep_size
         or parallel.data_parallel_rank != 0
         or parallel.nnodes != 1
         or parallel.node_rank != 0
     ):
-        raise ValueError("standalone NPU FFN requires one local DP1 mp engine")
+        raise ValueError(
+            "standalone NPU FFN requires one local DP1 mp engine "
+            "or all local EP engines"
+        )
     if os.environ.get(V41_FULL_QUALIFICATION_ENV) != "1" and (
         vllm_config.speculative_config is not None
         or vllm_config.kv_transfer_config is not None
@@ -95,6 +102,31 @@ def validate_ffn_configuration(vllm_config: VllmConfig) -> None:
     fail_if_unsupported_npu_afd_features(ffn_config)
 
 
+def wait_for_ffn_engine_exits(manager: CoreEngineProcManager, timeout: float) -> None:
+    """Let every EP engine finish STOP cleanup before native shutdown.
+
+    Native monitor_engine_liveness terminates siblings after the first exit.
+    A clean FFN exit is expected, so wait for the remaining engines instead.
+    Failure or an expired cleanup grace returns control to client shutdown.
+    """
+    pending = {proc.sentinel: proc for proc in manager.processes}
+    deadline = None
+    while pending:
+        ready = connection.wait(
+            pending,
+            timeout=None if deadline is None else max(0, deadline - time.monotonic()),
+        )
+        if not ready:
+            raise TimeoutError("FFN engines did not finish peer STOP cleanup")
+        for sentinel in ready:
+            proc = pending.pop(sentinel)
+            proc.join()
+            if proc.exitcode != 0:
+                return
+        if deadline is None:
+            deadline = time.monotonic() + timeout
+
+
 def run_ffn(vllm_config: VllmConfig, *, log_stats: bool) -> int:
     """Bootstrap natively, wait for the resident engine, then clean up."""
     validate_ffn_configuration(vllm_config)
@@ -107,15 +139,21 @@ def run_ffn(vllm_config: VllmConfig, *, log_stats: bool) -> int:
         manager = client.resources.engine_manager
         if not isinstance(manager, CoreEngineProcManager):
             raise TypeError("standalone NPU FFN requires the native process manager")
-        manager.monitor_engine_liveness()
+        if vllm_config.parallel_config.enable_expert_parallel:
+            grace = vllm_config.shutdown_timeout
+            wait_for_ffn_engine_exits(
+                manager, DEFAULT_FFN_EXIT_GRACE_SECONDS if grace is None else grace
+            )
+        else:
+            manager.monitor_engine_liveness()
         finished = manager.finished_procs()
-        if len(finished) != vllm_config.parallel_config.data_parallel_size_local:
-            raise RuntimeError("standalone NPU FFN exited with unfinished engines")
         for returncode in finished.values():
             if returncode:
                 # Preserve ordinary native error codes and map a signal to the
                 # shell convention instead of reporting a killed engine as clean.
                 return returncode if returncode > 0 else 128 - returncode
+        if len(finished) != vllm_config.parallel_config.data_parallel_size_local:
+            raise RuntimeError("standalone NPU FFN exited with unfinished engines")
     finally:
         client.shutdown(timeout=vllm_config.shutdown_timeout)
     print(SUCCESS_MESSAGE, flush=True)

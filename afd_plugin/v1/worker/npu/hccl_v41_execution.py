@@ -137,7 +137,8 @@ class HcclV41Execution:
         child = copy(self.parent_context)
         child.additional_kwargs = dict(self.parent_context.additional_kwargs or {})
         child.additional_kwargs.update(ubatch_idx=0, num_ubatches=1, dbo_enabled=False)
-        child.ubatch_idx, child.dp_metadata = 0, None
+        # U1 retains the native DP context; no stage projection is needed.
+        child.ubatch_idx = 0
         return execute_hccl_v41_stages(
             self.owner.model,
             self.owner.model_state,

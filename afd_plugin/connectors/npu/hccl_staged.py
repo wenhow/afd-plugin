@@ -72,6 +72,7 @@ class HcclStagedAFDConnector(AFDConnectorBase):
             graph=uses_staged_hccl_graph_runtime(vllm_config, afd_config),
             target_shape=target_shape,
         )
+        # The native WORLD includes DP; parallel_config.rank is engine-local.
         if type(rank) is not int or rank != role_rank:
             raise ValueError("staged HCCL requires caller rank equal to role_rank")
         if overlap_settings is not None:
@@ -145,6 +146,8 @@ class HcclStagedAFDConnector(AFDConnectorBase):
             "negotiated.max_stages": caps.max_stages,
             "negotiated.max_tokens": caps.max_tokens,
         }
+        if caps.expert_parallel:
+            record["negotiated.expert_parallel"] = True
         if self.overlap_settings is not None:
             record.update(
                 (f"configured.{name}", value)

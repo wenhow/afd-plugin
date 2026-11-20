@@ -29,7 +29,10 @@ from afd_plugin.compat.npu.runtime_config import (
 from afd_plugin.config import parse_afd_config
 from afd_plugin.connectors.metadata import AFDTransferContext, AFDTransferMetadata
 from afd_plugin.connectors.npu import hccl_staged as adapter_module
-from afd_plugin.connectors.npu.hccl_config import uses_staged_hccl_runtime
+from afd_plugin.connectors.npu.hccl_config import (
+    uses_staged_hccl_runtime,
+    validate_staged_hccl_binding,
+)
 from afd_plugin.connectors.npu.hccl_overlap import HcclOverlapSettings
 from afd_plugin.connectors.npu.p2p_hccl import P2pHcclAFDConnector
 from afd_plugin.distributed.hccl import HcclStageLayout
@@ -48,6 +51,7 @@ from tests.unit.fakes.hccl import (
     make_staged_connector_pair,
 )
 from tests.unit.fakes.vllm_config import (
+    configure_hccl_ep,
     hccl_vllm_config,
     v41_dspark_pd_graph_config,
 )
@@ -62,6 +66,24 @@ def runtime():
     )
     config.parallel_config.rank = 0
     return config
+
+
+@pytest.mark.parametrize("role", ["attention", "ffn"])
+@pytest.mark.parametrize("dp_rank", [0, 3])
+def test_ep_factory_binds_global_world_rank_to_dp_role_and_local_device(
+    runtime, role, dp_rank
+):
+    configure_hccl_ep(runtime, dp_rank=dp_rank)
+    runtime.additional_config["afd"]["role"] = role
+    afd = parse_afd_config(runtime, expected_role=role)
+    connector = adapter_module.create_npu_runtime_connector(dp_rank, 3, runtime, afd)
+    transport = connector.transport
+    validate_staged_hccl_binding(runtime, transport, torch.device("npu", 3))
+    assert isinstance(connector, adapter_module.HcclStagedAFDConnector)
+    assert transport.role_rank == dp_rank
+    assert transport.world_rank == (4 + dp_rank if role == "attention" else dp_rank)
+    assert transport.negotiated_capabilities.expert_parallel
+    assert not connector.is_initialized and not transport.initialized
 
 
 @pytest.mark.parametrize("role", ["attention", "ffn"])
@@ -158,7 +180,7 @@ def test_runtime_hello_declares_the_frozen_eager_wire_family(
 
 
 @pytest.mark.parametrize("enabled", [False, True])
-def test_runtime_factory_preserves_explicit_serial_for_native_tp4(
+def test_runtime_factory_declares_native_tp4_stream_selection(
     monkeypatch, runtime, enabled
 ):
     monkeypatch.setattr(parallel_state, "get_tensor_model_parallel_rank", lambda: 0)
@@ -167,36 +189,26 @@ def test_runtime_factory_preserves_explicit_serial_for_native_tp4(
     runtime.parallel_config.num_ubatches = 2
     runtime.parallel_config.enable_dbo = runtime.parallel_config.use_ubatching = True
     settings = HcclOverlapSettings(eager_u2_stream_overlap=enabled)
-    if enabled:
-        with pytest.raises(ValueError, match="paired"):
-            adapter_module.create_npu_runtime_connector(
-                0,
-                0,
-                runtime,
-                parse_afd_config(runtime),
-                overlap_settings=settings,
+    connector = adapter_module.create_npu_runtime_connector(
+        0,
+        0,
+        runtime,
+        parse_afd_config(runtime),
+        overlap_settings=settings,
+    )
+    declared = decode_hccl_plan_message(
+        encode_hccl_plan_message(
+            HcclPlanMessage(
+                "HELLO",
+                role="attention",
+                world_rank=4,
+                capabilities=connector.transport.capabilities,
             )
-    else:
-        connector = adapter_module.create_npu_runtime_connector(
-            0,
-            0,
-            runtime,
-            parse_afd_config(runtime),
-            overlap_settings=settings,
         )
-        declared = decode_hccl_plan_message(
-            encode_hccl_plan_message(
-                HcclPlanMessage(
-                    "HELLO",
-                    role="attention",
-                    world_rank=4,
-                    capabilities=connector.transport.capabilities,
-                )
-            )
-        ).capabilities
-        assert declared.eager_pipeline_version == 0
-        assert (declared.attention_size, declared.ffn_size) == (4, 4)
-        assert not connector.is_initialized
+    ).capabilities
+    assert declared.eager_pipeline_version == int(enabled)
+    assert (declared.attention_size, declared.ffn_size) == (4, 4)
+    assert not connector.is_initialized
 
 
 @pytest.fixture
@@ -556,7 +568,7 @@ def test_pd_target_graph_factory_keeps_d_ownership_and_the_original_query_width(
 
 @pytest.mark.parametrize(
     "boundary",
-    ["producer", "native_pd", "no_spec", "full", "bulk", "cross_layer"],
+    ["producer", "native_pd", "full", "bulk"],
 )
 def test_pd_target_graph_factory_rejects_other_pd_and_exchange_modes(
     pd_target_graph_runtime, boundary
@@ -566,8 +578,6 @@ def test_pd_target_graph_factory_rejects_other_pd_and_exchange_modes(
         runtime.kv_transfer_config.kv_role = "kv_producer"
     elif boundary == "native_pd":
         runtime.kv_transfer_config.kv_connector_module_path = None
-    elif boundary == "no_spec":
-        runtime.speculative_config = None
     elif boundary == "full":
         runtime.compilation_config.cudagraph_mode = CUDAGraphMode.FULL
     else:
@@ -588,6 +598,33 @@ def test_pd_target_graph_factory_rejects_other_pd_and_exchange_modes(
         )
 
     assert runtime == before
+
+
+@pytest.mark.parametrize("with_spec", [False, True])
+def test_pd_graph_factory_admits_existing_target_and_cross_layer_contracts(
+    pd_target_graph_runtime, with_spec
+):
+    runtime = pd_target_graph_runtime(num_ubatches=2)
+    if with_spec:
+        runtime.additional_config["afd"]["connector_extra_config"] = {
+            "graph_exchange_order": "cross_layer_v1"
+        }
+    else:
+        runtime.speculative_config = None
+    before = deepcopy(runtime)
+    validate_npu_model_runner_v2_config(
+        runtime, expected_role="attention", device_type="npu"
+    )
+    connector = adapter_module.create_npu_runtime_connector(
+        0, 0, runtime, parse_afd_config(runtime)
+    )
+    cap = connector.transport.capabilities
+    assert cap.graph_execution_version == 1
+    assert cap.target_query_len == (3 if with_spec else 1)
+    assert cap.graph_exchange_order == (
+        "cross_layer_v1" if with_spec else "stage_serial"
+    )
+    assert not connector.is_initialized and runtime == before
 
 
 @pytest.mark.parametrize("stages", [1, 2])

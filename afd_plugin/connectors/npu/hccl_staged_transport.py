@@ -353,9 +353,15 @@ class HcclStagedTransport:
             raise ValueError("session transaction limit reached; reconnect")
         if self._local_forward is not None:
             local = self._local_forward
+            idle_ep_rank = (
+                self.negotiated_capabilities.expert_parallel
+                and plan.mode == "target"
+                and local.mode == "dummy"
+                and not any(local.valid_tokens)
+            )
             if (
                 plan.transaction_id != self._counts_transaction_id
-                or plan.mode != local.mode
+                or (plan.mode != local.mode and not idle_ep_rank)
                 or tuple(s.attention_valid_tokens[self.role_rank] for s in plan.stages)
                 != local.valid_tokens
                 or tuple(s.attention_padded_tokens[self.role_rank] for s in plan.stages)
@@ -370,6 +376,12 @@ class HcclStagedTransport:
             raise ValueError("local report must be HcclLocalForward")
         local.validate()
         capabilities = self.negotiated_capabilities
+        if (
+            capabilities.expert_parallel
+            and local.mode == "dummy"
+            and any(local.valid_tokens)
+        ):
+            raise ValueError("idle EP dummy ranks must report zero valid tokens")
         if (
             len(local.valid_tokens) > capabilities.max_stages
             or max(local.padded_tokens) > capabilities.max_tokens
@@ -650,7 +662,7 @@ class HcclStagedTransport:
         capabilities = self.negotiated_capabilities
         if capabilities.local_counts_version != 1:
             raise RuntimeError("submit_forward requires local_counts_version=1")
-        if not (
+        if not capabilities.expert_parallel and not (
             capabilities.attention_size
             == capabilities.ffn_size
             == capabilities.native_tp_size
@@ -717,8 +729,21 @@ class HcclStagedTransport:
                 if error is not None:
                     self._reject_peers(error)
                 try:
+                    # Native synchronous DP runs a dummy batch on idle ranks
+                    # in the same wave as target execution on active ranks.
+                    # Profile/warmup remain strict across the whole session.
+                    mode = local.mode
+                    ep_wave = capabilities.expert_parallel and all(
+                        report.mode in ("target", "dummy") for report in reports
+                    )
+                    if ep_wave:
+                        mode = (
+                            "target"
+                            if any(report.mode == "target" for report in reports)
+                            else "dummy"
+                        )
                     if any(
-                        report.mode != local.mode
+                        (report.mode != local.mode and not ep_wave)
                         or len(report.valid_tokens) != len(local.valid_tokens)
                         for report in reports
                     ):
@@ -744,7 +769,7 @@ class HcclStagedTransport:
                             )
                             for stage_idx in range(len(local.valid_tokens))
                         ),
-                        local.mode,
+                        mode,
                         self._graph_decision,
                     )
                     self._validate_plan(plan)

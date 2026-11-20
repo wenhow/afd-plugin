@@ -679,6 +679,97 @@ def test_coordinator_collects_actual_tp_reports_before_global_accept(count_round
     ]
 
 
+@pytest.fixture(params=[False, True])
+def ep_count_round(capabilities, request):
+    caps = replace(
+        capabilities,
+        attention_size=4,
+        ffn_size=4,
+        native_tp_size=1,
+        max_stages=1,
+        local_counts_version=1,
+        expert_parallel=True,
+    )
+    stage = HcclStageLayout(
+        0,
+        (0 if request.param else 2, 0, 4, 1),
+        (0 if request.param else 3, 0, 5, 2),
+        4,
+    )
+    plan = HcclParentPlan("ep-counted", caps.layer_indices, (stage,))
+    local = tuple(
+        HcclLocalForward("target" if v else "dummy", (v,), (p,))
+        for v, p in zip(
+            stage.attention_valid_tokens, stage.attention_padded_tokens, strict=True
+        )
+    )
+    accepts = {
+        rank: HcclPlanMessage(
+            "ACCEPT",
+            transaction_id=plan.transaction_id,
+            plan_digest=plan.digest,
+            world_rank=rank,
+        )
+        for rank in range(8)
+    }
+    incoming = {rank: [accepts[rank]] for rank in range(8) if rank != 4}
+    for rank in range(5, 8):
+        incoming[rank].insert(
+            0,
+            HcclPlanMessage(
+                "COUNTS_REPORT",
+                transaction_id=plan.transaction_id,
+                world_rank=rank,
+                local_forward=local[rank - 4],
+            ),
+        )
+    return SimpleNamespace(
+        caps=caps, plan=plan, local=local, incoming=incoming, accepts=accepts
+    )
+
+
+def test_ep_coordinator_accepts_uneven_dp_reports_including_idle_rank(ep_count_round):
+    case = ep_count_round
+    peer = ScriptedStagedControlPeer("attention", 0, case.caps, case.incoming)
+    accepted = peer.submit_forward(
+        case.local[0], transaction_id=case.plan.transaction_id
+    )
+    assert accepted == case.plan
+    assert accepted.stages[0].ffn_padded_tokens == tuple(
+        max(1, count) for count in case.plan.stages[0].attention_padded_tokens
+    )
+    published = [
+        (dest, message.plan)
+        for direction, _, dest, message in peer.transcript
+        if direction == "send" and message.kind == "FORWARD"
+    ]
+    assert published == [(rank, case.plan) for rank in range(8) if rank != 4]
+
+
+def test_idle_ep_attention_accepts_target_wave_without_changing_its_report(
+    ep_count_round,
+):
+    case = ep_count_round
+    peer = ScriptedStagedControlPeer(
+        "attention",
+        1,
+        case.caps,
+        {
+            4: [
+                HcclPlanMessage(
+                    "COUNTS_REQUEST", transaction_id=case.plan.transaction_id
+                ),
+                HcclPlanMessage("FORWARD", plan=case.plan),
+                case.accepts[4],
+            ],
+        },
+    )
+    assert peer.submit_forward(case.local[1]) == case.plan
+    sent = [m for direction, _, _, m in peer.transcript if direction == "send"]
+    assert sent[0].kind == "COUNTS_REPORT" and sent[0].local_forward == case.local[1]
+    assert sent[1] == case.accepts[5]
+
+
 def test_attention_peer_verifies_its_report_before_accepting_parent(count_round):
     case = count_round
     peer = ScriptedStagedControlPeer(

@@ -44,8 +44,18 @@ run on the worker's existing detached FFN configuration view; the original
 Engram configuration remains available to normal worker initialization. This
 entry point does not itself establish hardware qualification of any mode.
 
-`monitor_engine_liveness()` waits for an engine exit and calls manager shutdown.
-The DP1 entry point then requires exactly one finished engine, preserves its
+The TP1/DP/EP eager-U1 candidate admits all configured F engines on one local
+node (`data_parallel_size_local == data_parallel_size == num_ffn_ranks`).
+Original DSpark/PD declarations are rejected before F isolation can remove them.
+Native `SyncMPClient` retains DP coordinator and multi-engine construction.
+For EP, the launcher waits on native process sentinels for every clean exit;
+after the first clean exit, the configured shutdown timeout bounds sibling
+cleanup. A failed engine returns its exit status, while timeout propagates to
+native client shutdown. This avoids the default liveness monitor terminating
+other F engines as soon as the first one completes normal STOP cleanup.
+
+For DP1, `monitor_engine_liveness()` waits for an engine exit and calls manager
+shutdown. The entry point then requires exactly one finished engine, preserves its
 nonzero exit status, maps terminating signals to shell statuses, and finally
 calls native client shutdown. The zero-exit marker is emitted only after those
 steps complete. It proves process exit codes and client cleanup, while peer STOP,

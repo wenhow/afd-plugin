@@ -18,12 +18,24 @@ from afd_plugin.compat.npu.runtime_config import (
     validate_deepseek_v41_speculation,
 )
 from tests.unit.fakes.vllm_config import (
+    configure_hccl_ep,
     npu_vllm_config,
     pd_kv_transfer_config,
     v41_dspark_config,
     v41_dspark_pd_config,
     v41_dspark_pd_graph_config,
 )
+
+
+@pytest.mark.parametrize("feature", ["speculative_config", "kv_transfer_config"])
+def test_ffn_ep_rejects_unsupported_original_modes_before_role_isolation(feature):
+    source = configure_hccl_ep(v41_dspark_config(role="ffn"))
+    source.speculative_config = None
+    setattr(source, feature, SimpleNamespace())
+    before = deepcopy(source)
+    with pytest.raises(ValueError, match="DSpark/PD off before FFN isolation"):
+        get_npu_ffn_config(source)
+    assert source == before
 
 
 @pytest.mark.parametrize("steps", [None, 1, 5, 15])

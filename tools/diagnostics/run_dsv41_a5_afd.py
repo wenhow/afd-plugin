@@ -762,38 +762,42 @@ def run_candidate(
         roles = plan["roles"]
         probe_library(directory, roles["attention"]["environment"], vendor)
         repo = Path(plan["repo_root"])
-        probe = owner.start(
-            "packed-attention-probe",
-            [
-                sys.executable,
-                "-B",
-                str(repo / "tests/npu/dsv41_packed_attention_probe.py"),
-                "--run",
-                "--device",
-                "0",
-                "--output",
-                str(directory / "packed-attention-probe.json"),
-            ],
-            roles["attention"]["environment"],
-            repo,
-        )
-        if not owner.wait_exit(probe, PACKED_ATTENTION_PROBE_SECONDS):
-            raise RuntimeError("packed attention probe timed out; services not started")
-        if probe.process.returncode:
-            raise RuntimeError(
-                "packed attention probe failed; see packed-attention-probe.json "
-                "and packed-attention-probe-server.log"
+        # The dedicated 16-to-64 head adapter probe applies to TP4 only.
+        if not plan.get("expert_parallel", False):
+            probe = owner.start(
+                "packed-attention-probe",
+                [
+                    sys.executable,
+                    "-B",
+                    str(repo / "tests/npu/dsv41_packed_attention_probe.py"),
+                    "--run",
+                    "--device",
+                    "0",
+                    "--output",
+                    str(directory / "packed-attention-probe.json"),
+                ],
+                roles["attention"]["environment"],
+                repo,
             )
-        result["packed_attention_probe"] = json.loads(
-            (directory / "packed-attention-probe.json").read_bytes()
-        )
-        if not result["packed_attention_probe"]["passed"] or owner.survivors():
-            raise RuntimeError("packed attention probe did not finish successfully")
-        if not selected_devices_idle(
-            npu_snapshot(directory, "npu-after-packed-probe.log"), plan
-        ):
-            raise RuntimeError("NPU processes remain after packed attention probe")
-        owner.record("packed_attention_probe_passed")
+            if not owner.wait_exit(probe, PACKED_ATTENTION_PROBE_SECONDS):
+                raise RuntimeError(
+                    "packed attention probe timed out; services not started"
+                )
+            if probe.process.returncode:
+                raise RuntimeError(
+                    "packed attention probe failed; see packed-attention-probe.json "
+                    "and packed-attention-probe-server.log"
+                )
+            result["packed_attention_probe"] = json.loads(
+                (directory / "packed-attention-probe.json").read_bytes()
+            )
+            if not result["packed_attention_probe"]["passed"] or owner.survivors():
+                raise RuntimeError("packed attention probe did not finish successfully")
+            if not selected_devices_idle(
+                npu_snapshot(directory, "npu-after-packed-probe.log"), plan
+            ):
+                raise RuntimeError("NPU processes remain after packed attention probe")
+            owner.record("packed_attention_probe_passed")
         # A and F must enter connector construction concurrently. F readiness
         # before starting A would deadlock the paired HCCL rendezvous.
         if "ffn" in roles:

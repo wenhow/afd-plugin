@@ -209,7 +209,11 @@ def validate_npu_model_runner_v2_config(
             validate_staged_hccl_runtime(
                 vllm_config,
                 afd_config,
-                role_rank=0,
+                role_rank=(
+                    vllm_config.parallel_config.data_parallel_rank
+                    if vllm_config.parallel_config.enable_expert_parallel
+                    else 0
+                ),
                 graph=uses_staged_hccl_graph_runtime(vllm_config, afd_config),
             )
         else:

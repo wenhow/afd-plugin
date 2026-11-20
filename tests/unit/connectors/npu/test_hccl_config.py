@@ -24,7 +24,12 @@ from afd_plugin.config import (
     afd_config_from_mapping,
     validate_afd_config,
 )
-from tests.unit.fakes.vllm_config import hccl_vllm_config, pd_kv_transfer_config
+from afd_plugin.validation import validate_npu_model_runner_v2_config
+from tests.unit.fakes.vllm_config import (
+    configure_hccl_ep,
+    hccl_vllm_config,
+    pd_kv_transfer_config,
+)
 
 
 @pytest.fixture(scope="module")
@@ -46,6 +51,43 @@ def runtime(hccl_config_module):
 @pytest.fixture
 def afd_config():
     return AFDConfig(connector=HCCL_P2P_CONNECTOR)
+
+
+@pytest.mark.parametrize("role", ["attention", "ffn"])
+@pytest.mark.parametrize("dp_rank", [0, 1, 2, 3])
+def test_ep_admits_dp_coordinates_with_engine_local_native_rank_zero(
+    runtime, hccl_config_module, role, dp_rank
+):
+    configure_hccl_ep(runtime, dp_rank=dp_rank)
+    runtime.additional_config["afd"]["role"] = role
+    config = afd_config_from_mapping(runtime.additional_config["afd"])
+    assert hccl_config_module.uses_staged_hccl_runtime(runtime, config)
+    cap = hccl_config_module.validate_staged_hccl_runtime(runtime, config, dp_rank)
+    assert cap.expert_parallel and cap.native_tp_size == cap.max_stages == 1
+    assert cap.attention_size == cap.ffn_size == 4
+    validate_npu_model_runner_v2_config(runtime, expected_role=role, device_type="npu")
+
+
+@pytest.mark.parametrize(
+    "field,value",
+    [
+        ("tensor_parallel_size", 4),
+        ("data_parallel_size", 2),
+        ("data_parallel_rank", 1),
+        ("rank", 1),
+        ("enable_dbo", True),
+        ("use_ubatching", True),
+        ("num_ubatches", 2),
+    ],
+)
+def test_ep_rejects_wrong_coordinates_or_unsupported_scheduling(
+    runtime, hccl_config_module, field, value
+):
+    configure_hccl_ep(runtime)
+    config = afd_config_from_mapping(runtime.additional_config["afd"])
+    setattr(runtime.parallel_config, field, value)
+    with pytest.raises(ValueError, match="HCCL EP requires"):
+        hccl_config_module.validate_staged_hccl_runtime(runtime, config, 0)
 
 
 @pytest.fixture
@@ -263,7 +305,6 @@ def test_eager_admission_rejects_graph_exchange_orders(
     ("section", "field", "value", "reason"),
     [
         ("parallel_config", "num_ubatches", 3, "U1 or native U2"),
-        ("parallel_config", "enable_expert_parallel", True, "expert parallelism"),
         ("parallel_config", "use_sequence_parallel_moe", True, "sequence parallelism"),
         ("parallel_config", "enable_eplb", True, "EPLB"),
         ("compilation_config", "use_inductor_graph_partition", True, "modes NONE"),

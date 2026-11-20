@@ -203,5 +203,13 @@ class HcclStageLayout:
             peer for peer in self.peer_slices if peer.ffn_world_rank == role_rank
         )
 
+    @property
+    def ffn_padded_tokens(self) -> tuple[int, ...]:
+        """Native F DP row counts, including ranks with no local input."""
+        counts = [0] * self.ffn_size
+        for peer in self.peer_slices:
+            counts[peer.ffn_world_rank] += peer.padded_tokens
+        return tuple(counts)
+
 
 __all__ = ["HcclPeerSlice", "HcclStageLayout", "build_hccl_rank_mapping"]

@@ -1,0 +1,216 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites><testsuite name="pytest" errors="1" failures="35" skipped="0" tests="43" time="2.029" timestamp="2026-11-20T15:11:47.720284+08:00" hostname="4ff038c993bf40219c03182f786a9def"><testcase classname="tests.unit.distributed.test_hccl" name="test_two_stages_keep_independent_peer_offsets" time="0.001" /><testcase classname="tests.unit.distributed.test_hccl_plan" name="test_ep_session_roundtrips_and_projects_all_ffn_dp_counts[1]" time="0.001"><failure message="TypeError: HcclPlanCapabilities.__init__() got an unexpected keyword argument 'expert_parallel'">tests/unit/distributed/test_hccl_plan.py:31: in test_ep_session_roundtrips_and_projects_all_ffn_dp_counts
+    cap = HcclPlanCapabilities(
+E   TypeError: HcclPlanCapabilities.__init__() got an unexpected keyword argument 'expert_parallel'</failure></testcase><testcase classname="tests.unit.distributed.test_hccl_plan" name="test_ep_session_roundtrips_and_projects_all_ffn_dp_counts[2]" time="0.000"><failure message="TypeError: HcclPlanCapabilities.__init__() got an unexpected keyword argument 'expert_parallel'">tests/unit/distributed/test_hccl_plan.py:31: in test_ep_session_roundtrips_and_projects_all_ffn_dp_counts
+    cap = HcclPlanCapabilities(
+E   TypeError: HcclPlanCapabilities.__init__() got an unexpected keyword argument 'expert_parallel'</failure></testcase><testcase classname="tests.unit.distributed.test_hccl_plan" name="test_ep_session_roundtrips_and_projects_all_ffn_dp_counts[4]" time="0.000"><failure message="TypeError: HcclPlanCapabilities.__init__() got an unexpected keyword argument 'expert_parallel'">tests/unit/distributed/test_hccl_plan.py:31: in test_ep_session_roundtrips_and_projects_all_ffn_dp_counts
+    cap = HcclPlanCapabilities(
+E   TypeError: HcclPlanCapabilities.__init__() got an unexpected keyword argument 'expert_parallel'</failure></testcase><testcase classname="tests.unit.distributed.test_hccl_plan" name="test_ep_session_rejects_unintegrated_combinations_before_handshake[change0]" time="0.000"><failure message="TypeError: HcclPlanCapabilities.__init__() got an unexpected keyword argument 'expert_parallel'">tests/unit/distributed/test_hccl_plan.py:54: in test_ep_session_rejects_unintegrated_combinations_before_handshake
+    cap = HcclPlanCapabilities(
+E   TypeError: HcclPlanCapabilities.__init__() got an unexpected keyword argument 'expert_parallel'</failure></testcase><testcase classname="tests.unit.distributed.test_hccl_plan" name="test_ep_session_rejects_unintegrated_combinations_before_handshake[change1]" time="0.000"><failure message="TypeError: HcclPlanCapabilities.__init__() got an unexpected keyword argument 'expert_parallel'">tests/unit/distributed/test_hccl_plan.py:54: in test_ep_session_rejects_unintegrated_combinations_before_handshake
+    cap = HcclPlanCapabilities(
+E   TypeError: HcclPlanCapabilities.__init__() got an unexpected keyword argument 'expert_parallel'</failure></testcase><testcase classname="tests.unit.distributed.test_hccl_plan" name="test_ep_session_rejects_unintegrated_combinations_before_handshake[change2]" time="0.000"><failure message="TypeError: HcclPlanCapabilities.__init__() got an unexpected keyword argument 'expert_parallel'">tests/unit/distributed/test_hccl_plan.py:54: in test_ep_session_rejects_unintegrated_combinations_before_handshake
+    cap = HcclPlanCapabilities(
+E   TypeError: HcclPlanCapabilities.__init__() got an unexpected keyword argument 'expert_parallel'</failure></testcase><testcase classname="tests.unit.distributed.test_hccl_plan" name="test_ep_session_rejects_unintegrated_combinations_before_handshake[change3]" time="0.000"><failure message="TypeError: HcclPlanCapabilities.__init__() got an unexpected keyword argument 'expert_parallel'">tests/unit/distributed/test_hccl_plan.py:54: in test_ep_session_rejects_unintegrated_combinations_before_handshake
+    cap = HcclPlanCapabilities(
+E   TypeError: HcclPlanCapabilities.__init__() got an unexpected keyword argument 'expert_parallel'</failure></testcase><testcase classname="tests.unit.distributed.test_hccl_plan" name="test_ep_session_rejects_unintegrated_combinations_before_handshake[change4]" time="0.000"><failure message="TypeError: HcclPlanCapabilities.__init__() got an unexpected keyword argument 'expert_parallel'">tests/unit/distributed/test_hccl_plan.py:54: in test_ep_session_rejects_unintegrated_combinations_before_handshake
+    cap = HcclPlanCapabilities(
+E   TypeError: HcclPlanCapabilities.__init__() got an unexpected keyword argument 'expert_parallel'</failure></testcase><testcase classname="tests.unit.distributed.test_hccl_plan" name="test_ep_session_rejects_unintegrated_combinations_before_handshake[change5]" time="0.000"><failure message="TypeError: HcclPlanCapabilities.__init__() got an unexpected keyword argument 'expert_parallel'">tests/unit/distributed/test_hccl_plan.py:54: in test_ep_session_rejects_unintegrated_combinations_before_handshake
+    cap = HcclPlanCapabilities(
+E   TypeError: HcclPlanCapabilities.__init__() got an unexpected keyword argument 'expert_parallel'</failure></testcase><testcase classname="tests.unit.distributed.test_hccl_plan" name="test_ep_session_rejects_unintegrated_combinations_before_handshake[change6]" time="0.000"><failure message="TypeError: HcclPlanCapabilities.__init__() got an unexpected keyword argument 'expert_parallel'">tests/unit/distributed/test_hccl_plan.py:54: in test_ep_session_rejects_unintegrated_combinations_before_handshake
+    cap = HcclPlanCapabilities(
+E   TypeError: HcclPlanCapabilities.__init__() got an unexpected keyword argument 'expert_parallel'</failure></testcase><testcase classname="tests.unit.distributed.test_hccl_plan" name="test_ep_and_non_ep_peers_cannot_negotiate_a_shared_session" time="0.000"><failure message="TypeError: HcclPlanCapabilities.__init__() got an unexpected keyword argument 'expert_parallel'">tests/unit/distributed/test_hccl_plan.py:63: in test_ep_and_non_ep_peers_cannot_negotiate_a_shared_session
+    cap = HcclPlanCapabilities(
+E   TypeError: HcclPlanCapabilities.__init__() got an unexpected keyword argument 'expert_parallel'</failure></testcase><testcase classname="tests.unit.connectors.npu.test_hccl_config" name="test_ep_admits_dp_coordinates_with_engine_local_native_rank_zero[0-attention]" time="0.001"><failure message="AssertionError: assert False&#10; +  where False = &lt;function uses_staged_hccl_runtime at 0xfffba2e587c0&gt;(namespace(use_v2_model_runner=True, additional_config={'afd': {'role': 'attention', 'connector': 'P2pHcclAFDConnector'...config=namespace(enable_prefix_caching=False), scheduler_config=namespace(max_num_batched_tokens=16), lora_config=None), AFDConfig(connector='P2pHcclAFDConnector', async_dp=False, role='attention', port=1239, host='127.0.0.1', num_attention_ranks=4, num_ffn_ranks=4, compute_gate_on_attention=False, afd_process_group_timeout_s=120))&#10; +    where &lt;function uses_staged_hccl_runtime at 0xfffba2e587c0&gt; = &lt;module 'afd_plugin.connectors.npu.hccl_config' from '/mnt/workspace/tmp/afd-c0-20261104.hVgsIf/ep-cpu-r7whtqu9/snapshot/afd_plugin/connectors/npu/hccl_config.py'&gt;.uses_staged_hccl_runtime">tests/unit/connectors/npu/test_hccl_config.py:64: in test_ep_admits_dp_coordinates_with_engine_local_native_rank_zero
+    assert hccl_config_module.uses_staged_hccl_runtime(runtime, config)
+E   AssertionError: assert False
+E    +  where False = &lt;function uses_staged_hccl_runtime at 0xfffba2e587c0&gt;(namespace(use_v2_model_runner=True, additional_config={'afd': {'role': 'attention', 'connector': 'P2pHcclAFDConnector'...config=namespace(enable_prefix_caching=False), scheduler_config=namespace(max_num_batched_tokens=16), lora_config=None), AFDConfig(connector='P2pHcclAFDConnector', async_dp=False, role='attention', port=1239, host='127.0.0.1', num_attention_ranks=4, num_ffn_ranks=4, compute_gate_on_attention=False, afd_process_group_timeout_s=120))
+E    +    where &lt;function uses_staged_hccl_runtime at 0xfffba2e587c0&gt; = &lt;module 'afd_plugin.connectors.npu.hccl_config' from '/mnt/workspace/tmp/afd-c0-20261104.hVgsIf/ep-cpu-r7whtqu9/snapshot/afd_plugin/connectors/npu/hccl_config.py'&gt;.uses_staged_hccl_runtime</failure></testcase><testcase classname="tests.unit.connectors.npu.test_hccl_config" name="test_ep_admits_dp_coordinates_with_engine_local_native_rank_zero[0-ffn]" time="0.001"><failure message="AssertionError: assert False&#10; +  where False = &lt;function uses_staged_hccl_runtime at 0xfffba2e587c0&gt;(namespace(use_v2_model_runner=True, additional_config={'afd': {'role': 'ffn', 'connector': 'P2pHcclAFDConnector', 'asy...config=namespace(enable_prefix_caching=False), scheduler_config=namespace(max_num_batched_tokens=16), lora_config=None), AFDConfig(connector='P2pHcclAFDConnector', async_dp=False, role='ffn', port=1239, host='127.0.0.1', num_attention_ranks=4, num_ffn_ranks=4, compute_gate_on_attention=False, afd_process_group_timeout_s=120))&#10; +    where &lt;function uses_staged_hccl_runtime at 0xfffba2e587c0&gt; = &lt;module 'afd_plugin.connectors.npu.hccl_config' from '/mnt/workspace/tmp/afd-c0-20261104.hVgsIf/ep-cpu-r7whtqu9/snapshot/afd_plugin/connectors/npu/hccl_config.py'&gt;.uses_staged_hccl_runtime">tests/unit/connectors/npu/test_hccl_config.py:64: in test_ep_admits_dp_coordinates_with_engine_local_native_rank_zero
+    assert hccl_config_module.uses_staged_hccl_runtime(runtime, config)
+E   AssertionError: assert False
+E    +  where False = &lt;function uses_staged_hccl_runtime at 0xfffba2e587c0&gt;(namespace(use_v2_model_runner=True, additional_config={'afd': {'role': 'ffn', 'connector': 'P2pHcclAFDConnector', 'asy...config=namespace(enable_prefix_caching=False), scheduler_config=namespace(max_num_batched_tokens=16), lora_config=None), AFDConfig(connector='P2pHcclAFDConnector', async_dp=False, role='ffn', port=1239, host='127.0.0.1', num_attention_ranks=4, num_ffn_ranks=4, compute_gate_on_attention=False, afd_process_group_timeout_s=120))
+E    +    where &lt;function uses_staged_hccl_runtime at 0xfffba2e587c0&gt; = &lt;module 'afd_plugin.connectors.npu.hccl_config' from '/mnt/workspace/tmp/afd-c0-20261104.hVgsIf/ep-cpu-r7whtqu9/snapshot/afd_plugin/connectors/npu/hccl_config.py'&gt;.uses_staged_hccl_runtime</failure></testcase><testcase classname="tests.unit.connectors.npu.test_hccl_config" name="test_ep_admits_dp_coordinates_with_engine_local_native_rank_zero[1-attention]" time="0.001"><failure message="AssertionError: assert False&#10; +  where False = &lt;function uses_staged_hccl_runtime at 0xfffba2e587c0&gt;(namespace(use_v2_model_runner=True, additional_config={'afd': {'role': 'attention', 'connector': 'P2pHcclAFDConnector'...config=namespace(enable_prefix_caching=False), scheduler_config=namespace(max_num_batched_tokens=16), lora_config=None), AFDConfig(connector='P2pHcclAFDConnector', async_dp=False, role='attention', port=1239, host='127.0.0.1', num_attention_ranks=4, num_ffn_ranks=4, compute_gate_on_attention=False, afd_process_group_timeout_s=120))&#10; +    where &lt;function uses_staged_hccl_runtime at 0xfffba2e587c0&gt; = &lt;module 'afd_plugin.connectors.npu.hccl_config' from '/mnt/workspace/tmp/afd-c0-20261104.hVgsIf/ep-cpu-r7whtqu9/snapshot/afd_plugin/connectors/npu/hccl_config.py'&gt;.uses_staged_hccl_runtime">tests/unit/connectors/npu/test_hccl_config.py:64: in test_ep_admits_dp_coordinates_with_engine_local_native_rank_zero
+    assert hccl_config_module.uses_staged_hccl_runtime(runtime, config)
+E   AssertionError: assert False
+E    +  where False = &lt;function uses_staged_hccl_runtime at 0xfffba2e587c0&gt;(namespace(use_v2_model_runner=True, additional_config={'afd': {'role': 'attention', 'connector': 'P2pHcclAFDConnector'...config=namespace(enable_prefix_caching=False), scheduler_config=namespace(max_num_batched_tokens=16), lora_config=None), AFDConfig(connector='P2pHcclAFDConnector', async_dp=False, role='attention', port=1239, host='127.0.0.1', num_attention_ranks=4, num_ffn_ranks=4, compute_gate_on_attention=False, afd_process_group_timeout_s=120))
+E    +    where &lt;function uses_staged_hccl_runtime at 0xfffba2e587c0&gt; = &lt;module 'afd_plugin.connectors.npu.hccl_config' from '/mnt/workspace/tmp/afd-c0-20261104.hVgsIf/ep-cpu-r7whtqu9/snapshot/afd_plugin/connectors/npu/hccl_config.py'&gt;.uses_staged_hccl_runtime</failure></testcase><testcase classname="tests.unit.connectors.npu.test_hccl_config" name="test_ep_admits_dp_coordinates_with_engine_local_native_rank_zero[1-ffn]" time="0.001"><failure message="AssertionError: assert False&#10; +  where False = &lt;function uses_staged_hccl_runtime at 0xfffba2e587c0&gt;(namespace(use_v2_model_runner=True, additional_config={'afd': {'role': 'ffn', 'connector': 'P2pHcclAFDConnector', 'asy...config=namespace(enable_prefix_caching=False), scheduler_config=namespace(max_num_batched_tokens=16), lora_config=None), AFDConfig(connector='P2pHcclAFDConnector', async_dp=False, role='ffn', port=1239, host='127.0.0.1', num_attention_ranks=4, num_ffn_ranks=4, compute_gate_on_attention=False, afd_process_group_timeout_s=120))&#10; +    where &lt;function uses_staged_hccl_runtime at 0xfffba2e587c0&gt; = &lt;module 'afd_plugin.connectors.npu.hccl_config' from '/mnt/workspace/tmp/afd-c0-20261104.hVgsIf/ep-cpu-r7whtqu9/snapshot/afd_plugin/connectors/npu/hccl_config.py'&gt;.uses_staged_hccl_runtime">tests/unit/connectors/npu/test_hccl_config.py:64: in test_ep_admits_dp_coordinates_with_engine_local_native_rank_zero
+    assert hccl_config_module.uses_staged_hccl_runtime(runtime, config)
+E   AssertionError: assert False
+E    +  where False = &lt;function uses_staged_hccl_runtime at 0xfffba2e587c0&gt;(namespace(use_v2_model_runner=True, additional_config={'afd': {'role': 'ffn', 'connector': 'P2pHcclAFDConnector', 'asy...config=namespace(enable_prefix_caching=False), scheduler_config=namespace(max_num_batched_tokens=16), lora_config=None), AFDConfig(connector='P2pHcclAFDConnector', async_dp=False, role='ffn', port=1239, host='127.0.0.1', num_attention_ranks=4, num_ffn_ranks=4, compute_gate_on_attention=False, afd_process_group_timeout_s=120))
+E    +    where &lt;function uses_staged_hccl_runtime at 0xfffba2e587c0&gt; = &lt;module 'afd_plugin.connectors.npu.hccl_config' from '/mnt/workspace/tmp/afd-c0-20261104.hVgsIf/ep-cpu-r7whtqu9/snapshot/afd_plugin/connectors/npu/hccl_config.py'&gt;.uses_staged_hccl_runtime</failure></testcase><testcase classname="tests.unit.connectors.npu.test_hccl_config" name="test_ep_admits_dp_coordinates_with_engine_local_native_rank_zero[2-attention]" time="0.001"><failure message="AssertionError: assert False&#10; +  where False = &lt;function uses_staged_hccl_runtime at 0xfffba2e587c0&gt;(namespace(use_v2_model_runner=True, additional_config={'afd': {'role': 'attention', 'connector': 'P2pHcclAFDConnector'...config=namespace(enable_prefix_caching=False), scheduler_config=namespace(max_num_batched_tokens=16), lora_config=None), AFDConfig(connector='P2pHcclAFDConnector', async_dp=False, role='attention', port=1239, host='127.0.0.1', num_attention_ranks=4, num_ffn_ranks=4, compute_gate_on_attention=False, afd_process_group_timeout_s=120))&#10; +    where &lt;function uses_staged_hccl_runtime at 0xfffba2e587c0&gt; = &lt;module 'afd_plugin.connectors.npu.hccl_config' from '/mnt/workspace/tmp/afd-c0-20261104.hVgsIf/ep-cpu-r7whtqu9/snapshot/afd_plugin/connectors/npu/hccl_config.py'&gt;.uses_staged_hccl_runtime">tests/unit/connectors/npu/test_hccl_config.py:64: in test_ep_admits_dp_coordinates_with_engine_local_native_rank_zero
+    assert hccl_config_module.uses_staged_hccl_runtime(runtime, config)
+E   AssertionError: assert False
+E    +  where False = &lt;function uses_staged_hccl_runtime at 0xfffba2e587c0&gt;(namespace(use_v2_model_runner=True, additional_config={'afd': {'role': 'attention', 'connector': 'P2pHcclAFDConnector'...config=namespace(enable_prefix_caching=False), scheduler_config=namespace(max_num_batched_tokens=16), lora_config=None), AFDConfig(connector='P2pHcclAFDConnector', async_dp=False, role='attention', port=1239, host='127.0.0.1', num_attention_ranks=4, num_ffn_ranks=4, compute_gate_on_attention=False, afd_process_group_timeout_s=120))
+E    +    where &lt;function uses_staged_hccl_runtime at 0xfffba2e587c0&gt; = &lt;module 'afd_plugin.connectors.npu.hccl_config' from '/mnt/workspace/tmp/afd-c0-20261104.hVgsIf/ep-cpu-r7whtqu9/snapshot/afd_plugin/connectors/npu/hccl_config.py'&gt;.uses_staged_hccl_runtime</failure></testcase><testcase classname="tests.unit.connectors.npu.test_hccl_config" name="test_ep_admits_dp_coordinates_with_engine_local_native_rank_zero[2-ffn]" time="0.001"><failure message="AssertionError: assert False&#10; +  where False = &lt;function uses_staged_hccl_runtime at 0xfffba2e587c0&gt;(namespace(use_v2_model_runner=True, additional_config={'afd': {'role': 'ffn', 'connector': 'P2pHcclAFDConnector', 'asy...config=namespace(enable_prefix_caching=False), scheduler_config=namespace(max_num_batched_tokens=16), lora_config=None), AFDConfig(connector='P2pHcclAFDConnector', async_dp=False, role='ffn', port=1239, host='127.0.0.1', num_attention_ranks=4, num_ffn_ranks=4, compute_gate_on_attention=False, afd_process_group_timeout_s=120))&#10; +    where &lt;function uses_staged_hccl_runtime at 0xfffba2e587c0&gt; = &lt;module 'afd_plugin.connectors.npu.hccl_config' from '/mnt/workspace/tmp/afd-c0-20261104.hVgsIf/ep-cpu-r7whtqu9/snapshot/afd_plugin/connectors/npu/hccl_config.py'&gt;.uses_staged_hccl_runtime">tests/unit/connectors/npu/test_hccl_config.py:64: in test_ep_admits_dp_coordinates_with_engine_local_native_rank_zero
+    assert hccl_config_module.uses_staged_hccl_runtime(runtime, config)
+E   AssertionError: assert False
+E    +  where False = &lt;function uses_staged_hccl_runtime at 0xfffba2e587c0&gt;(namespace(use_v2_model_runner=True, additional_config={'afd': {'role': 'ffn', 'connector': 'P2pHcclAFDConnector', 'asy...config=namespace(enable_prefix_caching=False), scheduler_config=namespace(max_num_batched_tokens=16), lora_config=None), AFDConfig(connector='P2pHcclAFDConnector', async_dp=False, role='ffn', port=1239, host='127.0.0.1', num_attention_ranks=4, num_ffn_ranks=4, compute_gate_on_attention=False, afd_process_group_timeout_s=120))
+E    +    where &lt;function uses_staged_hccl_runtime at 0xfffba2e587c0&gt; = &lt;module 'afd_plugin.connectors.npu.hccl_config' from '/mnt/workspace/tmp/afd-c0-20261104.hVgsIf/ep-cpu-r7whtqu9/snapshot/afd_plugin/connectors/npu/hccl_config.py'&gt;.uses_staged_hccl_runtime</failure></testcase><testcase classname="tests.unit.connectors.npu.test_hccl_config" name="test_ep_admits_dp_coordinates_with_engine_local_native_rank_zero[3-attention]" time="0.001"><failure message="AssertionError: assert False&#10; +  where False = &lt;function uses_staged_hccl_runtime at 0xfffba2e587c0&gt;(namespace(use_v2_model_runner=True, additional_config={'afd': {'role': 'attention', 'connector': 'P2pHcclAFDConnector'...config=namespace(enable_prefix_caching=False), scheduler_config=namespace(max_num_batched_tokens=16), lora_config=None), AFDConfig(connector='P2pHcclAFDConnector', async_dp=False, role='attention', port=1239, host='127.0.0.1', num_attention_ranks=4, num_ffn_ranks=4, compute_gate_on_attention=False, afd_process_group_timeout_s=120))&#10; +    where &lt;function uses_staged_hccl_runtime at 0xfffba2e587c0&gt; = &lt;module 'afd_plugin.connectors.npu.hccl_config' from '/mnt/workspace/tmp/afd-c0-20261104.hVgsIf/ep-cpu-r7whtqu9/snapshot/afd_plugin/connectors/npu/hccl_config.py'&gt;.uses_staged_hccl_runtime">tests/unit/connectors/npu/test_hccl_config.py:64: in test_ep_admits_dp_coordinates_with_engine_local_native_rank_zero
+    assert hccl_config_module.uses_staged_hccl_runtime(runtime, config)
+E   AssertionError: assert False
+E    +  where False = &lt;function uses_staged_hccl_runtime at 0xfffba2e587c0&gt;(namespace(use_v2_model_runner=True, additional_config={'afd': {'role': 'attention', 'connector': 'P2pHcclAFDConnector'...config=namespace(enable_prefix_caching=False), scheduler_config=namespace(max_num_batched_tokens=16), lora_config=None), AFDConfig(connector='P2pHcclAFDConnector', async_dp=False, role='attention', port=1239, host='127.0.0.1', num_attention_ranks=4, num_ffn_ranks=4, compute_gate_on_attention=False, afd_process_group_timeout_s=120))
+E    +    where &lt;function uses_staged_hccl_runtime at 0xfffba2e587c0&gt; = &lt;module 'afd_plugin.connectors.npu.hccl_config' from '/mnt/workspace/tmp/afd-c0-20261104.hVgsIf/ep-cpu-r7whtqu9/snapshot/afd_plugin/connectors/npu/hccl_config.py'&gt;.uses_staged_hccl_runtime</failure></testcase><testcase classname="tests.unit.connectors.npu.test_hccl_config" name="test_ep_admits_dp_coordinates_with_engine_local_native_rank_zero[3-ffn]" time="0.001"><failure message="AssertionError: assert False&#10; +  where False = &lt;function uses_staged_hccl_runtime at 0xfffba2e587c0&gt;(namespace(use_v2_model_runner=True, additional_config={'afd': {'role': 'ffn', 'connector': 'P2pHcclAFDConnector', 'asy...config=namespace(enable_prefix_caching=False), scheduler_config=namespace(max_num_batched_tokens=16), lora_config=None), AFDConfig(connector='P2pHcclAFDConnector', async_dp=False, role='ffn', port=1239, host='127.0.0.1', num_attention_ranks=4, num_ffn_ranks=4, compute_gate_on_attention=False, afd_process_group_timeout_s=120))&#10; +    where &lt;function uses_staged_hccl_runtime at 0xfffba2e587c0&gt; = &lt;module 'afd_plugin.connectors.npu.hccl_config' from '/mnt/workspace/tmp/afd-c0-20261104.hVgsIf/ep-cpu-r7whtqu9/snapshot/afd_plugin/connectors/npu/hccl_config.py'&gt;.uses_staged_hccl_runtime">tests/unit/connectors/npu/test_hccl_config.py:64: in test_ep_admits_dp_coordinates_with_engine_local_native_rank_zero
+    assert hccl_config_module.uses_staged_hccl_runtime(runtime, config)
+E   AssertionError: assert False
+E    +  where False = &lt;function uses_staged_hccl_runtime at 0xfffba2e587c0&gt;(namespace(use_v2_model_runner=True, additional_config={'afd': {'role': 'ffn', 'connector': 'P2pHcclAFDConnector', 'asy...config=namespace(enable_prefix_caching=False), scheduler_config=namespace(max_num_batched_tokens=16), lora_config=None), AFDConfig(connector='P2pHcclAFDConnector', async_dp=False, role='ffn', port=1239, host='127.0.0.1', num_attention_ranks=4, num_ffn_ranks=4, compute_gate_on_attention=False, afd_process_group_timeout_s=120))
+E    +    where &lt;function uses_staged_hccl_runtime at 0xfffba2e587c0&gt; = &lt;module 'afd_plugin.connectors.npu.hccl_config' from '/mnt/workspace/tmp/afd-c0-20261104.hVgsIf/ep-cpu-r7whtqu9/snapshot/afd_plugin/connectors/npu/hccl_config.py'&gt;.uses_staged_hccl_runtime</failure></testcase><testcase classname="tests.unit.connectors.npu.test_hccl_config" name="test_ep_rejects_wrong_coordinates_or_unsupported_scheduling[tensor_parallel_size-4]" time="0.001"><failure message="AssertionError: Regex pattern did not match.&#10; Regex: 'HCCL EP requires'&#10; Input: 'P2pHcclAFDConnector requires data_parallel_size=1'">tests/unit/connectors/npu/test_hccl_config.py:83: in test_ep_rejects_wrong_coordinates_or_unsupported_scheduling
+    hccl_config_module.validate_staged_hccl_runtime(runtime, config, 0)
+afd_plugin/connectors/npu/hccl_config.py:113: in validate_staged_hccl_runtime
+    caps = _validate_hccl_runtime(
+afd_plugin/connectors/npu/hccl_config.py:268: in _validate_hccl_runtime
+    raise ValueError(f"P2pHcclAFDConnector requires {name}=1")
+E   ValueError: P2pHcclAFDConnector requires data_parallel_size=1
+
+During handling of the above exception, another exception occurred:
+tests/unit/connectors/npu/test_hccl_config.py:82: in test_ep_rejects_wrong_coordinates_or_unsupported_scheduling
+    with pytest.raises(ValueError, match="HCCL EP requires"):
+E   AssertionError: Regex pattern did not match.
+E    Regex: 'HCCL EP requires'
+E    Input: 'P2pHcclAFDConnector requires data_parallel_size=1'</failure></testcase><testcase classname="tests.unit.connectors.npu.test_hccl_config" name="test_ep_rejects_wrong_coordinates_or_unsupported_scheduling[data_parallel_size-2]" time="0.001"><failure message="AssertionError: Regex pattern did not match.&#10; Regex: 'HCCL EP requires'&#10; Input: 'P2pHcclAFDConnector requires tensor_parallel_size equal to A/F ranks'">tests/unit/connectors/npu/test_hccl_config.py:83: in test_ep_rejects_wrong_coordinates_or_unsupported_scheduling
+    hccl_config_module.validate_staged_hccl_runtime(runtime, config, 0)
+afd_plugin/connectors/npu/hccl_config.py:113: in validate_staged_hccl_runtime
+    caps = _validate_hccl_runtime(
+afd_plugin/connectors/npu/hccl_config.py:258: in _validate_hccl_runtime
+    raise ValueError(
+E   ValueError: P2pHcclAFDConnector requires tensor_parallel_size equal to A/F ranks
+
+During handling of the above exception, another exception occurred:
+tests/unit/connectors/npu/test_hccl_config.py:82: in test_ep_rejects_wrong_coordinates_or_unsupported_scheduling
+    with pytest.raises(ValueError, match="HCCL EP requires"):
+E   AssertionError: Regex pattern did not match.
+E    Regex: 'HCCL EP requires'
+E    Input: 'P2pHcclAFDConnector requires tensor_parallel_size equal to A/F ranks'</failure></testcase><testcase classname="tests.unit.connectors.npu.test_hccl_config" name="test_ep_rejects_wrong_coordinates_or_unsupported_scheduling[data_parallel_rank-1]" time="0.001"><failure message="AssertionError: Regex pattern did not match.&#10; Regex: 'HCCL EP requires'&#10; Input: 'P2pHcclAFDConnector requires tensor_parallel_size equal to A/F ranks'">tests/unit/connectors/npu/test_hccl_config.py:83: in test_ep_rejects_wrong_coordinates_or_unsupported_scheduling
+    hccl_config_module.validate_staged_hccl_runtime(runtime, config, 0)
+afd_plugin/connectors/npu/hccl_config.py:113: in validate_staged_hccl_runtime
+    caps = _validate_hccl_runtime(
+afd_plugin/connectors/npu/hccl_config.py:258: in _validate_hccl_runtime
+    raise ValueError(
+E   ValueError: P2pHcclAFDConnector requires tensor_parallel_size equal to A/F ranks
+
+During handling of the above exception, another exception occurred:
+tests/unit/connectors/npu/test_hccl_config.py:82: in test_ep_rejects_wrong_coordinates_or_unsupported_scheduling
+    with pytest.raises(ValueError, match="HCCL EP requires"):
+E   AssertionError: Regex pattern did not match.
+E    Regex: 'HCCL EP requires'
+E    Input: 'P2pHcclAFDConnector requires tensor_parallel_size equal to A/F ranks'</failure></testcase><testcase classname="tests.unit.connectors.npu.test_hccl_config" name="test_ep_rejects_wrong_coordinates_or_unsupported_scheduling[rank-1]" time="0.001"><failure message="AssertionError: Regex pattern did not match.&#10; Regex: 'HCCL EP requires'&#10; Input: 'P2pHcclAFDConnector requires tensor_parallel_size equal to A/F ranks'">tests/unit/connectors/npu/test_hccl_config.py:83: in test_ep_rejects_wrong_coordinates_or_unsupported_scheduling
+    hccl_config_module.validate_staged_hccl_runtime(runtime, config, 0)
+afd_plugin/connectors/npu/hccl_config.py:113: in validate_staged_hccl_runtime
+    caps = _validate_hccl_runtime(
+afd_plugin/connectors/npu/hccl_config.py:258: in _validate_hccl_runtime
+    raise ValueError(
+E   ValueError: P2pHcclAFDConnector requires tensor_parallel_size equal to A/F ranks
+
+During handling of the above exception, another exception occurred:
+tests/unit/connectors/npu/test_hccl_config.py:82: in test_ep_rejects_wrong_coordinates_or_unsupported_scheduling
+    with pytest.raises(ValueError, match="HCCL EP requires"):
+E   AssertionError: Regex pattern did not match.
+E    Regex: 'HCCL EP requires'
+E    Input: 'P2pHcclAFDConnector requires tensor_parallel_size equal to A/F ranks'</failure></testcase><testcase classname="tests.unit.connectors.npu.test_hccl_config" name="test_ep_rejects_wrong_coordinates_or_unsupported_scheduling[enable_dbo-True]" time="0.001"><failure message="AssertionError: Regex pattern did not match.&#10; Regex: 'HCCL EP requires'&#10; Input: 'P2pHcclAFDConnector requires tensor_parallel_size equal to A/F ranks'">tests/unit/connectors/npu/test_hccl_config.py:83: in test_ep_rejects_wrong_coordinates_or_unsupported_scheduling
+    hccl_config_module.validate_staged_hccl_runtime(runtime, config, 0)
+afd_plugin/connectors/npu/hccl_config.py:113: in validate_staged_hccl_runtime
+    caps = _validate_hccl_runtime(
+afd_plugin/connectors/npu/hccl_config.py:258: in _validate_hccl_runtime
+    raise ValueError(
+E   ValueError: P2pHcclAFDConnector requires tensor_parallel_size equal to A/F ranks
+
+During handling of the above exception, another exception occurred:
+tests/unit/connectors/npu/test_hccl_config.py:82: in test_ep_rejects_wrong_coordinates_or_unsupported_scheduling
+    with pytest.raises(ValueError, match="HCCL EP requires"):
+E   AssertionError: Regex pattern did not match.
+E    Regex: 'HCCL EP requires'
+E    Input: 'P2pHcclAFDConnector requires tensor_parallel_size equal to A/F ranks'</failure></testcase><testcase classname="tests.unit.connectors.npu.test_hccl_config" name="test_ep_rejects_wrong_coordinates_or_unsupported_scheduling[use_ubatching-True]" time="0.001"><failure message="AssertionError: Regex pattern did not match.&#10; Regex: 'HCCL EP requires'&#10; Input: 'P2pHcclAFDConnector requires tensor_parallel_size equal to A/F ranks'">tests/unit/connectors/npu/test_hccl_config.py:83: in test_ep_rejects_wrong_coordinates_or_unsupported_scheduling
+    hccl_config_module.validate_staged_hccl_runtime(runtime, config, 0)
+afd_plugin/connectors/npu/hccl_config.py:113: in validate_staged_hccl_runtime
+    caps = _validate_hccl_runtime(
+afd_plugin/connectors/npu/hccl_config.py:258: in _validate_hccl_runtime
+    raise ValueError(
+E   ValueError: P2pHcclAFDConnector requires tensor_parallel_size equal to A/F ranks
+
+During handling of the above exception, another exception occurred:
+tests/unit/connectors/npu/test_hccl_config.py:82: in test_ep_rejects_wrong_coordinates_or_unsupported_scheduling
+    with pytest.raises(ValueError, match="HCCL EP requires"):
+E   AssertionError: Regex pattern did not match.
+E    Regex: 'HCCL EP requires'
+E    Input: 'P2pHcclAFDConnector requires tensor_parallel_size equal to A/F ranks'</failure></testcase><testcase classname="tests.unit.connectors.npu.test_hccl_config" name="test_ep_rejects_wrong_coordinates_or_unsupported_scheduling[num_ubatches-2]" time="0.001"><failure message="AssertionError: Regex pattern did not match.&#10; Regex: 'HCCL EP requires'&#10; Input: 'P2pHcclAFDConnector requires tensor_parallel_size equal to A/F ranks'">tests/unit/connectors/npu/test_hccl_config.py:83: in test_ep_rejects_wrong_coordinates_or_unsupported_scheduling
+    hccl_config_module.validate_staged_hccl_runtime(runtime, config, 0)
+afd_plugin/connectors/npu/hccl_config.py:113: in validate_staged_hccl_runtime
+    caps = _validate_hccl_runtime(
+afd_plugin/connectors/npu/hccl_config.py:258: in _validate_hccl_runtime
+    raise ValueError(
+E   ValueError: P2pHcclAFDConnector requires tensor_parallel_size equal to A/F ranks
+
+During handling of the above exception, another exception occurred:
+tests/unit/connectors/npu/test_hccl_config.py:82: in test_ep_rejects_wrong_coordinates_or_unsupported_scheduling
+    with pytest.raises(ValueError, match="HCCL EP requires"):
+E   AssertionError: Regex pattern did not match.
+E    Regex: 'HCCL EP requires'
+E    Input: 'P2pHcclAFDConnector requires tensor_parallel_size equal to A/F ranks'</failure></testcase><testcase classname="tests.unit.connectors.npu.test_hccl_staged_transport" name="test_ep_coordinator_accepts_uneven_dp_reports_including_idle_rank" time="0.000"><error message="failed on setup with &quot;TypeError: HcclPlanCapabilities.__init__() got an unexpected keyword argument 'expert_parallel'&quot;">tests/unit/connectors/npu/test_hccl_staged_transport.py:769: in ep_count_round
+    caps = replace(
+/opt/buildtools/python-3.12.9/lib/python3.12/dataclasses.py:1588: in replace
+    return obj.__class__(**changes)
+E   TypeError: HcclPlanCapabilities.__init__() got an unexpected keyword argument 'expert_parallel'</error></testcase><testcase classname="tests.unit.v1.worker.npu.test_hccl_v41_ffn_runner" name="test_ep_forwards_complete_dp_counts_and_executes_padding_only_rank[0]" time="0.003"><failure message="ValueError: V4.1 staged FFN requires DP1/PP1/CP1 and non-SP execution">tests/unit/v1/worker/npu/test_hccl_v41_ffn_runner.py:66: in test_ep_forwards_complete_dp_counts_and_executes_padding_only_rank
+    runner_module.execute_hccl_v41_parent(case.runner, case.peer)
+afd_plugin/v1/worker/npu/hccl_v41_ffn_runner.py:82: in execute_hccl_v41_parent
+    raise ValueError(
+E   ValueError: V4.1 staged FFN requires DP1/PP1/CP1 and non-SP execution</failure></testcase><testcase classname="tests.unit.v1.worker.npu.test_hccl_v41_ffn_runner" name="test_ep_forwards_complete_dp_counts_and_executes_padding_only_rank[1]" time="0.001"><failure message="ValueError: V4.1 staged FFN requires DP1/PP1/CP1 and non-SP execution">tests/unit/v1/worker/npu/test_hccl_v41_ffn_runner.py:66: in test_ep_forwards_complete_dp_counts_and_executes_padding_only_rank
+    runner_module.execute_hccl_v41_parent(case.runner, case.peer)
+afd_plugin/v1/worker/npu/hccl_v41_ffn_runner.py:82: in execute_hccl_v41_parent
+    raise ValueError(
+E   ValueError: V4.1 staged FFN requires DP1/PP1/CP1 and non-SP execution</failure></testcase><testcase classname="tests.unit.v1.worker.npu.test_hccl_v41_ffn_runner" name="test_ep_forwards_complete_dp_counts_and_executes_padding_only_rank[2]" time="0.001"><failure message="ValueError: V4.1 staged FFN requires DP1/PP1/CP1 and non-SP execution">tests/unit/v1/worker/npu/test_hccl_v41_ffn_runner.py:66: in test_ep_forwards_complete_dp_counts_and_executes_padding_only_rank
+    runner_module.execute_hccl_v41_parent(case.runner, case.peer)
+afd_plugin/v1/worker/npu/hccl_v41_ffn_runner.py:82: in execute_hccl_v41_parent
+    raise ValueError(
+E   ValueError: V4.1 staged FFN requires DP1/PP1/CP1 and non-SP execution</failure></testcase><testcase classname="tests.unit.v1.worker.npu.test_hccl_v41_ffn_runner" name="test_ep_forwards_complete_dp_counts_and_executes_padding_only_rank[3]" time="0.001"><failure message="ValueError: V4.1 staged FFN requires DP1/PP1/CP1 and non-SP execution">tests/unit/v1/worker/npu/test_hccl_v41_ffn_runner.py:66: in test_ep_forwards_complete_dp_counts_and_executes_padding_only_rank
+    runner_module.execute_hccl_v41_parent(case.runner, case.peer)
+afd_plugin/v1/worker/npu/hccl_v41_ffn_runner.py:82: in execute_hccl_v41_parent
+    raise ValueError(
+E   ValueError: V4.1 staged FFN requires DP1/PP1/CP1 and non-SP execution</failure></testcase><testcase classname="tests.unit.compat.npu.test_feature_validation" name="test_ep_full_candidate_preserves_native_dp_and_a_owned_engram[0-attention]" time="0.002"><failure message="ValueError: P2pHcclAFDConnector requires tensor_parallel_size equal to A/F ranks">tests/unit/compat/npu/test_feature_validation.py:175: in test_ep_full_candidate_preserves_native_dp_and_a_owned_engram
+    fail_if_unsupported_npu_afd_features(config)
+afd_plugin/compat/npu/feature_validation.py:517: in fail_if_unsupported_npu_afd_features
+    _validate_v41_eager_qualification(vllm_config, afd_config, full=True)
+afd_plugin/compat/npu/feature_validation.py:118: in _validate_v41_eager_qualification
+    validate_hccl_runtime(vllm_config, afd_config, role_rank=parallel.rank)
+afd_plugin/connectors/npu/hccl_config.py:93: in validate_hccl_runtime
+    return _validate_hccl_runtime(vllm_config, afd_config, role_rank, staged=False)
+afd_plugin/connectors/npu/hccl_config.py:258: in _validate_hccl_runtime
+    raise ValueError(
+E   ValueError: P2pHcclAFDConnector requires tensor_parallel_size equal to A/F ranks</failure></testcase><testcase classname="tests.unit.compat.npu.test_feature_validation" name="test_ep_full_candidate_preserves_native_dp_and_a_owned_engram[0-ffn]" time="0.001"><failure message="ValueError: P2pHcclAFDConnector requires tensor_parallel_size equal to A/F ranks">tests/unit/compat/npu/test_feature_validation.py:175: in test_ep_full_candidate_preserves_native_dp_and_a_owned_engram
+    fail_if_unsupported_npu_afd_features(config)
+afd_plugin/compat/npu/feature_validation.py:517: in fail_if_unsupported_npu_afd_features
+    _validate_v41_eager_qualification(vllm_config, afd_config, full=True)
+afd_plugin/compat/npu/feature_validation.py:118: in _validate_v41_eager_qualification
+    validate_hccl_runtime(vllm_config, afd_config, role_rank=parallel.rank)
+afd_plugin/connectors/npu/hccl_config.py:93: in validate_hccl_runtime
+    return _validate_hccl_runtime(vllm_config, afd_config, role_rank, staged=False)
+afd_plugin/connectors/npu/hccl_config.py:258: in _validate_hccl_runtime
+    raise ValueError(
+E   ValueError: P2pHcclAFDConnector requires tensor_parallel_size equal to A/F ranks</failure></testcase><testcase classname="tests.unit.compat.npu.test_feature_validation" name="test_ep_full_candidate_preserves_native_dp_and_a_owned_engram[3-attention]" time="0.001"><failure message="ValueError: P2pHcclAFDConnector requires tensor_parallel_size equal to A/F ranks">tests/unit/compat/npu/test_feature_validation.py:175: in test_ep_full_candidate_preserves_native_dp_and_a_owned_engram
+    fail_if_unsupported_npu_afd_features(config)
+afd_plugin/compat/npu/feature_validation.py:517: in fail_if_unsupported_npu_afd_features
+    _validate_v41_eager_qualification(vllm_config, afd_config, full=True)
+afd_plugin/compat/npu/feature_validation.py:118: in _validate_v41_eager_qualification
+    validate_hccl_runtime(vllm_config, afd_config, role_rank=parallel.rank)
+afd_plugin/connectors/npu/hccl_config.py:93: in validate_hccl_runtime
+    return _validate_hccl_runtime(vllm_config, afd_config, role_rank, staged=False)
+afd_plugin/connectors/npu/hccl_config.py:258: in _validate_hccl_runtime
+    raise ValueError(
+E   ValueError: P2pHcclAFDConnector requires tensor_parallel_size equal to A/F ranks</failure></testcase><testcase classname="tests.unit.compat.npu.test_feature_validation" name="test_ep_full_candidate_preserves_native_dp_and_a_owned_engram[3-ffn]" time="0.001"><failure message="ValueError: P2pHcclAFDConnector requires tensor_parallel_size equal to A/F ranks">tests/unit/compat/npu/test_feature_validation.py:175: in test_ep_full_candidate_preserves_native_dp_and_a_owned_engram
+    fail_if_unsupported_npu_afd_features(config)
+afd_plugin/compat/npu/feature_validation.py:517: in fail_if_unsupported_npu_afd_features
+    _validate_v41_eager_qualification(vllm_config, afd_config, full=True)
+afd_plugin/compat/npu/feature_validation.py:118: in _validate_v41_eager_qualification
+    validate_hccl_runtime(vllm_config, afd_config, role_rank=parallel.rank)
+afd_plugin/connectors/npu/hccl_config.py:93: in validate_hccl_runtime
+    return _validate_hccl_runtime(vllm_config, afd_config, role_rank, staged=False)
+afd_plugin/connectors/npu/hccl_config.py:258: in _validate_hccl_runtime
+    raise ValueError(
+E   ValueError: P2pHcclAFDConnector requires tensor_parallel_size equal to A/F ranks</failure></testcase><testcase classname="tests.unit.compat.npu.test_feature_validation" name="test_v41_eager_qualification_rejects_configuration_outside_candidate[model_config-enable_sleep_mode-True-sleep/weight updates]" time="0.001" /><testcase classname="tests.unit.compat.npu.test_feature_validation" name="test_v41_dummy_qualification_rejects_other_runtime_configuration[model_config-enable_sleep_mode-True-sleep/weight updates]" time="0.001" /><testcase classname="tests.unit.entrypoints.test_npu_ffn" name="test_ffn_ep_entrypoint_admits_all_local_engines_and_retains_native_groups" time="0.001"><failure message="ValueError: P2pHcclAFDConnector requires tensor_parallel_size equal to A/F ranks">tests/unit/entrypoints/test_npu_ffn.py:56: in test_ffn_ep_entrypoint_admits_all_local_engines_and_retains_native_groups
+    npu_ffn.validate_ffn_configuration(ffn_config)
+afd_plugin/entrypoints/npu_ffn.py:91: in validate_ffn_configuration
+    validate_npu_model_runner_v2_config(
+afd_plugin/validation.py:220: in validate_npu_model_runner_v2_config
+    validate_hccl_runtime(vllm_config, afd_config, role_rank=0)
+afd_plugin/connectors/npu/hccl_config.py:93: in validate_hccl_runtime
+    return _validate_hccl_runtime(vllm_config, afd_config, role_rank, staged=False)
+afd_plugin/connectors/npu/hccl_config.py:258: in _validate_hccl_runtime
+    raise ValueError(
+E   ValueError: P2pHcclAFDConnector requires tensor_parallel_size equal to A/F ranks</failure></testcase><testcase classname="tests.e2e.diagnostics.test_dsv41_full_checkpoint.TestFullCheckpointPlans" name="test_ep_plan_rejects_unintegrated_combinations" time="0.023" /><testcase classname="tests.e2e.diagnostics.test_dsv41_full_checkpoint.TestFullCheckpointPlans" name="test_ep_plans_select_tp1_dp4_native_and_af_roles" time="0.001" /><testcase classname="tests.e2e.diagnostics.test_dsv41_full_checkpoint.TestFullCheckpointPlans" name="test_modes_keep_native_quantized_weights_and_cpu_engram" time="0.003" /><testcase classname="tests.e2e.diagnostics.test_dsv41_full_checkpoint.TestFullCheckpointRequests" name="test_dspark_requires_a_later_step_after_rejection" time="0.340" /></testsuite></testsuites>

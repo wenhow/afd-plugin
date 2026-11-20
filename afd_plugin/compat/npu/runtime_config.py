@@ -322,6 +322,15 @@ def get_npu_ffn_config(vllm_config: VllmConfig) -> VllmConfig:
     if not is_deepseek_v41_model(vllm_config):
         return vllm_config
     afd_config = parse_afd_config(vllm_config, expected_role="ffn")
+    if (
+        afd_config.connector == HCCL_P2P_CONNECTOR
+        and vllm_config.parallel_config.enable_expert_parallel
+        and (
+            vllm_config.speculative_config is not None
+            or vllm_config.kv_transfer_config is not None
+        )
+    ):
+        raise ValueError("V4.1 HCCL EP requires DSpark/PD off before FFN isolation")
     validate_deepseek_v41_speculation(vllm_config)
     if afd_config.connector == HCCL_P2P_CONNECTOR:
         # Validate the original target before removing its A-owned fields.

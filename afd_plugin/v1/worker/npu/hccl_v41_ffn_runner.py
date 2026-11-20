@@ -3,7 +3,7 @@
 """Explicit synchronous V4.1 FFN execution, outside production admission.
 
 The caller owns native model/TP initialization and accepts the parent before
-entering here. This component keeps C2's DP1/PP1, non-SP, eager MoE context.
+entering here. Native TP or TP1/DP/EP owns the non-SP eager MoE context.
 It does not select a factory, prepare requests, reduce native outputs or abort
 remote ranks. A terminal failure requires external worker supervision.
 """
@@ -72,8 +72,9 @@ def execute_hccl_v41_parent(
         if plan is None:
             raise RuntimeError("HCCL parent must be accepted before FFN execution")
         parallel = runner.vllm_config.parallel_config
+        ep = parallel.enable_expert_parallel
         if (
-            parallel.data_parallel_size != 1
+            (not ep and parallel.data_parallel_size != 1)
             or parallel.pipeline_parallel_size != 1
             or parallel.prefill_context_parallel_size != 1
             or parallel.decode_context_parallel_size != 1
@@ -84,9 +85,17 @@ def execute_hccl_v41_parent(
             )
         if parallel.tensor_parallel_size != plan.stages[0].native_tp_size:
             raise ValueError("V4.1 staged FFN native TP size does not match the plan")
-        if plan.stages[0].ffn_size != parallel.tensor_parallel_size:
+        if ep and (
+            parallel.tensor_parallel_size != 1
+            or parallel.data_parallel_size != plan.stages[0].ffn_size
+            or parallel.data_parallel_rank != transport.role_rank
+            or parallel.rank != 0
+            or len(plan.stages) != 1
+        ):
+            raise ValueError("V4.1 FFN EP requires TP1/DP role coordinates and U1")
+        if not ep and plan.stages[0].ffn_size != parallel.tensor_parallel_size:
             raise ValueError("V4.1 staged FFN role size must match its native TP world")
-        if parallel.rank != transport.role_rank:
+        if not ep and parallel.rank != transport.role_rank:
             raise ValueError("V4.1 staged FFN native rank does not match role_rank")
         if diagnostics is not None:
             if (
@@ -110,6 +119,16 @@ def execute_hccl_v41_parent(
         if runner.model is None:
             raise RuntimeError("NPU FFN model has not been loaded")
         model = cast("AFDDeepseekV41FFNForCausalLM", runner.model)
+        dp_token_counts = tuple(
+            torch.tensor(
+                stage.ffn_padded_tokens
+                if ep
+                else (stage.ffn_padded_tokens[transport.role_rank],),
+                dtype=torch.int64,
+                device="cpu",
+            )
+            for stage in plan.stages
+        )
         for layer_idx in plan.layer_indices:
             for stage in plan.stages:
                 if not any(stage.attention_padded_tokens):
@@ -138,7 +157,7 @@ def execute_hccl_v41_parent(
                     afd_metadata=metadata,
                     model_instance=runner.model,
                     num_tokens=rows,
-                    num_tokens_across_dp=torch.tensor([rows]),
+                    num_tokens_across_dp=dp_token_counts[stage.stage_idx],
                     in_profile_run=plan.mode == "profile",
                     input_ids=payload.input_ids,
                 ) as forward_context:

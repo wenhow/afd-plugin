@@ -1,0 +1,64 @@
+INFO 11-20 15:31:42 [__init__.py:52] Available plugins for group vllm.platform_plugins:
+INFO 11-20 15:31:42 [__init__.py:54] - ascend -> vllm_ascend:register
+INFO 11-20 15:31:42 [__init__.py:57] All plugins in this group will be loaded. Set `VLLM_PLUGINS` to control which plugins to load.
+INFO 11-20 15:31:42 [__init__.py:272] Platform plugin ascend is activated
+INFO 11-20 15:31:42 [platform.py:74] Breakable CUDAGraph on Ascend is opt-in; using VLLM_USE_BREAKABLE_CUDAGRAPH=0.
+INFO 11-20 15:31:48 [patch_indexer_kv_dtype.py:102] Patched AttentionConfig.indexer_kv_dtype to accept 'int8' (DeepSeek V4 Ascend indexer K cache dtype).
+INFO 11-20 15:31:48 [patch_kv_cache_dtype.py:117] Patched CacheConfig.cache_dtype to accept 'int8' and 'mxfp8' (Ascend KV cache dtypes).
+WARNING 11-20 15:31:48 [indexer_topk.py:29] Failed to import the DeepSelect extension (vllm._deepselect_C): No module named 'vllm._deepselect_C'
+INFO 11-20 15:31:48 [__init__.py:112] Registered model loader `<class 'vllm_ascend.model_loader.netloader.netloader.ModelNetLoaderElastic'>` with load format `netloader`
+INFO 11-20 15:31:48 [__init__.py:112] Registered model loader `<class 'vllm_ascend.model_loader.rfork.rfork_loader.RForkModelLoader'>` with load format `rfork`
+INFO 11-20 15:31:48 [config.py:849] Detected quantization_config.scale_fmt=ue8m0; enabling UE8M0 for DeepGEMM.
+INFO 11-20 15:31:48 [model.py:692] Resolved architecture: DeepseekV41ForCausalLM
+INFO 11-20 15:31:48 [model.py:2030] Using max model len 1024
+WARNING 11-20 15:31:50 [registry.py:129] Model /mnt/workspace/tmp/afd-c0-20261104.hVgsIf/ep-cpu-4xqqnvtw/snapshot/cpu-model is treated as multimodal but has no registered multimodal processor; running in text-only mode.
+INFO 11-20 15:31:50 [model.py:900] Disabled mm_prefix attention mode because multimodal inputs are configuration-disabled. Attention backends without mm_prefix support may now be selected.
+INFO 11-20 15:31:50 [scheduler.py:288] Chunked prefill is enabled with max_num_batched_tokens=128.
+INFO 11-20 15:31:50 [ubatching_config.py:200] Resolved Engram configuration: EngramConfig(cpu_offload=True, embedding_across_dp=False, dp_shared_memory=True)
+WARNING 11-20 15:31:50 [vllm.py:1547] Enforce eager set, disabling torch.compile and CUDAGraphs. This is equivalent to setting -cc.mode=none -cc.cudagraph_mode=none
+WARNING 11-20 15:31:50 [vllm.py:1570] Inductor compilation was disabled by user settings, optimizations settings that are only active during inductor compilation will be ignored.
+INFO 11-20 15:31:50 [kernel.py:416] Final IR op priority after setting platform defaults: IrOpPriorityConfig(rms_norm=['native'], fused_add_rms_norm=['native'], gelu_and_mul_sparse=['native'])
+INFO 11-20 15:31:50 [vllm.py:1780] Cudagraph is disabled under eager mode
+WARNING 11-20 15:31:50 [utils.py:236] Auto-detected quantization method 'fp8' from model files for '/mnt/workspace/tmp/afd-c0-20261104.hVgsIf/ep-cpu-4xqqnvtw/snapshot/cpu-model', but user explicitly specified '--quantization deepseek_v4_fp8'. Respecting the user-specified value. If you encounter errors during model loading, consider using '--quantization fp8' instead.
+WARNING 11-20 15:31:50 [platform.py:826] GPU-specific parameter is not supported on Ascend. parameter=disable_cascade_attn, value=True, action: resetting to False.
+INFO 11-20 15:31:50 [ascend_config.py:359] Dynamic EPLB is False and convert moe's weights to list is False
+INFO 11-20 15:31:50 [ascend_config.py:363] The number of redundant experts is 0
+INFO 11-20 15:31:50 [ascend_config.py:796] FlashComm1 is disabled. Using flashinfer_all2allv as the all2all backend.
+INFO 11-20 15:31:50 [platform.py:1307] Compilation disabled, using eager mode by default
+INFO 11-20 15:31:50 [platform.py:1551] Set PYTORCH_NPU_ALLOC_CONF=expandable_segments:True
+INFO 11-20 15:31:50 [compilation.py:336] Enabled custom fusions: norm_quant, act_quant
+INFO 11-20 15:31:50 [kernel.py:416] Final IR op priority after setting platform defaults: IrOpPriorityConfig(rms_norm=['native'], fused_add_rms_norm=['native'], gelu_and_mul_sparse=['native'])
+WARNING 11-20 15:31:50 [utils.py:236] Auto-detected quantization method 'fp8' from model files for '/mnt/workspace/tmp/afd-c0-20261104.hVgsIf/ep-cpu-4xqqnvtw/snapshot/cpu-model', but user explicitly specified '--quantization deepseek_v4_fp8'. Respecting the user-specified value. If you encounter errors during model loading, consider using '--quantization fp8' instead.
+INFO 11-20 15:31:50 [platform.py:1307] Compilation disabled, using eager mode by default
+INFO 11-20 15:31:50 [platform.py:1551] Set PYTORCH_NPU_ALLOC_CONF=expandable_segments:True
+INFO 11-20 15:31:50 [model.py:692] Resolved architecture: DeepseekV41ForCausalLM
+INFO 11-20 15:31:50 [model.py:2030] Using max model len 1024
+INFO 11-20 15:31:50 [kernel.py:416] Final IR op priority after setting platform defaults: IrOpPriorityConfig(rms_norm=['native'], fused_add_rms_norm=['native'], gelu_and_mul_sparse=['native'])
+WARNING 11-20 15:31:50 [utils.py:236] Auto-detected quantization method 'fp8' from model files for '/mnt/workspace/tmp/afd-c0-20261104.hVgsIf/ep-cpu-4xqqnvtw/snapshot/cpu-model', but user explicitly specified '--quantization deepseek_v4_fp8'. Respecting the user-specified value. If you encounter errors during model loading, consider using '--quantization fp8' instead.
+WARNING 11-20 15:31:50 [platform.py:826] GPU-specific parameter is not supported on Ascend. parameter=disable_cascade_attn, value=True, action: resetting to False.
+INFO 11-20 15:31:50 [ascend_config.py:359] Dynamic EPLB is False and convert moe's weights to list is False
+INFO 11-20 15:31:50 [ascend_config.py:363] The number of redundant experts is 0
+INFO 11-20 15:31:50 [platform.py:1307] Compilation disabled, using eager mode by default
+INFO 11-20 15:31:50 [platform.py:1551] Set PYTORCH_NPU_ALLOC_CONF=expandable_segments:True
+INFO 11-20 15:31:50 [kernel.py:416] Final IR op priority after setting platform defaults: IrOpPriorityConfig(rms_norm=['native'], fused_add_rms_norm=['native'], gelu_and_mul_sparse=['native'])
+WARNING 11-20 15:31:50 [utils.py:236] Auto-detected quantization method 'fp8' from model files for '/mnt/workspace/tmp/afd-c0-20261104.hVgsIf/ep-cpu-4xqqnvtw/snapshot/cpu-model', but user explicitly specified '--quantization deepseek_v4_fp8'. Respecting the user-specified value. If you encounter errors during model loading, consider using '--quantization fp8' instead.
+INFO 11-20 15:31:50 [platform.py:1307] Compilation disabled, using eager mode by default
+INFO 11-20 15:31:50 [platform.py:1551] Set PYTORCH_NPU_ALLOC_CONF=expandable_segments:True
+INFO 11-20 15:31:50 [model.py:692] Resolved architecture: DeepseekV41ForCausalLM
+INFO 11-20 15:31:50 [model.py:2030] Using max model len 1024
+INFO 11-20 15:31:50 [kernel.py:416] Final IR op priority after setting platform defaults: IrOpPriorityConfig(rms_norm=['native'], fused_add_rms_norm=['native'], gelu_and_mul_sparse=['native'])
+WARNING 11-20 15:31:50 [utils.py:236] Auto-detected quantization method 'fp8' from model files for '/mnt/workspace/tmp/afd-c0-20261104.hVgsIf/ep-cpu-4xqqnvtw/snapshot/cpu-model', but user explicitly specified '--quantization deepseek_v4_fp8'. Respecting the user-specified value. If you encounter errors during model loading, consider using '--quantization fp8' instead.
+WARNING 11-20 15:31:50 [platform.py:826] GPU-specific parameter is not supported on Ascend. parameter=disable_cascade_attn, value=True, action: resetting to False.
+INFO 11-20 15:31:50 [ascend_config.py:359] Dynamic EPLB is False and convert moe's weights to list is False
+INFO 11-20 15:31:50 [ascend_config.py:363] The number of redundant experts is 0
+INFO 11-20 15:31:50 [platform.py:1307] Compilation disabled, using eager mode by default
+INFO 11-20 15:31:50 [platform.py:1551] Set PYTORCH_NPU_ALLOC_CONF=expandable_segments:True
+INFO 11-20 15:31:50 [kernel.py:416] Final IR op priority after setting platform defaults: IrOpPriorityConfig(rms_norm=['native'], fused_add_rms_norm=['native'], gelu_and_mul_sparse=['native'])
+WARNING 11-20 15:31:50 [utils.py:236] Auto-detected quantization method 'fp8' from model files for '/mnt/workspace/tmp/afd-c0-20261104.hVgsIf/ep-cpu-4xqqnvtw/snapshot/cpu-model', but user explicitly specified '--quantization deepseek_v4_fp8'. Respecting the user-specified value. If you encounter errors during model loading, consider using '--quantization fp8' instead.
+INFO 11-20 15:31:50 [platform.py:1307] Compilation disabled, using eager mode by default
+INFO 11-20 15:31:50 [platform.py:1551] Set PYTORCH_NPU_ALLOC_CONF=expandable_segments:True
+Failed to load op 'block_sparse_attention': Ninja is required to load C++ extensions (pip install ninja to get it)
+Failed to load op 'all_gather_matmul_v3': Ninja is required to load C++ extensions (pip install ninja to get it)
+Failed to load op 'apply_rotary_pos_emb': Ninja is required to load C++ extensions (pip install ninja to get it)
+Failed to load op 'apply_rotary_pos_emb_grad': Ninja is required to load C++ extensions (pip install ninja to get it)
+Failed to load op 'inplace_partial_rotary_mul': Ninja is required to load C++ extensions (pip install ninja to get it)
