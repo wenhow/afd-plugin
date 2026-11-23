@@ -66,7 +66,7 @@ N=0
   --attention-devices 0,1,2,3 --output-root "results/ep-native-n$N" --run
 ```
 
-确认原生 `summary.json` 的 `request_passed` 和 `clean_shutdown` 为 true，填入
+确认原生 `summary.json` 的 `request_passed` 为 true，填入
 实际输出目录。`MODE` 依次取 `eager-u1`、`graph-u1`、`eager-u2`、`graph-u2`，
 每次等上一个实例退出再启动。N 改变时使用对应的原生结果。
 
@@ -80,6 +80,12 @@ MODE=eager-u1
   --attention-devices 0,1,2,3 --ffn-devices 4,5,6,7 \
   --output-root "results/ep-afd-$MODE-n$N" --run
 ```
+
+如果原生矩阵已完成且进程退出超时，可直接复用已有归档做逐请求 token 诊断。
+入口核对退出超时、清理后无残留进程、原生所用设备空闲、
+checkpoint config/index 摘要以及 13 条原始响应。AFD 的 `summary.json`
+通过 `native_reference.diagnostic_only=true` 记录该对照的范围，
+并保留其 `clean_shutdown=false`。正式 EP 验收仍需正常退出的原生对照。
 
 ## 主机证据与 A5 判定
 

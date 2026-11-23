@@ -1932,3 +1932,8 @@ EP7.6 的 DSpark 接入检查了锁定 Ascend `7e37e29a` 的
 保留 target 验证与 draft 隔离。P 使用 eager/U1，D 可运行 eager/Graph U1/U2。
 详细的角色与性能审查见 [设计](design.md#ep--串行-u2dspark-和-pd)，
 A5 命令与验收条件见 [TP1/DP4/EP4 指南](../../../docs/npu/DSV41_A5_EP_VALIDATION_ZH.md)。
+
+2026-11-23 的 [A5 原生 N=0 记录](evidence/a5-native-ep-n0-20261123.md)
+确认 TP1/DP4/EP4 完整权重推理与 13 条定向矩阵响应。原生四 API 进程组退出
+超时并触发强制清理，八卡清理后空闲。EP6 保持待验。资格脚本允许清理完成后
+复用已有原生响应继续 AFD token 诊断。

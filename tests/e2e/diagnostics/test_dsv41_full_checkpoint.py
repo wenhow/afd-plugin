@@ -405,6 +405,11 @@ class TestFullCheckpointReference(unittest.TestCase):
         self.reference = self.directory / "native"
         self.reference.mkdir()
         self.error = "RuntimeError: selected idle devices were not confirmed"
+        self.candidate = None
+        self.preflight = {
+            "passed": True,
+            "checkpoint": {"sha256": {"config.json": "a", "index": "b"}},
+        }
         for name, report in (
             ("launch-plan.json", {"native_control": True}),
             (
@@ -414,7 +419,7 @@ class TestFullCheckpointReference(unittest.TestCase):
         ):
             (self.reference / name).write_text(json.dumps(report))
 
-    def invoke_reference(self, *options):
+    def run_reference(self, *options):
         driver = load_driver()
         argv = [
             "run_dsv41_full_checkpoint.py",
@@ -433,18 +438,85 @@ class TestFullCheckpointReference(unittest.TestCase):
             patch.object(sys, "argv", argv),
             patch.object(sys, "platform", "linux"),
             patch.object(
-                driver.launch, "collect_preflight", return_value={"passed": True}
+                driver.launch, "collect_preflight", return_value=self.preflight
             ),
             patch.object(
                 driver.launch,
                 "run_candidate",
-                side_effect=RuntimeError("unexpected service start"),
+                side_effect=self.record_candidate,
             ),
-            self.assertRaises(ValueError) as raised,
         ):
-            driver.main()
+            return driver.main()
 
+    def record_candidate(self, plan, _output, *_args, **_kwargs):
+        self.candidate = plan["native_reference"]
+        return 0
+
+    def invoke_reference(self, *options):
+        with self.assertRaises(ValueError) as raised:
+            self.run_reference(*options)
+        self.assertIsNone(self.candidate)
         return str(raised.exception)
+
+    def write_timed_out_ep_reference(self):
+        driver = load_driver()
+        plan = driver.make_plan(
+            Path("/model"),
+            Path("/vendor"),
+            ROOT,
+            native_control=True,
+            expert_parallel=True,
+        )
+        records = {
+            "launch-plan.json": plan,
+            "summary.json": {
+                "request_passed": True,
+                "clean_shutdown": False,
+                "forced_cleanup": True,
+                "survivors": [],
+                "exit_codes": {"attention": -9},
+                "npu_after": {"exit_code": 0, "idle_devices": list(range(4))},
+            },
+            "lifecycle.json": [
+                {"event": "request_completed"},
+                {"event": "exit_timeout", "role": "attention"},
+            ],
+            "preflight.json": self.preflight,
+            "request-matrix.json": {
+                "passed": True,
+                "requests": [{"passed": True, "http_status": 200}] * 13,
+            },
+        }
+        for name, data in records.items():
+            driver.launch.save_json(self.reference / name, data)
+        for index in range(13):
+            request = self.reference / f"request-{index:02d}"
+            request.mkdir()
+            driver.launch.save_json(request / "response.json", response("prompt"))
+            driver.launch.save_json(
+                request / "request-routing.json",
+                {"dp_rank": 1 if index == 12 else index % 4},
+            )
+
+    def test_ep_timeout_reference_retains_failed_shutdown(self):
+        self.write_timed_out_ep_reference()
+        self.assertEqual(self.run_reference("--expert-parallel"), 0)
+        self.assertTrue(self.candidate["diagnostic_only"])
+        self.assertIs(self.candidate["clean_shutdown"], False)
+        self.assertEqual(self.candidate["exit_codes"], {"attention": -9})
+
+    def test_diagnostic_reference_rejects_missing_response_or_failed_cleanup(self):
+        self.write_timed_out_ep_reference()
+        options = ("--expert-parallel",)
+        raw = self.reference / "request-12/response.json"
+        raw.unlink()
+        self.assertIn("request-12", self.invoke_reference(*options))
+        load_driver().launch.save_json(raw, response("prompt"))
+        summary_path = self.reference / "summary.json"
+        summary = json.loads(summary_path.read_bytes())
+        summary["survivors"] = [{"pid": 42}]
+        load_driver().launch.save_json(summary_path, summary)
+        self.assertIn("no survivors", self.invoke_reference(*options))
 
     def test_failed_native_reference_reports_original_failure_before_afd_start(self):
         message = self.invoke_reference()

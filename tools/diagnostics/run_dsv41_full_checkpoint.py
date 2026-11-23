@@ -511,6 +511,67 @@ def hold_producer(directory: Path, reference: Path | None, *, stop_file: Path) -
     return {"producer_hold_finished": True, "hardware_acceptance": False}
 
 
+def validate_reference_shutdown_timeout(
+    reference: Path, plan: dict, summary: dict, preflight: dict
+) -> None:
+    """Verify a completed EP token matrix whose native launcher timed out at exit."""
+
+    def load(name: str):
+        return json.loads((reference / name).read_bytes())
+
+    if (
+        summary.get("error")
+        or summary.get("shutdown_error")
+        or summary.get("forced_cleanup") is not True
+        or summary.get("survivors") != []
+        or not launch.selected_devices_idle(summary.get("npu_after", {}), plan)
+    ):
+        raise ValueError(
+            "expected forced cleanup with no survivors and idle native devices"
+        )
+    events = load("lifecycle.json")
+    completed = next(
+        (
+            index
+            for index, event in enumerate(events)
+            if event["event"] == "request_completed"
+        ),
+        len(events),
+    )
+    if not any(
+        event["event"] == "exit_timeout" and event.get("role") == "attention"
+        for event in events[completed + 1 :]
+    ):
+        raise ValueError("missing native exit timeout after successful requests")
+
+    reference_preflight = load("preflight.json")
+    if (
+        reference_preflight.get("passed") is not True
+        or reference_preflight["checkpoint"]["sha256"]
+        != preflight["checkpoint"]["sha256"]
+    ):
+        raise ValueError("native reference checkpoint identity differs")
+    matrix = load("request-matrix.json")
+    dp_size = plan["native_dp_size"]
+    count = 3 * dp_size + 1
+    if matrix.get("passed") is not True or len(matrix["requests"]) != count:
+        raise ValueError("native reference request matrix is incomplete")
+    for index, request in enumerate(matrix["requests"]):
+        name = f"request-{index:02d}"
+        response = load(f"{name}/response.json")
+        ranking = load(f"{name}/request-routing.json")
+        expected_rank = 1 if index == count - 1 else index % dp_size
+        if (
+            request.get("passed") is not True
+            or request.get("http_status") != 200
+            or ranking.get("dp_rank") != expected_rank
+            or response["usage"]["completion_tokens"] != launch.REQUEST_TOKENS
+            or launch.compare_response_tokens(response, response)["status"]
+            != "tokens_match"
+        ):
+            raise ValueError(f"native reference response {index:02d} is incomplete")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -641,7 +702,10 @@ def main() -> int:
         if (
             not reference_plan["native_control"]
             or not reference_summary["request_passed"]
-            or not reference_summary["clean_shutdown"]
+            or (
+                not reference_summary["clean_shutdown"]
+                and plan["request_suite"] != "ep-rank-matrix-v2"
+            )
             or reference_adapter != plan["attention_head_adapter"]
             or reference_plan.get("native_tp_size", 4) != plan["native_tp_size"]
             or reference_plan.get("native_dp_size", 1) != plan["native_dp_size"]
@@ -665,6 +729,25 @@ def main() -> int:
             raise ValueError(
                 "native reference request suite differs; AFD services were not started"
             )
+        if not reference_summary["clean_shutdown"]:
+            try:
+                validate_reference_shutdown_timeout(
+                    args.reference_run, reference_plan, reference_summary, preflight
+                )
+            except (OSError, ValueError, TypeError, KeyError, IndexError) as error:
+                raise ValueError(
+                    f"native reference shutdown diagnostic rejected: {error}. "
+                    "AFD services were not started."
+                ) from error
+        plan["native_reference"] = {
+            "directory": str(args.reference_run),
+            "request_passed": reference_summary["request_passed"],
+            "clean_shutdown": reference_summary["clean_shutdown"],
+            "exit_codes": reference_summary.get("exit_codes"),
+            "forced_cleanup": reference_summary.get("forced_cleanup"),
+            "diagnostic_only": not reference_summary["clean_shutdown"],
+        }
+        launch.save_json(directory / "launch-plan.json", plan)
         if args.repeatability:
             reference_report = json.loads(
                 (args.reference_run / "repeatability.json").read_bytes()

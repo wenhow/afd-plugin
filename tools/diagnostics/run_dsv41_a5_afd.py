@@ -1127,6 +1127,8 @@ def run_candidate(
         "clean_shutdown": False,
         "hardware_acceptance": False,
     }
+    if "native_reference" in plan:
+        result["native_reference"] = plan["native_reference"]
     exit_code = 1
     attention = ffn = None
     verify_eager_u2 = (
