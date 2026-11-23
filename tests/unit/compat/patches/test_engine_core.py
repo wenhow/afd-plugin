@@ -301,8 +301,10 @@ def _config(role: str, *, async_dp: bool = False):
     )
     parallel_config = SimpleNamespace(
         data_parallel_rank_local=0,
+        data_parallel_size=1,
         decode_context_parallel_size=1,
         prefill_context_parallel_size=1,
+        world_size=1,
     )
     model_config = SimpleNamespace(
         max_model_len=8,
@@ -1089,15 +1091,21 @@ def test_hccl_engine_cleanup_does_not_advertise_success_during_an_active_error(
     assert "AFD HCCL FFN engine cleanup complete." not in caplog.text
 
 
-@pytest.mark.parametrize("rank_count", [2, 8])
-def test_hccl_engine_waits_for_every_tp_pair_to_stop(hccl_engine, rank_count):
+@pytest.mark.parametrize("world_size,dp_size", [(2, 1), (8, 1), (1, 4)])
+def test_hccl_engine_waits_for_every_executor_worker_to_stop(
+    hccl_engine, world_size, dp_size
+):
+    parallel_config = hccl_engine.vllm_config.parallel_config
+    parallel_config.world_size = world_size
+    parallel_config.data_parallel_size = dp_size
+    rank_count = world_size * dp_size
     hccl_engine.vllm_config.afd_config = replace(
         hccl_engine.vllm_config.afd_config,
         num_attention_ranks=rank_count,
         num_ffn_ranks=rank_count,
     )
     hccl_engine.model_executor.service_replies.extend(
-        ([False] + [True] * (rank_count - 1), [False] * rank_count)
+        ([True] + [False] * (world_size - 1), [False] * world_size)
     )
     with pytest.raises(SystemExit) as exited:
         hccl_engine.run_busy_loop()
@@ -1227,9 +1235,10 @@ def test_late_loaded_ffn_shutdown_releases_resources_without_advertising_peer_st
     "rank_count,reply",
     [(1, []), (1, [None]), (1, [True, False]), (2, [False]), (2, [False, 0])],
 )
-def test_hccl_engine_requires_one_boolean_per_configured_rank(
+def test_hccl_engine_requires_one_boolean_per_executor_worker(
     hccl_engine, rank_count, reply
 ):
+    hccl_engine.vllm_config.parallel_config.world_size = rank_count
     hccl_engine.vllm_config.afd_config = replace(
         hccl_engine.vllm_config.afd_config,
         num_attention_ranks=rank_count,

@@ -791,8 +791,9 @@ def _run_ffn_busy_loop(self, core_module: Any) -> None:
                     profiler_control.poll()
                 # ### PATCH END: fixed profiler requests to this F executor
                 # HCCL STOP ends the service thread without raising an error.
-                # Every F rank must finish its paired STOP before core exit;
-                # missing/malformed replies must never look like clean STOP.
+                # Each DP core polls only its own executor's workers. All of
+                # them must report STOP before this core can exit cleanly.
+                executor_world_size = self.vllm_config.parallel_config.world_size
                 try:
                     statuses = self.model_executor.collective_rpc(
                         "poll_hccl_ffn_service"
@@ -800,12 +801,12 @@ def _run_ffn_busy_loop(self, core_module: Any) -> None:
                 except BaseException:
                     self._afd_ffn_rpc_failed = True
                     raise
-                if len(statuses) != afd_config.num_ffn_ranks or any(
+                if len(statuses) != executor_world_size or any(
                     type(status) is not bool for status in statuses
                 ):
                     raise RuntimeError(
-                        "HCCL FFN status RPC must return one boolean per FFN rank "
-                        f"(expected {afd_config.num_ffn_ranks})"
+                        "HCCL FFN status RPC must return one boolean per executor "
+                        f"worker (expected {executor_world_size})"
                     )
                 if not any(statuses):
                     self.shutdown_state = core_module.EngineShutdownState.SHUTTING_DOWN
