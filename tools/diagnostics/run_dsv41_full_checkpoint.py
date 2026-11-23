@@ -100,6 +100,7 @@ def make_plan(
     repeat_logprobs: int = 0,
     trace_native_prefill: bool = False,
     ep_diagnostics: bool = False,
+    attention_stop_signal: str | None = None,
 ) -> dict:
     if mode not in MODES or spec_tokens not in (0, 1, 2):
         raise ValueError("unsupported full-checkpoint qualification mode")
@@ -119,6 +120,12 @@ def make_plan(
         or repeatability
     ):
         raise ValueError("EP diagnostics require standalone EP eager/U1 with N=0")
+    if attention_stop_signal is not None and (
+        not ep_diagnostics or attention_stop_signal not in ("SIGINT", "SIGTERM")
+    ):
+        raise ValueError(
+            "attention stop signal requires EP diagnostics and SIGINT or SIGTERM"
+        )
     if pd_role == "producer" and mode != "eager-u1":
         raise ValueError("PD producer qualification uses eager U1")
     if pd_role not in (None, "producer", "consumer"):
@@ -325,6 +332,7 @@ def make_plan(
         plan["trace_native_prefill"] = True
     if ep_diagnostics:
         plan["ep_diagnostics"] = True
+        plan["attention_stop_signal"] = attention_stop_signal or "SIGINT"
     if repeatability:
         plan["repeatability_protocol"] = {
             "version": repeatability_check.PROTOCOL_VERSION,
@@ -712,6 +720,11 @@ def main() -> int:
         action="store_true",
         help="collect DP admission, top-5 scores and STOP diagnostics for EP eager/U1",
     )
+    parser.add_argument(
+        "--attention-stop-signal",
+        choices=("SIGINT", "SIGTERM"),
+        help="initial signal to the Attention root for EP diagnostics (default SIGINT)",
+    )
     parser.add_argument("--output-root", type=Path, required=True)
     parser.add_argument("--startup-timeout", type=int, default=3600)
     parser.add_argument("--run", action="store_true")
@@ -760,6 +773,7 @@ def main() -> int:
         repeat_logprobs=args.repeat_logprobs,
         trace_native_prefill=args.trace_native_prefill,
         ep_diagnostics=args.ep_diagnostics,
+        attention_stop_signal=args.attention_stop_signal,
     )
     args.output_root.mkdir(parents=True, exist_ok=True)
     directory = Path(

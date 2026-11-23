@@ -109,6 +109,13 @@ A5 容器执行 AFD 的 `--ep-diagnostics --reference-run`。入口会重新核�
   pending 状态。结合 A/F 日志中的 `DSV41 EP STOP` 记录定位进入停机、
   STOP 广播、各 peer 应答和最终确认。原生侧只检查信号和进程退出。
 
+若 `SIGINT` 超时、而强制清理阶段已有全 rank STOP ACK，可复用已有的
+原生诊断结果，在 AFD 命令增加 `--attention-stop-signal SIGTERM`。此选项
+仅改变正常退出阶段发给 Attention 根进程的第一个信号。检查
+`lifecycle.json` 是否在 `forced_cleanup` 之前出现 A 和 F 的退出记录，
+以及 A/F 日志中是否有完整 STOP/ACK。即使请求矩阵有 token 分叉，也可
+独立查看 `summary.json` 的 `clean_shutdown` 和 A/F 退出码。
+
 ## 主机证据与 A5 判定
 
 - 每档回传 `launch-plan.json`、预检、A/F 日志、`summary.json`、`request-matrix.json`

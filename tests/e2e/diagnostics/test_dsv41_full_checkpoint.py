@@ -90,9 +90,11 @@ class TestFullCheckpointPlans(unittest.TestCase):
                     expert_parallel=True,
                     native_control=native,
                     ep_diagnostics=True,
+                    attention_stop_signal="SIGTERM",
                 )
                 argv = plan["roles"]["attention"]["argv"]
                 self.assertTrue(plan["ep_diagnostics"])
+                self.assertEqual(plan["attention_stop_signal"], "SIGTERM")
                 self.assertEqual(
                     argv[argv.index("--scheduler-cls") + 1],
                     "afd_plugin.compat.npu.dsv41_ep_diagnostics."
@@ -103,6 +105,13 @@ class TestFullCheckpointPlans(unittest.TestCase):
                 )
                 if not native:
                     self.assertNotIn("--scheduler-cls", plan["roles"]["ffn"]["argv"])
+
+    def test_attention_stop_signal_requires_ep_diagnostics(self):
+        driver = load_driver()
+        with self.assertRaisesRegex(ValueError, "attention stop signal requires"):
+            driver.make_plan(
+                Path("/model"), Path("/vendor"), ROOT, attention_stop_signal="SIGTERM"
+            )
 
     def test_ep_plans_select_tp1_dp4_native_and_af_roles(self):
         driver = load_driver()

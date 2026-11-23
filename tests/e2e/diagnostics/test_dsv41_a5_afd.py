@@ -7,6 +7,7 @@ import importlib
 import io
 import json
 import os
+import signal
 import subprocess
 import sys
 import tempfile
@@ -16,7 +17,8 @@ import urllib.request
 from contextlib import ExitStack, contextmanager
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from unittest.mock import patch
+from types import SimpleNamespace
+from unittest.mock import Mock, patch
 
 ROOT = Path(__file__).resolve().parents[3]
 EVIDENCE = ROOT / (
@@ -27,6 +29,36 @@ EVIDENCE = ROOT / (
 def load_launcher():
     with patch.object(sys, "path", [str(ROOT / "tools/diagnostics"), *sys.path]):
         return importlib.import_module("run_dsv41_a5_afd")
+
+
+class TestAttentionStop(unittest.TestCase):
+    def test_root_signal_is_recorded_with_the_matching_timeout_snapshot(self):
+        launcher = load_launcher()
+        for stop_signal in (signal.SIGINT, signal.SIGTERM):
+            with (
+                self.subTest(stop_signal=stop_signal),
+                tempfile.TemporaryDirectory() as root,
+            ):
+                directory = Path(root)
+                supervisor = launcher.Supervision(directory)
+                process = Mock(pid=42)
+                process.poll.return_value = None
+                attention = SimpleNamespace(process=process)
+                with (
+                    patch.object(Path, "read_text", return_value="SigIgn:\t00000002\n"),
+                    patch.object(supervisor, "wait_exit", return_value=False),
+                ):
+                    supervisor.stop_attention(
+                        attention, stop_signal=stop_signal, trace_signal=True
+                    )
+                process.send_signal.assert_called_once_with(stop_signal)
+                events = json.loads((directory / "lifecycle.json").read_bytes())
+                self.assertEqual(events[1]["signal"], stop_signal.name)
+                self.assertEqual(events[1]["target"], "root")
+                self.assertEqual(
+                    events[3]["phase"], f"{stop_signal.name.lower()}_timeout"
+                )
+                self.assertEqual(events[3]["status"], {"SigIgn": "00000002"})
 
 
 def write_ep_graph_logs(directory, max_stages, *, missing_replay_rank=False):

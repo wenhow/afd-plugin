@@ -753,18 +753,27 @@ class Supervision:
         return True
 
     def stop_attention(
-        self, attention: OwnedProcess, *, trace_signal: bool = False
+        self,
+        attention: OwnedProcess,
+        *,
+        stop_signal: signal.Signals = signal.SIGINT,
+        trace_signal: bool = False,
     ) -> None:
         if attention.process.poll() is None:
+            signal_phase = stop_signal.name.lower()
             if trace_signal:
-                self._record_attention_signal_state(attention, "before_sigint")
-            self.record("signal", role="attention", signal="SIGINT", target="root")
-            attention.process.send_signal(signal.SIGINT)
+                self._record_attention_signal_state(attention, f"before_{signal_phase}")
+            self.record(
+                "signal", role="attention", signal=stop_signal.name, target="root"
+            )
+            attention.process.send_signal(stop_signal)
             if trace_signal:
-                self._record_attention_signal_state(attention, "after_sigint")
+                self._record_attention_signal_state(attention, f"after_{signal_phase}")
             exited = self.wait_exit(attention, OUTER_SHUTDOWN_SECONDS)
             if trace_signal and not exited:
-                self._record_attention_signal_state(attention, "sigint_timeout")
+                self._record_attention_signal_state(
+                    attention, f"{signal_phase}_timeout"
+                )
 
     def _record_attention_signal_state(
         self, attention: OwnedProcess, phase: str
@@ -1257,7 +1266,11 @@ def run_candidate(
         try:
             if attention is not None:
                 owner.stop_attention(
-                    attention, trace_signal=plan.get("ep_diagnostics") is True
+                    attention,
+                    stop_signal=signal.Signals[
+                        plan.get("attention_stop_signal", "SIGINT")
+                    ],
+                    trace_signal=plan.get("ep_diagnostics") is True,
                 )
             if ffn is not None:
                 owner.wait_exit(ffn, OUTER_SHUTDOWN_SECONDS)
