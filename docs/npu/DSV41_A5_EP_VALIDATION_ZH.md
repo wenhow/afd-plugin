@@ -21,7 +21,47 @@ Graph 使用 `FULL_DECODE_ONLY`。U2 使用原生 DBO，A/F 按 stage 串行推�
 对应 `launch-plan.json` 中 `stream_overlap=false`。各档可用 `N=0`（关闭 DSpark）、
 `N=1` 或 `N=2`，草稿只在 A 侧以 eager 运行，关闭 adaptive verification。
 PD 的 P 固定 eager/U1，D 使用上述四档。SP、EPLB 和 elastic EP 关闭。
-A5 权重载入、真实 HCCL/EP、数值、连续请求和正常退出待本页验收。
+
+## 2026-11-23 A5 eager/U1 结果与下一轮
+
+真实权重、TP1/DP4/EP4、A4/F4、DSpark N=0。原生和 AFD 按 DP0–3
+逐路预热，再串行执行首波。4 条预热和 13 条正式请求的输出 token、
+logprobs 全部与原生一致，实际 DP rank 和逐步调度 token 数也一致。
+此前分叉的 DP2 第 3 个 token 两侧均为 `3107`。流式取消后的 8 路并发和
+最后的 DP1 单路通过。冷启动并发首波的数值一致性仍待确认。
+
+原生和 AFD 的正常停机仍待验收。`SIGTERM` 后，服务主进程仍在等待子进程，
+EngineCore 仍在等待请求。AFD 在强制清理阶段完成全 rank STOP/ACK，
+清理后八卡空闲、无残留进程。EP6 继续保留待验状态。
+
+本轮回传包括 AFD `e4c76132c6104a349c518fcf13f2020c.zip`、原生
+`9bd053434a6e4bc6830cd254f22e30b0.gz` 和日志摘录
+`e93a4ece8a0c4254a7d975624f139102.zip`。
+
+### Graph/U1 N=0 功能预验证
+
+确认上一实例已退出、0–7 卡空闲且启动端口已释放后，可以先采集
+`graph-u1` 的设备证据。执行时需传入标准并发矩阵的原生 `N=0` 结果。
+以下路径为此前使用过的对照目录示例，请替换为实际路径。
+观察 `FULL_DECODE_ONLY` 捕获、A/F 全 rank 回放返回、eager 回退和取消后请求。
+核对 `summary.json` 的 `graph_verification.passed`、`request_passed`
+和 `clean_shutdown`，并保留 A/F 日志及进程清理结果。
+
+```bash
+DSV41_EP_REFERENCE=results/ep-native-n0/full-eager-u1-4v59wo3p
+"$DSV41_PY" -B tools/diagnostics/run_dsv41_full_checkpoint.py \
+  --model "$DSV41_MODEL" --transformer-vendor "$DSV41_VENDOR" \
+  --expert-parallel --mode graph-u1 --spec-tokens 0 \
+  --reference-run "$DSV41_EP_REFERENCE" \
+  --attention-devices 0,1,2,3 --ffn-devices 4,5,6,7 \
+  --output-root results/ep-afd-graph-u1-n0 --run
+```
+
+此前并发原生对照的退出超时，启动器允许在验证完整请求矩阵和原生设备清理后
+用于诊断。若并发首波因 token 差异提前结束，以 A/F 日志核对已发生的捕获和
+回放，回退和取消后请求仍需相应执行证据。正式数值对照需使用同 checkpoint、
+同 N、同请求顺序与批形状的原生结果。本轮串行首波结果保留为 eager/U1 对照证据。
+EP7.2 在 EP6 收口后按本页验收项判定。
 
 ## 准备和配置检查
 
