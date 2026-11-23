@@ -842,7 +842,10 @@ class HcclV41GraphCoordinator:
             if batch_state is None:
                 geometry = eager_hccl_v41_geometry(native_descriptor)
                 reservation = self.control.reserve_eager(
-                    geometry, mode=mode, transaction_id=self._transaction_id()
+                    geometry,
+                    mode=mode,
+                    transaction_id=self._transaction_id(),
+                    resolve_eager=arguments.resolve_eager,
                 )
             else:
                 reservation = self.control.reserve_batch(
@@ -856,6 +859,8 @@ class HcclV41GraphCoordinator:
                     num_active_loras=arguments.num_active_loras,
                     transaction_id=self._transaction_id(),
                     mode=mode,
+                    native_descriptor=native_descriptor,
+                    resolve_eager=arguments.resolve_eager,
                 )
             if reservation is None:
                 raise RuntimeError("native graph session stopped before preparation")

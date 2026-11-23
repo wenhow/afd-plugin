@@ -45,7 +45,11 @@ from afd_plugin.compat.npu.kv_layout_connector import (
 from afd_plugin.compat.npu.kv_layout_native import collect_deepseek_v41_kv_layout
 from tests.unit.fakes.dspark_pd import make_dspark_pd_loaded_case
 from tests.unit.fakes.kv_cache import make_native_kv_cache_case
-from tests.unit.fakes.vllm_config import npu_vllm_config, pd_kv_transfer_config
+from tests.unit.fakes.vllm_config import (
+    configure_hccl_ep,
+    npu_vllm_config,
+    pd_kv_transfer_config,
+)
 
 REMOTE_BASE_ADDRESS = 1_048_576
 REMOTE_HANDSHAKE_PORT = 9001
@@ -808,6 +812,45 @@ def publish_dspark_prefix(case, *, acquire=True, execution=None):
     )
 
 
+def make_connector_scheduler(monkeypatch, config, kv_config, engine_id):
+    config.scheduler_config.disable_hybrid_kv_cache_manager = False
+    monkeypatch.setattr(native_mooncake, "init_ascend_config", lambda config: None)
+    monkeypatch.setattr(native_mooncake, "get_ascend_config", lambda: None)
+    return adapter.AFDMooncakeConnectorScheduler(config, engine_id, kv_config)
+
+
+def make_ep_pd_connector_schedulers(monkeypatch, *, producer_rank, consumer_rank):
+    """Separate native scheduler instances on independently selected DP ranks."""
+    dp_size = 4
+    cache = make_native_kv_cache_case()
+
+    def create(role, dp_rank):
+        config = configure_hccl_ep(
+            connector_config(role=role), dp_size=dp_size, dp_rank=dp_rank
+        )
+        config.parallel_config.nnodes = 1
+        config.engram_config = SimpleNamespace(cpu_offload=True, dp_shared_memory=True)
+        engine_id = f"ep-{role}"
+        config.kv_transfer_config = KVTransferConfig(
+            kv_connector="MooncakeHybridConnector",
+            kv_connector_module_path="afd_plugin.compat.npu.kv_layout_connector",
+            kv_role=role,
+            engine_id=engine_id,
+            kv_port=LOCAL_HANDSHAKE_PORT,
+            kv_connector_extra_config={
+                side: {"tp_size": 1, "dp_size": dp_size, "pp_size": 1}
+                for side in ("prefill", "decode")
+            },
+        )
+        return make_connector_scheduler(monkeypatch, config, cache.config, engine_id)
+
+    return SimpleNamespace(
+        producer=create("kv_producer", producer_rank),
+        consumer=create("kv_consumer", consumer_rank),
+        block_ids=tuple([0] for _ in cache.config.kv_cache_groups),
+    )
+
+
 def make_dspark_scheduler_case(
     monkeypatch, prefix, *, role="kv_producer", sampling_params=None
 ):
@@ -826,11 +869,8 @@ def make_dspark_scheduler_case(
     config.cache_config.block_size = 4
     if "compress_ratios" not in vars(config.model_config.hf_config):
         config.model_config.hf_config.compress_ratios = [DSPARK_CPU_COMPRESS_RATIO]
-    config.scheduler_config.disable_hybrid_kv_cache_manager = False
-    monkeypatch.setattr(native_mooncake, "init_ascend_config", lambda config: None)
-    monkeypatch.setattr(native_mooncake, "get_ascend_config", lambda: None)
-    scheduler = adapter.AFDMooncakeConnectorScheduler(
-        config, prefix.source.source_engine_id, prefix.kv_config
+    scheduler = make_connector_scheduler(
+        monkeypatch, config, prefix.kv_config, prefix.source.source_engine_id
     )
 
     def new_request(tokens, *, params=None, request_id=None):

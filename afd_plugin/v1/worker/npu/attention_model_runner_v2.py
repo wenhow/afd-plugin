@@ -48,6 +48,7 @@ from afd_plugin.compat.npu.runtime_config import (
     uses_deepseek_v41_dspark_pd,
 )
 from afd_plugin.compat.patches.npu.mrv2_ubatching import (
+    apply_ep_pd_dp_coordination_patch,
     use_async_cam_dbo_dispatch,
     use_npu_ubatch_factory,
 )
@@ -299,6 +300,14 @@ class AFDNPUAttentionModelRunnerV2(AFDMetadataProviderMixin, NPUModelRunnerV2):
         connector: AFDConnectorBase | None = None
         try:
             self.afd_config = self.parse_config(self.vllm_config)
+            # ### PATCH START: preserve native DP agreement for EP PD
+            if (
+                self.afd_config.connector == HCCL_P2P_CONNECTOR
+                and vllm_config.parallel_config.enable_expert_parallel
+                and vllm_config.kv_transfer_config is not None
+            ):
+                apply_ep_pd_dp_coordination_patch()
+            # ### PATCH END: preserve native DP agreement for EP PD
             rank, _ = _resolve_world_ranks()
             # Freeze role/rank settings now; start/export only on execute's
             # owner thread. Constructor/load traces are intentionally excluded.

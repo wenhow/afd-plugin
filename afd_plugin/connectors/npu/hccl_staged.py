@@ -35,6 +35,7 @@ from afd_plugin.connectors.npu.hccl_overlap import HcclOverlapSettings
 from afd_plugin.connectors.npu.hccl_staged_transport import HcclStagedTransport
 from afd_plugin.connectors.npu.p2p_hccl import P2pHcclAFDConnector
 from afd_plugin.distributed import resolve_role_rank
+from afd_plugin.distributed.hccl import MAX_HCCL_STAGES
 
 if TYPE_CHECKING:
     from vllm.config import VllmConfig
@@ -78,6 +79,17 @@ class HcclStagedAFDConnector(AFDConnectorBase):
         if overlap_settings is not None:
             if not isinstance(overlap_settings, HcclOverlapSettings):
                 raise ValueError("staged HCCL requires immutable overlap settings")
+            if caps.expert_parallel and caps.max_stages == MAX_HCCL_STAGES:
+                # Both native roles consume this snapshot and enter EP in stage order.
+                overlap_settings = replace(
+                    overlap_settings,
+                    eager_u2_stream_overlap=False,
+                    graph_u2_compute_overlap=False,
+                    graph_u2_hybrid_dag=False,
+                    graph_u2_attention_three_stream=False,
+                    graph_u2_ffn_recv_stream=False,
+                    graph_u2_ffn_cross_layer=False,
+                )
             caps = replace(
                 caps,
                 eager_pipeline_version=int(

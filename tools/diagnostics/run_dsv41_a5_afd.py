@@ -11,6 +11,8 @@ and F teardown. This is a qualification candidate, not a support declaration.
 from __future__ import annotations
 
 import argparse
+import ast
+import hashlib
 import json
 import os
 import re
@@ -57,6 +59,20 @@ CURL_EXIT_GRACE_SECONDS = 1
 READINESS_PROGRESS_SECONDS = 30
 TERM_GRACE_SECONDS = 10
 KILL_GRACE_SECONDS = 10
+EP_GRAPH_ROLES = ("attention", "ffn")
+HCCL_CONFIGURATION_PREFIX = "AFD HCCL session configuration: "
+HCCL_STAGE_PREFIX = "AFD HCCL stage diagnostic: "
+# Match the logger's flat settings snapshot at startup and each parent.
+HCCL_GRAPH_CONFIGURED_FIELDS = (
+    "configured.AFD_HCCL_EAGER_U2_STREAM_OVERLAP",
+    "configured.AFD_HCCL_GRAPH_U2_COMPUTE_OVERLAP",
+    "configured.AFD_HCCL_GRAPH_U2_HYBRID_DAG",
+    "configured.AFD_HCCL_GRAPH_U2_ATTENTION_THREE_STREAM",
+    "configured.AFD_HCCL_GRAPH_U2_FFN_RECV_STREAM",
+    "configured.AFD_HCCL_GRAPH_U2_FFN_CROSS_LAYER",
+    "configured.AFD_HCCL_STAGE_DIAGNOSTICS",
+    "configured.AFD_HCCL_FFN_COMPUTE_SYNC_DIAGNOSTICS",
+)
 MIN_HOST_BYTES = int(188.833133 * 1024**3)
 PLUGINS = (
     "ascend,ascend_model,ascend_model_loader,ascend_kv_connector,"
@@ -66,6 +82,357 @@ PLUGINS = (
 
 class TerminationRequestedError(Exception):
     """Preserve SIGTERM's shell exit code while releasing owned processes."""
+
+
+GraphLogRecord = dict[str, str | int | bool]
+
+
+def _hccl_log_records(
+    raw: bytes, path: Path, *, include_eager_stages: bool = False
+) -> list[GraphLogRecord]:
+    records = []
+    for line_number, line in enumerate(raw.decode("utf-8").splitlines(), start=1):
+        line = re.sub(r"\x1b\[[0-9;]*m", "", line)
+        for prefix in (HCCL_CONFIGURATION_PREFIX, HCCL_STAGE_PREFIX):
+            _, found, payload = line.partition(prefix)
+            if not found:
+                continue
+            try:
+                node = ast.parse(payload.strip(), mode="eval").body
+                if not isinstance(node, ast.Dict):
+                    raise ValueError("expected a dict record")
+                keys = [ast.literal_eval(key) for key in node.keys]
+                if len(set(keys)) != len(keys):
+                    raise ValueError("duplicate record field")
+                record = ast.literal_eval(node)
+                if (
+                    any(
+                        type(key) is not str or type(value) not in (str, int, bool)
+                        for key, value in record.items()
+                    )
+                    or type(record.get("event")) is not str
+                ):
+                    raise ValueError("expected scalar record fields and an event")
+                configuration = record["event"] == "session_configuration"
+                if configuration != (prefix == HCCL_CONFIGURATION_PREFIX):
+                    raise ValueError("event does not match its log prefix")
+            except (SyntaxError, TypeError, ValueError) as error:
+                raise ValueError(f"{path}:{line_number}: {error}") from error
+            if (
+                include_eager_stages
+                or configuration
+                or record["event"].startswith("graph_parent_")
+            ):
+                records.append(record)
+            break
+    return records
+
+
+def _check_graph_fields(
+    record: GraphLogRecord, expected: GraphLogRecord, name: str
+) -> None:
+    for key, value in expected.items():
+        actual = record.get(key)
+        if type(actual) is not type(value) or actual != value:
+            raise ValueError(f"{name}: {key} expected {value!r}, got {actual!r}")
+
+
+def _verify_graph_parent(
+    records: list[GraphLogRecord], decision: GraphLogRecord, startup: GraphLogRecord
+) -> None:
+    role, phase = startup["role"], decision["phase"]
+    name = f"{role}/{startup['role_rank']}/{decision['transaction_id']}"
+    boundaries = [("graph_parent_reserved", "graph_reservation", "returned")]
+    if phase == "replay":
+        replay = "run_fullgraph" if role == "attention" else "graph.replay"
+        boundaries.extend(
+            [
+                ("graph_parent_replay_begin", replay, "begin"),
+                ("graph_parent_replay_returned", replay, "returned"),
+            ]
+        )
+    finish = "complete_graph_forward"
+    if phase == "eager":
+        if role == "ffn":
+            finish = "execute_hccl_v41_parent"
+        else:
+            finish = records[-1].get("boundary_api")
+            if finish not in ("native_eager_scope", "finish_forward"):
+                raise ValueError(f"{name}: invalid Attention eager finish API")
+    if finish in ("native_eager_scope", "execute_hccl_v41_parent"):
+        boundaries.append(("graph_parent_scope_returned", finish, "returned"))
+    else:
+        boundaries.extend(
+            [
+                ("graph_parent_finish_begin", finish, "begin"),
+                ("graph_parent_finish_returned", finish, "returned"),
+            ]
+        )
+    if [record["event"] for record in records] != [event for event, _, _ in boundaries]:
+        raise ValueError(f"{name}: incorrect Graph host boundary sequence")
+    shared = {
+        **decision,
+        **{
+            key: startup[key]
+            for key in ("role", "role_rank", "world_rank", "local_device")
+        },
+        **{key: startup[key] for key in HCCL_GRAPH_CONFIGURED_FIELDS},
+    }
+    for record, (event, api, outcome) in zip(records, boundaries, strict=True):
+        expected = {
+            **shared,
+            "event": event,
+            "boundary": "host_control",
+            "boundary_api": api,
+            "outcome": outcome,
+        }
+        if set(record) != set(expected):
+            raise ValueError(f"{name}/{event}: incorrect Graph host record fields")
+        _check_graph_fields(record, expected, f"{name}/{event}")
+
+
+def verify_ep_graph_run(
+    directory: Path, role_size: JSONValue, max_stages: int
+) -> dict[str, JSONValue]:
+    """Check all-rank capture, replay and runtime eager host boundaries."""
+    if type(role_size) is not int or role_size < 1:
+        raise ValueError("Graph role size must be a positive integer")
+    start: dict[tuple[str, int], GraphLogRecord] = {}
+    transactions: dict[str, dict[tuple[str, int], list[GraphLogRecord]]] = {}
+    log_hashes: dict[str, JSONValue] = {}
+    for role in EP_GRAPH_ROLES:
+        path = directory / f"{role}-server.log"
+        raw = path.read_bytes()
+        log_hashes[path.name] = hashlib.sha256(raw).hexdigest()
+        for record in _hccl_log_records(raw, path):
+            rank = record.get("role_rank")
+            if (
+                type(rank) is not int
+                or not 0 <= rank < role_size
+                or record.get("role") != role
+            ):
+                raise ValueError(f"{path.name}: invalid {role} rank {rank!r}")
+            coordinate = (role, rank)
+            if record["event"] == "session_configuration":
+                if coordinate in start:
+                    raise ValueError(f"{coordinate}: duplicate Graph startup")
+                _check_graph_fields(
+                    record,
+                    {
+                        "world_rank": rank + role_size * int(role == "attention"),
+                        "negotiated.expert_parallel": True,
+                        "negotiated.native_tp_size": 1,
+                        "negotiated.attention_size": role_size,
+                        "negotiated.ffn_size": role_size,
+                        "negotiated.graph_execution_version": 1,
+                        "negotiated.max_stages": max_stages,
+                        "configured.AFD_HCCL_STAGE_DIAGNOSTICS": True,
+                    },
+                    str(coordinate),
+                )
+                if any(
+                    type(record.get(key)) is not bool
+                    for key in HCCL_GRAPH_CONFIGURED_FIELDS
+                ):
+                    raise ValueError(f"{coordinate}: missing Graph startup settings")
+                start[coordinate] = record
+                continue
+            if coordinate not in start:
+                raise ValueError(f"{coordinate}: missing Graph startup")
+            if record.get("phase") == "eager" and record.get("mode") in (
+                "profile",
+                "warmup",
+            ):
+                # Skip pre-KV profiling and the zero-row capture eligibility probe.
+                continue
+            transaction = record.get("transaction_id")
+            if type(transaction) is not str or not transaction.strip():
+                raise ValueError(f"{coordinate}: missing Graph transaction ID")
+            transactions.setdefault(transaction, {}).setdefault(coordinate, []).append(
+                record
+            )
+
+    coordinates = {(role, rank) for role in EP_GRAPH_ROLES for rank in range(role_size)}
+    if set(start) != coordinates:
+        raise ValueError(
+            f"missing EP Graph startup ranks: {sorted(coordinates - start.keys())}"
+        )
+
+    completed: dict[str, list[str]] = {}
+    captures = set()
+    for transaction, ranks in transactions.items():
+        if set(ranks) != coordinates:
+            missing = sorted(coordinates - ranks.keys())
+            raise ValueError(
+                f"{transaction}: missing participant coordinates {missing}"
+            )
+        first = ranks[("attention", 0)][0]
+        phase, mode, stages = first["phase"], first["mode"], first["num_stages"]
+        if type(phase) is not str or phase not in (
+            "capture",
+            "replay",
+            "eager",
+            "warmup",
+        ):
+            raise ValueError(f"{transaction}: unknown Graph phase {phase!r}")
+        if type(stages) is not int or not 1 <= stages <= max_stages:
+            raise ValueError(f"{transaction}: invalid Graph stage count {stages!r}")
+        key = first["key_digest"]
+        digests = (
+            (first["decision_digest"],)
+            if phase == "eager"
+            else (first["decision_digest"], key)
+        )
+        if any(
+            type(value) is not str or not re.fullmatch(r"[0-9a-f]{64}", value)
+            for value in digests
+        ):
+            raise ValueError(f"{transaction}: invalid Graph decision or key digest")
+        if phase == "eager" and key != "":
+            raise ValueError(f"{transaction}: eager phase carries a Graph key")
+        if phase == "replay" and key not in captures:
+            raise ValueError(f"{transaction}: replay key was not captured")
+        decision = {
+            "transaction_id": transaction,
+            "phase": phase,
+            "mode": mode,
+            "reason": first["reason"],
+            "key_present": phase != "eager",
+            "key_digest": key,
+            "decision_digest": first["decision_digest"],
+            "num_stages": stages,
+        }
+        for coordinate, records in ranks.items():
+            _verify_graph_parent(records, decision, start[coordinate])
+        if phase == "capture":
+            captures.add(key)
+        if (
+            phase == "eager"
+            and mode in ("target", "dummy")
+            or phase != "eager"
+            and stages == max_stages
+        ):
+            completed.setdefault(phase, []).append(transaction)
+
+    for phase in ("capture", "replay", "eager"):
+        if phase not in completed:
+            raise ValueError(f"no completed EP {phase} phase")
+    return {
+        "passed": True,
+        "transactions": completed,
+        "source_sha256": log_hashes,
+        "device_completion_verified_by_logs_alone": False,
+    }
+
+
+def verify_ep_eager_u2_run(
+    directory: Path,
+    role_size: JSONValue,
+    request_windows: dict[str, tuple[int, int]],
+) -> dict[str, JSONValue]:
+    """Require one serial two-stage model parent for the HTTP requests on every rank."""
+    if type(role_size) is not int or role_size < 1:
+        raise ValueError("eager U2 role size must be a positive integer")
+    stages = (0, 1)
+    role_events = {
+        "attention": ("compute_returned", "send_returned", "recv_returned"),
+        "ffn": ("recv_returned", "compute_returned", "send_returned"),
+    }
+    transactions: dict[str, dict[tuple[str, int], list[GraphLogRecord]]] = {}
+    sources: dict[str, JSONValue] = {}
+    for role, events in role_events.items():
+        path = directory / f"{role}-server.log"
+        start, end = request_windows[role]
+        if not 0 <= start < end:
+            raise ValueError(f"{path.name}: empty or invalid request log window")
+        with path.open("rb") as log:
+            log.seek(start)
+            raw = log.read(end - start)
+        if len(raw) != end - start:
+            raise ValueError(f"{path.name}: truncated request log window")
+        sources[path.name] = {
+            "start_byte": start,
+            "end_byte": end,
+            "sha256": hashlib.sha256(raw).hexdigest(),
+        }
+        for record in _hccl_log_records(raw, path, include_eager_stages=True):
+            if (
+                record["event"] not in (*events, "collapse_returned")
+                or record.get("phase") != "eager"
+                or record.get("num_stages") != len(stages)
+                or record.get("in_profile_run") is not False
+                or record.get("is_warmup") is not False
+            ):
+                continue
+            rank = record.get("role_rank")
+            transaction = record.get("transaction_id")
+            if (
+                type(rank) is not int
+                or not 0 <= rank < role_size
+                or type(transaction) is not str
+                or not transaction.strip()
+                or type(record.get("layer")) is not int
+                or type(record.get("stage")) is not int
+                or record["stage"] not in stages
+            ):
+                raise ValueError(f"{path.name}: invalid eager U2 stage coordinates")
+            _check_graph_fields(
+                record,
+                {
+                    "role": role,
+                    "world_rank": rank + role_size * int(role == "attention"),
+                    "num_stages": len(stages),
+                    "boundary": "host_enqueue",
+                    "actual.mode": "serial",
+                    "actual.compute_stream": "parent",
+                    "actual.send_stream": "parent",
+                    "actual.recv_stream": "parent",
+                },
+                f"{transaction}/{role}/{rank}",
+            )
+            transactions.setdefault(transaction, {}).setdefault(
+                (role, rank), []
+            ).append(record)
+
+    coordinates = {(role, rank) for role in role_events for rank in range(role_size)}
+    completed: dict[str, JSONValue] = {}
+    for transaction, ranks in transactions.items():
+        if ranks.keys() != coordinates:
+            continue
+        final_layers = [
+            record["layer"]
+            for record in ranks[("attention", 0)]
+            if record["event"] == "collapse_returned"
+        ]
+        if len(final_layers) != 1:
+            continue
+        final_layer = final_layers[0]
+        for (role, _rank), records in ranks.items():
+            expected = [
+                (stage, event) for stage in stages for event in role_events[role]
+            ]
+            if role == "attention":
+                expected.append((stages[-1], "collapse_returned"))
+            observed = [
+                (record["stage"], record["event"])
+                for record in records
+                if record["layer"] == final_layer
+            ]
+            if observed != expected:
+                break
+        else:
+            completed[transaction] = final_layer
+    if not completed:
+        raise ValueError(
+            "no live serial eager U2 parent completed both stages on every rank"
+        )
+    return {
+        "passed": True,
+        "world_ranks": list(range(len(coordinates))),
+        "transactions": completed,
+        "request_log_windows": sources,
+        "device_completion_verified_by_logs_alone": False,
+    }
 
 
 def handle_termination(signum: int, _frame: FrameType | None) -> None:
@@ -670,6 +1037,7 @@ def send_request(
     *,
     payload: dict[str, JSONValue] | None = None,
     api_url: str = f"http://127.0.0.1:{API_PORT}",
+    data_parallel_rank: int | None = None,
 ) -> dict[str, JSONValue]:
     payload = payload or {
         "model": "dsv41-afd",
@@ -683,10 +1051,14 @@ def send_request(
         "stream": False,
     }
     save_json(directory / "request.json", payload)
+    headers = {"Content-Type": "application/json"}
+    if data_parallel_rank is not None:
+        headers["X-data-parallel-rank"] = str(data_parallel_rank)
+        save_json(directory / "request-routing.json", {"dp_rank": data_parallel_rank})
     request = urllib.request.Request(
         api_url.rstrip("/") + "/v1/completions",
         data=json.dumps(payload).encode(),
-        headers={"Content-Type": "application/json"},
+        headers=headers,
     )
     started = time.monotonic()
     try:
@@ -757,6 +1129,9 @@ def run_candidate(
     }
     exit_code = 1
     attention = ffn = None
+    verify_eager_u2 = (
+        plan.get("expert_parallel") is True and plan.get("mode") == "eager-u2"
+    )
     try:
         check_resources(directory, plan)
         roles = plan["roles"]
@@ -817,9 +1192,28 @@ def run_candidate(
             startup_timeout,
             api_url=plan.get("api_url", f"http://127.0.0.1:{API_PORT}"),
         )
+        request_logs = (
+            {child.role: child.log.stat().st_size for child in (attention, ffn)}
+            if verify_eager_u2 and ffn is not None
+            else {}
+        )
         result["request"] = (request_runner or send_request)(directory, reference)
         result["request_passed"] = True
         owner.record("request_completed")
+        if request_logs and ffn is not None:
+            try:
+                request_windows = {
+                    child.role: (request_logs[child.role], child.log.stat().st_size)
+                    for child in (attention, ffn)
+                }
+                result["eager_u2_verification"] = verify_ep_eager_u2_run(
+                    directory, plan["native_dp_size"], request_windows
+                )
+            except (OSError, ValueError, KeyError) as error:
+                result["eager_u2_verification"] = {"passed": False, "error": str(error)}
+                raise RuntimeError(
+                    f"eager U2 host evidence incomplete: {error}"
+                ) from error
     except (Exception, KeyboardInterrupt) as error:
         result["error"] = f"{type(error).__name__}: {error}"
         owner.record("failed", error=result["error"])
@@ -893,6 +1287,22 @@ def run_candidate(
         comparison_path = directory / "token-comparison.json"
         if comparison_path.is_file():
             result["token_comparison"] = json.loads(comparison_path.read_bytes())
+        if (
+            ffn is not None
+            and result["request_passed"]
+            and plan.get("mode") in ("graph-u1", "graph-u2")
+            and plan.get("expert_parallel", False)
+            and plan.get("request_suite") != "repeatability"
+        ):
+            try:
+                result["graph_verification"] = verify_ep_graph_run(
+                    directory,
+                    plan["native_dp_size"],
+                    2 if plan["mode"] == "graph-u2" else 1,
+                )
+            except (OSError, ValueError, KeyError) as error:
+                result["graph_verification"] = {"passed": False, "error": str(error)}
+                result["error"] = f"Graph host evidence incomplete: {error}"
         if (
             result["request_passed"]
             and result["clean_shutdown"]

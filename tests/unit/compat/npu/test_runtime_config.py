@@ -27,15 +27,106 @@ from tests.unit.fakes.vllm_config import (
 )
 
 
-@pytest.mark.parametrize("feature", ["speculative_config", "kv_transfer_config"])
-def test_ffn_ep_rejects_unsupported_original_modes_before_role_isolation(feature):
-    source = configure_hccl_ep(v41_dspark_config(role="ffn"))
+def test_ffn_ep_rejects_unqualified_pd_before_role_isolation():
+    source = configure_hccl_ep(v41_dspark_pd_config(role="ffn"))
     source.speculative_config = None
-    setattr(source, feature, SimpleNamespace())
+    source.kv_transfer_config = pd_kv_transfer_config()
     before = deepcopy(source)
-    with pytest.raises(ValueError, match="DSpark/PD off before FFN isolation"):
+    with pytest.raises(ValueError, match="attested Mooncake"):
         get_npu_ffn_config(source)
     assert source == before
+
+
+@pytest.fixture
+def ep_pd_source():
+    source = configure_hccl_ep(v41_dspark_pd_config(role="ffn"), dp_rank=3)
+    source.parallel_config.nnodes = 1
+    source.speculative_config.num_speculative_tokens = 1
+    source.kv_transfer_config.kv_port = 14579
+    for layout in source.kv_transfer_config.kv_connector_extra_config.values():
+        layout["dp_size"] = source.parallel_config.data_parallel_size
+    return source
+
+
+@pytest.mark.parametrize("steps", [None, 1, 2])
+@pytest.mark.parametrize("kv_role", ["kv_producer", "kv_consumer"])
+def test_ep_pd_preserves_original_target_across_ffn_isolation(
+    ep_pd_source, steps, kv_role
+):
+    source = ep_pd_source
+    source.kv_transfer_config.kv_role = kv_role
+    if steps is None:
+        source.speculative_config = None
+    else:
+        source.speculative_config.num_speculative_tokens = steps
+    source.engram_config = SimpleNamespace(dp_shared_memory=True)
+    before = deepcopy(source)
+
+    isolated = get_npu_ffn_config(source)
+
+    assert source == before
+    assert isolated.kv_transfer_config is None
+    assert isolated.engram_config is isolated.speculative_config is None
+    assert isolated.parallel_config is source.parallel_config
+
+
+def test_ep_pd_rejects_foreign_dp_declaration_before_ffn_isolation(ep_pd_source):
+    ep_pd_source.kv_transfer_config.kv_connector_extra_config["decode"]["dp_size"] = 1
+    before = deepcopy(ep_pd_source)
+    with pytest.raises(ValueError, match="configured equal P/D"):
+        get_npu_ffn_config(ep_pd_source)
+    assert ep_pd_source == before
+
+
+@pytest.mark.parametrize("steps", [1, 2])
+@pytest.mark.parametrize("ubatches", [1, 2])
+def test_ffn_ep_preserves_dspark_target_width_without_owning_the_drafter(
+    steps, ubatches
+):
+    source = configure_hccl_ep(v41_dspark_config(role="ffn"))
+    source.speculative_config.num_speculative_tokens = steps
+    source.parallel_config.num_ubatches = ubatches
+    source.parallel_config.use_ubatching = ubatches == 2
+    before = deepcopy(source)
+
+    shape = resolve_deepseek_v41_target_shape(source)
+    isolated = get_npu_ffn_config(source)
+
+    assert shape == DeepseekV41TargetShape(1 + steps)
+    assert isolated.speculative_config is None
+    assert isolated.parallel_config is source.parallel_config
+    assert source == before
+
+
+@pytest.mark.parametrize(
+    ("axis", "changes", "reason"),
+    [
+        ("speculative_config", {"num_speculative_tokens": 3}, "eager N=1/2 draft"),
+        ("speculative_config", {"enforce_eager": False}, "eager N=1/2 draft"),
+        ("speculative_config", {"enable_adaptive_verification": True}, "adaptive"),
+        ("parallel_config", {"num_ubatches": 2}, "with U1 or U2"),
+        (
+            "parallel_config",
+            {"use_ubatching": True, "num_ubatches": 3},
+            "with U1 or U2",
+        ),
+    ],
+)
+def test_ep_dspark_rejects_unsupported_draft_mode_before_ffn_isolation(
+    axis, changes, reason
+):
+    source = configure_hccl_ep(v41_dspark_config(role="ffn"))
+    source.speculative_config.num_speculative_tokens = 1
+    vars(getattr(source, axis)).update(changes)
+    with pytest.raises(ValueError, match=reason):
+        get_npu_ffn_config(source)
+
+
+def test_ep_dspark_requires_experts_divisible_by_the_native_dp_world():
+    config = configure_hccl_ep(v41_dspark_config(), dp_size=3)
+    config.speculative_config.num_speculative_tokens = 1
+    with pytest.raises(ValueError, match="evenly sharded expert counts"):
+        validate_deepseek_v41_speculation(config)
 
 
 @pytest.mark.parametrize("steps", [None, 1, 5, 15])

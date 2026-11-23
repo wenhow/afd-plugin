@@ -95,6 +95,7 @@ def make_ffn_graph_case(
     output_defect=None,
     layer_count=2,
     target_query_len=1,
+    expert_parallel_size=None,
 ):
     events, compute_events = [], []
     bank = make_graph_stage_bank(
@@ -106,12 +107,13 @@ def make_ffn_graph_case(
         role_rank=role_rank,
         exchange_order=exchange_order,
         target_query_len=target_query_len,
+        expert_parallel_size=expert_parallel_size,
         endpoint_factory=lambda index: FFNGraphEndpoint(
             index,
             events,
             role="ffn",
             role_rank=role_rank,
-            native_tp_size=native_tp_size,
+            native_tp_size=expert_parallel_size or native_tp_size,
         ),
     )
     contexts = tuple(

@@ -621,6 +621,8 @@ class AFDNPUFFNWorker(NPUWorker):
     # 7e37e29a7803d6897a7113088e2b771f83205bc0. Exact native signature.
     # Inheritance override: finish the AFD receive owner before native teardown,
     # then emit a rank result only after peer STOP and native cleanup succeeded.
+    # A staged connector's rank is role-wide. Native worker.rank is local to
+    # its engine and can be zero for every TP1/DP/EP FFN engine.
     # Delegate native resource ownership rather than copying it; remove the
     # adapter when native Worker offers connector lifecycle/result callbacks.
     def shutdown(self) -> None:
@@ -628,12 +630,14 @@ class AFDNPUFFNWorker(NPUWorker):
         # Stop the connector-driven daemon before NPUWorker releases the model
         # runner and its tensors.
         peer_stopped = self._uses_hccl_service() and self._hccl_stop_received
+        transport = self._hccl_v41_transport
         self.stop_ffn_server_loop()
         # ### PATCH END: finish the AFD receive owner before native cleanup
         super().shutdown()
         # ### PATCH START: report completed HCCL worker cleanup
         if peer_stopped:
-            logger.info("AFD HCCL FFN worker cleanup complete; rank=%d.", self.rank)
+            role_rank = transport.role_rank if transport is not None else self.rank
+            logger.info("AFD HCCL FFN worker cleanup complete; rank=%d.", role_rank)
         # ### PATCH END: report completed HCCL worker cleanup
 
 

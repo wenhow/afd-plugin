@@ -139,13 +139,12 @@ class HcclPlanCapabilities:
             self.native_tp_size == 1
             and self.attention_size == self.ffn_size
             and self.local_counts_version == 1
-            and self.max_stages == 1
-            and self.graph_execution_version == self.eager_pipeline_version == 0
-            and self.target_query_len == 1
+            and self.eager_pipeline_version == 0
+            and self.target_query_len <= 3
         ):
             raise ValueError(
                 "expert_parallel requires symmetric TP1/DP roles, local counts v1 "
-                "and eager U1 without Graph or pipeline execution"
+                "and U1/U2 without eager pipeline execution"
             )
         if self.eager_pipeline_version == 1 and not (
             self.graph_execution_version == 0
@@ -159,8 +158,13 @@ class HcclPlanCapabilities:
             )
         if self.target_query_len > 1 and not (
             self.local_counts_version == self.graph_execution_version == 1
-            and self.attention_size == self.ffn_size == self.native_tp_size
-            and self.native_tp_size in PAIRED_NATIVE_TP_SIZES
+            and (
+                self.expert_parallel
+                or (
+                    self.attention_size == self.ffn_size == self.native_tp_size
+                    and self.native_tp_size in PAIRED_NATIVE_TP_SIZES
+                )
+            )
         ):
             raise ValueError(
                 "target_query_len > 1 requires Graph v1, local counts v1 "
@@ -179,6 +183,7 @@ class HcclPlanCapabilities:
         if self.graph_exchange_order != "stage_serial" and (
             self.graph_execution_version != 1
             or self.max_stages != 2
+            or self.expert_parallel
             or self.native_tp_size not in PAIRED_NATIVE_TP_SIZES
         ):
             raise ValueError(
@@ -198,7 +203,7 @@ class HcclPlanCapabilities:
         HcclStageLayout(0, empty, empty, self.ffn_size, self.native_tp_size)
 
     def negotiate(self, peer: HcclPlanCapabilities) -> HcclPlanCapabilities:
-        """Match model/topology and symmetrically bound stages and capacity."""
+        """Match model/topology and EP stage mode, then bound capacity."""
         self.validate()
         peer.validate()
         for name, local, remote in (
@@ -233,6 +238,8 @@ class HcclPlanCapabilities:
         ):
             if local != remote:
                 raise ValueError(f"HCCL peer {name} does not match")
+        if self.expert_parallel and self.max_stages != peer.max_stages:
+            raise ValueError("HCCL peer EP max_stages does not match")
         return HcclPlanCapabilities(
             self.hidden_size,
             self.vocab_size,
@@ -318,15 +325,11 @@ class HcclParentPlan:
             decision = self.graph_execution
             if not isinstance(decision, HcclGraphDecision):
                 raise ValueError("graph_execution must be HcclGraphDecision")
-            if (
-                decision.transaction_id != self.transaction_id
-                or decision.mode != self.mode
-                or len(decision.padded_tokens) != len(self.stages)
-                or any(
-                    any(rows != expected for rows in stage.attention_padded_tokens)
-                    for stage, expected in zip(
-                        self.stages, decision.padded_tokens, strict=True
-                    )
+            if decision.transaction_id != self.transaction_id or any(
+                not decision.accepts_local_geometry(self.mode, column)
+                for column in zip(
+                    *(stage.attention_padded_tokens for stage in self.stages),
+                    strict=True,
                 )
             ):
                 raise ValueError("parent plan does not match reserved graph execution")
@@ -339,6 +342,12 @@ class HcclParentPlan:
             raise ValueError(
                 "parent graph execution does not match negotiated capability"
             )
+        if (
+            self.graph_execution is not None
+            and self.graph_execution.padded_tokens is None
+            and not capabilities.expert_parallel
+        ):
+            raise ValueError("rank-local eager geometry requires negotiated EP")
         if self.layer_indices != capabilities.layer_indices:
             raise ValueError("plan layer_indices do not match negotiated target layers")
         if len(self.stages) > capabilities.max_stages:

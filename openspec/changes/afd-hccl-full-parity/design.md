@@ -125,3 +125,51 @@ EP launcher 改为等待所有本地 F 正常退出，首个成功后用 shutdow
 F 的 DP tensor 每 stage 构造一次。EP all-to-all 由原生选择；HBM 峰值需要实测。
 本增量修改 AFD 自有边界，无新增上游函数复制或猴补丁。若原生 runner 提供可直接
 消费的 A/F MoE 服务边界，再迁移并删除自有同步 glue。CPU 合约通过不代表设备验收。
+
+## EP + Graph/U1
+
+单节点 A4/F4、TP1/DP4/EP4 的完整权重资格入口加入 FULL_DECODE_ONLY。只使用
+固定的 U1 target decode bucket。捕获和回放要求所有 A/F rank 接受相同的 graph key。
+F 的 bank 绑定相同编号的 A peer。每个 F 在捕获前用同一 parent plan 构造完整 DP
+token 向量，原生 MoE 使用该向量执行专家通信。A 的 U1 child 和 parent 保留固定
+bucket 的原生 DPMetadata，Engram 输入准备和退休由 A 的 ModelState 持有。
+
+运行时先由原生 DP dispatcher 同步模式与 bucket，A/F 再协商缓存可用性。
+`GRAPH_QUERY.eager_padded_tokens=null` 表示本次 EP runtime 回退使用各 rank 实际行数，
+沿用随后已有的 counts 往返。捕获阶段、捕获列表预检和 EP-off 的行数仍为精确数组。
+有 idle dummy 时走 eager，空闲的 A0 仍能协调。若原生 FULL 被缓存协商降级，
+所有 A 在输入准备前用同一个原生 dispatcher 再进行一次 eager DP 同步，代价为该次
+回退增加一轮原生 DP collective。原生 eager 已同步时直接保留其 metadata。
+
+补丁复核对应 vLLM `ced6857a` 的 `vllm/v1/worker/gpu/dp_utils.py`
+`dispatch_cg_and_sync_dp`，保持原 13 参数与返回约定。U1 准备沿用 Ascend
+`7e37e29a` 的 `EngramModelState.prepare_attn` 签名与现有委托，固定向量与
+`worker/v2/aclgraph_utils.py` 中的原生捕获形状对齐。上游提供可保留最终 DP
+metadata 的预准备回调后，可移除相应作用域。设备集体通信回放与时序由 A5 验证。
+
+## EP + 串行 U2、DSpark 和 PD
+
+EP 支持 eager 与 FULL_DECODE_ONLY 的 U1/U2。U2 的 HCCL 包序为逐层、逐 stage，
+同一 stage 上各 F 使用同一份 DP padded-token 向量执行原生 MoE。单个 DP rank
+零有效行时仍参与。Graph 在捕获和回放前协商所有 A/F rank 的 stage 数和静态桶，
+缓存不一致或有 idle dummy 时统一走 eager。U2 的回退在输入准备前通过第二次
+原生 DP 同步确定 stage 数，随后从各 A 的真实行数构造 HCCL plan。额外的原生
+同步只出现在此回退分支。A 保留 parent Engram producer，由现有 child 切片使用。
+
+固定 DSpark N=1/2 复用锁定 Ascend 的 eager proposer、完整 native InputBatch 和
+parent DP 同步结果。A 保存 target aux 并完成 proposal、采样和 history 退休。
+Graph 的 target 桶按 1+N 行对齐，draft 仍为 eager。F 保留 target 宽度用于
+捕获准入，并在构造前隔离 draft 与 Engram。
+
+单节点 PD 以 P eager/U1 导出 KV、index 和已提交的 Engram history。P/D 的 TP、
+DP 与 PP 在准入时检查，DSpark draft schema 记录 EP 的 DP 宽度。D 的 MRV2
+作用域保留原生跨 DP 同步，避免 Mooncake 默认优化在 EP 所需的 target/draft
+同步前跳过集合操作。F 仅执行 target MoE。验收用不同的 P/D DP rank 验证
+实际传输，D 可选 eager/Graph U1/U2。
+
+补丁审查对照 vLLM `ced6857a` 的 `vllm/v1/worker/gpu/dp_utils.py` 和
+MRV2 对 `should_skip_allreduce_across_dp_group` 的导入别名。仅对通过准入的
+EP Mooncake D 强制保留原生同步，其余配置调用锁定实现。后续若原生 PD
+可按 EP 消费者保留 target/draft 同步，移除该作用域。正常 decode 的串行
+stage 无额外 stream/event；stage padding、第二次同步及 PD 数据传输的
+设备耗时由 A5 测量。

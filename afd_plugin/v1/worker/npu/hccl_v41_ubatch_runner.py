@@ -141,21 +141,43 @@ class HcclV41UBatchRunner(NPUUBatchRunner):
             raise ValueError("V4.1 staged HCCL requires PP1, CP1 and non-SP")
         if not isinstance(model_state, EngramModelState):
             raise ValueError("V4.1 staged HCCL requires the native Engram ModelState")
-        if parallel.data_parallel_size != 1 or parallel.data_parallel_rank != 0:
-            raise ValueError("V4.1 staged HCCL construction requires DP1 rank zero")
         capabilities = transport.negotiated_capabilities
+        ep = parallel.enable_expert_parallel
+        if ep != capabilities.expert_parallel:
+            raise ValueError(
+                "V4.1 staged HCCL must match negotiated expert parallelism"
+            )
+        if ep:
+            if (
+                parallel.tensor_parallel_size != 1
+                or parallel.data_parallel_size != capabilities.attention_size
+                or parallel.data_parallel_size != capabilities.ffn_size
+                or parallel.data_parallel_rank != transport.role_rank
+                or parallel.rank != 0
+                or capabilities.eager_pipeline_version != 0
+                or capabilities.graph_execution_version != int(graph_owner is not None)
+                or graph_owner is not None
+                and capabilities.graph_exchange_order != "stage_serial"
+            ):
+                raise ValueError(
+                    "V4.1 staged HCCL EP requires serial U2 and "
+                    "matching TP1/DP role coordinates"
+                )
+        elif parallel.data_parallel_size != 1 or parallel.data_parallel_rank != 0:
+            raise ValueError("V4.1 staged HCCL construction requires DP1 rank zero")
         if capabilities.max_stages < 2:
             raise ValueError("V4.1 staged HCCL construction requires negotiated U2")
         if capabilities.native_tp_size != parallel.tensor_parallel_size:
             raise ValueError("V4.1 staged HCCL transport native TP size must match")
-        if capabilities.attention_size != parallel.tensor_parallel_size:
+        if not ep and capabilities.attention_size != parallel.tensor_parallel_size:
             raise ValueError(
                 "V4.1 staged HCCL role size must match its native TP world"
             )
         if graph_owner is not None and (
             capabilities.graph_execution_version != 1
             or capabilities.local_counts_version != 1
-            or capabilities.ffn_size != parallel.tensor_parallel_size
+            or not ep
+            and capabilities.ffn_size != parallel.tensor_parallel_size
         ):
             raise ValueError(
                 "explicit HCCL graph owner requires graph protocol v1 "
@@ -170,7 +192,7 @@ class HcclV41UBatchRunner(NPUUBatchRunner):
             raise ValueError("HCCL graph owner requires its negotiated target shape")
         # WorkerBase writes the actual native rank to parallel.rank. With
         # DP1/PP1/CP1, one Attention role is exactly that native TP world.
-        if parallel.rank != transport.role_rank:
+        if not ep and parallel.rank != transport.role_rank:
             raise ValueError("V4.1 staged HCCL native rank does not match role_rank")
         self.transport = transport
         # ### PATCH END: admit explicit synchronous U2 construction

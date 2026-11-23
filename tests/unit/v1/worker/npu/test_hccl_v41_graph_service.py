@@ -71,6 +71,17 @@ def test_isolated_ffn_target_width_mismatch_rejects_before_graph_query(case):
     assert case.transport.transcript == []
 
 
+def test_ep_ffn_graph_capture_uses_every_dp_rank_even_with_no_valid_rows(monkeypatch):
+    case = make_graph_service_case(
+        service_module, monkeypatch, rows=(4,), expert_parallel_size=4, role_rank=3
+    )
+    case.transport.queue_parent("capture", identifier="ep-capture", valid=(0,))
+
+    assert case.service.execute_step()
+    assert case.api.body_dp_counts == [[4, 4, 4, 4]]
+    assert "capture-exit" in case.events
+
+
 @pytest.mark.parametrize(
     "rows,compute", [((4,), False), ((2, 2), False), ((2, 2), True)]
 )

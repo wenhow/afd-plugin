@@ -19,11 +19,12 @@ from vllm.distributed.kv_transfer.kv_connector.factory import KVConnectorFactory
 from vllm.forward_context import get_forward_context, set_forward_context
 from vllm.sampling_params import SamplingParams
 from vllm.v1.outputs import KVConnectorOutput, ModelRunnerOutput
-from vllm.v1.request import RequestStatus
+from vllm.v1.request import Request, RequestStatus
 from vllm.v1.worker.gpu import kv_connector as native_kv_connector
 
 from afd_plugin.compat.npu import kv_layout_connector as adapter
 from afd_plugin.compat.npu.dspark_pd import (
+    draft_schema_digest,
     prompt_digest,
     read_lease_from_payload,
     read_query_from_payload,
@@ -39,6 +40,7 @@ from tests.unit.fakes.dspark_pd import make_dspark_pd_prefix_case
 from tests.unit.fakes.kv_cache import make_native_kv_cache_case
 from tests.unit.fakes.kv_layout_connector import (
     DESTINATION_SENTINEL,
+    LOCAL_HANDSHAKE_PORT,
     REMOTE_BASE_ADDRESS,
     REMOTE_HANDSHAKE_PORT,
     THREAD_TEST_TIMEOUT,
@@ -51,6 +53,7 @@ from tests.unit.fakes.kv_layout_connector import (
     make_dspark_read_case,
     make_dspark_registration_case,
     make_dspark_scheduler_case,
+    make_ep_pd_connector_schedulers,
     make_queued_dspark_read_case,
     make_receiver_case,
     make_registration_case,
@@ -69,6 +72,7 @@ from tests.unit.fakes.scheduler import (
     SCHEDULER_MAX_BATCHED_TOKENS,
     make_native_pd_scheduler_case,
 )
+from tests.unit.fakes.vllm_config import configure_hccl_ep
 
 RETIREMENT_TEST_DEADLINE = 0.01
 BYTE_VALUE_COUNT = 256
@@ -104,6 +108,50 @@ def test_engram_pd_exports_original_history_after_native_prefill_truncation(
     )
 
     assert params[ENGRAM_HISTORY_PARAM] == expected
+
+
+@pytest.mark.parametrize("producer_rank,consumer_rank", [(0, 3), (3, 0)])
+def test_ep_pd_preserves_prefill_replica_port_and_original_history(
+    monkeypatch, producer_rank, consumer_rank
+):
+    case = make_ep_pd_connector_schedulers(
+        monkeypatch, producer_rank=producer_rank, consumer_rank=consumer_rank
+    )
+    tokens = [1, 2, 3, 4]
+    source = Request("ep-prefill", tokens.copy(), SamplingParams(max_tokens=1), None)
+    source.kv_transfer_params = {"do_remote_decode": True}
+    case.producer.on_new_request(source)
+    source.append_output_token_ids(7)
+    source.status = RequestStatus.FINISHED_LENGTH_CAPPED
+    _, params = case.producer.request_finished_all_groups(source, case.block_ids)
+    assert params["remote_port"] == LOCAL_HANDSHAKE_PORT + producer_rank
+    assert params[ENGRAM_HISTORY_PARAM] == engram_history_payload(
+        tokens, source.request_id, params["remote_engine_id"]
+    )
+    destination = Request(
+        "ep-decode", tokens.copy(), SamplingParams(max_tokens=2), None
+    )
+    destination.kv_transfer_params = params
+    case.consumer.on_new_request(destination)
+    assert destination.prompt_token_ids == tokens
+    assert case.consumer.get_num_new_matched_tokens(destination, 0) == (3, True)
+
+
+def test_ep_dspark_pd_draft_schema_binds_native_replica_count(monkeypatch):
+    case = make_dspark_pd_prefix_case(monkeypatch, bind=False)
+    config = case.config
+    config.parallel_config.nnodes = 1
+    config.speculative_config.num_speculative_tokens = 1
+    config.kv_transfer_config.kv_port = LOCAL_HANDSHAKE_PORT
+
+    digests = []
+    for dp_size in (2, 4):
+        configure_hccl_ep(config, dp_size=dp_size)
+        for layout in config.kv_transfer_config.kv_connector_extra_config.values():
+            layout["dp_size"] = dp_size
+        digests.append(draft_schema_digest(config, case.kv_config))
+
+    assert digests[0] != digests[1]
 
 
 @pytest.mark.parametrize("changed", [False, True])
@@ -455,6 +503,24 @@ def test_a_changed_attested_peer_cannot_replace_its_published_storage(receiver_c
     assert case.receiver.kv_caches_base_addr["remote"][REMOTE_HANDSHAKE_PORT] == [
         REMOTE_BASE_ADDRESS
     ]
+
+
+def test_pd_reads_independent_dp_replica_addresses_under_same_engine_id(receiver_case):
+    case = receiver_case
+    stride = case.remote_layout.pages[0].block_stride_bytes
+    for dp_rank in (0, 3, 0):
+        request = request_map(case)
+        request["remote_handshake_port"] = REMOTE_HANDSHAKE_PORT + dp_rank
+        case.metadata.kv_caches_base_addr = [
+            REMOTE_BASE_ADDRESS + dp_rank * case.remote_layout.num_blocks * stride
+        ]
+        case.metadata.te_rpc_port = TRANSFER_PORT + dp_rank
+        case.receiver._transfer_kv_cache_all_groups(request)
+
+    first, last_rank, repeated_first = case.engine.reads
+    assert first == repeated_first
+    assert first[0] != last_rank[0] and first[2] != last_rank[2]
+    assert case.request_sent == [msgspec.msgpack.encode((adapter.GET_META_MSG, ""))] * 2
 
 
 def test_native_tail_projection_is_validated_then_read_as_one_complete_batch(

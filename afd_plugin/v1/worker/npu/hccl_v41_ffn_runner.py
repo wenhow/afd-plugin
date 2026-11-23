@@ -90,9 +90,8 @@ def execute_hccl_v41_parent(
             or parallel.data_parallel_size != plan.stages[0].ffn_size
             or parallel.data_parallel_rank != transport.role_rank
             or parallel.rank != 0
-            or len(plan.stages) != 1
         ):
-            raise ValueError("V4.1 FFN EP requires TP1/DP role coordinates and U1")
+            raise ValueError("V4.1 FFN EP requires TP1/DP role coordinates")
         if not ep and plan.stages[0].ffn_size != parallel.tensor_parallel_size:
             raise ValueError("V4.1 staged FFN role size must match its native TP world")
         if not ep and parallel.rank != transport.role_rank:

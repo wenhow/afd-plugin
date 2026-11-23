@@ -15,6 +15,7 @@ pytest.importorskip("vllm_ascend")
 
 from vllm.config import CUDAGraphMode  # noqa: E402
 from vllm.forward_context import (  # noqa: E402
+    DPMetadata,
     create_forward_context,
     get_forward_context,
     override_forward_context,
@@ -47,7 +48,10 @@ from tests.unit.fakes.input_batch import (  # noqa: E402
     make_ascend_decode_batch,
     make_hccl_ubatch_seam,
 )
-from tests.unit.fakes.vllm_config import v41_dspark_config  # noqa: E402
+from tests.unit.fakes.vllm_config import (  # noqa: E402
+    configure_hccl_ep,
+    v41_dspark_config,
+)
 
 
 @pytest.fixture
@@ -214,7 +218,7 @@ def test_prepare_rejects_unimplemented_parallel_layouts(runner_factory, field, v
 
 @pytest.fixture
 def staged_case(runner_factory):
-    def build(*, engram=True, fail_step=None):
+    def build(*, engram=True, fail_step=None, ep_rank=None):
         inner = make_staged_model(capacity=8, engram=engram)
         producer = (
             {
@@ -228,18 +232,30 @@ def staged_case(runner_factory):
         )
         state = ParentEngramState(producer)
         runner = runner_factory(model_state=state)
-        batch = make_ascend_batch()
+        if ep_rank is not None:
+            configure_hccl_ep(runner.vllm_config, dp_size=4, dp_rank=ep_rank)
+        batch = make_ascend_batch(3 if ep_rank is not None else 5)
         prepared = runner.prepare(
             batch, (), torch.arange(8, dtype=torch.int32).reshape(1, 8)
         )
-        parent = create_forward_context({"parent": "metadata"}, runner.vllm_config)
+        parent = create_forward_context(
+            {"parent": "metadata"},
+            runner.vllm_config,
+            dp_metadata=(
+                DPMetadata(torch.full((4,), 8)) if ep_rank is not None else None
+            ),
+        )
         state.parent_context = parent
         plan = HcclParentPlan(
             "runner-parent",
             (0, 1),
             (
-                HcclStageLayout(0, (4,), (4,), 1),
-                HcclStageLayout(1, (1,), (4,), 1),
+                HcclStageLayout(0, (4, 4, 4, 3), (4,) * 4, 4)
+                if ep_rank is not None
+                else HcclStageLayout(0, (4,), (4,), 1),
+                HcclStageLayout(1, (4, 1, 0, 0), (4,) * 4, 4)
+                if ep_rank is not None
+                else HcclStageLayout(1, (1,), (4,), 1),
             ),
         )
         return SimpleNamespace(
@@ -255,7 +271,7 @@ def staged_case(runner_factory):
             producer=producer,
             prepared=prepared,
             parent=parent,
-            peer=StagedModelPeer(plan, fail_step=fail_step),
+            peer=StagedModelPeer(plan, role_rank=ep_rank or 0, fail_step=fail_step),
         )
 
     return build
@@ -289,6 +305,27 @@ def test_staged_run_consumes_parent_producer_and_returns_native_parent_outputs(
     assert output.shape == (8, 4)
     assert case.inputs["input_ids"].tolist() == list(range(8))
     assert case.peer.completed and not case.peer.terminal
+    assert [(layer, stage) for layer, stage, *_ in case.peer.messages] == [
+        (0, 0),
+        (0, 1),
+        (1, 0),
+        (1, 1),
+    ]
+
+
+def test_ep_u2_retains_parent_engram_with_a_padding_only_child(staged_case):
+    case = staged_case(ep_rank=3)
+    reference = make_staged_model(capacity=8, engram=True)
+    with override_forward_context(case.parent):
+        expected = reference(**case.inputs, **case.producer)
+        output, _ = case.runner.run_staged(
+            case.model, case.inputs, case.prepared, case.peer
+        )
+        assert get_forward_context() is case.parent
+
+    torch.testing.assert_close(output[:3], expected[0][:3], rtol=0, atol=0)
+    assert output.shape == (8, 4)
+    assert case.peer.completed
     assert [(layer, stage) for layer, stage, *_ in case.peer.messages] == [
         (0, 0),
         (0, 1),
@@ -365,7 +402,14 @@ def scoped_factory_case(monkeypatch, staged_case):
     case.runner.vllm_config.compilation_config.cudagraph_mode = CUDAGraphMode.NONE
     case.runner.parallel_config.rank = 0
     case.peer.negotiated_capabilities = SimpleNamespace(
-        native_tp_size=1, attention_size=1, max_stages=2
+        native_tp_size=1,
+        attention_size=1,
+        ffn_size=1,
+        max_stages=2,
+        expert_parallel=False,
+        eager_pipeline_version=0,
+        graph_execution_version=0,
+        graph_exchange_order="stage_serial",
     )
 
     # This test owns factory selection, not device allocation. The separately
@@ -406,6 +450,17 @@ def test_explicit_factory_binds_native_dp1_run_and_restores_both_native_aliases(
     assert case.peer.completed and not case.peer.terminal
     assert factory.model_runner.maybe_build_ubatch_runner is original_factory
     assert factory.ubatch_utils.create_sm_control_context is original_sm
+
+
+def test_explicit_factory_admits_tp1_ep_u2_with_matching_dp_rank(scoped_factory_case):
+    case = scoped_factory_case
+    configure_hccl_ep(case.runner.vllm_config, dp_size=4, dp_rank=3)
+    case.peer.role_rank = 3
+    capabilities = case.peer.negotiated_capabilities
+    capabilities.expert_parallel = True
+    capabilities.attention_size = capabilities.ffn_size = 4
+    with factory.use_npu_ubatch_factory(case.owner, hccl_transport=case.peer):
+        assert isinstance(case.construct(), module.HcclV41UBatchRunner)
 
 
 @pytest.mark.parametrize(

@@ -14,6 +14,7 @@ primary_code_paths:
   - "afd_plugin/compat/npu/runtime.py"
   - "afd_plugin/compat/npu/runtime_config.py"
   - "afd_plugin/compat/npu/dspark_pd.py"
+  - "afd_plugin/compat/npu/pd_topology.py"
   - "afd_plugin/compat/npu/engram_history.py"
   - "afd_plugin/compat/npu/stream.py"
   - "afd_plugin/compat/npu/profiler_api.py"
@@ -89,6 +90,12 @@ checks the same leases before native Worker can release KV storage. Eager/U1 com
 tests do not qualify PD, device transfer or full-model DSpark. The first slice
 rejects P preemption and does not add recovery. Replace these seams when native
 V4.1 Mooncake exposes equivalent loaded-writer and request-lease callbacks.
+
+The [EP PD topology check](../../../afd_plugin/compat/npu/pd_topology.py)
+validates TP1, PP1, static local DP and the matching peer declaration before
+the producer or consumer starts. The MRV2 DP synchronization scope retains
+the native target and draft DP rendezvous for the admitted Mooncake D
+consumer during eager execution, capture and replay selection.
 
 The NPU current-stream scope keeps actual NPU stream selection and vLLM's
 existing thread-local current-stream cache aligned for side compute. It restores

@@ -31,8 +31,8 @@ if TYPE_CHECKING:
 class HcclV41FFNGraph:
     """Record layer-major receive/native MoE/send on the owning compute stream.
 
-    Native ``compute_ffn_output`` already owns shared experts and its TP
-    reduction. Its result is copied and padding rows are zeroed without any
+    Native ``compute_ffn_output`` owns shared experts and its TP/EP
+    communication. Its result is copied and padding rows are zeroed without any
     additional reduction. Every positive padded stage computes, including a
     zero-valid stage. A static zero-row stage records no wire operations.
     """
@@ -48,18 +48,22 @@ class HcclV41FFNGraph:
         diagnostics: HcclStageDiagnostics | None = None,
     ) -> None:
         parallel = parallel_config
+        ep = bank.capabilities.expert_parallel
         if (
             bank.role != "ffn"
-            or parallel.data_parallel_size != 1
+            or parallel.enable_expert_parallel != ep
+            or parallel.data_parallel_size != (bank.capabilities.ffn_size if ep else 1)
+            or parallel.data_parallel_rank != (bank.role_rank if ep else 0)
             or parallel.pipeline_parallel_size != 1
             or parallel.prefill_context_parallel_size != 1
             or parallel.decode_context_parallel_size != 1
             or parallel.use_sequence_parallel_moe
             or parallel.tensor_parallel_size != bank.native_tp_size
-            or parallel.rank != bank.role_rank
+            or parallel.rank != (0 if ep else bank.role_rank)
         ):
             raise ValueError(
-                "V4.1 FFN graph requires paired native TP, DP1/PP1/CP1 and non-SP"
+                "V4.1 FFN graph requires paired native TP or TP1/DP/EP, "
+                "PP1/CP1 and non-SP"
             )
         if model.get_experts_layer_indices() != bank.layer_indices or len(
             contexts

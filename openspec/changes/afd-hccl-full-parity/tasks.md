@@ -1901,7 +1901,14 @@ producer/stage、图及 history 缺口按中优先级审查实施。阶段 U1 �
 - [x] EP4：提供原生 TP1/DP4/EP4 对照与 A4/F4 验证入口、配置检查及指导。
 - [x] EP5：通过 CPU 协议、角色/配置/执行边界回归、语法及上游只读保护并归档证据。
 - [ ] EP6：A5 原始权重 EP 载权、连续请求、原生数值对照、空闲 DP 与正常退出验收（用户执行）。
-- [ ] EP7：EP 与 Graph/U2/DSpark/PD 组合实现及设备验收；首版显式拒绝，不借用 EP-off 证据。
+- [ ] EP7：EP 与 Graph/U2/DSpark/PD 的组合实现及设备验收。
+  - [x] EP7.1：接通 EP + Graph/U1 的全局桶、异长 eager 回退和原生 A/F DP context，完成配置及 CPU 回归。
+  - [ ] EP7.2：基线通过后在 A5 对照 EP + Graph/U1 的捕获、全 rank 回放、空闲 rank 回退、取消后请求与正常退出。
+  - [ ] EP7.3：A5 验证 EP + DSpark N=1/2 的 target/draft DP 同步、实际采样及提交 history。
+  - [ ] EP7.4：A5 验证 EP + PD 的跨 DP rank KV/index/history 交接，覆盖 DSpark N=0/1/2。
+  - [ ] EP7.5：A5 验证串行 eager/Graph U2 的双 stage 与 Engram producer，覆盖独立 AFD 和 PD 的 D。
+  - [x] EP7.6：接通串行 eager/Graph U2、DSpark N=1/2 和单节点 PD 的代码及验收入口。
+  - [ ] EP7.7：在锁定原生依赖下复跑最终源码的 CPU 合约与完整 EngineArgs 矩阵。
 
 架构与冻结证据见 [EP CPU 审查](evidence/ep-cpu-20261120/README.md)：1859 项 CPU
 合约、79 项本地诊断入口及原生/A/F 三组真实 EP EngineArgs 通过，无 NPU 初始化。
@@ -1911,3 +1918,17 @@ EP1–EP5 只表示代码/CPU/指导完成；EP6/EP7 和原有完整迁移验收
 排除其他未提交实现/测试后，1761 项 CPU、79 项本地诊断入口及三组真实 EngineArgs
 仍通过，见同目录 `delivery-validation.json`。原始工作区及 1859 项开发结果保留；
 此复核不新增 NPU 验收或改变 EP6/EP7 状态。
+
+用户要求按上述顺序继续。组合源码开发和 CPU 回归与 EP6 的 A5 基线验证并行，
+设备验收从 EP6 开始，随后按组合分别执行。
+
+EP7.1 的 [冻结证据](evidence/ep-graph-u1-20261120/README.md) 包含 1977 项 CPU 回归、
+38 项本地诊断入口测试、43 项子测试和五组真实 EngineArgs。A5 Graph/U1 入口按 DP rank
+定向发送请求，设备验证仍由 EP7.2 记录。
+
+EP7.6 的 DSpark 接入检查了锁定 Ascend `7e37e29a` 的
+`worker/v2/spec_decode/dspark/speculator.py::propose` 在普通分片草稿路径复用 target 的
+`dp_sync`，profiling dummy 则清空同步状态。A 保留原生 proposal 和 history 退休，F
+保留 target 验证与 draft 隔离。P 使用 eager/U1，D 可运行 eager/Graph U1/U2。
+详细的角色与性能审查见 [设计](design.md#ep--串行-u2dspark-和-pd)，
+A5 命令与验收条件见 [TP1/DP4/EP4 指南](../../../docs/npu/DSV41_A5_EP_VALIDATION_ZH.md)。

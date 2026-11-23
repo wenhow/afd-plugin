@@ -102,12 +102,12 @@ def make_plan(
 ) -> dict:
     if mode not in MODES or spec_tokens not in (0, 1, 2):
         raise ValueError("unsupported full-checkpoint qualification mode")
-    if native_control and (mode != "eager-u1" or spec_tokens or pd_role):
-        raise ValueError("native control requires eager U1 without DSpark/PD")
-    if expert_parallel and (
-        mode != "eager-u1" or spec_tokens or pd_role or trace_native_prefill
+    if native_control and (
+        mode != "eager-u1" or (spec_tokens and not expert_parallel) or pd_role
     ):
-        raise ValueError("EP qualification requires eager U1 without DSpark/PD/trace")
+        raise ValueError("native control requires eager U1 without PD")
+    if expert_parallel and trace_native_prefill:
+        raise ValueError("EP qualification requires native prefill trace off")
     if trace_native_prefill and not (native_control and repeatability):
         raise ValueError("native prefill trace requires native repeatability")
     if pd_role == "producer" and mode != "eager-u1":
@@ -142,6 +142,7 @@ def make_plan(
         raise ValueError("require four distinct devices per role and valid ports")
     port_options = ("--port", "--master-port", "--data-parallel-rpc-port")
     graph, u2 = mode.startswith("graph"), mode.endswith("u2")
+    stream_overlap = stream_overlap and not (expert_parallel and u2)
     width = spec_tokens + 1
     for role, settings in plan["roles"].items():
         argv, env = settings["argv"], settings["environment"]
@@ -231,6 +232,10 @@ def make_plan(
                 "cross_layer_v1"
             )
         if pd_role:
+            if role == "attention":
+                # Native Mooncake binds and advertises get_ip(), which reads
+                # VLLM_HOST_IP independently of the KVTransferConfig field.
+                env["VLLM_HOST_IP"] = kv_ip
             set_option(
                 argv,
                 "--kv-transfer-config",
@@ -244,8 +249,12 @@ def make_plan(
                         "kv_ip": kv_ip,
                         "kv_port": DEFAULT_KV_PORT + port_offset,
                         "kv_connector_extra_config": {
-                            "prefill": {"tp_size": 4, "dp_size": 1, "pp_size": 1},
-                            "decode": {"tp_size": 4, "dp_size": 1, "pp_size": 1},
+                            side: {
+                                "tp_size": 1 if expert_parallel else 4,
+                                "dp_size": 4 if expert_parallel else 1,
+                                "pp_size": 1,
+                            }
+                            for side in ("prefill", "decode")
                         },
                     }
                 ),
@@ -285,7 +294,13 @@ def make_plan(
         ports=[port + port_offset for port in plan["ports"]],
         full_model_qualification=False,
         stream_overlap=stream_overlap,
-        request_suite="repeatability" if repeatability else "matrix",
+        request_suite=(
+            "repeatability"
+            if repeatability
+            else "ep-rank-matrix-v2"
+            if expert_parallel
+            else "matrix"
+        ),
     )
     if trace_native_prefill:
         plan["trace_native_prefill"] = True
@@ -312,7 +327,13 @@ def make_plan(
     return plan
 
 
-def prefill_request(directory: Path, url: str, payload: dict) -> dict:
+def prefill_request(
+    directory: Path,
+    url: str,
+    payload: dict,
+    *,
+    data_parallel_rank: int | None = None,
+) -> dict:
     request = {
         **payload,
         "max_tokens": 1,
@@ -320,11 +341,17 @@ def prefill_request(directory: Path, url: str, payload: dict) -> dict:
         "kv_transfer_params": {"do_remote_decode": True},
     }
     launch.save_json(directory / "prefill-request.json", request)
+    headers = {"Content-Type": "application/json"}
+    if data_parallel_rank is not None:
+        headers["X-data-parallel-rank"] = str(data_parallel_rank)
+        launch.save_json(
+            directory / "prefill-routing.json", {"dp_rank": data_parallel_rank}
+        )
     with launch.open_service_request(
         urllib.request.Request(
             url.rstrip("/") + "/v1/completions",
             data=json.dumps(request).encode(),
-            headers={"Content-Type": "application/json"},
+            headers=headers,
         ),
         timeout=launch.REQUEST_TIMEOUT_SECONDS,
     ) as reply:
@@ -343,8 +370,9 @@ def run_requests(
     spec_tokens: int,
     prefill_url: str | None,
     api_url: str = f"http://127.0.0.1:{launch.API_PORT}",
+    data_parallel_size: int = 1,
 ) -> dict:
-    def one(index: int, prompt: str) -> dict:
+    def one(index: int, prompt: str, dp_rank: int | None = None) -> dict:
         target = directory / f"request-{index:02d}"
         target.mkdir()
         payload = {
@@ -359,11 +387,21 @@ def run_requests(
             "stream": False,
         }
         if prefill_url:
+            # Rotate P relative to D to exercise per-replica KV ownership.
+            prefill_rank = (
+                (dp_rank + 1) % data_parallel_size if dp_rank is not None else None
+            )
             payload["kv_transfer_params"] = prefill_request(
-                target, prefill_url, payload
+                target, prefill_url, payload, data_parallel_rank=prefill_rank
             )
         baseline = reference / target.name / "response.json" if reference else None
-        result = launch.send_request(target, baseline, payload=payload, api_url=api_url)
+        result = launch.send_request(
+            target,
+            baseline,
+            payload=payload,
+            api_url=api_url,
+            data_parallel_rank=dp_rank,
+        )
         if spec_tokens:
             result["dspark"] = validate_response(
                 json.loads((target / "response.json").read_bytes()),
@@ -373,19 +411,28 @@ def run_requests(
         return result
 
     results = []
-    # Concurrent short requests exercise U2; subsequent waves reuse slots.
-    # The final long prompt exercises chunked prefill and single-request U1
-    # fallback. Each reference uses the same wave/prompt in the TP4 control.
-    for wave in range(2):
-        with ThreadPoolExecutor(max_workers=2) as pool:
+    directed = data_parallel_size > 1
+    request_index = 0
+    # EP waves use one then two requests per replica to exercise U1 and U2.
+    # Repeating the same prompt across ranks keeps decode lengths comparable.
+    for wave, prompt in enumerate(PROMPTS[:2]):
+        wave_size = data_parallel_size * (wave + 1) if directed else 2
+        prompts = (prompt,) * wave_size if directed else PROMPTS[:2]
+        with ThreadPoolExecutor(max_workers=wave_size) as pool:
             futures = [
-                pool.submit(one, wave * 2 + i, prompt)
-                for i, prompt in enumerate(PROMPTS[:2])
+                pool.submit(
+                    one,
+                    request_index + i,
+                    text,
+                    i % data_parallel_size if directed else None,
+                )
+                for i, text in enumerate(prompts)
             ]
             results.extend(future.result() for future in futures)
+        request_index += wave_size
         if wave == 0:
             cancel_stream(directory, prefill_url=prefill_url, api_url=api_url)
-    results.append(one(4, PROMPTS[2]))
+    results.append(one(request_index, PROMPTS[2], 1 if directed else None))
     report = {"passed": True, "requests": results, "hardware_acceptance": False}
     if spec_tokens:
         metrics = [result["dspark"] for result in results]
@@ -476,7 +523,7 @@ def main() -> int:
     parser.add_argument(
         "--expert-parallel",
         action="store_true",
-        help="qualify TP1/DP4/EP4 eager U1 on both roles",
+        help="qualify TP1/DP4/EP4 on both roles with serial U2 exchange",
     )
     parser.add_argument("--pd-role", choices=("producer", "consumer"))
     parser.add_argument("--engine-id")
@@ -599,6 +646,10 @@ def main() -> int:
             or reference_plan.get("native_tp_size", 4) != plan["native_tp_size"]
             or reference_plan.get("native_dp_size", 1) != plan["native_dp_size"]
             or reference_plan.get("expert_parallel", False) != plan["expert_parallel"]
+            or (
+                plan["expert_parallel"]
+                and reference_plan.get("spec_tokens", 0) != plan["spec_tokens"]
+            )
         ):
             raise ValueError(
                 f"native reference {args.reference_run} is unusable: "
@@ -646,6 +697,7 @@ def main() -> int:
             spec_tokens=args.spec_tokens,
             prefill_url=args.prefill_url,
             api_url=plan["api_url"],
+            data_parallel_size=plan["native_dp_size"],
         )
     previous_handler = signal.signal(signal.SIGTERM, launch.handle_termination)
     try:

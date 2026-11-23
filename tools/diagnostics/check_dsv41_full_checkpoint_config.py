@@ -63,7 +63,16 @@ def check_matrix(model: Path, output: Path, *, expert_parallel: bool = False) ->
             + [("eager-u1", steps, "producer") for steps in (0, 1, 2)]
         )
         if expert_parallel:
-            scenarios = [("native", 0, None), ("eager-u1", 0, None)]
+            scenarios = [
+                *[("native", steps, None) for steps in (0, 1, 2)],
+                *[
+                    (mode, steps, pd_role)
+                    for mode in launch.MODES
+                    for steps in (0, 1, 2)
+                    for pd_role in (None, "consumer")
+                ],
+                *[("eager-u1", steps, "producer") for steps in (0, 1, 2)],
+            ]
         for mode, steps, pd_role in scenarios:
             plan = launch.make_plan(
                 model,

@@ -33,7 +33,11 @@ from afd_plugin.connectors.npu.hccl_config import (
     uses_staged_hccl_runtime,
     validate_staged_hccl_binding,
 )
-from afd_plugin.connectors.npu.hccl_overlap import HcclOverlapSettings
+from afd_plugin.connectors.npu.hccl_overlap import (
+    FFN_COMPUTE_SYNC_DIAGNOSTICS_ENV,
+    STAGE_DIAGNOSTICS_ENV,
+    HcclOverlapSettings,
+)
 from afd_plugin.connectors.npu.p2p_hccl import P2pHcclAFDConnector
 from afd_plugin.distributed.hccl import HcclStageLayout
 from afd_plugin.distributed.hccl_plan import (
@@ -84,6 +88,49 @@ def test_ep_factory_binds_global_world_rank_to_dp_role_and_local_device(
     assert transport.world_rank == (4 + dp_rank if role == "attention" else dp_rank)
     assert transport.negotiated_capabilities.expert_parallel
     assert not connector.is_initialized and not transport.initialized
+
+
+@pytest.mark.parametrize("role", ["attention", "ffn"])
+@pytest.mark.parametrize("graph", [False, True])
+def test_ep_u2_normal_entry_uses_serial_settings_with_default_environment(
+    runtime, role, graph
+):
+    configure_hccl_ep(runtime)
+    runtime.additional_config["afd"]["role"] = role
+    runtime.parallel_config.num_ubatches = 2
+    runtime.parallel_config.enable_dbo = runtime.parallel_config.use_ubatching = True
+    runtime.model_config.enforce_eager = not graph
+    runtime.compilation_config.cudagraph_mode = (
+        CUDAGraphMode.FULL_DECODE_ONLY if graph else CUDAGraphMode.NONE
+    )
+    settings = HcclOverlapSettings.from_environment(
+        {STAGE_DIAGNOSTICS_ENV: "1", FFN_COMPUTE_SYNC_DIAGNOSTICS_ENV: "1"},
+        num_stages=2,
+    )
+    connector = adapter_module.create_npu_runtime_connector(
+        0,
+        0,
+        runtime,
+        parse_afd_config(runtime, expected_role=role),
+        overlap_settings=settings,
+    )
+
+    caps = connector.transport.capabilities
+    assert caps.expert_parallel
+    assert caps.max_stages == 2
+    assert caps.graph_execution_version == int(graph)
+    assert caps.eager_pipeline_version == 0
+    assert caps.graph_exchange_order == "stage_serial"
+    assert connector.overlap_settings == HcclOverlapSettings(
+        eager_u2_stream_overlap=False,
+        graph_u2_compute_overlap=False,
+        graph_u2_hybrid_dag=False,
+        graph_u2_attention_three_stream=False,
+        graph_u2_ffn_recv_stream=False,
+        graph_u2_ffn_cross_layer=False,
+        stage_diagnostics=True,
+        ffn_compute_sync_diagnostics=True,
+    )
 
 
 @pytest.mark.parametrize("role", ["attention", "ffn"])

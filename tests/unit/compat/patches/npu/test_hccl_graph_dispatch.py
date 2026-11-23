@@ -97,6 +97,66 @@ def test_selector_preserves_native_returned_dp_sync(owner, dispatch, monkeypatch
     assert sync is native_sync
 
 
+def test_ep_fallback_returns_native_eager_dp_counts(owner, dispatch, monkeypatch):
+    owner.parallel_config.data_parallel_size = 4
+    owner.parallel_config.data_parallel_rank = 1
+    owner.parallel_config.enable_expert_parallel = True
+    full = BatchExecutionDescriptor(CUDAGraphMode.FULL, 8, 8, uniform_token_count=1)
+    eager = BatchExecutionDescriptor(CUDAGraphMode.NONE, 4, 4)
+    full_sync = DPSyncState(torch.tensor([8, 8, 8, 8]), 1, False, 8)
+    eager_sync = DPSyncState(torch.tensor([1, 4, 1, 3]), 1, True, 4)
+
+    def native(*args, **kwargs):
+        return (eager, eager_sync) if kwargs["need_eager"] else (full, full_sync)
+
+    monkeypatch.setattr(model_runner, "dispatch_cg_and_sync_dp", native)
+    with use_hccl_graph_dispatch(owner, lambda state, args, desc: eager):
+        owner.gather_batch_req_state(None, False)
+        selected, sync = dispatch(dp_size=4, dp_rank=1)
+
+    assert selected == eager
+    assert sync is eager_sync
+    assert sync.num_tokens_across_dp.tolist() == [1, 4, 1, 3]
+
+
+@pytest.mark.parametrize("initial_mode", [CUDAGraphMode.FULL, CUDAGraphMode.NONE])
+def test_ep_u2_fallback_synchronizes_after_peer_agreement_even_on_a_local_miss(
+    owner, dispatch, monkeypatch, initial_mode
+):
+    owner.parallel_config.data_parallel_size = 4
+    owner.parallel_config.data_parallel_rank = 1
+    owner.parallel_config.enable_expert_parallel = True
+    owner.parallel_config.use_ubatching = True
+    calls = []
+
+    def native(manager, *args, **kwargs):
+        calls.append("graph_lookup" if manager is not None else "eager_sync")
+        assert kwargs["allow_ubatching"]
+        rows = 8 if manager is not None else 6
+        mode = initial_mode if manager is not None else CUDAGraphMode.NONE
+        return (
+            BatchExecutionDescriptor(mode, rows, 4, num_ubatches=2),
+            DPSyncState(torch.full((4,), rows), 1, mode == CUDAGraphMode.NONE, 4),
+        )
+
+    def select(state, arguments, descriptor):
+        assert descriptor.cg_mode == initial_mode
+        calls.append("peer_agreement")
+        assert arguments.resolve_eager is not None
+        return arguments.resolve_eager()
+
+    monkeypatch.setattr(model_runner, "dispatch_cg_and_sync_dp", native)
+    with use_hccl_graph_dispatch(owner, select):
+        owner.gather_batch_req_state(None, False)
+        descriptor, sync = dispatch(dp_size=4, dp_rank=1, allow_ubatching=True)
+
+    assert calls == ["graph_lookup", "peer_agreement", "eager_sync"]
+    assert descriptor == BatchExecutionDescriptor(
+        CUDAGraphMode.NONE, 6, 4, num_ubatches=2
+    )
+    assert sync.num_tokens_across_dp.tolist() == [6, 6, 6, 6]
+
+
 @pytest.mark.parametrize("num_tokens,num_reqs", [(0, 0), (8, 8)])
 def test_no_state_still_selects_with_native_eager_descriptor(
     owner, dispatch, num_tokens, num_reqs

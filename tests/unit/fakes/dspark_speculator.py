@@ -298,6 +298,7 @@ def make_dspark_proposal_case(
     fail_backbone=False,
     num_reqs=DSPARK_CPU_REQUESTS,
     reverse_requests=False,
+    max_num_reqs=None,
 ):
     """Build a native DSpark instance without its device/weight constructor.
 
@@ -307,8 +308,9 @@ def make_dspark_proposal_case(
     """
     n = num_speculative_tokens
     width = n if sample_from_anchor else n + 1
-    max_tokens = num_reqs * (n + 1)
-    target = make_ascend_decode_batch(max_tokens, target_query_len=n + 1)
+    max_num_reqs = num_reqs if max_num_reqs is None else max_num_reqs
+    max_tokens = max_num_reqs * (n + 1)
+    target = make_ascend_decode_batch(num_reqs * (n + 1), target_query_len=n + 1)
     target.is_dummy = False
     target.is_prefilling_np.fill(False)
     if reverse_requests:
@@ -329,7 +331,7 @@ def make_dspark_proposal_case(
         draft,
         num_steps=n,
         query_width=width,
-        max_num_reqs=num_reqs,
+        max_num_reqs=max_num_reqs,
         max_num_tokens=max_tokens,
         max_model_len=DSPARK_CPU_MAX_MODEL_LEN,
         hidden_size=DSPARK_CPU_HIDDEN_SIZE,
@@ -347,7 +349,7 @@ def make_dspark_proposal_case(
         slot_mappings=torch.full((1, max_tokens), -1, dtype=torch.int64),
         # Native prepare indexes already-gathered block tables by batch row,
         # whereas last_sampled/seeds use the request-state idx_mapping.
-        input_block_tables=[torch.arange(1, num_reqs + 1)[:, None].expand(-1, 2)],
+        input_block_tables=[torch.arange(1, max_num_reqs + 1)[:, None].expand(-1, 2)],
         kernel_block_sizes=[DSPARK_CPU_BLOCK_SIZE],
         cp_rank=0,
         cp_size=1,

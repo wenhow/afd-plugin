@@ -8,6 +8,7 @@ from copy import copy
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
+from afd_plugin.compat.npu.pd_topology import validate_ep_pd_topology
 from afd_plugin.config import (
     AFD_ASYNC_CONNECTOR,
     HCCL_P2P_CONNECTOR,
@@ -21,6 +22,7 @@ if TYPE_CHECKING:
 FLASHINFER_ALL2ALLV_BACKEND = "flashinfer_all2allv"
 HCCL_NATIVE_PD_CONNECTOR = "MooncakeHybridConnector"
 HCCL_ATTESTED_PD_MODULE = "afd_plugin.compat.npu.kv_layout_connector"
+V41_EP_DSPARK_STEPS = (1, 2)
 DEEPSEEK_V2_MODEL_TYPES = frozenset(
     ("deepseek", "deepseek_v2", "deepseek_v3", "deepseek_v32", "glm_moe_dsa")
 )
@@ -136,6 +138,26 @@ def validate_deepseek_v41_speculation(vllm_config: VllmConfig) -> None:
     if speculative.rejection_sample_method == "synthetic":
         raise ValueError("V4.1 HCCL DSpark requires real acceptance/rejection")
     parallel = vllm_config.parallel_config
+    ep = (
+        parallel.enable_expert_parallel
+        and parse_afd_config(vllm_config).connector == HCCL_P2P_CONNECTOR
+    )
+    if ep and (
+        speculative.enforce_eager is not True
+        or speculative.enable_adaptive_verification
+        or type(speculative.num_speculative_tokens) is not int
+        or speculative.num_speculative_tokens not in V41_EP_DSPARK_STEPS
+        or parallel.tensor_parallel_size != 1
+        or (
+            parallel.num_ubatches != 2
+            if parallel.use_ubatching
+            else parallel.num_ubatches not in (0, 1) or parallel.enable_dbo
+        )
+    ):
+        raise ValueError(
+            "V4.1 EP DSpark requires TP1 with U1 or U2 and an eager N=1/2 draft "
+            "with adaptive verification off"
+        )
     if speculative.enable_adaptive_verification and (
         parallel.enable_dbo or parallel.use_ubatching
     ):
@@ -164,6 +186,15 @@ def validate_deepseek_v41_speculation(vllm_config: VllmConfig) -> None:
         or draft_text.num_experts_per_tok != target.dspark_num_experts_per_tok
     ):
         raise ValueError("V4.1 HCCL DSpark requires native checkpoint draft metadata")
+    if ep:
+        # The pinned native DSpark loader derives its runtime ParallelConfig
+        # from the target, so the A-local draft uses the same expert world.
+        ep_size = parallel.data_parallel_size
+        if any(
+            type(count) is not int or count < ep_size or count % ep_size
+            for count in (target.n_routed_experts, draft_text.n_routed_experts)
+        ):
+            raise ValueError("V4.1 EP DSpark requires evenly sharded expert counts")
 
 
 def validate_deepseek_v41_pd(vllm_config: VllmConfig) -> None:
@@ -283,14 +314,25 @@ def validate_deepseek_v41_pd(vllm_config: VllmConfig) -> None:
     ):
         raise ValueError("V4.1 HCCL PD requires sparse KV offload disabled")
     parallel = vllm_config.parallel_config
+    expected_dp = (
+        validate_ep_pd_topology(
+            vllm_config, transfer, attested_module=HCCL_ATTESTED_PD_MODULE
+        )
+        if parallel.enable_expert_parallel
+        else 1
+    )
     for name, size in (
         ("pipeline_parallel_size", parallel.pipeline_parallel_size),
-        ("data_parallel_size", parallel.data_parallel_size),
         ("prefill_context_parallel_size", parallel.prefill_context_parallel_size),
         ("decode_context_parallel_size", parallel.decode_context_parallel_size),
     ):
         if type(size) is not int or size != 1:
             raise ValueError(f"V4.1 HCCL PD requires {name}=1")
+    if (
+        type(parallel.data_parallel_size) is not int
+        or parallel.data_parallel_size != expected_dp
+    ):
+        raise ValueError(f"V4.1 HCCL PD requires data_parallel_size={expected_dp}")
     tp_size = parallel.tensor_parallel_size
     if type(tp_size) is not int or tp_size <= 0:
         raise ValueError("V4.1 HCCL PD requires a positive native TP size")
@@ -302,12 +344,18 @@ def validate_deepseek_v41_pd(vllm_config: VllmConfig) -> None:
             type(layout.get("tp_size")) is not int
             or layout.get("tp_size") != tp_size
             or type(layout.get("dp_size")) is not int
-            or layout.get("dp_size") != 1
+            or layout.get("dp_size") != expected_dp
             or type(layout.get("pp_size", 1)) is not int
             or layout.get("pp_size", 1) != 1
         ):
+            dp_requirement = (
+                "DP matching local EP with PP=1"
+                if parallel.enable_expert_parallel
+                else "DP/PP=1"
+            )
             raise ValueError(
-                "V4.1 HCCL PD requires configured equal P/D native TP and DP/PP=1"
+                "V4.1 HCCL PD requires configured equal P/D native TP and "
+                + dp_requirement
             )
 
 
@@ -322,15 +370,6 @@ def get_npu_ffn_config(vllm_config: VllmConfig) -> VllmConfig:
     if not is_deepseek_v41_model(vllm_config):
         return vllm_config
     afd_config = parse_afd_config(vllm_config, expected_role="ffn")
-    if (
-        afd_config.connector == HCCL_P2P_CONNECTOR
-        and vllm_config.parallel_config.enable_expert_parallel
-        and (
-            vllm_config.speculative_config is not None
-            or vllm_config.kv_transfer_config is not None
-        )
-    ):
-        raise ValueError("V4.1 HCCL EP requires DSpark/PD off before FFN isolation")
     validate_deepseek_v41_speculation(vllm_config)
     if afd_config.connector == HCCL_P2P_CONNECTOR:
         # Validate the original target before removing its A-owned fields.

@@ -35,6 +35,7 @@ class StageGraphEndpoint:
 def make_graph_stage_plan(bank, *, valid=None, transaction_id="stage-bank-1"):
     valid = bank.stage_rows if valid is None else valid
     tp = bank.native_tp_size
+    size = bank.capabilities.ffn_size
     decision = HcclGraphDecision(
         transaction_id, "replay", "target", bank.key, bank.stage_rows, "requested"
     )
@@ -42,7 +43,7 @@ def make_graph_stage_plan(bank, *, valid=None, transaction_id="stage-bank-1"):
         transaction_id,
         bank.layer_indices,
         tuple(
-            HcclStageLayout(index, (count,) * tp, (rows,) * tp, tp, tp)
+            HcclStageLayout(index, (count,) * size, (rows,) * size, size, tp)
             for index, (count, rows) in enumerate(
                 zip(valid, bank.stage_rows, strict=True)
             )
@@ -63,6 +64,7 @@ def make_graph_stage_bank(
     endpoint_factory=None,
     exchange_order="stage_serial",
     target_query_len=1,
+    expert_parallel_size=None,
 ):
     key = make_graph_key(rows=rows, target_query_len=target_query_len)
     capabilities = HcclPlanCapabilities(
@@ -70,18 +72,22 @@ def make_graph_stage_bank(
         128,
         sum(rows),
         layers,
+        expert_parallel_size or native_tp_size,
+        expert_parallel_size or native_tp_size,
         native_tp_size,
-        native_tp_size,
-        native_tp_size,
+        max_stages=1 if expert_parallel_size else 2,
         local_counts_version=1,
         graph_execution_version=1,
         graph_exchange_order=exchange_order,
         target_query_len=target_query_len,
+        expert_parallel=expert_parallel_size is not None,
     )
     exchanges = tuple(
         HcclGraphExchange(
             StageGraphEndpoint(
-                role=role, role_rank=role_rank, native_tp_size=native_tp_size
+                role=role,
+                role_rank=role_rank,
+                native_tp_size=expert_parallel_size or native_tp_size,
             )
             if endpoint_factory is None
             else endpoint_factory(index),

@@ -160,6 +160,7 @@ class HcclV41GraphEager:
                     eager_hccl_v41_geometry(native_descriptor),
                     mode=mode,
                     transaction_id=self._transaction_id(),
+                    resolve_eager=arguments.resolve_eager,
                 )
             else:
                 reservation = self.control.reserve_batch(
@@ -171,6 +172,8 @@ class HcclV41GraphEager:
                     num_active_loras=arguments.num_active_loras,
                     transaction_id=self._transaction_id(),
                     mode=mode,
+                    native_descriptor=native_descriptor,
+                    resolve_eager=arguments.resolve_eager,
                 )
             if reservation is None:
                 raise RuntimeError("pre-KV graph session stopped before preparation")

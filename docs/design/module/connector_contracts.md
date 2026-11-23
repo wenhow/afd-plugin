@@ -145,13 +145,16 @@ connector factory retains v2/U1. The backend-local runtime selector chooses
 [`HcclStagedAFDConnector`](../../../afd_plugin/connectors/npu/hccl_staged.py) for
 V4.1 HCCL with eager U2 or native Graph U1/U2, then A/F bind its single
 transport before initialization. Eager default U1 and DSpark/U1 retain v2.
-TP1/DP/EP eager U1 also selects v3, with a peer-agreed `expert_parallel=true`
-capability and `max_stages=1`. It admits symmetric A/F roles only; each native
+TP1/DP/EP also selects v3 for eager and Graph U1/U2, with a peer-agreed
+`expert_parallel=true` capability. It admits symmetric A/F roles. Each native
 DP rank maps to one AFD role rank while engine-local `parallel_config.rank`
 remains zero. EP peers may report different token counts, including zero valid
 tokens; all F ranks derive the same padded DP count vector from the accepted
 parent. EP-off HELLO bytes and the existing paired-native-TP restriction remain.
-EP Graph/U2/DSpark/PD combinations remain rejected pending integration.
+For EP Graph U1/U2, capture and replay reserve common static stage buckets.
+Runtime graph queries can defer eager rows to the subsequent local count
+reports, including when Attention0 is idle. EP U2 runs stages serially.
+DSpark and PD retain the same target-only A/F payload.
 Graph uses strict FULL_DECODE_ONLY admission and retains the original FFN
 target width before draft isolation. Full-model qualification and failed-device
 recovery remain separate from software owner assembly.

@@ -50,17 +50,12 @@ class HcclGraphStageBank:
         if (
             capabilities.graph_execution_version != 1
             or capabilities.local_counts_version != 1
-            or not capabilities.attention_size
-            == capabilities.ffn_size
-            == capabilities.native_tp_size
         ):
-            raise ValueError(
-                "graph stage bank requires graph/counts v1 paired native TP"
-            )
+            raise ValueError("graph stage bank requires graph/counts v1")
         if (
             role not in ("attention", "ffn")
             or type(role_rank) is not int
-            or not 0 <= role_rank < capabilities.native_tp_size
+            or not 0 <= role_rank < capabilities.attention_size
         ):
             raise ValueError("graph stage bank requires a valid paired role/rank")
         if (

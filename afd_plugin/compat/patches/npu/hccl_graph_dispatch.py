@@ -45,6 +45,7 @@ class HcclGraphDispatchArguments:
     allow_ubatching: bool
     uniform_decode: bool
     dp_sync: DPSyncState | None
+    resolve_eager: Callable[[], BatchExecutionDescriptor] | None = None
 
 
 HcclGraphDispatchSelector: TypeAlias = Callable[
@@ -96,6 +97,9 @@ class _HcclGraphDispatchScope:
     # Reason: all-peer graph/fallback agreement must precede native Engram and
     # metadata preparation. Functionality: retain native dispatch/DPSync and
     # let the controller return the final descriptor from the real CPU state.
+    # EP re-dispatches through native DP with no graph manager after all A/F
+    # peers select eager. In U2 even initial FULL/NONE can differ by rank, so
+    # every A rank participates in the second collective before input writes.
     # Signature matches all 13 native parameters and the return annotation.
     # Delegation exception: retain the selected imported dispatcher, including
     # any existing backend scope. Copying its body would bypass that selection
@@ -131,7 +135,17 @@ class _HcclGraphDispatchScope:
             raise ValueError(
                 "native graph dispatch uses another runner's parallel config"
             )
-        if dp_size != 1 or dp_rank != 0:
+        parallel = self.owner.parallel_config
+        ep = parallel.enable_expert_parallel
+        if ep:
+            if (
+                parallel.tensor_parallel_size != 1
+                or dp_size != parallel.data_parallel_size
+                or dp_rank != parallel.data_parallel_rank
+                or dp_sync is not None
+            ):
+                raise ValueError("native EP graph dispatch requires matching TP1/DP")
+        elif dp_size != 1 or dp_rank != 0:
             raise ValueError("native graph dispatch scope requires DP1 rank zero")
         if (
             uniform_token_count != self.uniform_token_count
@@ -155,6 +169,55 @@ class _HcclGraphDispatchScope:
             or dp_sync is not None
             and dp_sync.eager
         )
+        # A manager-driven native U2 lookup can select FULL even when the
+        # local requested mode was eager. Suppress the vote for that rank in
+        # the graph lookup. If all peers choose fallback, retain the real vote
+        # for the second search without a graph manager.
+        graph_ubatching = allow_ubatching and not (ep and effective_eager)
+        # ### PATCH END: decide before native input/Engram preparation
+        native_descriptor, native_sync = self.original_dispatch(
+            cudagraph_manager,
+            num_reqs,
+            num_tokens,
+            uniform_token_count,
+            dp_size,
+            dp_rank,
+            max_query_len=max_query_len,
+            need_eager=effective_eager,
+            num_active_loras=num_active_loras,
+            parallel_config=parallel_config,
+            allow_ubatching=graph_ubatching,
+            uniform_decode=uniform_decode,
+            dp_sync=dp_sync,
+        )
+        # ### PATCH START: a committed controller decision owns the final mode
+        eager_result: tuple[BatchExecutionDescriptor, DPSyncState | None] | None = None
+
+        def resolve_eager() -> BatchExecutionDescriptor:
+            nonlocal eager_result
+            if eager_result is None:
+                if native_sync is not None and (
+                    not native_sync.eager
+                    or (parallel.use_ubatching and cudagraph_manager is not None)
+                ):
+                    eager_result = self.original_dispatch(
+                        None,
+                        num_reqs,
+                        num_tokens,
+                        uniform_token_count,
+                        dp_size,
+                        dp_rank,
+                        max_query_len=max_query_len,
+                        need_eager=True,
+                        num_active_loras=num_active_loras,
+                        parallel_config=parallel_config,
+                        allow_ubatching=graph_ubatching,
+                        uniform_decode=uniform_decode,
+                    )
+                else:
+                    eager_result = native_descriptor, native_sync
+            return eager_result[0]
+
         arguments = HcclGraphDispatchArguments(
             cudagraph_manager,
             num_reqs,
@@ -169,29 +232,22 @@ class _HcclGraphDispatchScope:
             allow_ubatching,
             uniform_decode,
             dp_sync,
+            resolve_eager if ep else None,
         )
-        # ### PATCH END: decide before native input/Engram preparation
-        native_descriptor, native_sync = self.original_dispatch(
-            cudagraph_manager,
-            num_reqs,
-            num_tokens,
-            uniform_token_count,
-            dp_size,
-            dp_rank,
-            max_query_len=max_query_len,
-            need_eager=effective_eager,
-            num_active_loras=num_active_loras,
-            parallel_config=parallel_config,
-            allow_ubatching=allow_ubatching,
-            uniform_decode=uniform_decode,
-            dp_sync=dp_sync,
-        )
-        # ### PATCH START: a committed controller decision owns the final mode
         descriptor = self.select(self.batch_state, arguments, native_descriptor)
         if not isinstance(descriptor, BatchExecutionDescriptor):
             raise ValueError("graph selector must return a native execution descriptor")
         if effective_eager and descriptor.cg_mode != CUDAGraphMode.NONE:
             raise ValueError("forced-eager native dispatch cannot select a graph")
+        if ep:
+            if descriptor.cg_mode != CUDAGraphMode.NONE:
+                if descriptor != native_descriptor:
+                    raise ValueError("EP graph must retain the native DP descriptor")
+            else:
+                if resolve_eager() != descriptor:
+                    raise ValueError("EP fallback does not match native eager geometry")
+                assert eager_result is not None
+                native_sync = eager_result[1]
         # ### PATCH END: a committed controller decision owns the final mode
         return descriptor, native_sync
 

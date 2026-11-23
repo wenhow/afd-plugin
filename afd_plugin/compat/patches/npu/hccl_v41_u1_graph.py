@@ -12,7 +12,7 @@ from typing import TYPE_CHECKING, Any
 
 import torch
 from vllm.config import CUDAGraphMode, VllmConfig
-from vllm.forward_context import create_forward_context
+from vllm.forward_context import DPMetadata, create_forward_context
 from vllm.platforms import current_platform
 from vllm.v1.kv_cache_interface import KVCacheConfig
 from vllm.v1.worker.gpu.attn_utils import build_slot_mappings_by_layer
@@ -71,6 +71,8 @@ def use_hccl_v41_u1_preparation(
     # builders and Engram mode; copying it would bypass its backend behavior.
     # Keep native NONE/for_capture=True arguments unchanged during capture,
     # then retain FULL for the parent's later prepare_inputs selection.
+    # For EP, project the native FULL bucket into the same fixed-size DP
+    # vector as Ascend's ModelWithContext. The graph key binds those rows.
     # Remove when native preparation exposes its actual batch to the plugin.
     def prepare_attn(
         self,
@@ -115,10 +117,24 @@ def use_hccl_v41_u1_preparation(
             # ### PATCH START: retain FULL producer mode and one actual child
             if owner is not None:
                 self._cg_mode = CUDAGraphMode.FULL
+                parallel = scope.vllm_config.parallel_config
+                rows = input_batch.num_tokens_after_padding
+                dp_metadata = None
+                if parallel.enable_expert_parallel and parallel.data_parallel_size > 1:
+                    dp_metadata = DPMetadata.make(
+                        parallel,
+                        rows,
+                        torch.full(
+                            (parallel.data_parallel_size,),
+                            rows,
+                            dtype=torch.int32,
+                            device="cpu",
+                        ),
+                    )
                 context = create_forward_context(
                     metadata,
                     scope.vllm_config,
-                    dp_metadata=None,
+                    dp_metadata=dp_metadata,
                     cudagraph_runtime_mode=CUDAGraphMode.FULL,
                     slot_mapping=build_slot_mappings_by_layer(
                         slot_mappings, kv_cache_config
@@ -129,8 +145,8 @@ def use_hccl_v41_u1_preparation(
                     current_platform.set_additional_forward_context(
                         metadata,
                         scope.vllm_config,
-                        None,
-                        num_tokens=input_batch.num_tokens_after_padding,
+                        dp_metadata,
+                        num_tokens=rows,
                         cudagraph_runtime_mode=CUDAGraphMode.FULL,
                     )
                 )

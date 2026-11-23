@@ -191,6 +191,7 @@ class HcclV41GraphService:
             1 if runner.target_shape is None else runner.target_shape.target_query_len
         )
         caps.validate()
+        ep = caps.expert_parallel
         if (
             transport.role != "ffn"
             or caps != self._capabilities
@@ -225,19 +226,19 @@ class HcclV41GraphService:
             or target_query_len != caps.target_query_len
             or config.kv_transfer_config is not None
             or config.lora_config is not None
-            or parallel.data_parallel_size != 1
-            or parallel.data_parallel_rank != 0
+            or parallel.data_parallel_size != (caps.ffn_size if ep else 1)
+            or parallel.data_parallel_rank != (transport.role_rank if ep else 0)
             or parallel.pipeline_parallel_size != 1
             or parallel.prefill_context_parallel_size != 1
             or parallel.decode_context_parallel_size != 1
             or parallel.use_sequence_parallel_moe
             or config.compilation_config.pass_config.enable_sp
-            or parallel.enable_expert_parallel
+            or parallel.enable_expert_parallel != ep
             or parallel.enable_eplb
             or parallel.enable_elastic_ep
             or parallel.enable_fault_tolerance
             or parallel.tensor_parallel_size != caps.native_tp_size
-            or parallel.rank != transport.role_rank
+            or parallel.rank != (0 if ep else transport.role_rank)
             or runner.device != torch.device("npu", transport.local_device)
             or caps.hidden_size != text.hidden_size
             or caps.vocab_size != text.vocab_size
@@ -245,8 +246,9 @@ class HcclV41GraphService:
             or caps.max_tokens > config.scheduler_config.max_num_batched_tokens
         ):
             raise ValueError(
-                "FFN graph service requires its idle V4.1 paired-TP session, "
-                "native DP1/PP1/CP1 rank/device and isolated FFN model configuration"
+                "FFN graph service requires its idle V4.1 paired-TP session "
+                "or paired TP1/DP/EP session, with matching rank/device and "
+                "isolated FFN model configuration"
             )
 
     def _model(self) -> AFDDeepseekV41FFNForCausalLM:
@@ -410,7 +412,13 @@ class HcclV41GraphService:
                 afd_metadata=metadata,
                 model_instance=model,
                 num_tokens=rows,
-                num_tokens_across_dp=torch.tensor([rows], dtype=torch.int32),
+                num_tokens_across_dp=torch.tensor(
+                    plan.stages[index].ffn_padded_tokens
+                    if bank.capabilities.expert_parallel
+                    else (rows,),
+                    dtype=torch.int32,
+                    device="cpu",
+                ),
                 aclgraph_runtime_mode=CUDAGraphMode.FULL,
                 input_ids=ids,
             ) as context:

@@ -55,6 +55,21 @@ def _padded_tokens(value: tuple[int, ...]) -> None:
         _integer("padded_tokens", count)
 
 
+def _matches_local_geometry(
+    reserved_mode: str,
+    reserved_rows: tuple[int, ...] | None,
+    mode: str,
+    rows: tuple[int, ...],
+) -> bool:
+    if reserved_rows is not None:
+        return reserved_mode == mode and reserved_rows == rows
+    # The coordinator can be idle in an active native DP wave.
+    return 1 <= len(rows) <= MAX_HCCL_STAGES and (
+        reserved_mode == mode
+        or (reserved_mode in ("target", "dummy") and mode in ("target", "dummy"))
+    )
+
+
 @dataclass(frozen=True, slots=True)
 class HcclGraphStage:
     request_start: int
@@ -150,7 +165,9 @@ class HcclGraphCandidate:
     phase: str
     mode: str
     key: HcclGraphKey | None
-    eager_padded_tokens: tuple[int, ...]
+    # None reserves only the phase. EP peers report their actual local
+    # eager rows later, since native DP does not pad eager ranks to one size.
+    eager_padded_tokens: tuple[int, ...] | None
     capture_sequence_digest: str | None = None
 
     def __post_init__(self) -> None:
@@ -161,7 +178,10 @@ class HcclGraphCandidate:
             or self.mode not in GRAPH_MODES
         ):
             raise ValueError("unsupported graph phase or forward mode")
-        _padded_tokens(self.eager_padded_tokens)
+        if self.eager_padded_tokens is not None:
+            _padded_tokens(self.eager_padded_tokens)
+        elif self.phase not in ("eager", "replay") or self.mode == "warmup":
+            raise ValueError("rank-local eager counts require a runtime graph phase")
         if (self.phase == "eager") != (self.key is None):
             raise ValueError("only eager graph candidates omit the static key")
         if self.key is not None and not isinstance(self.key, HcclGraphKey):
@@ -191,6 +211,11 @@ class HcclGraphCandidate:
     def digest(self) -> str:
         return _digest(graph_candidate_payload(self))
 
+    def accepts_eager_geometry(self, mode: str, padded_tokens: tuple[int, ...]) -> bool:
+        return _matches_local_geometry(
+            self.mode, self.eager_padded_tokens, mode, padded_tokens
+        )
+
 
 @dataclass(frozen=True, slots=True)
 class HcclGraphReport:
@@ -210,7 +235,7 @@ class HcclGraphDecision:
     phase: str
     mode: str
     key: HcclGraphKey | None
-    padded_tokens: tuple[int, ...]
+    padded_tokens: tuple[int, ...] | None
     reason: str
 
     def __post_init__(self) -> None:
@@ -236,6 +261,11 @@ class HcclGraphDecision:
     @property
     def digest(self) -> str:
         return _digest(graph_decision_payload(self))
+
+    def accepts_local_geometry(self, mode: str, padded_tokens: tuple[int, ...]) -> bool:
+        return _matches_local_geometry(
+            self.mode, self.padded_tokens, mode, padded_tokens
+        )
 
 
 def decide_graph_execution(
@@ -286,7 +316,11 @@ def graph_candidate_payload(candidate: HcclGraphCandidate) -> dict[str, JsonValu
         "phase": candidate.phase,
         "mode": candidate.mode,
         "key": graph_key_payload(candidate.key) if candidate.key is not None else None,
-        "eager_padded_tokens": list(candidate.eager_padded_tokens),
+        "eager_padded_tokens": (
+            list(candidate.eager_padded_tokens)
+            if candidate.eager_padded_tokens is not None
+            else None
+        ),
     }
     if candidate.capture_sequence_digest is not None:
         payload["capture_sequence_digest"] = candidate.capture_sequence_digest
@@ -327,12 +361,16 @@ def graph_decision_payload(decision: HcclGraphDecision) -> dict[str, JsonValue]:
         "phase": decision.phase,
         "mode": decision.mode,
         "key": graph_key_payload(decision.key) if decision.key is not None else None,
-        "padded_tokens": list(decision.padded_tokens),
+        "padded_tokens": (
+            list(decision.padded_tokens) if decision.padded_tokens is not None else None
+        ),
         "reason": decision.reason,
     }
 
 
-def _decode_rows(value: JsonValue) -> tuple[int, ...]:
+def _decode_rows(value: JsonValue) -> tuple[int, ...] | None:
+    if value is None:
+        return None
     if not isinstance(value, list):
         raise ValueError("graph rows must be a JSON array")
     rows = tuple(_integer("graph rows", row) for row in value)

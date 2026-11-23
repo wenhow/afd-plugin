@@ -394,6 +394,26 @@ def test_eager_preview_rejects_retained_graph_padding(full_descriptor):
         )
 
 
+def test_ep_dispatch_preserves_uneven_eager_u2_native_dp_padding(parallel_config):
+    parallel_config.enable_expert_parallel = True
+    parallel_config.data_parallel_size = 4
+    native = BatchExecutionDescriptor(CUDAGraphMode.NONE, 8, 3, num_ubatches=2)
+    result = dispatch_hccl_v41_graph(
+        None,
+        make_batch_req_state((1, 1, 1)),
+        parallel_config=parallel_config,
+        allow_ubatching=True,
+        native_descriptor=native,
+    )
+
+    assert result.candidate == result.eager
+    assert result.eager.descriptor is native
+    assert [(stage.token_start, stage.token_stop) for stage in result.eager.stages] == [
+        (0, 4),
+        (4, 8),
+    ]
+
+
 def test_graph_dispatch_requires_manager_for_eligible_decode(parallel_config):
     with pytest.raises(ValueError, match="initialized native manager"):
         dispatch_hccl_v41_graph(
@@ -474,10 +494,17 @@ def test_capture_coverage_requires_graph_capability_before_native_factories(
     full_descriptor,
 ):
     caps = make_graph_stage_bank(rows=(4, 4)).capabilities
-    with pytest.raises(ValueError, match="graph/counts v1 paired TP"):
+    with pytest.raises(ValueError, match="graph/counts v1"):
         validate_hccl_v41_capture_coverage(
             (full_descriptor,), replace(caps, graph_execution_version=0)
         )
+
+
+def test_capture_coverage_uses_one_fixed_bucket_per_ep_rank(full_descriptor):
+    descriptor = replace(full_descriptor, num_ubatches=1)
+    caps = make_graph_stage_bank(rows=(8,), expert_parallel_size=4).capabilities
+    report = validate_hccl_v41_capture_coverage((descriptor,), caps)
+    assert tuple(geometry.descriptor for geometry in report.geometries) == (descriptor,)
 
 
 def test_empty_native_capture_list_has_no_bank_allocations():

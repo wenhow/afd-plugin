@@ -658,6 +658,25 @@ def test_hccl_worker_cleanup_log_requires_peer_stop(
     assert "AFD HCCL FFN worker cleanup complete;" not in serving_logs.text
 
 
+def test_ep_worker_cleanup_reports_af_role_rank(
+    profiled_service, monkeypatch, serving_logs
+):
+    case = profiled_service
+    case.worker.rank = 0
+    case.peer.role_rank = 3
+    # Keep this fixture on the idle STOP path because its sample parent has
+    # a single FFN peer. The cleanup event uses the staged role coordinate.
+    case.peer.parents.popleft()
+    monkeypatch.setattr(worker_module.NPUWorker, "shutdown", lambda _worker: None)
+    for release in case.gate.release:
+        release.set()
+    case.worker.start_ffn_server_loop()
+    join_hccl_worker(case.worker)
+    case.worker.shutdown()
+
+    assert "AFD HCCL FFN worker cleanup complete; rank=3." in serving_logs.text
+
+
 def test_worker_keeps_compute_failure_terminal_across_raise_start_and_stop(lifecycle):
     attention, ffn, runner, worker = lifecycle
     runner.model = HcclFailingModel()

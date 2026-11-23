@@ -34,7 +34,7 @@ from tests.unit.fakes.hccl_graph_stage import (
     make_graph_stage_plan,
 )
 from tests.unit.fakes.hccl_v41_ffn_graph import make_ffn_graph_case
-from tests.unit.fakes.vllm_config import hccl_vllm_config
+from tests.unit.fakes.vllm_config import configure_hccl_ep, hccl_vllm_config
 
 
 class GraphServiceAPI:
@@ -43,6 +43,7 @@ class GraphServiceAPI:
     def __init__(self, events):
         self.events, self.graphs = events, []
         self.body_flags = []
+        self.body_dp_counts = []
         self.capturing = False
         self.fail_capture = self.fail_replay = self.fail_body = self.fail_sync = False
 
@@ -77,7 +78,10 @@ class GraphServiceAPI:
             {},
             {},
             cudagraph_runtime_mode=kwargs["aclgraph_runtime_mode"],
-            additional_kwargs={"afd_metadata": metadata},
+            additional_kwargs={
+                "afd_metadata": metadata,
+                "num_tokens_across_dp": kwargs["num_tokens_across_dp"],
+            },
         )
         context.input_ids = kwargs["input_ids"]
         with override_forward_context(context):
@@ -111,7 +115,7 @@ class ServiceGraphBanks:
             peer = StageGraphEndpoint(
                 role="ffn",
                 role_rank=transport.role_rank,
-                native_tp_size=caps.native_tp_size,
+                native_tp_size=caps.ffn_size,
             )
             peer.group = transport.data_groups[index]
             return peer
@@ -126,6 +130,7 @@ class ServiceGraphBanks:
             endpoint_factory=endpoint,
             exchange_order=caps.graph_exchange_order,
             target_query_len=caps.target_query_len,
+            expert_parallel_size=caps.ffn_size if caps.expert_parallel else None,
         )
         bank = SimpleNamespace(
             layer_indices=caps.layer_indices,
@@ -195,6 +200,9 @@ class ServiceGraphBody:
                 raise ValueError("service did not retain its prepared FULL context")
             with override_forward_context(context):
                 self.api.body_flags.append(_EXTRA_CTX.capturing)
+                self.api.body_dp_counts.append(
+                    context.additional_kwargs["num_tokens_across_dp"].tolist()
+                )
 
 
 @dataclass(frozen=True)
@@ -360,6 +368,8 @@ def make_graph_service_case(
     diagnostic_sink=None,
     exchange_order="stage_serial",
     target_query_len=1,
+    expert_parallel_size=None,
+    role_rank=0,
 ):
     events = []
     model_case = make_ffn_graph_case(
@@ -368,6 +378,8 @@ def make_graph_service_case(
         exchange_order=exchange_order,
         build_driver=False,
         target_query_len=target_query_len,
+        expert_parallel_size=expert_parallel_size,
+        role_rank=role_rank,
     )
     transport = FFNGraphControlPeer(model_case.bank, events)
     config = hccl_vllm_config(
@@ -377,6 +389,8 @@ def make_graph_service_case(
         role="ffn",
     )
     config.parallel_config.rank = 0
+    if expert_parallel_size is not None:
+        configure_hccl_ep(config, dp_size=expert_parallel_size, dp_rank=role_rank)
     config.model_config.enforce_eager = False
     config.additional_config["afd"]["connector_extra_config"] = {
         "graph_exchange_order": exchange_order

@@ -115,15 +115,16 @@ class TestFullCheckpointPlans(unittest.TestCase):
 
     def test_ep_plan_rejects_unintegrated_combinations(self):
         driver = load_driver()
-        for options in (
-            {"mode": "eager-u2"},
-            {"mode": "graph-u1"},
-            {"spec_tokens": 1},
-            {"pd_role": "consumer"},
+        for options, message in (
+            ({"trace_native_prefill": True}, "requires native prefill trace off"),
+            (
+                {"mode": "eager-u2", "pd_role": "producer"},
+                "producer qualification uses eager U1",
+            ),
         ):
             with (
                 self.subTest(options=options),
-                self.assertRaisesRegex(ValueError, "EP qualification requires"),
+                self.assertRaisesRegex(ValueError, message),
             ):
                 driver.make_plan(
                     Path("/model"),
@@ -132,6 +133,44 @@ class TestFullCheckpointPlans(unittest.TestCase):
                     expert_parallel=True,
                     **options,
                 )
+
+    def test_ep_graph_u2_keeps_consumer_draft_and_serial_exchange(self):
+        plan = load_driver().make_plan(
+            Path("/model"),
+            Path("/vendor"),
+            ROOT,
+            mode="graph-u2",
+            spec_tokens=2,
+            expert_parallel=True,
+            pd_role="consumer",
+        )
+        for role in plan["roles"].values():
+            self.assertIn("--enable-dbo", role["argv"])
+            self.assertEqual(
+                role["environment"]["AFD_HCCL_GRAPH_U2_COMPUTE_OVERLAP"], "0"
+            )
+            extra = json.loads(
+                role["argv"][role["argv"].index("--additional-config") + 1]
+            )
+            self.assertEqual(
+                extra["afd"]["connector_extra_config"].get(
+                    "graph_exchange_order", "stage_serial"
+                ),
+                "stage_serial",
+            )
+
+    def test_ep_graph_u1_plan_keeps_tp1_dp4_and_fixed_decode_capture(self):
+        plan = load_driver().make_plan(
+            Path("/model"), Path("/vendor"), ROOT, mode="graph-u1", expert_parallel=True
+        )
+        self.assertTrue(plan["expert_parallel"])
+        self.assertEqual((plan["native_tp_size"], plan["native_dp_size"]), (1, 4))
+        for settings in plan["roles"].values():
+            argv = settings["argv"]
+            self.assertNotIn("--enforce-eager", argv)
+            compilation = json.loads(argv[argv.index("--compilation-config") + 1])
+            self.assertEqual(compilation["cudagraph_mode"], "FULL_DECODE_ONLY")
+            self.assertEqual(compilation["cudagraph_capture_sizes"], [1, 2])
 
     def test_modes_keep_native_quantized_weights_and_cpu_engram(self):
         driver = load_driver()
@@ -284,6 +323,38 @@ class TestFullCheckpointPlans(unittest.TestCase):
                 self.assertEqual(
                     transfer["kv_connector_extra_config"]["decode"]["tp_size"], 4
                 )
+
+    def test_ep_pd_declares_four_native_replicas_on_both_sides(self):
+        driver = load_driver()
+        kv_ip = "192.0.2.8"
+        port_offset = 100
+        for role, mode in (("producer", "eager-u1"), ("consumer", "graph-u1")):
+            with self.subTest(role=role):
+                plan = driver.make_plan(
+                    Path("/model"),
+                    Path("/vendor"),
+                    ROOT,
+                    expert_parallel=True,
+                    mode=mode,
+                    pd_role=role,
+                    spec_tokens=1,
+                    kv_ip=kv_ip,
+                    port_offset=port_offset,
+                )
+                kv_base = driver.DEFAULT_KV_PORT + port_offset
+                self.assertTrue(set(range(kv_base, kv_base + 4)) <= set(plan["ports"]))
+                attention = plan["roles"]["attention"]
+                self.assertEqual(attention["environment"]["VLLM_HOST_IP"], kv_ip)
+                for settings in plan["roles"].values():
+                    argv = settings["argv"]
+                    transfer = json.loads(argv[argv.index("--kv-transfer-config") + 1])
+                    self.assertEqual(transfer["kv_role"], "kv_" + role)
+                    self.assertEqual(transfer["kv_port"], kv_base)
+                    for side in ("prefill", "decode"):
+                        self.assertEqual(
+                            transfer["kv_connector_extra_config"][side],
+                            {"tp_size": 1, "dp_size": 4, "pp_size": 1},
+                        )
 
     def test_devices_addresses_ports_and_disabled_overlap_reach_launch_plan(self):
         driver = load_driver()
@@ -672,6 +743,86 @@ class TestFullCheckpointRequests(unittest.TestCase):
                 )
                 self.assertEqual(comparison["status"], "tokens_match")
             self.assertFalse(report["hardware_acceptance"])
+
+    def test_ep_matrix_sends_one_request_to_each_dp_rank_per_wave(self):
+        driver = load_driver()
+        observed_ranks = []
+
+        def reply(request, **kwargs):
+            payload = json.loads(request.data)
+            if payload["stream"]:
+                raw = b'data: {"choices":[{"text":"generated"}]}\n\n'
+            else:
+                observed_ranks.append(request.get_header("X-data-parallel-rank"))
+                raw = json.dumps(response(payload["prompt"])).encode()
+            stream = io.BytesIO(raw)
+            stream.status = 200
+            return stream
+
+        with (
+            tempfile.TemporaryDirectory() as temporary,
+            patch("urllib.request.OpenerDirector.open", side_effect=reply),
+        ):
+            report = driver.run_requests(
+                Path(temporary),
+                None,
+                spec_tokens=0,
+                prefill_url=None,
+                data_parallel_size=4,
+            )
+
+        self.assertTrue(report["passed"])
+        self.assertEqual(sorted(observed_ranks[:4]), ["0", "1", "2", "3"])
+        self.assertEqual(
+            sorted(observed_ranks[4:12]), ["0", "0", "1", "1", "2", "2", "3", "3"]
+        )
+        self.assertEqual(observed_ranks[12:], ["1"])
+
+    def test_ep_pd_matrix_pulls_from_the_rotated_prefill_dp_rank(self):
+        driver = load_driver()
+        prefill_url = "http://127.0.0.1:18131"
+        dp_size = 4
+
+        def reply(request, **kwargs):
+            payload = json.loads(request.data)
+            rank = request.get_header("X-data-parallel-rank")
+            if request.full_url.startswith(prefill_url):
+                self.assertTrue(payload["kv_transfer_params"]["do_remote_decode"])
+                data = {
+                    "kv_transfer_params": {
+                        "afd_engram_history_v1": {},
+                        "remote_port": driver.DEFAULT_KV_PORT + int(rank or 0),
+                    }
+                }
+                raw = json.dumps(data).encode()
+            elif payload["stream"]:
+                raw = b'data: {"choices":[{"text":"generated"}]}\n\n'
+            else:
+                self.assertEqual(
+                    payload["kv_transfer_params"]["remote_port"],
+                    driver.DEFAULT_KV_PORT + (int(rank) + 1) % dp_size,
+                )
+                self.assertTrue(payload["kv_transfer_params"]["do_remote_prefill"])
+                raw = json.dumps(response(payload["prompt"])).encode()
+            stream = io.BytesIO(raw)
+            stream.status = 200
+            return stream
+
+        with (
+            tempfile.TemporaryDirectory() as temporary,
+            patch("urllib.request.OpenerDirector.open", side_effect=reply),
+        ):
+            directory = Path(temporary)
+            report = driver.run_requests(
+                directory,
+                None,
+                spec_tokens=0,
+                prefill_url=prefill_url,
+                data_parallel_size=dp_size,
+            )
+            routing = directory / "request-12" / "prefill-routing.json"
+            self.assertEqual(json.loads(routing.read_bytes()), {"dp_rank": 2})
+        self.assertTrue(report["passed"])
 
 
 if __name__ == "__main__":

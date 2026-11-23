@@ -8,6 +8,10 @@ from dataclasses import replace
 import pytest
 
 from afd_plugin.distributed.hccl import HcclStageLayout
+from afd_plugin.distributed.hccl_graph import (
+    HcclGraphReport,
+    decide_graph_execution,
+)
 from afd_plugin.distributed.hccl_plan import (
     MAX_CONTROL_MESSAGE_BYTES,
     MAX_ROLE_RANKS,
@@ -18,7 +22,10 @@ from afd_plugin.distributed.hccl_plan import (
     decode_hccl_plan_message,
     encode_hccl_plan_message,
 )
-from tests.unit.fakes.hccl_graph_control import make_graph_control_round
+from tests.unit.fakes.hccl_graph_control import (
+    make_graph_candidate,
+    make_graph_control_round,
+)
 
 
 @pytest.fixture
@@ -56,9 +63,8 @@ def test_ep_session_roundtrips_and_projects_all_ffn_dp_counts(size):
     "change",
     [
         {"native_tp_size": 2},
-        {"max_stages": 2},
+        {"target_query_len": 4},
         {"local_counts_version": 0},
-        {"graph_execution_version": 1},
         {"eager_pipeline_version": 1},
         {"ffn_size": 2},
         {"expert_parallel": 1},
@@ -94,6 +100,74 @@ def test_ep_and_non_ep_peers_cannot_negotiate_a_shared_session():
     )
     with pytest.raises(ValueError, match="peer expert_parallel does not match"):
         cap.negotiate(replace(cap, expert_parallel=False))
+
+
+@pytest.mark.parametrize("graph_execution_version", [0, 1])
+def test_ep_peers_must_agree_on_the_stage_mode(graph_execution_version):
+    u1 = HcclPlanCapabilities(
+        16,
+        1024,
+        32,
+        (0,),
+        4,
+        4,
+        max_stages=1,
+        local_counts_version=1,
+        graph_execution_version=graph_execution_version,
+        expert_parallel=True,
+    )
+    u2 = replace(u1, max_stages=2)
+
+    with pytest.raises(ValueError, match="peer EP max_stages does not match"):
+        u1.negotiate(u2)
+    with pytest.raises(ValueError, match="peer EP max_stages does not match"):
+        u2.negotiate(u1)
+
+
+def test_ep_graph_fallback_uses_real_counts_when_coordinator_is_idle():
+    cap = HcclPlanCapabilities(
+        16,
+        1024,
+        32,
+        (0,),
+        4,
+        4,
+        max_stages=1,
+        local_counts_version=1,
+        graph_execution_version=1,
+        expert_parallel=True,
+    )
+    candidate = replace(
+        make_graph_candidate(mode="dummy", rows=(4,)), eager_padded_tokens=None
+    )
+    query = HcclPlanMessage(
+        "GRAPH_QUERY", transaction_id="ep-graph", graph_candidate=candidate
+    )
+    assert decode_hccl_plan_message(encode_hccl_plan_message(query)) == query
+    decision = decide_graph_execution(
+        "ep-graph", candidate, (HcclGraphReport("missing"), HcclGraphReport("ready"))
+    )
+    assert decision.phase == "eager" and decision.padded_tokens is None
+    stage = HcclStageLayout(0, (0, 2, 0, 1), (0, 3, 1, 2), 4)
+    plan = HcclParentPlan("ep-graph", (0,), (stage,), graph_execution=decision)
+    plan.validate(cap)
+    forward = HcclPlanMessage("FORWARD", plan=plan)
+    assert decode_hccl_plan_message(encode_hccl_plan_message(forward)) == forward
+    assert stage.ffn_padded_tokens == (1, 3, 1, 2)
+    non_ep = replace(cap, expert_parallel=False, native_tp_size=4)
+    with pytest.raises(ValueError, match="requires negotiated EP"):
+        plan.validate(non_ep)
+
+
+def test_ep_graph_replay_still_requires_common_static_padding():
+    candidate = replace(make_graph_candidate(rows=(4,)), eager_padded_tokens=None)
+    decision = decide_graph_execution(
+        "ep-graph", candidate, (HcclGraphReport("ready"),) * 8
+    )
+    assert decision.phase == "replay" and decision.padded_tokens == (4,)
+    stage = HcclStageLayout(0, (0, 2, 0, 1), (4, 4, 1, 4), 4)
+    with pytest.raises(ValueError, match="reserved graph execution"):
+        HcclParentPlan("ep-graph", (0,), (stage,), graph_execution=decision)
 
 
 @pytest.fixture

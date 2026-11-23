@@ -78,6 +78,27 @@ def test_ep_forwards_complete_dp_counts_and_executes_padding_only_rank(
     assert case.peer.messages[-1] == ("COMPLETE", plan.transaction_id)
 
 
+def test_ep_u2_computes_both_stages_with_stage_specific_dp_counts(monkeypatch):
+    plan = HcclParentPlan(
+        "ep-ffn-u2",
+        (0, 2),
+        (
+            HcclStageLayout(0, (3, 3, 3, 3), (3, 3, 3, 3), 4),
+            HcclStageLayout(1, (4, 0, 1, 0), (4, 4, 4, 4), 4),
+        ),
+    )
+    case = make_staged_ffn_case(
+        AFDNPUFFNModelRunner, plan, role_rank=3, expert_parallel=True
+    )
+    monkeypatch.setattr(runner_module, "ascend_forward_context", case.context.activate)
+
+    runner_module.execute_hccl_v41_parent(case.runner, case.peer)
+
+    outputs = [entry[1:3] for entry in case.peer.messages if entry[0] == "OUTPUT"]
+    assert outputs == [(0, 0), (0, 1), (2, 0), (2, 1)]
+    assert case.peer.messages[-1] == ("COMPLETE", plan.transaction_id)
+
+
 def test_eager_binding_rejects_a_session_from_another_connector_wire(case):
     connector = object.__new__(HcclStagedAFDConnector)
     connector.transport = case.peer

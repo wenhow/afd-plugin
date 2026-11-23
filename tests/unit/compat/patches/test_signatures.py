@@ -20,6 +20,7 @@ import pytest
         "engine-core-collective-rpc",
         "npu-dspark-ubatching-config",
         "npu-engram-ubatching-config",
+        "npu-ep-pd-dp-coordination",
         "camp2p-dispatch",
         "hccl-native-prepare",
         "hccl-graph-gather",
@@ -100,6 +101,18 @@ def test_scoped_patch_preserves_upstream_signature(hook):  # long-test: shared t
         assert inspect.signature(
             adapter.collective_rpc, eval_str=True
         ) == inspect.signature(namespace["collective_rpc"], eval_str=True)
+        return
+    elif hook == "npu-ep-pd-dp-coordination":
+        pytest.importorskip("vllm_ascend")
+        from vllm_ascend import utils as native_utils
+
+        from afd_plugin.compat.patches.npu import mrv2_ubatching
+
+        assert inspect.signature(
+            mrv2_ubatching.should_skip_allreduce_across_dp_group, eval_str=True
+        ) == inspect.signature(
+            native_utils.should_skip_allreduce_across_dp_group, eval_str=True
+        )
         return
     elif hook in ("npu-dspark-ubatching-config", "npu-engram-ubatching-config"):
         from vllm.config import vllm as native_config

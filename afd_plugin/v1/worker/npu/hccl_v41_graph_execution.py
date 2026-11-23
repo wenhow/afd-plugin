@@ -16,6 +16,7 @@ import torch
 from torch import nn
 from vllm.config import CUDAGraphMode, VllmConfig
 from vllm.forward_context import (
+    DPMetadata,
     ForwardContext,
     create_forward_context,
     override_forward_context,
@@ -178,10 +179,29 @@ class HcclV41GraphExecution:
                 ),
                 external_engram=self.external_engram,
             )
+            parallel = self.vllm_config.parallel_config
+            rows = self.reservation.geometry.descriptor.num_tokens
+            dp_metadata = None
+            if (
+                self.bank.capabilities.expert_parallel
+                and parallel.data_parallel_size > 1
+            ):
+                # Ascend's native FULL replay assigns the same padded bucket
+                # to every DP rank. The captured producer reads parent rows.
+                dp_metadata = DPMetadata.make(
+                    parallel,
+                    rows,
+                    torch.full(
+                        (parallel.data_parallel_size,),
+                        rows,
+                        dtype=torch.int32,
+                        device="cpu",
+                    ),
+                )
             context = create_forward_context(
                 None,
                 self.vllm_config,
-                dp_metadata=None,
+                dp_metadata=dp_metadata,
                 cudagraph_runtime_mode=CUDAGraphMode.FULL,
             )
             # Build the native parent kwargs before capture. Attention selects
@@ -190,8 +210,8 @@ class HcclV41GraphExecution:
                 current_platform.set_additional_forward_context(
                     None,
                     self.vllm_config,
-                    None,
-                    num_tokens=self.reservation.geometry.descriptor.num_tokens,
+                    dp_metadata,
+                    num_tokens=rows,
                     cudagraph_runtime_mode=CUDAGraphMode.FULL,
                 )
             )

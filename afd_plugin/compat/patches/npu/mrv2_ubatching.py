@@ -4,7 +4,8 @@
 
 Ascend baseline: 7e37e29a7803d6897a7113088e2b771f83205bc0.
 MRV2 owns preparation, threads, handoff and graph lifecycle.
-All bindings are scoped to AFD runners and restored on exit.
+Temporary bindings are scoped to AFD runners and restored on exit. The EP PD
+predicate is installed once per runner process and filters by configuration.
 Remove when upstream supports Ascend child inputs, streams and cancellation.
 """
 
@@ -33,9 +34,21 @@ from vllm.v1.worker.ubatch_utils import (
     get_num_ubatches,
 )
 from vllm.v1.worker.utils import AttentionGroup
+from vllm_ascend import utils as ascend_utils
+from vllm_ascend.worker.v2 import model_runner as ascend_model_runner
 from vllm_ascend.worker.v2.input_batch import AscendInputBatch
 
-from afd_plugin.config import is_afd_async_dp, parse_afd_config
+from afd_plugin.compat.npu.runtime_config import (
+    HCCL_ATTESTED_PD_MODULE,
+    HCCL_NATIVE_PD_CONNECTOR,
+    is_deepseek_v41_model,
+)
+from afd_plugin.config import (
+    HCCL_P2P_CONNECTOR,
+    is_afd_async_dp,
+    parse_afd_config,
+    parse_optional_afd_config,
+)
 
 if TYPE_CHECKING:
     from afd_plugin.connectors.npu.hccl_staged_transport import HcclStagedTransport
@@ -43,6 +56,49 @@ if TYPE_CHECKING:
         AFDNPUAttentionModelRunnerV2,
     )
     from afd_plugin.v1.worker.npu.hccl_v41_ubatch_runner import HcclV41GraphOwner
+
+
+def apply_ep_pd_dp_coordination_patch() -> None:
+    """Replace only the native MRV2 target runner's bound predicate."""
+    ascend_model_runner.should_skip_allreduce_across_dp_group = (
+        should_skip_allreduce_across_dp_group
+    )
+
+
+# Upstream: vllm_ascend/utils.py:1315 at 7e37e29a, imported by MRV2's
+# execute_model. EP HCCL needs one native DP stage count and padded geometry
+# across all A ranks. The DSpark drafter also reuses that agreement in U1.
+# Signature matches upstream; no added parameters. Delegate because the
+# shared helper owns hardware, extension and recompute policy used by V1 and
+# the drafter. The patch changes only the target MRV2 import binding.
+# Remove when Ascend exposes a runner-owned switch for native DP coordination.
+def should_skip_allreduce_across_dp_group(
+    vllm_config: VllmConfig, is_draft_model: bool = False
+) -> bool:
+    # ### PATCH START: keep native DP coordination for HCCL EP PD
+    transfer = vllm_config.kv_transfer_config
+    parallel = vllm_config.parallel_config
+    if (
+        not is_draft_model
+        and transfer is not None
+        and transfer.kv_role == "kv_consumer"
+        and transfer.kv_connector == HCCL_NATIVE_PD_CONNECTOR
+        and transfer.kv_connector_module_path == HCCL_ATTESTED_PD_MODULE
+        and parallel.enable_expert_parallel
+        and parallel.tensor_parallel_size == 1
+        and is_deepseek_v41_model(vllm_config)
+    ):
+        afd_config = parse_optional_afd_config(vllm_config, validate=False)
+        if (
+            afd_config is not None
+            and afd_config.role == "attention"
+            and afd_config.connector == HCCL_P2P_CONNECTOR
+        ):
+            return False
+    # ### PATCH END: keep native DP coordination for HCCL EP PD
+    return ascend_utils.should_skip_allreduce_across_dp_group(
+        vllm_config, is_draft_model
+    )
 
 
 class NPUUBatchContext(ubatching.UBatchContext):
@@ -146,7 +202,7 @@ def use_npu_ubatch_factory(
 
     # Patch reason: the native factory builds CUDA runners and excludes DP1.
     # Patch functionality: select the NPU runner, with controlled HCCL U2 at
-    # DP1 only through this scope's added hccl_transport keyword. Its optional
+    # DP1 or TP1/DP/EP through this scope's added hccl_transport keyword. Its optional
     # hccl_graph_owner binds the controlled Graph phase session. Ordinary
     # callers retain admission; U1/profile direct model calls are not routed.
     # Signature matches maybe_build_ubatch_runner at ced6857a; no added args

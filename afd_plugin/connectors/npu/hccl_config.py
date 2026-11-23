@@ -133,7 +133,10 @@ def validate_staged_hccl_runtime(
         ffn_size=afd_config.num_ffn_ranks,
         native_tp_size=caps.native_tp_size,
         max_stages=(
-            1 if vllm_config.parallel_config.enable_expert_parallel else MAX_HCCL_STAGES
+            1
+            if vllm_config.parallel_config.enable_expert_parallel
+            and not vllm_config.parallel_config.use_ubatching
+            else MAX_HCCL_STAGES
         ),
         expert_parallel=vllm_config.parallel_config.enable_expert_parallel,
         local_counts_version=1,
@@ -228,6 +231,7 @@ def validate_staged_hccl_binding(
         or caps.attention_size != expected.attention_size
         or caps.ffn_size != expected.ffn_size
         or caps.native_tp_size != expected.native_tp_size
+        or caps.expert_parallel != expected.expert_parallel
         or caps.local_counts_version != expected.local_counts_version
         or caps.graph_execution_version != expected.graph_execution_version
         or caps.graph_exchange_order != expected.graph_exchange_order
@@ -265,21 +269,24 @@ def _validate_hccl_runtime(
 
     parallel = vllm_config.parallel_config
     ep = staged and parallel.enable_expert_parallel
+    ep_serial_u2 = parallel.use_ubatching and parallel.num_ubatches == MAX_HCCL_STAGES
     if ep and (
         parallel.tensor_parallel_size != 1
         or parallel.data_parallel_size != role_size
         or parallel.data_parallel_rank != role_rank
         or parallel.rank != 0
-        or parallel.enable_dbo
-        or parallel.use_ubatching
-        or parallel.num_ubatches not in (0, 1)
-        or graph
-        or vllm_config.speculative_config is not None
-        or vllm_config.kv_transfer_config is not None
+        or (
+            not ep_serial_u2
+            and (
+                parallel.enable_dbo
+                or parallel.use_ubatching
+                or parallel.num_ubatches not in (0, 1)
+            )
+        )
     ):
         raise ValueError(
             "HCCL EP requires TP1, DP equal to role size, matching DP rank "
-            "and eager U1 without Graph/DBO/DSpark/PD"
+            "and either U1 or serial U2"
         )
     if type(
         parallel.tensor_parallel_size

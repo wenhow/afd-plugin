@@ -388,8 +388,9 @@ class HcclStagedTransport:
         ):
             raise ValueError("local counts exceed negotiated stage or token capacity")
         if self._graph_decision is not None and (
-            local.mode != self._graph_decision.mode
-            or local.padded_tokens != self._graph_decision.padded_tokens
+            not self._graph_decision.accepts_local_geometry(
+                local.mode, local.padded_tokens
+            )
         ):
             raise ValueError("actual local counts do not match reserved graph geometry")
 
@@ -406,13 +407,15 @@ class HcclStagedTransport:
 
     def _validate_graph_candidate(self, candidate: HcclGraphCandidate) -> None:
         capabilities = self.negotiated_capabilities
+        if candidate.eager_padded_tokens is None and not capabilities.expert_parallel:
+            raise ValueError("rank-local eager geometry requires negotiated EP")
         if candidate.key is not None and (
             candidate.key.uniform_token_count != capabilities.target_query_len
             or candidate.key.max_query_len != capabilities.target_query_len
         ):
             raise ValueError("graph key does not match negotiated target_query_len")
         for rows in (
-            candidate.eager_padded_tokens,
+            candidate.eager_padded_tokens or (),
             candidate.key.padded_tokens if candidate.key is not None else (),
         ):
             if len(rows) > capabilities.max_stages or any(

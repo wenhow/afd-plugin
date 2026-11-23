@@ -28,6 +28,7 @@ from vllm.v1.worker.gpu.cudagraph_utils import (
     BatchExecutionDescriptor,
     CudaGraphManager,
 )
+from vllm.v1.worker.gpu.dp_utils import DPSyncState
 from vllm_ascend.attention.sfa_v1 import AscendSFABackend
 from vllm_ascend.worker.v2.model_runner import NPUModelRunner as NPUModelRunnerV2
 from vllm_ascend.worker.v2.model_states.default import AscendModelState
@@ -70,6 +71,7 @@ from tests.unit.fakes.hccl_v41_graph_coordinator import (
     set_runtime_rows,
 )
 from tests.unit.fakes.input_batch import snapshot_ascend_child
+from tests.unit.fakes.vllm_config import configure_hccl_ep, v41_dspark_config
 
 
 @pytest.fixture
@@ -306,6 +308,55 @@ def test_native_dspark_memory_profile_uses_local_metadata_free_query(
     )
     assert context.attn_metadata is None
     assert_local_dspark_preserves_target(case, proposal)
+
+
+@pytest.mark.parametrize("steps", [1, 2])
+@pytest.mark.parametrize("dp_rank", [0, 1])
+@pytest.mark.parametrize("target_mode", ["eager-u1", "eager-u2", "graph-u2"])
+def test_native_ep_dspark_draft_uses_uniform_query_counts_for_active_and_idle_ranks(
+    monkeypatch, steps, dp_rank, target_mode
+):
+    config = configure_hccl_ep(v41_dspark_config(), dp_rank=dp_rank)
+    config.parallel_config.is_moe_model = True
+    monkeypatch.setattr(
+        "vllm.forward_context.current_platform.set_additional_forward_context",
+        lambda *args, **kwargs: {},
+    )
+    idle = dp_rank == 1
+    proposal = make_dspark_proposal_case(
+        monkeypatch,
+        vllm_config=config,
+        num_speculative_tokens=steps,
+        num_reqs=1 if idle else 2,
+        max_num_reqs=2,
+    )
+    proposal.speculator.dp_size, proposal.speculator.dp_rank = 4, dp_rank
+    proposal.input_batch.is_dummy = idle
+    proposal.speculator.query_cudagraph_manager.cudagraph_mode = CUDAGraphMode.NONE
+    target_width = steps + 1
+    target_counts = (
+        [2 * target_width] * 4
+        if target_mode.endswith("u2")
+        else [2 * target_width, target_width, target_width, target_width]
+    )
+    target_sync = DPSyncState(
+        torch.tensor(target_counts),
+        target_width if target_mode == "graph-u2" else None,
+        target_mode != "graph-u2",
+        2,
+    )
+
+    drafted = proposal.speculator.propose(
+        **proposal.kwargs, dp_sync=target_sync, dummy_run=idle
+    )
+
+    torch.testing.assert_close(drafted, proposal.expected_tokens)
+    context = proposal.model.contexts[-1]
+    assert context.cudagraph_runtime_mode == CUDAGraphMode.NONE
+    assert context.batch_descriptor.num_tokens == 2 * steps
+    assert context.dp_metadata.num_tokens_across_dp_cpu.tolist() == [2 * steps] * 4
+    assert target_sync.num_tokens_across_dp.tolist() == target_counts
+    assert context_module.get_afd_metadata_from_forward_context(context) is None
 
 
 @pytest.mark.parametrize("stages", [1, 2])

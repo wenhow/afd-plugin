@@ -152,11 +152,13 @@ def preview_hccl_v41_geometry(
     descriptor: BatchExecutionDescriptor,
     *,
     target_query_len: int = DEFAULT_TARGET_QUERY_LEN,
+    native_dp_eager: bool = False,
 ) -> HcclV41GraphGeometry:
     """Preview the exact native layout in the fixed target-query/CP1 scope.
 
     FULL requires the agreed uniform target width. Eager uses native actual
-    dimensions; graph-padding retained after a mode-only replacement is rejected.
+    dimensions. A native DP-coordinated eager U2 descriptor may pad tokens to
+    the largest rank before splitting its two stages.
     """
     num_reqs, num_tokens = _batch_dimensions(batch_state)
     if descriptor.num_ubatches not in SUPPORTED_UBATCHES:
@@ -171,9 +173,15 @@ def preview_hccl_v41_geometry(
             raise ValueError("FULL descriptor cannot truncate the native batch")
         padded_tokens = descriptor.num_tokens
     elif descriptor.cg_mode == CUDAGraphMode.NONE:
-        if descriptor.num_tokens != num_tokens or descriptor.num_reqs != num_reqs:
+        padded_tokens = descriptor.num_tokens
+        if descriptor.num_reqs != num_reqs or not (
+            padded_tokens == num_tokens
+            or native_dp_eager
+            and descriptor.num_ubatches == 2
+            and padded_tokens >= num_tokens
+        ):
             raise ValueError("eager geometry requires fresh actual batch dimensions")
-        padded_requests, padded_tokens = num_reqs, num_tokens
+        padded_requests = num_reqs
     else:
         raise ValueError("graph geometry supports FULL or eager execution")
     if padded_tokens < descriptor.num_ubatches:
@@ -245,7 +253,7 @@ def validate_hccl_v41_capture_coverage(
 
     Native VllmConfig and CudaGraphManager resolve sizes and U2 twins. Preserve
     that order and request/token geometry instead of padding scalar totals
-    again on FFN. In this paired-TP protocol each FFN rank receives one peer's
+    again on FFN. With paired TP or TP1/DP/EP each FFN rank receives one peer's
     stages, so ``max_tokens`` bounds a parent per rank. It is not multiplied by
     Attention size. A later peer reservation still agrees the exact full key.
     """
@@ -253,11 +261,8 @@ def validate_hccl_v41_capture_coverage(
     if (
         capabilities.graph_execution_version != 1
         or capabilities.local_counts_version != 1
-        or not capabilities.attention_size
-        == capabilities.ffn_size
-        == capabilities.native_tp_size
     ):
-        raise ValueError("graph capture coverage requires graph/counts v1 paired TP")
+        raise ValueError("graph capture coverage requires graph/counts v1")
     geometries = []
     bank_bytes = []
     wire_bytes = []
@@ -303,6 +308,7 @@ def dispatch_hccl_v41_graph(
     max_query_len: int | None = None,
     num_active_loras: int = 0,
     target_query_len: int = DEFAULT_TARGET_QUERY_LEN,
+    native_descriptor: BatchExecutionDescriptor | None = None,
 ) -> HcclV41GraphDispatch:
     """Use native thresholds and an actual U-specific manager cache lookup.
 
@@ -312,7 +318,22 @@ def dispatch_hccl_v41_graph(
     """
     _validate_target_query_len(target_query_len)
     num_reqs, num_tokens = _batch_dimensions(batch_state)
-    if (
+    ep = parallel_config.enable_expert_parallel
+    if ep:
+        if (
+            parallel_config.tensor_parallel_size != 1
+            or native_descriptor is None
+            or native_descriptor.num_ubatches not in SUPPORTED_UBATCHES
+            or native_descriptor.num_ubatches == 2
+            and not allow_ubatching
+        ):
+            raise ValueError("EP graph dispatch requires the native TP1/DP descriptor")
+        if native_descriptor.cg_mode == CUDAGraphMode.NONE:
+            eager = preview_hccl_v41_geometry(
+                batch_state, native_descriptor, native_dp_eager=True
+            )
+            return HcclV41GraphDispatch(eager, eager)
+    elif (
         parallel_config.data_parallel_size != 1
         or parallel_config.data_parallel_rank != 0
     ):
@@ -323,7 +344,8 @@ def dispatch_hccl_v41_graph(
     uniform_decode = _uniform_decode(batch_state, target_query_len)
     num_ubatches = 1
     if (
-        allow_ubatching
+        not ep
+        and allow_ubatching
         and num_tokens >= configured_ubatches
         and check_ubatch_thresholds(parallel_config, num_tokens, uniform_decode)
     ):
@@ -342,15 +364,19 @@ def dispatch_hccl_v41_graph(
         return HcclV41GraphDispatch(eager, eager)
     if manager is None:
         raise ValueError("graph dispatch requires an initialized native manager")
-    descriptor = manager.dispatch(
-        num_reqs,
-        num_tokens,
-        target_query_len,
-        num_active_loras=num_active_loras,
-        max_query_len=max_query_len,
-        num_ubatches=num_ubatches,
+    descriptor = (
+        native_descriptor
+        if ep
+        else manager.dispatch(
+            num_reqs,
+            num_tokens,
+            target_query_len,
+            num_active_loras=num_active_loras,
+            max_query_len=max_query_len,
+            num_ubatches=num_ubatches,
+        )
     )
-    if descriptor.cg_mode != CUDAGraphMode.FULL:
+    if descriptor is None or descriptor.cg_mode != CUDAGraphMode.FULL:
         return HcclV41GraphDispatch(eager, eager)
     try:
         _validate_full_descriptor(descriptor, target_query_len)

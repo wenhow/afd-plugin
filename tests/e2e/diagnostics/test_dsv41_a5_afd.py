@@ -29,6 +29,201 @@ def load_launcher():
         return importlib.import_module("run_dsv41_a5_afd")
 
 
+def write_ep_graph_logs(directory, max_stages, *, missing_replay_rank=False):
+    startup_prefix = "AFD HCCL session configuration: "
+    stage_prefix = "AFD HCCL stage diagnostic: "
+    for role in ("attention", "ffn"):
+        lines = []
+        for rank in range(2):
+            peer = {
+                "role": role,
+                "role_rank": rank,
+                "world_rank": rank + (2 if role == "attention" else 0),
+                "local_device": rank,
+                "configured.AFD_HCCL_EAGER_U2_STREAM_OVERLAP": False,
+                "configured.AFD_HCCL_GRAPH_U2_COMPUTE_OVERLAP": False,
+                "configured.AFD_HCCL_GRAPH_U2_HYBRID_DAG": False,
+                "configured.AFD_HCCL_GRAPH_U2_ATTENTION_THREE_STREAM": False,
+                "configured.AFD_HCCL_GRAPH_U2_FFN_RECV_STREAM": False,
+                "configured.AFD_HCCL_GRAPH_U2_FFN_CROSS_LAYER": False,
+                "configured.AFD_HCCL_STAGE_DIAGNOSTICS": True,
+                "configured.AFD_HCCL_FFN_COMPUTE_SYNC_DIAGNOSTICS": False,
+            }
+            startup = {
+                "event": "session_configuration",
+                **peer,
+                "negotiated.expert_parallel": True,
+                "negotiated.native_tp_size": 1,
+                "negotiated.attention_size": 2,
+                "negotiated.ffn_size": 2,
+                "negotiated.graph_execution_version": 1,
+                "negotiated.max_stages": max_stages,
+            }
+            lines.append(f"{startup_prefix}{startup!r}")
+            if role == "ffn":
+                profile = {
+                    **peer,
+                    "event": "graph_parent_reserved",
+                    "phase": "eager",
+                    "mode": "profile",
+                }
+                lines.append(f"{stage_prefix}{profile!r}")
+            lines.append(f"{stage_prefix}{{'event': 'configuration'}}")
+            for phase in ("capture", "replay", "eager"):
+                if missing_replay_rank and (phase, role, rank) == ("replay", "ffn", 1):
+                    continue
+                for record in ep_graph_parent_records(peer, phase, max_stages):
+                    lines.append(f"{stage_prefix}{record!r}")
+        (directory / f"{role}-server.log").write_text(
+            "\n".join(lines), encoding="utf-8"
+        )
+
+
+def ep_graph_parent_records(peer, phase, max_stages):
+    eager = phase == "eager"
+    parent = {
+        **peer,
+        "transaction_id": phase,
+        "phase": phase,
+        "mode": {"capture": "warmup", "replay": "target", "eager": "dummy"}[phase],
+        "reason": "requested",
+        "key_present": not eager,
+        "key_digest": "" if eager else "a" * 64,
+        "decision_digest": "b" * 64,
+        "num_stages": 1 if eager else max_stages,
+        "boundary": "host_control",
+    }
+    attention = peer["role"] == "attention"
+    boundaries = [("reserved", "graph_reservation")]
+    if phase == "replay":
+        api = "run_fullgraph" if attention else "graph.replay"
+        boundaries.extend((("replay_begin", api), ("replay_returned", api)))
+    if eager:
+        api = "native_eager_scope" if attention else "execute_hccl_v41_parent"
+        boundaries.append(("scope_returned", api))
+    else:
+        boundaries.extend(
+            (
+                ("finish_begin", "complete_graph_forward"),
+                ("finish_returned", "complete_graph_forward"),
+            )
+        )
+    for event, api in boundaries:
+        yield {
+            **parent,
+            "event": f"graph_parent_{event}",
+            "boundary_api": api,
+            "outcome": "begin" if event.endswith("_begin") else "returned",
+        }
+
+
+class TestEpGraphLogVerification(unittest.TestCase):
+    def test_reports_capture_replay_and_runtime_eager_from_complete_logs(self):
+        for max_stages in (1, 2):
+            with (
+                self.subTest(max_stages=max_stages),
+                tempfile.TemporaryDirectory() as tmp,
+            ):
+                directory = Path(tmp)
+                write_ep_graph_logs(directory, max_stages)
+                result = load_launcher().verify_ep_graph_run(directory, 2, max_stages)
+                self.assertEqual(
+                    result["transactions"],
+                    {phase: [phase] for phase in ("capture", "replay", "eager")},
+                )
+                self.assertTrue(result["passed"])
+                self.assertFalse(result["device_completion_verified_by_logs_alone"])
+
+    def test_rejects_replay_with_a_missing_ffn_peer(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            directory = Path(tmp)
+            write_ep_graph_logs(directory, 2, missing_replay_rank=True)
+            with self.assertRaisesRegex(ValueError, "replay: missing participant.*ffn"):
+                load_launcher().verify_ep_graph_run(directory, 2, 2)
+
+
+def write_ep_eager_u2_logs(directory, *, runtime="complete"):
+    windows = {}
+    for role in ("attention", "ffn"):
+        path = directory / f"{role}-server.log"
+        with path.open("wb") as log:
+            for transaction, variant in (("startup", "complete"), ("live", runtime)):
+                start = log.tell()
+                for rank in range(4):
+                    if variant == "missing-rank" and (role, rank) == ("ffn", 3):
+                        continue
+                    for record in ep_eager_u2_records(role, rank, transaction, variant):
+                        log.write(f"AFD HCCL stage diagnostic: {record!r}\n".encode())
+                windows[role] = (start, log.tell())
+    return windows
+
+
+def ep_eager_u2_records(role, rank, transaction, variant):
+    attention = role == "attention"
+    progress = {
+        "role": role,
+        "role_rank": rank,
+        "world_rank": rank + (4 if attention else 0),
+        "transaction_id": "other"
+        if variant == "other-transaction" and not attention
+        else transaction,
+        "phase": "eager",
+        "num_stages": 2,
+        "boundary": "host_enqueue",
+        "actual.mode": "eager-streamed" if variant == "streamed" else "serial",
+        "actual.compute_stream": "parent",
+        "actual.send_stream": "parent",
+        "actual.recv_stream": "parent",
+        "in_profile_run": variant == "profile",
+        "is_warmup": variant == "warmup",
+        "layer": 42,
+    }
+    operations = (
+        ("compute", "send", "recv") if attention else ("recv", "compute", "send")
+    )
+    for stage in (0, 1):
+        if variant == "missing-stage" and (role, rank, stage) == ("ffn", 3, 1):
+            continue
+        for operation in operations:
+            yield {**progress, "event": f"{operation}_returned", "stage": stage}
+    if attention:
+        yield {**progress, "event": "collapse_returned", "stage": 1}
+
+
+class TestEpEagerU2LogVerification(unittest.TestCase):
+    def test_reports_both_stages_for_the_same_live_parent_on_eight_ranks(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            directory = Path(tmp)
+            windows = write_ep_eager_u2_logs(directory)
+            result = load_launcher().verify_ep_eager_u2_run(directory, 4, windows)
+            self.assertTrue(result["passed"])
+            self.assertEqual(result["world_ranks"], list(range(8)))
+            self.assertEqual(result["transactions"], {"live": 42})
+
+    def test_rejects_complete_startup_when_live_parent_has_insufficient_evidence(self):
+        for variant in (
+            "warmup",
+            "profile",
+            "missing-rank",
+            "missing-stage",
+            "other-transaction",
+        ):
+            with self.subTest(variant=variant), tempfile.TemporaryDirectory() as tmp:
+                directory = Path(tmp)
+                windows = write_ep_eager_u2_logs(directory, runtime=variant)
+                with self.assertRaisesRegex(
+                    ValueError, "no live serial eager U2 parent"
+                ):
+                    load_launcher().verify_ep_eager_u2_run(directory, 4, windows)
+
+    def test_rejects_streamed_u2_as_evidence_of_the_serial_route(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            directory = Path(tmp)
+            windows = write_ep_eager_u2_logs(directory, runtime="streamed")
+            with self.assertRaisesRegex(ValueError, "actual.mode.*serial"):
+                load_launcher().verify_ep_eager_u2_run(directory, 4, windows)
+
+
 def completion(*, mismatch=None, prompt=(1, 2, 3)):
     tokens = list(range(32))
     if mismatch is not None:

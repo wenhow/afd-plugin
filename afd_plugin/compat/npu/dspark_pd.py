@@ -161,22 +161,24 @@ def draft_schema_digest(vllm_config: VllmConfig, kv_cache_config: KVCacheConfig)
                 specs,
             ]
         )
-    return _sha(
-        {
-            "version": 1,
-            "hidden_size": target.hidden_size,
-            "vocab_size": target.vocab_size,
-            "target_layers": target.num_hidden_layers,
-            "aux_layers": list(target.dspark_target_layer_ids),
-            "block_size": target.dspark_block_size,
-            "draft_layers": draft.n_mtp_layers,
-            "draft_experts": draft.n_routed_experts,
-            "draft_topk": draft.num_experts_per_tok,
-            "steps": vllm_config.speculative_config.num_speculative_tokens,
-            "tp_size": vllm_config.parallel_config.tensor_parallel_size,
-            "groups": groups,
-        }
-    )
+    parallel = vllm_config.parallel_config
+    schema: dict[str, JsonValue] = {
+        "version": 1,
+        "hidden_size": target.hidden_size,
+        "vocab_size": target.vocab_size,
+        "target_layers": target.num_hidden_layers,
+        "aux_layers": list(target.dspark_target_layer_ids),
+        "block_size": target.dspark_block_size,
+        "draft_layers": draft.n_mtp_layers,
+        "draft_experts": draft.n_routed_experts,
+        "draft_topk": draft.num_experts_per_tok,
+        "steps": vllm_config.speculative_config.num_speculative_tokens,
+        "tp_size": parallel.tensor_parallel_size,
+        "groups": groups,
+    }
+    if parallel.enable_expert_parallel:
+        schema["ep_dp_size"] = parallel.data_parallel_size
+    return _sha(schema)
 
 
 @dataclass(frozen=True, slots=True)

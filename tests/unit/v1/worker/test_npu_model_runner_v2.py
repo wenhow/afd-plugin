@@ -24,6 +24,7 @@ from vllm.v1.worker.gpu import model_runner as native_v2  # noqa: E402
 from vllm.v1.worker.gpu.spec_decode.dflash.speculator import (  # noqa: E402
     DFlashSpeculator,
 )
+from vllm_ascend import utils as native_ascend_utils  # noqa: E402
 from vllm_ascend.worker.v2 import model_runner as native_ascend_v2  # noqa: E402
 from vllm_ascend.worker.v2.input_batch import (  # noqa: E402
     AscendInputBatch,
@@ -31,6 +32,10 @@ from vllm_ascend.worker.v2.input_batch import (  # noqa: E402
 )
 from vllm_ascend.worker.v2.model_runner import NPUModelRunner  # noqa: E402
 
+from afd_plugin.compat.npu.runtime_config import (  # noqa: E402
+    HCCL_ATTESTED_PD_MODULE,
+    HCCL_NATIVE_PD_CONNECTOR,
+)
 from afd_plugin.compat.patches.npu import mrv2_ubatching as patches  # noqa: E402
 from afd_plugin.model_executor.models import (  # noqa: E402
     forward_context as afd_context,
@@ -44,6 +49,7 @@ from tests.unit.fakes.hccl import (  # noqa: E402
 from tests.unit.fakes.input_batch import (  # noqa: E402
     make_ascend_batch as _ascend_batch,
 )
+from tests.unit.fakes.vllm_config import npu_vllm_config  # noqa: E402
 
 Runner = npu_v2.AFDNPUAttentionModelRunnerV2
 
@@ -91,6 +97,64 @@ def _state(runner):
         runner._afd_is_graph_replaying,
         runner._afd_is_profile,
     )
+
+
+@pytest.mark.parametrize(
+    ("role", "expert_parallel", "num_ubatches", "module", "native_skips"),
+    [
+        ("kv_consumer", True, 2, HCCL_ATTESTED_PD_MODULE, False),
+        ("kv_consumer", True, 0, HCCL_ATTESTED_PD_MODULE, False),
+        ("kv_consumer", False, 2, HCCL_ATTESTED_PD_MODULE, True),
+        ("kv_consumer", True, 2, None, True),
+        ("kv_producer", True, 2, HCCL_ATTESTED_PD_MODULE, True),
+    ],
+)
+def test_native_ep_pd_consumer_retains_dp_coordination(
+    monkeypatch, role, expert_parallel, num_ubatches, module, native_skips
+):
+    runner = _runner()
+    runner.vllm_config = npu_vllm_config(
+        connector="P2pHcclAFDConnector",
+        model_type="deepseek_v41",
+        architectures=["DeepseekV41ForCausalLM"],
+        enable_expert_parallel=expert_parallel,
+        use_ubatching=bool(num_ubatches),
+        num_ubatches=num_ubatches,
+        kv_transfer_config=SimpleNamespace(
+            kv_role=role,
+            kv_connector=HCCL_NATIVE_PD_CONNECTOR,
+            kv_connector_module_path=module,
+        ),
+    )
+    runner.ascend_config = SimpleNamespace(
+        scheduler_config=SimpleNamespace(
+            profiling_chunk_config=SimpleNamespace(need_timing=False)
+        )
+    )
+    runner.model_state = SimpleNamespace()
+    runner.kvpp = SimpleNamespace(complete_forward=lambda: None)
+
+    def native_policy(vllm_config, is_draft_model=False):
+        return True
+
+    monkeypatch.setattr(
+        native_ascend_utils, "should_skip_allreduce_across_dp_group", native_policy
+    )
+    monkeypatch.setattr(
+        native_ascend_v2, "should_skip_allreduce_across_dp_group", native_policy
+    )
+    monkeypatch.setattr(native_ascend_v2, "has_kv_transfer_group", lambda: False)
+    monkeypatch.setattr(
+        native_v2.GPUModelRunner,
+        "execute_model",
+        lambda self, *args, **kwargs: should_skip_dp_coordination(),
+    )
+    patches.apply_ep_pd_dp_coordination_patch()
+
+    target_skips = NPUModelRunner.execute_model(
+        runner, SimpleNamespace(), is_profile=True
+    )
+    assert target_skips is native_skips
 
 
 def test_kv_control_context_does_not_publish_afd_metadata():

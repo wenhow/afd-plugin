@@ -145,11 +145,14 @@ class HcclV41GraphControl(Generic[ResourcesT]):
         num_active_loras: int = 0,
         transaction_id: str | None = None,
         mode: str = "target",
+        native_descriptor: BatchExecutionDescriptor | None = None,
+        resolve_eager: Callable[[], BatchExecutionDescriptor] | None = None,
     ) -> HcclV41GraphReservation | None:
         """Reserve from the actual ordered native gather result, exactly once."""
         self._current_reservation = None
         local: HcclV41GraphDispatch | None = None
         generation: int | None = None
+        ep = self.transport.negotiated_capabilities.expert_parallel
 
         def select() -> HcclV41GraphDispatch:
             return dispatch_hccl_v41_graph(
@@ -161,6 +164,7 @@ class HcclV41GraphControl(Generic[ResourcesT]):
                 max_query_len=max_query_len,
                 num_active_loras=num_active_loras,
                 target_query_len=self.target_query_len,
+                native_descriptor=native_descriptor,
             )
 
         def resolve(candidate: HcclGraphCandidate) -> HcclGraphReport:
@@ -168,9 +172,7 @@ class HcclV41GraphControl(Generic[ResourcesT]):
             generation = self._generation()
             if local is None:
                 local = select()
-            if candidate.mode != mode or candidate.eager_padded_tokens != self._rows(
-                local.eager
-            ):
+            if not candidate.accepts_eager_geometry(mode, self._rows(local.eager)):
                 raise ValueError(
                     "graph query does not match local native eager geometry or mode"
                 )
@@ -180,15 +182,17 @@ class HcclV41GraphControl(Generic[ResourcesT]):
                 raise ValueError(
                     "native batch reservation requires replay or eager phase"
                 )
-            authoritative = preview_hccl_v41_geometry(
-                batch_state,
-                self._descriptor(candidate.key),
-                target_query_len=self.target_query_len,
-            )
-            if self.key_for(authoritative) != candidate.key:
-                raise ValueError(
-                    "graph query does not match actual native request/token geometry"
+            if not ep:
+                authoritative = preview_hccl_v41_geometry(
+                    batch_state,
+                    self._descriptor(candidate.key),
+                    target_query_len=self.target_query_len,
                 )
+                if self.key_for(authoritative) != candidate.key:
+                    raise ValueError(
+                        "graph query does not match actual native "
+                        "request/token geometry"
+                    )
             if local.candidate.descriptor.cg_mode != CUDAGraphMode.FULL:
                 return HcclGraphReport("missing")
             if self.key_for(local.candidate) != candidate.key:
@@ -210,7 +214,7 @@ class HcclV41GraphControl(Generic[ResourcesT]):
                     "replay" if full else "eager",
                     mode,
                     self.key_for(local.candidate) if full else None,
-                    self._rows(local.eager),
+                    None if ep else self._rows(local.eager),
                 )
             decision = self.transport.reserve_attention_forward(
                 resolve,
@@ -220,7 +224,16 @@ class HcclV41GraphControl(Generic[ResourcesT]):
             if decision is None:
                 return None
             assert local is not None and generation is not None
-            geometry = local.eager if decision.phase == "eager" else local.candidate
+            if decision.phase == "eager":
+                geometry = (
+                    preview_hccl_v41_geometry(
+                        batch_state, resolve_eager(), native_dp_eager=True
+                    )
+                    if ep and resolve_eager is not None
+                    else local.eager
+                )
+            else:
+                geometry = local.candidate
             reservation = HcclV41GraphReservation(decision, geometry, generation)
             self._current_reservation = reservation
             return reservation
@@ -308,6 +321,7 @@ class HcclV41GraphControl(Generic[ResourcesT]):
         *,
         mode: str,
         transaction_id: str | None = None,
+        resolve_eager: Callable[[], BatchExecutionDescriptor] | None = None,
     ) -> HcclV41GraphReservation | None:
         """Reserve caller-owned native eager/dummy geometry, including empty.
 
@@ -316,6 +330,7 @@ class HcclV41GraphControl(Generic[ResourcesT]):
         """
         self._current_reservation = None
         generation: int | None = None
+        ep = self.transport.negotiated_capabilities.expert_parallel
 
         def resolve(candidate: HcclGraphCandidate) -> HcclGraphReport:
             nonlocal generation
@@ -364,16 +379,16 @@ class HcclV41GraphControl(Generic[ResourcesT]):
                     "explicit eager geometry must cover the actual native parent"
                 )
             if (
-                candidate.phase != "eager"
-                or candidate.mode != mode
-                or candidate.eager_padded_tokens != self._rows(geometry)
-            ):
+                candidate.phase != "eager" and not (ep and candidate.phase == "replay")
+            ) or not candidate.accepts_eager_geometry(mode, self._rows(geometry)):
                 raise ValueError("eager query does not match the native local geometry")
             return HcclGraphReport("unsupported")
 
         try:
             candidate = (
-                HcclGraphCandidate("eager", mode, None, self._rows(geometry))
+                HcclGraphCandidate(
+                    "eager", mode, None, None if ep else self._rows(geometry)
+                )
                 if self.transport.is_coordinator
                 else None
             )
@@ -385,6 +400,14 @@ class HcclV41GraphControl(Generic[ResourcesT]):
             if decision is None:
                 return None
             assert generation is not None
+            if (
+                ep
+                and resolve_eager is not None
+                and resolve_eager() != geometry.descriptor
+            ):
+                raise ValueError(
+                    "EP dummy graph fallback changed native eager geometry"
+                )
             reservation = HcclV41GraphReservation(decision, geometry, generation)
             self._current_reservation = reservation
             return reservation

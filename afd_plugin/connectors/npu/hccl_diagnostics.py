@@ -69,7 +69,9 @@ class HcclGraphParentDiagnostics:
                 "key_present": decision.key is not None,
                 "key_digest": "" if decision.key is None else decision.key.digest,
                 "decision_digest": decision.digest,
-                "num_stages": len(decision.padded_tokens),
+                "num_stages": (
+                    1 if decision.padded_tokens is None else len(decision.padded_tokens)
+                ),
                 **{
                     f"configured.{name}": value
                     for name, value in self.settings.effective_settings().items()
