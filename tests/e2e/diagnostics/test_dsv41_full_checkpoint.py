@@ -808,6 +808,56 @@ class TestRepeatabilityRequests(unittest.TestCase):
 
 
 class TestFullCheckpointRequests(unittest.TestCase):
+    def test_shutdown_smoke_without_reference_sends_one_dp1_request(self):
+        driver = load_driver()
+        replies = RepeatabilityReplies()
+
+        def reply(request, **kwargs):
+            self.assertEqual(request.get_header("X-data-parallel-rank"), "1")
+            return replies.open(request, **kwargs)
+
+        def run_candidate(
+            plan, directory, _vendor, _timeout, reference, *, request_runner
+        ):
+            self.assertIsNone(reference)
+            self.assertEqual(plan["request_suite"], "ep-shutdown-smoke")
+            self.assertEqual(plan["attention_stop_signal"], "SIGUSR2")
+            self.assertEqual(
+                plan["roles"]["attention"]["environment"][
+                    "AFD_DSV41_EP_SHUTDOWN_RELAY"
+                ],
+                "1",
+            )
+            self.assertTrue(request_runner(directory, reference)["passed"])
+            return 0
+
+        with tempfile.TemporaryDirectory() as temporary:
+            argv = [
+                "run_dsv41_full_checkpoint.py",
+                "--transformer-vendor",
+                "/vendor",
+                "--output-root",
+                temporary,
+                "--expert-parallel",
+                "--ep-diagnostics",
+                "--attention-stop-signal",
+                "SIGUSR2",
+                "--ep-shutdown-smoke",
+                "--run",
+            ]
+            with (
+                patch.object(sys, "argv", argv),
+                patch.object(sys, "platform", "linux"),
+                patch.object(
+                    driver.launch, "collect_preflight", return_value={"passed": True}
+                ),
+                patch.object(driver.launch, "run_candidate", side_effect=run_candidate),
+                patch("urllib.request.OpenerDirector.open", side_effect=reply),
+            ):
+                self.assertEqual(driver.main(), 0)
+            self.assertEqual(replies.completed, 1)
+            self.assertFalse(replies.cancelled)
+
     def test_serial_first_wave_warms_up_then_measures_ranks_in_order(self):
         driver = load_driver()
         replies = RepeatabilityReplies()

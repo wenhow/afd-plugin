@@ -768,7 +768,17 @@ class Supervision:
             self.record(
                 "signal", role="attention", signal=stop_signal.name, target="root"
             )
-            attention.process.send_signal(stop_signal)
+            if stop_signal.name == "SIGUSR2":
+                process = process_table().get(attention.process.pid)
+                if (
+                    process is None
+                    or attention.identities.get(process.pid) != process.started
+                ):
+                    raise RuntimeError("Attention root exited or was replaced")
+                with self._open_process_fd(process, stop_signal) as fd:
+                    signal.pidfd_send_signal(fd, stop_signal)
+            else:
+                attention.process.send_signal(stop_signal)
             if trace_signal:
                 self._record_attention_signal_state(attention, f"after_{signal_phase}")
             exited = self.wait_exit(attention, OUTER_SHUTDOWN_SECONDS)
@@ -791,7 +801,7 @@ class Supervision:
             if process.pid not in armed:
                 continue
             try:
-                with self._open_process_fd(process) as fd:
+                with self._open_process_fd(process, signal.SIGUSR1) as fd:
                     signal.pidfd_send_signal(fd, signal.SIGUSR1)
             except (AttributeError, OSError, ValueError) as error:
                 self.record(
@@ -801,7 +811,9 @@ class Supervision:
                 self.record("attention_stack_requested", pid=process.pid)
 
     @contextmanager
-    def _open_process_fd(self, process: ProcessIdentity) -> Iterator[int]:
+    def _open_process_fd(
+        self, process: ProcessIdentity, expected_signal: signal.Signals
+    ) -> Iterator[int]:
         fd = os.pidfd_open(process.pid)
         try:
             current = process_table().get(process.pid)
@@ -812,8 +824,8 @@ class Supervision:
                     (line.split()[1] for line in status if line.startswith("SigCgt:")),
                     "0",
                 )
-            if not int(caught, 16) & (1 << (signal.SIGUSR1 - 1)):
-                raise ValueError("stack dump signal handler is not active")
+            if not int(caught, 16) & (1 << (expected_signal - 1)):
+                raise ValueError(f"{expected_signal.name} signal handler is not active")
             yield fd
         finally:
             os.close(fd)
@@ -1335,8 +1347,17 @@ def run_candidate(
         }
         for child in owner.processes:
             child.stream.close()
+        forced = []
+        if ffn is not None or plan.get("request_suite") == "ep-shutdown-smoke":
+            logs = {child.role: child.text() for child in owner.processes}
+            forced = [
+                pattern
+                for pattern in FORCED_NATIVE
+                if any(pattern in log for log in logs.values())
+            ]
+            result["native_forced_cleanup_markers"] = forced
         if ffn is not None:
-            text = ffn.text()
+            text = logs["ffn"]
             marks = {
                 "peer_stop": PEER_STOP in text,
                 "engine_cleanup": ENGINE_CLEAN in text,
@@ -1344,12 +1365,6 @@ def run_candidate(
                 "worker_ranks": sorted(set(map(int, re.findall(WORKER_CLEAN, text)))),
             }
             result["ffn_markers"] = marks
-            forced = [
-                pattern
-                for pattern in FORCED_NATIVE
-                if any(pattern in child.text() for child in owner.processes)
-            ]
-            result["native_forced_cleanup_markers"] = forced
             result["clean_shutdown"] = (
                 attention is not None
                 and attention.process.returncode == 0
@@ -1367,6 +1382,7 @@ def run_candidate(
         elif attention is not None:
             result["clean_shutdown"] = (
                 attention.process.returncode == 0
+                and not forced
                 and not owner.forced_cleanup
                 and not result["survivors"]
                 and "shutdown_error" not in result

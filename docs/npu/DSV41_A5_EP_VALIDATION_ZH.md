@@ -126,6 +126,14 @@ A5 容器执行 AFD 的 `--ep-diagnostics --reference-run`。入口会重新核�
 以及 A/F 日志中是否有完整 STOP/ACK。即使请求矩阵有 token 分叉，也可
 独立查看 `summary.json` 的 `clean_shutdown` 和 A/F 退出码。
 
+若 `SIGINT` 和 `SIGTERM` 都未让根进程退出等待循环，使用
+`--ep-diagnostics --ep-shutdown-smoke --attention-stop-signal SIGUSR2`。
+这个模式只向 DP1 发一条请求，然后由 A 根进程的诊断处理器调用 vLLM
+原有的多 API server 退出回调。服务日志应出现
+`DSV41 EP shutdown: invoking native vLLM signal handler`，再检查
+STOP/ACK、F 自行退出和 A/F 退出码。此模式不传 `--reference-run`，
+仅用于停机验证。
+
 ## 主机证据与 A5 判定
 
 - 每档回传 `launch-plan.json`、预检、A/F 日志、`summary.json`、`request-matrix.json`

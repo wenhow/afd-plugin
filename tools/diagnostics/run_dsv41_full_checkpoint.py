@@ -102,6 +102,7 @@ def make_plan(
     ep_diagnostics: bool = False,
     attention_stop_signal: str | None = None,
     ep_serial_first_wave: bool = False,
+    ep_shutdown_smoke: bool = False,
 ) -> dict:
     if mode not in MODES or spec_tokens not in (0, 1, 2):
         raise ValueError("unsupported full-checkpoint qualification mode")
@@ -122,13 +123,19 @@ def make_plan(
     ):
         raise ValueError("EP diagnostics require standalone EP eager/U1 with N=0")
     if attention_stop_signal is not None and (
-        not ep_diagnostics or attention_stop_signal not in ("SIGINT", "SIGTERM")
+        not ep_diagnostics
+        or attention_stop_signal not in ("SIGINT", "SIGTERM", "SIGUSR2")
     ):
         raise ValueError(
-            "attention stop signal requires EP diagnostics and SIGINT or SIGTERM"
+            "attention stop signal requires EP diagnostics "
+            "and SIGINT, SIGTERM or SIGUSR2"
         )
     if ep_serial_first_wave and not ep_diagnostics:
         raise ValueError("serial first wave requires EP diagnostics")
+    if ep_shutdown_smoke and (not ep_diagnostics or ep_serial_first_wave):
+        raise ValueError(
+            "EP shutdown smoke requires EP diagnostics without serial first wave"
+        )
     if pd_role == "producer" and mode != "eager-u1":
         raise ValueError("PD producer qualification uses eager U1")
     if pd_role not in (None, "producer", "consumer"):
@@ -179,6 +186,8 @@ def make_plan(
                 argv[argv.index("vllm.entrypoints.cli.main")] = (
                     "afd_plugin.entrypoints.dsv41_ep_stack"
                 )
+                if attention_stop_signal == "SIGUSR2":
+                    env["AFD_DSV41_EP_SHUTDOWN_RELAY"] = "1"
                 set_option(argv, "--logprobs-mode", "raw_logprobs")
                 set_option(
                     argv,
@@ -327,7 +336,9 @@ def make_plan(
         full_model_qualification=False,
         stream_overlap=stream_overlap,
         request_suite=(
-            "repeatability"
+            "ep-shutdown-smoke"
+            if ep_shutdown_smoke
+            else "repeatability"
             if repeatability
             else "ep-rank-matrix-v2"
             if expert_parallel
@@ -746,13 +757,18 @@ def main() -> int:
     )
     parser.add_argument(
         "--attention-stop-signal",
-        choices=("SIGINT", "SIGTERM"),
-        help="initial signal to the Attention root for EP diagnostics (default SIGINT)",
+        choices=("SIGINT", "SIGTERM", "SIGUSR2"),
+        help="initial signal to the Attention root; SIGUSR2 invokes the native handler",
     )
     parser.add_argument(
         "--ep-serial-first-wave",
         action="store_true",
         help="warm up each DP rank and measure the first EP wave one request at a time",
+    )
+    parser.add_argument(
+        "--ep-shutdown-smoke",
+        action="store_true",
+        help="send one DP1 request before verifying EP shutdown",
     )
     parser.add_argument("--output-root", type=Path, required=True)
     parser.add_argument("--startup-timeout", type=int, default=3600)
@@ -770,10 +786,13 @@ def main() -> int:
         args.producer_stop_file is None or args.producer_stop_file.exists()
     ):
         parser.error("PD producer requires a new --producer-stop-file")
+    if args.ep_shutdown_smoke and args.reference_run is not None:
+        parser.error("EP shutdown smoke takes no native reference")
     if (
         args.run
         and not args.native_control
         and args.pd_role != "producer"
+        and not args.ep_shutdown_smoke
         and args.reference_run is None
     ):
         parser.error(
@@ -804,6 +823,7 @@ def main() -> int:
         ep_diagnostics=args.ep_diagnostics,
         attention_stop_signal=args.attention_stop_signal,
         ep_serial_first_wave=args.ep_serial_first_wave,
+        ep_shutdown_smoke=args.ep_shutdown_smoke,
     )
     args.output_root.mkdir(parents=True, exist_ok=True)
     directory = Path(
@@ -924,6 +944,10 @@ def main() -> int:
     if args.pd_role == "producer":
         request_runner = partial(
             hold_producer, stop_file=args.producer_stop_file.resolve()
+        )
+    elif args.ep_shutdown_smoke:
+        request_runner = partial(
+            launch.send_request, api_url=plan["api_url"], data_parallel_rank=1
         )
     elif args.repeatability:
         request_runner = partial(
