@@ -6,7 +6,7 @@ from vllm.logger import init_logger
 from vllm.v1.core.sched.scheduler import Scheduler
 from vllm.v1.request import Request
 
-logger = init_logger(__name__)
+logger = init_logger(f"vllm.{__name__}")
 
 
 class DSV41EPDiagnosticScheduler(Scheduler):

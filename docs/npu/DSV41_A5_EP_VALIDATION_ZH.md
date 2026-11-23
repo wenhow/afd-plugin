@@ -94,6 +94,12 @@ checkpoint config/index 摘要以及 13 条原始响应。AFD 的 `summary.json`
 拓扑保持 TP1/DP4/EP4，继续运行原有 4+8+1 矩阵。纯 token 差异会记录在
 `token-comparison.json`，其余请求继续执行，最终 `request_passed=false`。
 
+若原生矩阵已完成，但归档在强制清理后仍记录进程或设备占用，使用同一
+A5 容器执行 AFD 的 `--ep-diagnostics --reference-run`。入口会重新核对
+归档中的 PID 与启动时刻，并检查本轮 A/F 全部设备。两项通过即可复用原生
+响应。原始归档保留，`native-reference-recheck.json` 记录复核结果，
+原生退出状态仍为 `clean_shutdown=false`。
+
 - 在 `attention-server.log` 查找 `DSV41 EP request admitted`。用响应
   `id` 匹配 EngineCore 日志中带后缀的请求 ID，并核对记录的 `dp_rank`。
 - 检查两个结果目录中响应的 `choices[0].logprobs.top_logprobs`。

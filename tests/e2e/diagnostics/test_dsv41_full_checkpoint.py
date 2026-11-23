@@ -530,6 +530,45 @@ class TestFullCheckpointReference(unittest.TestCase):
         self.assertIs(self.candidate["clean_shutdown"], False)
         self.assertEqual(self.candidate["exit_codes"], {"attention": -9})
 
+    def test_ep_diagnostics_recheck_archived_survivors_and_all_candidate_devices(self):
+        self.write_timed_out_ep_reference()
+        driver = load_driver()
+        summary_path = self.reference / "summary.json"
+        summary = json.loads(summary_path.read_bytes())
+        summary["survivors"] = [{"pid": 42, "start_ticks": 100}]
+        summary["npu_after"]["idle_devices"] = [0, 3]
+        driver.launch.save_json(summary_path, summary)
+        previous_worker = driver.launch.ProcessIdentity(42, 1, 10, 10, 100, "D")
+        reused_pid = driver.launch.ProcessIdentity(42, 1, 20, 20, 101, "S")
+        options = ("--expert-parallel", "--ep-diagnostics")
+
+        for worker, devices, error in (
+            (previous_worker, list(range(8)), "live native PIDs=[42]"),
+            (reused_pid, list(range(7)), "devices not confirmed idle=[7]"),
+            (reused_pid, list(range(8)), None),
+        ):
+            with (
+                self.subTest(error=error),
+                patch.object(driver.launch, "process_table", return_value={42: worker}),
+                patch.object(
+                    driver.launch,
+                    "npu_snapshot",
+                    return_value={"exit_code": 0, "idle_devices": devices},
+                ),
+            ):
+                if error is not None:
+                    self.assertIn(error, self.invoke_reference(*options))
+                else:
+                    self.assertEqual(self.run_reference(*options), 0)
+                    self.assertTrue(self.candidate["diagnostic_only"])
+                    self.assertFalse(self.candidate["clean_shutdown"])
+                    self.assertTrue(self.candidate["cleanup_recheck"]["passed"])
+                    self.assertEqual(
+                        self.candidate["cleanup_recheck"]["archived_survivors"],
+                        summary["survivors"],
+                    )
+        self.assertEqual(json.loads(summary_path.read_bytes()), summary)
+
     def test_diagnostic_reference_rejects_missing_response_or_failed_cleanup(self):
         self.write_timed_out_ep_reference()
         options = ("--expert-parallel",)

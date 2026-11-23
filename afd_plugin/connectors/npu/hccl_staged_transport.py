@@ -49,7 +49,7 @@ from afd_plugin.distributed.hccl_plan import (
 from afd_plugin.distributed.hccl_session import MAX_SESSION_TRANSACTIONS
 
 DEFAULT_TIMEOUT_SECONDS = 60
-logger = init_logger(__name__)
+logger = init_logger(f"vllm.{__name__}")
 
 
 class HcclStagedTransport:

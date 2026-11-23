@@ -551,7 +551,12 @@ def hold_producer(directory: Path, reference: Path | None, *, stop_file: Path) -
 
 
 def validate_reference_shutdown_timeout(
-    reference: Path, plan: dict, summary: dict, preflight: dict
+    reference: Path,
+    plan: dict,
+    summary: dict,
+    preflight: dict,
+    *,
+    recheck_cleanup: bool = False,
 ) -> None:
     """Verify a completed EP token matrix whose native launcher timed out at exit."""
 
@@ -562,12 +567,13 @@ def validate_reference_shutdown_timeout(
         summary.get("error")
         or summary.get("shutdown_error")
         or summary.get("forced_cleanup") is not True
-        or summary.get("survivors") != []
+    ):
+        raise ValueError("expected a native exit timeout followed by forced cleanup")
+    if not recheck_cleanup and (
+        summary.get("survivors") != []
         or not launch.selected_devices_idle(summary.get("npu_after", {}), plan)
     ):
-        raise ValueError(
-            "expected forced cleanup with no survivors and idle native devices"
-        )
+        raise ValueError("expected no survivors and idle native devices")
     events = load("lifecycle.json")
     completed = next(
         (
@@ -609,6 +615,44 @@ def validate_reference_shutdown_timeout(
             != "tokens_match"
         ):
             raise ValueError(f"native reference response {index:02d} is incomplete")
+
+
+def recheck_reference_cleanup(
+    directory: Path, reference_summary: dict, candidate_plan: dict
+) -> dict:
+    table = launch.process_table()
+    remaining = []
+    for archived in reference_summary["survivors"]:
+        current = table.get(archived["pid"])
+        if (
+            current is not None
+            and current.started == archived["start_ticks"]
+            and current.state != "Z"
+        ):
+            remaining.append({**archived, "state": current.state})
+    snapshot = launch.npu_snapshot(directory, "native-reference-recheck-npu.log")
+    idle = launch.selected_devices_idle(snapshot, candidate_plan)
+    report = {
+        "checked_utc": launch.utc_now(),
+        "archived_survivors": reference_summary["survivors"],
+        "archived_npu_after": reference_summary["npu_after"],
+        "remaining_survivors": remaining,
+        "npu": snapshot,
+        "passed": not remaining and idle,
+    }
+    launch.save_json(directory / "native-reference-recheck.json", report)
+    if not report["passed"]:
+        pids = [item["pid"] for item in remaining]
+        unconfirmed_devices = sorted(
+            set(candidate_plan["physical_devices"])
+            - (set(snapshot["idle_devices"]) if snapshot["exit_code"] == 0 else set())
+        )
+        raise ValueError(
+            f"current cleanup recheck failed: live native PIDs={pids}, devices "
+            f"not confirmed idle={unconfirmed_devices}; "
+            "see native-reference-recheck.json"
+        )
+    return report
 
 
 def main() -> int:
@@ -774,11 +818,26 @@ def main() -> int:
             raise ValueError(
                 "native reference request suite differs; AFD services were not started"
             )
+        cleanup_recheck = None
         if not reference_summary["clean_shutdown"]:
             try:
-                validate_reference_shutdown_timeout(
-                    args.reference_run, reference_plan, reference_summary, preflight
+                recheck = args.ep_diagnostics and (
+                    reference_summary["survivors"] != []
+                    or not launch.selected_devices_idle(
+                        reference_summary["npu_after"], reference_plan
+                    )
                 )
+                validate_reference_shutdown_timeout(
+                    args.reference_run,
+                    reference_plan,
+                    reference_summary,
+                    preflight,
+                    recheck_cleanup=recheck,
+                )
+                if recheck:
+                    cleanup_recheck = recheck_reference_cleanup(
+                        directory, reference_summary, plan
+                    )
             except (OSError, ValueError, TypeError, KeyError, IndexError) as error:
                 raise ValueError(
                     f"native reference shutdown diagnostic rejected: {error}. "
@@ -792,6 +851,8 @@ def main() -> int:
             "forced_cleanup": reference_summary.get("forced_cleanup"),
             "diagnostic_only": not reference_summary["clean_shutdown"],
         }
+        if cleanup_recheck is not None:
+            plan["native_reference"]["cleanup_recheck"] = cleanup_recheck
         launch.save_json(directory / "launch-plan.json", plan)
         if args.repeatability:
             reference_report = json.loads(
