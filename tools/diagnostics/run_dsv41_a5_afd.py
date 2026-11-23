@@ -752,11 +752,37 @@ class Supervision:
         self.record("exited", role=owned.role, exit_code=owned.process.returncode)
         return True
 
-    def stop_attention(self, attention: OwnedProcess) -> None:
+    def stop_attention(
+        self, attention: OwnedProcess, *, trace_signal: bool = False
+    ) -> None:
         if attention.process.poll() is None:
+            if trace_signal:
+                self._record_attention_signal_state(attention, "before_sigint")
             self.record("signal", role="attention", signal="SIGINT", target="root")
             attention.process.send_signal(signal.SIGINT)
-            self.wait_exit(attention, OUTER_SHUTDOWN_SECONDS)
+            if trace_signal:
+                self._record_attention_signal_state(attention, "after_sigint")
+            exited = self.wait_exit(attention, OUTER_SHUTDOWN_SECONDS)
+            if trace_signal and not exited:
+                self._record_attention_signal_state(attention, "sigint_timeout")
+
+    def _record_attention_signal_state(
+        self, attention: OwnedProcess, phase: str
+    ) -> None:
+        pid = attention.process.pid
+        status_path = Path(f"/proc/{pid}/status")
+        fields = {"State", "SigPnd", "ShdPnd", "SigBlk", "SigIgn", "SigCgt"}
+        try:
+            status = {
+                name: value.strip()
+                for name, _, value in (
+                    line.partition(":") for line in status_path.read_text().splitlines()
+                )
+                if name in fields
+            }
+        except OSError as error:
+            status = {"error": str(error)}
+        self.record("attention_signal_state", phase=phase, pid=pid, status=status)
 
     def force_owned_cleanup(self) -> None:
         # Never signal a name, an arbitrary PID from npu-smi, or a reused PID.
@@ -1038,6 +1064,7 @@ def send_request(
     payload: dict[str, JSONValue] | None = None,
     api_url: str = f"http://127.0.0.1:{API_PORT}",
     data_parallel_rank: int | None = None,
+    collect_token_mismatch: bool = False,
 ) -> dict[str, JSONValue]:
     payload = payload or {
         "model": "dsv41-afd",
@@ -1097,7 +1124,8 @@ def send_request(
     save_json(directory / "token-comparison.json", comparison)
     if comparison["status"] == "invalid_reference":
         raise RuntimeError("invalid native reference; see token-comparison.json")
-    if comparison["status"] == "tokens_differ":
+    tokens_differ = comparison["status"] == "tokens_differ"
+    if tokens_differ and not collect_token_mismatch:
         raise RuntimeError(
             "AFD prompt/output tokens differ from native reference; "
             "see token-comparison.json"
@@ -1108,7 +1136,7 @@ def send_request(
         "elapsed_seconds": time.monotonic() - started,
         "reference_token_ids_match": comparison["reference_token_ids_match"],
         "prompt_token_ids_match": comparison["prompt_token_ids_match"],
-        "passed": True,
+        "passed": not tokens_differ,
     }
 
 
@@ -1228,7 +1256,9 @@ def run_candidate(
         # during the normal shutdown path.
         try:
             if attention is not None:
-                owner.stop_attention(attention)
+                owner.stop_attention(
+                    attention, trace_signal=plan.get("ep_diagnostics") is True
+                )
             if ffn is not None:
                 owner.wait_exit(ffn, OUTER_SHUTDOWN_SECONDS)
         except (Exception, KeyboardInterrupt) as error:

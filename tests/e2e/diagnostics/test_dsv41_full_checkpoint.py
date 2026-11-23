@@ -79,6 +79,31 @@ class RepeatabilityReplies:
 
 
 class TestFullCheckpointPlans(unittest.TestCase):
+    def test_ep_diagnostics_use_native_scheduler_with_admission_logging_on_a(self):
+        driver = load_driver()
+        for native in (False, True):
+            with self.subTest(native=native):
+                plan = driver.make_plan(
+                    Path("/model"),
+                    Path("/vendor"),
+                    ROOT,
+                    expert_parallel=True,
+                    native_control=native,
+                    ep_diagnostics=True,
+                )
+                argv = plan["roles"]["attention"]["argv"]
+                self.assertTrue(plan["ep_diagnostics"])
+                self.assertEqual(
+                    argv[argv.index("--scheduler-cls") + 1],
+                    "afd_plugin.compat.npu.dsv41_ep_diagnostics."
+                    "DSV41EPDiagnosticScheduler",
+                )
+                self.assertEqual(
+                    argv[argv.index("--logprobs-mode") + 1], "raw_logprobs"
+                )
+                if not native:
+                    self.assertNotIn("--scheduler-cls", plan["roles"]["ffn"]["argv"])
+
     def test_ep_plans_select_tp1_dp4_native_and_af_roles(self):
         driver = load_driver()
         for native in (False, True):
@@ -727,6 +752,37 @@ class TestRepeatabilityRequests(unittest.TestCase):
 
 
 class TestFullCheckpointRequests(unittest.TestCase):
+    def test_ep_diagnostics_finish_the_matrix_despite_token_mismatches(self):
+        driver = load_driver()
+        with tempfile.TemporaryDirectory() as temporary:
+            native = Path(temporary) / "native"
+            afd = Path(temporary) / "afd"
+            native.mkdir()
+            afd.mkdir()
+            options = dict(
+                spec_tokens=0,
+                prefill_url=None,
+                data_parallel_size=4,
+                ep_diagnostics=True,
+            )
+            replies = RepeatabilityReplies()
+            with patch("urllib.request.OpenerDirector.open", side_effect=replies.open):
+                self.assertTrue(driver.run_requests(native, None, **options)["passed"])
+
+            replies = RepeatabilityReplies(difference="all")
+            with (
+                patch("urllib.request.OpenerDirector.open", side_effect=replies.open),
+                self.assertRaisesRegex(RuntimeError, "completed with token mismatches"),
+            ):
+                driver.run_requests(afd, native, **options)
+            report = json.loads((afd / "request-matrix.json").read_bytes())
+            self.assertFalse(report["passed"])
+            self.assertEqual(len(report["requests"]), 13)
+            self.assertTrue((afd / "cancel-first-chunk.json").is_file())
+            response = json.loads((afd / "request-12/response.json").read_bytes())
+            scores = response["choices"][0]["logprobs"]["top_logprobs"]
+            self.assertEqual(len(scores), 32)
+
     def test_dspark_requires_a_later_step_after_rejection(self):
         driver = load_driver()
         for accepted in ([1, 0], [0, 1]):

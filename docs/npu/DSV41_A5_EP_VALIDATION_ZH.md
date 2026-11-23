@@ -87,6 +87,22 @@ checkpoint config/index 摘要以及 13 条原始响应。AFD 的 `summary.json`
 通过 `native_reference.diagnostic_only=true` 记录该对照的范围，
 并保留其 `clean_shutdown=false`。正式 EP 验收仍需正常退出的原生对照。
 
+## eager/U1 N=0 定向诊断
+
+首波请求出现 token 分叉或停机超时时，原生和 AFD 命令均加
+`--ep-diagnostics`，使用独立输出目录并将 AFD 指向此次原生结果。
+拓扑保持 TP1/DP4/EP4，继续运行原有 4+8+1 矩阵。纯 token 差异会记录在
+`token-comparison.json`，其余请求继续执行，最终 `request_passed=false`。
+
+- 在 `attention-server.log` 查找 `DSV41 EP request admitted`。用响应
+  `id` 匹配 EngineCore 日志中带后缀的请求 ID，并核对记录的 `dp_rank`。
+- 检查两个结果目录中响应的 `choices[0].logprobs.top_logprobs`。
+  按 `first_output_mismatch.index` 取同一步的原生和 AFD top-5 候选，
+  核对 top-1 与 top-2 的分数差。首个分歧之后的生成前缀已不同。
+- `lifecycle.json` 的 `attention_signal_state` 保留 A 根进程的信号掩码和
+  pending 状态。结合 A/F 日志中的 `DSV41 EP STOP` 记录定位进入停机、
+  STOP 广播、各 peer 应答和最终确认。原生侧只检查信号和进程退出。
+
 ## 主机证据与 A5 判定
 
 - 每档回传 `launch-plan.json`、预检、A/F 日志、`summary.json`、`request-matrix.json`

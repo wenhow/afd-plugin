@@ -11,6 +11,7 @@ external supervisor must bound failed peers. Each instance needs its own port.
 
 from __future__ import annotations
 
+import os
 from collections.abc import Callable, Iterator
 from contextlib import suppress
 from datetime import timedelta
@@ -18,6 +19,7 @@ from datetime import timedelta
 import torch
 import torch.distributed as dist
 from torch.distributed.distributed_c10d import ProcessGroup
+from vllm.logger import init_logger
 
 from afd_plugin.compat.npu.stream import use_npu_current_stream
 from afd_plugin.connectors.npu.hccl_eager_pipeline import (
@@ -47,6 +49,7 @@ from afd_plugin.distributed.hccl_plan import (
 from afd_plugin.distributed.hccl_session import MAX_SESSION_TRANSACTIONS
 
 DEFAULT_TIMEOUT_SECONDS = 60
+logger = init_logger(__name__)
 
 
 class HcclStagedTransport:
@@ -836,9 +839,21 @@ class HcclStagedTransport:
         self._expect(self.coordinator_rank, "ERROR")
 
     def _acknowledge_stop(self) -> None:
+        self._log_stop("received")
         self._send_control(self.coordinator_rank, HcclPlanMessage("STOP_ACK"))
+        self._log_stop("ack_sent")
         self._expect(self.coordinator_rank, "STOP_ACK")
+        self._log_stop("global_ack_received")
         self.terminal = True
+
+    def _log_stop(self, event: str) -> None:
+        if os.environ.get("AFD_DSV41_EP_DIAGNOSTICS") == "1":
+            logger.info(
+                "DSV41 EP STOP: role=%s rank=%d event=%s",
+                self.role,
+                self.role_rank,
+                event,
+            )
 
     def _activate_plan(self, plan: HcclParentPlan) -> None:
         self.plan, self._plan_digest = plan, plan.digest
@@ -1232,6 +1247,7 @@ class HcclStagedTransport:
         acknowledge and await the global ACK; both counts extension versions
         use the same shutdown handshake. FFN remains in receive_forward.
         """
+        self._log_stop("attention_entered")
         self._require_active("attention")
         if (
             self.plan is not None
@@ -1269,9 +1285,13 @@ class HcclStagedTransport:
         ):
             raise RuntimeError("STOP requires an idle parent boundary")
         try:
+            self._log_stop("broadcast_started")
             self._broadcast_control(HcclPlanMessage("STOP"))
+            self._log_stop("broadcast_returned")
             self._collect_replies("STOP_ACK")
+            self._log_stop("all_acks_received")
             self._broadcast_control(HcclPlanMessage("STOP_ACK"))
+            self._log_stop("global_ack_sent")
             self.terminal = True
         except BaseException:
             self.terminal = True

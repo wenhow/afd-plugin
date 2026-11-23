@@ -99,6 +99,7 @@ def make_plan(
     repeat_rounds: int = repeatability_check.DEFAULT_REPEAT_ROUNDS,
     repeat_logprobs: int = 0,
     trace_native_prefill: bool = False,
+    ep_diagnostics: bool = False,
 ) -> dict:
     if mode not in MODES or spec_tokens not in (0, 1, 2):
         raise ValueError("unsupported full-checkpoint qualification mode")
@@ -110,6 +111,14 @@ def make_plan(
         raise ValueError("EP qualification requires native prefill trace off")
     if trace_native_prefill and not (native_control and repeatability):
         raise ValueError("native prefill trace requires native repeatability")
+    if ep_diagnostics and (
+        not expert_parallel
+        or mode != "eager-u1"
+        or spec_tokens
+        or pd_role
+        or repeatability
+    ):
+        raise ValueError("EP diagnostics require standalone EP eager/U1 with N=0")
     if pd_role == "producer" and mode != "eager-u1":
         raise ValueError("PD producer qualification uses eager U1")
     if pd_role not in (None, "producer", "consumer"):
@@ -156,6 +165,16 @@ def make_plan(
                 )
         if role == "attention":
             set_option(argv, "--host", bind_host)
+            if ep_diagnostics:
+                set_option(argv, "--logprobs-mode", "raw_logprobs")
+                set_option(
+                    argv,
+                    "--scheduler-cls",
+                    "afd_plugin.compat.npu.dsv41_ep_diagnostics."
+                    "DSV41EPDiagnosticScheduler",
+                )
+        if ep_diagnostics:
+            env["AFD_DSV41_EP_DIAGNOSTICS"] = "1"
         env.update(AFD_DSV41_EAGER_QUALIFICATION="0", AFD_DSV41_FULL_QUALIFICATION="1")
         if expert_parallel:
             set_option(argv, "--tensor-parallel-size", "1")
@@ -304,6 +323,8 @@ def make_plan(
     )
     if trace_native_prefill:
         plan["trace_native_prefill"] = True
+    if ep_diagnostics:
+        plan["ep_diagnostics"] = True
     if repeatability:
         plan["repeatability_protocol"] = {
             "version": repeatability_check.PROTOCOL_VERSION,
@@ -371,6 +392,7 @@ def run_requests(
     prefill_url: str | None,
     api_url: str = f"http://127.0.0.1:{launch.API_PORT}",
     data_parallel_size: int = 1,
+    ep_diagnostics: bool = False,
 ) -> dict:
     def one(index: int, prompt: str, dp_rank: int | None = None) -> dict:
         target = directory / f"request-{index:02d}"
@@ -386,6 +408,11 @@ def run_requests(
             "return_token_ids": True,
             "stream": False,
         }
+        if ep_diagnostics:
+            payload.update(
+                logprobs=repeatability_check.LOGPROB_CANDIDATES,
+                return_tokens_as_token_ids=True,
+            )
         if prefill_url:
             # Rotate P relative to D to exercise per-replica KV ownership.
             prefill_rank = (
@@ -401,7 +428,12 @@ def run_requests(
             payload=payload,
             api_url=api_url,
             data_parallel_rank=dp_rank,
+            collect_token_mismatch=ep_diagnostics,
         )
+        if ep_diagnostics:
+            repeatability_check.validate_logprobs(
+                json.loads((target / "response.json").read_bytes())
+            )
         if spec_tokens:
             result["dspark"] = validate_response(
                 json.loads((target / "response.json").read_bytes()),
@@ -434,6 +466,8 @@ def run_requests(
             cancel_stream(directory, prefill_url=prefill_url, api_url=api_url)
     results.append(one(request_index, PROMPTS[2], 1 if directed else None))
     report = {"passed": True, "requests": results, "hardware_acceptance": False}
+    if ep_diagnostics:
+        report["passed"] = all(result["passed"] for result in results)
     if spec_tokens:
         metrics = [result["dspark"] for result in results]
         accepted = sum(item["num_accepted_draft_tokens"] for item in metrics)
@@ -460,6 +494,11 @@ def run_requests(
         )
     launch.save_json(directory / "request-matrix.json", report)
     if not report["passed"]:
+        if ep_diagnostics:
+            raise RuntimeError(
+                "EP diagnostic matrix completed with token mismatches; "
+                "see request-matrix.json"
+            )
         raise RuntimeError(
             "DSpark requires acceptance, rejection and continuation; "
             "see request-matrix.json"
@@ -624,6 +663,11 @@ def main() -> int:
         action="store_true",
         help="record the first two native sampling steps in attention-server.log",
     )
+    parser.add_argument(
+        "--ep-diagnostics",
+        action="store_true",
+        help="collect DP admission, top-5 scores and STOP diagnostics for EP eager/U1",
+    )
     parser.add_argument("--output-root", type=Path, required=True)
     parser.add_argument("--startup-timeout", type=int, default=3600)
     parser.add_argument("--run", action="store_true")
@@ -671,6 +715,7 @@ def main() -> int:
         repeat_rounds=args.repeat_rounds,
         repeat_logprobs=args.repeat_logprobs,
         trace_native_prefill=args.trace_native_prefill,
+        ep_diagnostics=args.ep_diagnostics,
     )
     args.output_root.mkdir(parents=True, exist_ok=True)
     directory = Path(
@@ -781,6 +826,7 @@ def main() -> int:
             prefill_url=args.prefill_url,
             api_url=plan["api_url"],
             data_parallel_size=plan["native_dp_size"],
+            ep_diagnostics=args.ep_diagnostics,
         )
     previous_handler = signal.signal(signal.SIGTERM, launch.handle_termination)
     try:
