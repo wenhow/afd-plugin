@@ -202,10 +202,12 @@ def verify_ep_graph_run(
     start: dict[tuple[str, int], GraphLogRecord] = {}
     transactions: dict[str, dict[tuple[str, int], list[GraphLogRecord]]] = {}
     log_hashes: dict[str, JSONValue] = {}
+    log_sizes: dict[str, JSONValue] = {}
     for role in EP_GRAPH_ROLES:
         path = directory / f"{role}-server.log"
         raw = path.read_bytes()
         log_hashes[path.name] = hashlib.sha256(raw).hexdigest()
+        log_sizes[path.name] = len(raw)
         for record in _hccl_log_records(raw, path):
             rank = record.get("role_rank")
             if (
@@ -323,6 +325,7 @@ def verify_ep_graph_run(
         "passed": True,
         "transactions": completed,
         "source_sha256": log_hashes,
+        "source_prefix_bytes": log_sizes,
         "device_completion_verified_by_logs_alone": False,
     }
 
@@ -1226,6 +1229,11 @@ def run_candidate(
     verify_eager_u2 = (
         plan.get("expert_parallel") is True and plan.get("mode") == "eager-u2"
     )
+    verify_graph = (
+        plan.get("expert_parallel") is True
+        and plan.get("mode") in ("graph-u1", "graph-u2")
+        and plan.get("request_suite") != "repeatability"
+    )
     try:
         check_resources(directory, plan)
         roles = plan["roles"]
@@ -1302,6 +1310,16 @@ def run_candidate(
         result["request"] = (request_runner or send_request)(directory, reference)
         result["request_passed"] = True
         owner.record("request_completed")
+        if ffn is not None and verify_graph and plan["mode"] == "graph-u1":
+            try:
+                graph_report = verify_ep_graph_run(directory, plan["native_dp_size"], 1)
+            except (OSError, ValueError, KeyError):
+                # A dummy transaction may still be appending to a server log.
+                # Retry from the final logs if the pre-shutdown snapshot was incomplete.
+                pass
+            else:
+                result["graph_verification"] = graph_report
+                save_json(directory / "graph-verification.json", graph_report)
         if request_logs and ffn is not None:
             try:
                 request_windows = {
@@ -1402,9 +1420,8 @@ def run_candidate(
         if (
             ffn is not None
             and result["request_passed"]
-            and plan.get("mode") in ("graph-u1", "graph-u2")
-            and plan.get("expert_parallel", False)
-            and plan.get("request_suite") != "repeatability"
+            and verify_graph
+            and "graph_verification" not in result
         ):
             try:
                 result["graph_verification"] = verify_ep_graph_run(

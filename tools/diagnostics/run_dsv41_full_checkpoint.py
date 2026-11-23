@@ -893,7 +893,12 @@ def main() -> int:
         cleanup_recheck = None
         if not reference_summary["clean_shutdown"]:
             try:
-                recheck = args.ep_diagnostics and (
+                can_recheck = args.ep_diagnostics or (
+                    args.expert_parallel
+                    and args.mode == "graph-u1"
+                    and args.pd_role is None
+                )
+                recheck = can_recheck and (
                     reference_summary["survivors"] != []
                     or not launch.selected_devices_idle(
                         reference_summary["npu_after"], reference_plan

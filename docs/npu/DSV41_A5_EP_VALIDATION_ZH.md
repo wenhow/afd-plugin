@@ -57,8 +57,15 @@ DSV41_EP_REFERENCE=results/ep-native-n0/full-eager-u1-4v59wo3p
   --output-root results/ep-afd-graph-u1-n0 --run
 ```
 
-此前并发原生对照的退出超时，启动器允许在验证完整请求矩阵和原生设备清理后
-用于诊断。若并发首波因 token 差异提前结束，以 A/F 日志核对已发生的捕获和
+原生退出超时后的标准并发对照，可在验证完整请求矩阵后用于诊断。若其归档
+仍标记进程残留或设备占用，独立 EP Graph/U1 入口会按 PID 和启动时刻
+复查原生进程，并检查本轮 A/F 设备是否全部空闲。复查结果保存到
+`native-reference-recheck.json`，原生 `clean_shutdown=false` 和退出码照原值记录。
+请求完成后先核对 Graph 日志。停机前证据齐全时会写出 `graph-verification.json`，
+若当时仍有事务日志在写入，则在归档阶段复核。功能以 `request_passed` 和
+`graph_verification.passed` 判定。正常停机以 `clean_shutdown` 判定，
+整体退出码仍会反映清理失败。
+若并发首波因 token 差异提前结束，以 A/F 日志核对已发生的捕获和
 回放，回退和取消后请求仍需相应执行证据。正式数值对照需使用同 checkpoint、
 同 N、同请求顺序与批形状的原生结果。本轮串行首波结果保留为 eager/U1 对照证据。
 EP7.2 在 EP6 收口后按本页验收项判定。

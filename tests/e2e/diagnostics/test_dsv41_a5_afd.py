@@ -150,6 +150,67 @@ def ep_graph_parent_records(peer, phase, max_stages):
 
 
 class TestEpGraphLogVerification(unittest.TestCase):
+    def test_graph_u1_pass_precedes_shutdown_failure(self):  # long-test: lifecycle
+        launcher = load_launcher()
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary)
+            write_ep_graph_logs(directory, 1)
+            roles = ("ffn", "attention")
+            children = [
+                SimpleNamespace(
+                    role=role,
+                    process=SimpleNamespace(returncode=-9, poll=lambda: -9),
+                    stream=io.BytesIO(),
+                    text=(directory / f"{role}-server.log").read_text,
+                )
+                for role in roles
+            ]
+            owner = Mock(processes=children, forced_cleanup=True)
+            owner.start.side_effect = children
+            owner.survivors.return_value = []
+
+            def stop_attention(*_args, **_kwargs):
+                report = json.loads(
+                    (directory / "graph-verification.json").read_bytes()
+                )
+                self.assertTrue(report["passed"])
+                raise TimeoutError("attention teardown timed out")
+
+            owner.stop_attention.side_effect = stop_attention
+            plan = {
+                "mode": "graph-u1",
+                "request_suite": "ep-rank-matrix-v2",
+                "expert_parallel": True,
+                "native_dp_size": 2,
+                "physical_devices": list(range(4)),
+                "repo_root": str(ROOT),
+                "roles": {role: {"argv": [], "environment": {}} for role in roles},
+            }
+            with patch.multiple(
+                launcher,
+                Supervision=Mock(return_value=owner),
+                check_resources=Mock(),
+                probe_library=Mock(),
+                wait_ready=Mock(),
+                npu_snapshot=Mock(
+                    return_value={"exit_code": 0, "idle_devices": list(range(4))}
+                ),
+            ):
+                code = launcher.run_candidate(
+                    plan,
+                    directory,
+                    Path("/vendor"),
+                    1,
+                    None,
+                    request_runner=lambda *_: {"passed": True},
+                )
+            report = json.loads((directory / "summary.json").read_bytes())
+            self.assertTrue(report["request_passed"])
+            self.assertTrue(report["graph_verification"]["passed"])
+            self.assertFalse(report["clean_shutdown"])
+            self.assertIn("attention teardown timed out", report["shutdown_error"])
+            self.assertEqual(code, 1)
+
     def test_reports_capture_replay_and_runtime_eager_from_complete_logs(self):
         for max_stages in (1, 2):
             with (
