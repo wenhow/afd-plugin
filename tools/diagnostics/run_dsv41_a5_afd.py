@@ -25,8 +25,8 @@ import tempfile
 import time
 import urllib.error
 import urllib.request
-from collections.abc import Callable
-from contextlib import suppress
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager, suppress
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from http.client import HTTPResponse
@@ -59,6 +59,8 @@ CURL_EXIT_GRACE_SECONDS = 1
 READINESS_PROGRESS_SECONDS = 30
 TERM_GRACE_SECONDS = 10
 KILL_GRACE_SECONDS = 10
+EP_STACK_DIR_ENV = "AFD_DSV41_EP_STACK_DIR"
+EP_STACK_DIR = "shutdown-stacks"
 EP_GRAPH_ROLES = ("attention", "ffn")
 HCCL_CONFIGURATION_PREFIX = "AFD HCCL session configuration: "
 HCCL_STAGE_PREFIX = "AFD HCCL stage diagnostic: "
@@ -774,6 +776,47 @@ class Supervision:
                 self._record_attention_signal_state(
                     attention, f"{signal_phase}_timeout"
                 )
+                self._request_attention_stacks(attention)
+
+    def _request_attention_stacks(self, attention: OwnedProcess) -> None:
+        stack_directory = self.directory / EP_STACK_DIR
+        if not stack_directory.is_dir():
+            return
+        armed = {
+            int(path.stem)
+            for path in stack_directory.glob("*.log")
+            if path.stem.isdecimal()
+        }
+        for process in attention.observe(process_table()):
+            if process.pid not in armed:
+                continue
+            try:
+                with self._open_process_fd(process) as fd:
+                    signal.pidfd_send_signal(fd, signal.SIGUSR1)
+            except (AttributeError, OSError, ValueError) as error:
+                self.record(
+                    "attention_stack_unavailable", pid=process.pid, error=str(error)
+                )
+            else:
+                self.record("attention_stack_requested", pid=process.pid)
+
+    @contextmanager
+    def _open_process_fd(self, process: ProcessIdentity) -> Iterator[int]:
+        fd = os.pidfd_open(process.pid)
+        try:
+            current = process_table().get(process.pid)
+            if current is None or current.started != process.started:
+                raise ValueError("process exited or was replaced")
+            with Path(f"/proc/{process.pid}/status").open() as status:
+                caught = next(
+                    (line.split()[1] for line in status if line.startswith("SigCgt:")),
+                    "0",
+                )
+            if not int(caught, 16) & (1 << (signal.SIGUSR1 - 1)):
+                raise ValueError("stack dump signal handler is not active")
+            yield fd
+        finally:
+            os.close(fd)
 
     def _record_attention_signal_state(
         self, attention: OwnedProcess, phase: str
@@ -1218,10 +1261,18 @@ def run_candidate(
             ffn = owner.start(
                 "ffn", roles["ffn"]["argv"], roles["ffn"]["environment"], repo
             )
+        attention_environment = roles["attention"]["environment"]
+        if plan.get("ep_diagnostics") is True:
+            stack_directory = directory.resolve() / EP_STACK_DIR
+            stack_directory.mkdir()
+            attention_environment = {
+                **attention_environment,
+                EP_STACK_DIR_ENV: str(stack_directory),
+            }
         attention = owner.start(
             "attention",
             roles["attention"]["argv"],
-            roles["attention"]["environment"],
+            attention_environment,
             repo,
         )
         wait_ready(

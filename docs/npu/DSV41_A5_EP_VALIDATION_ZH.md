@@ -108,6 +108,16 @@ A5 容器执行 AFD 的 `--ep-diagnostics --reference-run`。入口会重新核�
 - `lifecycle.json` 的 `attention_signal_state` 保留 A 根进程的信号掩码和
   pending 状态。结合 A/F 日志中的 `DSV41 EP STOP` 记录定位进入停机、
   STOP 广播、各 peer 应答和最终确认。原生侧只检查信号和进程退出。
+  A 根进程超时后，入口通过 pidfd 请求 A 根进程和已注册的 A EngineCore
+  打印 Python 栈。回传 `shutdown-stacks/` 与 `lifecycle.json`。
+  若内核不支持 pidfd 或进程已退出，生命周期记录对应原因。
+
+若首波原生和 AFD 入队时机不同，在两边增加 `--ep-serial-first-wave`。
+先用首波同一个 prompt 按 DP0 到 DP3 每次发一条预热，再按相同顺序
+串行测四条请求。预热响应存于 `first-wave-warmup/`。对照使用本轮新原生
+结果，并在 A 日志中查 `DSV41 EP scheduled tokens` 核对实测请求每步的
+调度 token 数。第二波仍正常并发，可继续看取消后的请求与最终单路。
+串行首波用于数值定位，正式并发矩阵需按原方案验证。
 
 若 `SIGINT` 超时、而强制清理阶段已有全 rank STOP ACK，可复用已有的
 原生诊断结果，在 AFD 命令增加 `--attention-stop-signal SIGTERM`。此选项

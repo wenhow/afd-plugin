@@ -101,6 +101,7 @@ def make_plan(
     trace_native_prefill: bool = False,
     ep_diagnostics: bool = False,
     attention_stop_signal: str | None = None,
+    ep_serial_first_wave: bool = False,
 ) -> dict:
     if mode not in MODES or spec_tokens not in (0, 1, 2):
         raise ValueError("unsupported full-checkpoint qualification mode")
@@ -126,6 +127,8 @@ def make_plan(
         raise ValueError(
             "attention stop signal requires EP diagnostics and SIGINT or SIGTERM"
         )
+    if ep_serial_first_wave and not ep_diagnostics:
+        raise ValueError("serial first wave requires EP diagnostics")
     if pd_role == "producer" and mode != "eager-u1":
         raise ValueError("PD producer qualification uses eager U1")
     if pd_role not in (None, "producer", "consumer"):
@@ -173,6 +176,9 @@ def make_plan(
         if role == "attention":
             set_option(argv, "--host", bind_host)
             if ep_diagnostics:
+                argv[argv.index("vllm.entrypoints.cli.main")] = (
+                    "afd_plugin.entrypoints.dsv41_ep_stack"
+                )
                 set_option(argv, "--logprobs-mode", "raw_logprobs")
                 set_option(
                     argv,
@@ -333,6 +339,7 @@ def make_plan(
     if ep_diagnostics:
         plan["ep_diagnostics"] = True
         plan["attention_stop_signal"] = attention_stop_signal or "SIGINT"
+        plan["ep_serial_first_wave"] = ep_serial_first_wave
     if repeatability:
         plan["repeatability_protocol"] = {
             "version": repeatability_check.PROTOCOL_VERSION,
@@ -401,9 +408,13 @@ def run_requests(
     api_url: str = f"http://127.0.0.1:{launch.API_PORT}",
     data_parallel_size: int = 1,
     ep_diagnostics: bool = False,
+    ep_serial_first_wave: bool = False,
 ) -> dict:
-    def one(index: int, prompt: str, dp_rank: int | None = None) -> dict:
-        target = directory / f"request-{index:02d}"
+    def one(
+        index: int, prompt: str, dp_rank: int | None = None, *, warmup: bool = False
+    ) -> dict:
+        parent = directory / "first-wave-warmup" if warmup else directory
+        target = parent / f"request-{index:02d}"
         target.mkdir()
         payload = {
             "model": "dsv41-afd",
@@ -429,7 +440,11 @@ def run_requests(
             payload["kv_transfer_params"] = prefill_request(
                 target, prefill_url, payload, data_parallel_rank=prefill_rank
             )
-        baseline = reference / target.name / "response.json" if reference else None
+        baseline = (
+            reference / target.name / "response.json"
+            if reference and not warmup
+            else None
+        )
         result = launch.send_request(
             target,
             baseline,
@@ -453,22 +468,31 @@ def run_requests(
     results = []
     directed = data_parallel_size > 1
     request_index = 0
+    if ep_serial_first_wave:
+        (directory / "first-wave-warmup").mkdir()
+        for rank in range(data_parallel_size):
+            one(rank, PROMPTS[0], rank, warmup=True)
     # EP waves use one then two requests per replica to exercise U1 and U2.
     # Repeating the same prompt across ranks keeps decode lengths comparable.
     for wave, prompt in enumerate(PROMPTS[:2]):
         wave_size = data_parallel_size * (wave + 1) if directed else 2
         prompts = (prompt,) * wave_size if directed else PROMPTS[:2]
-        with ThreadPoolExecutor(max_workers=wave_size) as pool:
-            futures = [
-                pool.submit(
-                    one,
-                    request_index + i,
-                    text,
-                    i % data_parallel_size if directed else None,
-                )
-                for i, text in enumerate(prompts)
-            ]
-            results.extend(future.result() for future in futures)
+        if wave == 0 and ep_serial_first_wave:
+            results.extend(
+                one(rank, prompt, rank) for rank in range(data_parallel_size)
+            )
+        else:
+            with ThreadPoolExecutor(max_workers=wave_size) as pool:
+                futures = [
+                    pool.submit(
+                        one,
+                        request_index + i,
+                        text,
+                        i % data_parallel_size if directed else None,
+                    )
+                    for i, text in enumerate(prompts)
+                ]
+                results.extend(future.result() for future in futures)
         request_index += wave_size
         if wave == 0:
             cancel_stream(directory, prefill_url=prefill_url, api_url=api_url)
@@ -725,6 +749,11 @@ def main() -> int:
         choices=("SIGINT", "SIGTERM"),
         help="initial signal to the Attention root for EP diagnostics (default SIGINT)",
     )
+    parser.add_argument(
+        "--ep-serial-first-wave",
+        action="store_true",
+        help="warm up each DP rank and measure the first EP wave one request at a time",
+    )
     parser.add_argument("--output-root", type=Path, required=True)
     parser.add_argument("--startup-timeout", type=int, default=3600)
     parser.add_argument("--run", action="store_true")
@@ -774,6 +803,7 @@ def main() -> int:
         trace_native_prefill=args.trace_native_prefill,
         ep_diagnostics=args.ep_diagnostics,
         attention_stop_signal=args.attention_stop_signal,
+        ep_serial_first_wave=args.ep_serial_first_wave,
     )
     args.output_root.mkdir(parents=True, exist_ok=True)
     directory = Path(
@@ -831,6 +861,14 @@ def main() -> int:
         if reference_plan.get("request_suite", "matrix") != plan["request_suite"]:
             raise ValueError(
                 "native reference request suite differs; AFD services were not started"
+            )
+        if (
+            reference_plan.get("ep_serial_first_wave", False)
+            != args.ep_serial_first_wave
+        ):
+            raise ValueError(
+                "native reference first-wave scheduling differs; "
+                "AFD services were not started"
             )
         cleanup_recheck = None
         if not reference_summary["clean_shutdown"]:
@@ -902,6 +940,7 @@ def main() -> int:
             api_url=plan["api_url"],
             data_parallel_size=plan["native_dp_size"],
             ep_diagnostics=args.ep_diagnostics,
+            ep_serial_first_wave=args.ep_serial_first_wave,
         )
     previous_handler = signal.signal(signal.SIGTERM, launch.handle_termination)
     try:

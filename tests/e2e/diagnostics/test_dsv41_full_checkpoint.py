@@ -95,6 +95,7 @@ class TestFullCheckpointPlans(unittest.TestCase):
                 argv = plan["roles"]["attention"]["argv"]
                 self.assertTrue(plan["ep_diagnostics"])
                 self.assertEqual(plan["attention_stop_signal"], "SIGTERM")
+                self.assertIn("afd_plugin.entrypoints.dsv41_ep_stack", argv)
                 self.assertEqual(
                     argv[argv.index("--scheduler-cls") + 1],
                     "afd_plugin.compat.npu.dsv41_ep_diagnostics."
@@ -539,6 +540,13 @@ class TestFullCheckpointReference(unittest.TestCase):
         self.assertIs(self.candidate["clean_shutdown"], False)
         self.assertEqual(self.candidate["exit_codes"], {"attention": -9})
 
+    def test_serial_first_wave_rejects_a_concurrent_native_reference(self):
+        self.write_timed_out_ep_reference()
+        message = self.invoke_reference(
+            "--expert-parallel", "--ep-diagnostics", "--ep-serial-first-wave"
+        )
+        self.assertIn("native reference first-wave scheduling differs", message)
+
     def test_ep_diagnostics_recheck_archived_survivors_and_all_candidate_devices(self):
         self.write_timed_out_ep_reference()
         driver = load_driver()
@@ -800,6 +808,43 @@ class TestRepeatabilityRequests(unittest.TestCase):
 
 
 class TestFullCheckpointRequests(unittest.TestCase):
+    def test_serial_first_wave_warms_up_then_measures_ranks_in_order(self):
+        driver = load_driver()
+        replies = RepeatabilityReplies()
+        requests = []
+
+        def reply(request, **kwargs):
+            payload = json.loads(request.data)
+            if not payload["stream"]:
+                requests.append(
+                    (request.get_header("X-data-parallel-rank"), payload["prompt"])
+                )
+            return replies.open(request, **kwargs)
+
+        with (
+            tempfile.TemporaryDirectory() as temporary,
+            patch("urllib.request.OpenerDirector.open", side_effect=reply),
+        ):
+            directory = Path(temporary)
+            report = driver.run_requests(
+                directory,
+                None,
+                spec_tokens=0,
+                prefill_url=None,
+                data_parallel_size=4,
+                ep_diagnostics=True,
+                ep_serial_first_wave=True,
+            )
+            self.assertEqual(
+                requests[:8], [(str(rank), driver.PROMPTS[0]) for rank in range(4)] * 2
+            )
+            for rank in range(4):
+                warmup = directory / f"first-wave-warmup/request-{rank:02d}"
+                self.assertTrue((warmup / "response.json").is_file())
+            self.assertTrue(report["passed"])
+            self.assertEqual(len(report["requests"]), 13)
+            self.assertTrue(replies.cancelled)
+
     def test_ep_diagnostics_finish_the_matrix_despite_token_mismatches(self):
         driver = load_driver()
         with tempfile.TemporaryDirectory() as temporary:
