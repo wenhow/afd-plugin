@@ -20,6 +20,8 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
+from afd_plugin.entrypoints.dsv41_ep_stack import relay_shutdown
+
 ROOT = Path(__file__).resolve().parents[3]
 EVIDENCE = ROOT / (
     "openspec/changes/afd-hccl-full-parity/evidence/a5-full-checkpoint-guide-20261119"
@@ -32,6 +34,37 @@ def load_launcher():
 
 
 class TestAttentionStop(unittest.TestCase):
+    def test_relay_uses_native_serve_callback_after_signal_registration_changes(self):
+        namespace = {
+            "__name__": "vllm.entrypoints.cli.serve",
+            "relay_shutdown": relay_shutdown,
+            "signal": signal,
+            "sys": sys,
+        }
+        exec(
+            """
+def run_multi_api_server():
+    shutdown_requested = False
+
+    def signal_handler(signum, frame):
+        nonlocal shutdown_requested
+        shutdown_requested = signum == signal.SIGTERM
+        raise SystemExit
+
+    def wait_for_child():
+        relay_shutdown(0, sys._getframe())
+
+    try:
+        wait_for_child()
+    except SystemExit:
+        return shutdown_requested
+    return False
+""",
+            namespace,
+        )
+        with patch.object(signal, "getsignal", return_value=signal.SIG_IGN):
+            self.assertTrue(namespace["run_multi_api_server"]())
+
     def test_root_signal_is_recorded_with_the_matching_timeout_snapshot(self):
         launcher = load_launcher()
         for stop_signal in (signal.SIGINT, signal.SIGTERM):

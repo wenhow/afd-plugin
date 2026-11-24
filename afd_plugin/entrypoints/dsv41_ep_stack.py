@@ -28,19 +28,25 @@ def register_stack_dump() -> None:
 
 
 def relay_shutdown(_signum: int, frame: FrameType | None) -> None:
-    # A native library can consume a POSIX signal without updating Python's
-    # handler registry. Only reuse the pinned vLLM multi-API exit callback.
-    for signum in (signal.SIGTERM, signal.SIGINT):
-        handler = signal.getsignal(signum)
+    # The native multi-API frame owns the shutdown_requested flag. Its local
+    # callback remains available even if the signal registration has changed.
+    caller = frame
+    while caller is not None:
         if (
-            callable(handler)
-            and getattr(handler, "__module__", None) == "vllm.entrypoints.cli.serve"
-            and getattr(handler, "__qualname__", None)
-            == "run_multi_api_server.<locals>.signal_handler"
+            caller.f_globals.get("__name__") == "vllm.entrypoints.cli.serve"
+            and caller.f_code.co_name == "run_multi_api_server"
         ):
-            os.write(2, b"DSV41 EP shutdown: invoking native vLLM signal handler\n")
-            handler(signal.SIGTERM, frame)
-            return
+            handler = caller.f_locals.get("signal_handler")
+            if callable(handler):
+                os.write(
+                    2,
+                    b"DSV41 EP shutdown: invoking native vLLM signal handler "
+                    b"from active serve frame\n",
+                )
+                handler(signal.SIGTERM, frame)
+                return
+            break
+        caller = caller.f_back
     os.write(2, b"DSV41 EP shutdown: native vLLM signal handler unavailable\n")
 
 

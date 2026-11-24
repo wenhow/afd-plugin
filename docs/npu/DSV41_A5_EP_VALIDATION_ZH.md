@@ -176,8 +176,9 @@ A5 容器执行 AFD 的 `--ep-diagnostics --reference-run`。入口会重新核�
 若 `SIGINT` 和 `SIGTERM` 都未让根进程退出等待循环，使用
 `--ep-diagnostics --ep-shutdown-smoke --attention-stop-signal SIGUSR2`。
 这个模式只向 DP1 发一条请求，然后由 A 根进程的诊断处理器调用 vLLM
-原有的多 API server 退出回调。服务日志应出现
-`DSV41 EP shutdown: invoking native vLLM signal handler`，再检查
+原有的多 API server 退出回调。该回调从正在运行的 `run_multi_api_server`
+调用帧中取出。服务日志应出现
+`DSV41 EP shutdown: invoking native vLLM signal handler from active serve frame`，再检查
 STOP/ACK、F 自行退出和 A/F 退出码。此模式不传 `--reference-run`，
 仅用于停机验证。
 
