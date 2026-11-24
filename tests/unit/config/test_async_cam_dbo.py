@@ -5,12 +5,16 @@ from types import SimpleNamespace
 
 import pytest
 
-from afd_plugin.compat.npu.runtime_config import configure_async_cam_dbo
+from afd_plugin.compat.npu.runtime_config import (
+    configure_async_cam_dbo,
+    uses_async_cam_dbo,
+)
 
 
+@pytest.mark.parametrize("connector", ["CAMAsyncAFDConnector", "WindowAFDConnector"])
 @pytest.mark.parametrize("dp_size", [1, 2])
 @pytest.mark.parametrize("native_flag", [False, True])
-def test_native_ubatching_uses_dbo_at_every_dp_size(dp_size, native_flag):
+def test_native_ubatching_uses_dbo_at_every_dp_size(dp_size, native_flag, connector):
     config = SimpleNamespace(
         parallel_config=SimpleNamespace(
             data_parallel_size=dp_size,
@@ -22,14 +26,16 @@ def test_native_ubatching_uses_dbo_at_every_dp_size(dp_size, native_flag):
         ),
         additional_config={
             "afd": {
-                "connector": "CAMAsyncAFDConnector",
+                "connector": connector,
                 "role": "attention",
                 "async_dp": True,
             }
         },
+        speculative_config=SimpleNamespace(method="dspark"),
     )
     configure_async_cam_dbo(config)
     assert config.parallel_config.enable_dbo is native_flag
+    assert uses_async_cam_dbo(config) is native_flag
     configure_async_cam_dbo(config)
     assert config.parallel_config.enable_dbo is native_flag
 

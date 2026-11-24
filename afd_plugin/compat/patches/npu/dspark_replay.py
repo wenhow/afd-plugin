@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Ascend DSpark draft replay for Window U2 Attention workers."""
+"""Ascend DSpark replay using draft-owned attention metadata."""
 
 from types import MethodType
 
@@ -10,9 +10,10 @@ from vllm_ascend.compilation.acl_graph import update_full_graph_params
 from vllm_ascend.worker.v2.spec_decode.dflash.aclgraph import DFlashAclGraphManager
 
 
-# Upstream: vllm-ascend 7e37e29a7, DFlashAclGraphManager._graph_replay.
-# The U2 target's model state has no single attn_metadata. The caller has
-# already built the live draft metadata. Remove when Ascend uses it here.
+# Upstream: vllm-ascend 8d4409d6, DFlashAclGraphManager._graph_replay.
+# Target metadata describes target tokens and may be split across stages.
+# The caller has already built the complete draft batch's live metadata.
+# Signature matches upstream. Remove when Ascend uses draft metadata here.
 def _graph_replay(self, desc, attn_backend, num_tokens, draft_attn_metadatas):
     self.update_stream.wait_stream(torch.npu.current_stream())
     # Same parent replay as the native method. Calling self.run_fullgraph

@@ -16,7 +16,7 @@ from afd_plugin.compat.npu import (
     npu_afd_num_ubatches,
 )
 from afd_plugin.compat.npu.runtime_config import configure_async_cam_dbo
-from afd_plugin.config import uses_window_dspark
+from afd_plugin.config import use_afd_dspark
 from afd_plugin.model_executor.models.model_utils import get_afd_model_config
 from afd_plugin.v1.worker.npu.attention_model_runner_v2 import (
     AFDNPUAttentionModelRunnerV2,
@@ -55,7 +55,7 @@ class AFDNPUAttentionWorker(NPUWorker):
         )
 
         self.device = self._init_device()
-        window_dspark = uses_window_dspark(self.vllm_config)
+        window_dspark = use_afd_dspark(self.vllm_config)
         # MRV2 selects lane 1 during draft loading, capture and proposal.
         # Each lane has its own per-ubatch workspace retained by its graph.
         init_workspace_manager(

@@ -29,6 +29,16 @@ def test_package_import_is_cpu_safe():
     assert afd_plugin.AFDConfig().connector == "P2pNcclAFDConnector"
 
 
+def test_deepseek_v41_draft_is_registered_with_backbone():
+    registrations = afd_plugin._MODEL_REGISTRATIONS
+    assert registrations["DeepseekV41ForCausalLM"].endswith(
+        ":AFDDeepseekV41ForCausalLM"
+    )
+    assert registrations["DeepseekV41DSparkModel"] == (
+        "afd_plugin.model_executor.models.npu.deepseek_v41_dspark:AFDDeepseekV41DSparkModel"
+    )
+
+
 def test_register_afd_is_idempotent():
     afd_plugin.register_afd()
     afd_plugin.register_afd()

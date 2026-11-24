@@ -16,7 +16,7 @@ from afd_plugin.compat.npu.runtime_config import (
     fix_all2all_backend_for_afd,
     npu_afd_num_ubatches,
 )
-from afd_plugin.config import parse_optional_afd_config, uses_independent_dp_steps
+from afd_plugin.config import is_afd_async_dp, parse_optional_afd_config
 
 if TYPE_CHECKING:
     from vllm.config import VllmConfig
@@ -48,7 +48,7 @@ def apply_afd_async_dp_engine_patch_if_needed(vllm_config: VllmConfig) -> bool:
     if (
         afd_config is None
         or afd_config.role != "attention"
-        or not uses_independent_dp_steps(vllm_config)
+        or not is_afd_async_dp(vllm_config)
     ):
         return False
 
@@ -69,7 +69,7 @@ def apply_afd_ascend_engine_core_config_patch_if_needed(
     """Prepare AFD sync Attention and FFN DP children for Ascend config."""
     afd_config = parse_optional_afd_config(vllm_config, validate=False)
     if afd_config is None or (
-        afd_config.role == "attention" and uses_independent_dp_steps(vllm_config)
+        afd_config.role == "attention" and is_afd_async_dp(vllm_config)
     ):
         return False
 

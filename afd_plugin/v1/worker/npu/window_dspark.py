@@ -66,13 +66,18 @@ def window_dspark_draft_graph_sizes(
 
 
 def window_dspark_capture_descs(
-    descs: list[BatchExecutionDescriptor], width: int, max_reqs: int
+    descs: list[BatchExecutionDescriptor],
+    width: int,
+    max_reqs: int,
+    num_ubatches: int,
 ) -> list[BatchExecutionDescriptor]:
-    """Each graph stage must hold whole target verification rows."""
+    """Align whole verification rows to the target's chosen stage count."""
+    if width < 1 or num_ubatches < 1:
+        raise ValueError("Verification width and target stage count must be positive")
     buckets = set()
     for desc in descs:
         rows = min(desc.num_tokens // width, max_reqs)
-        rows -= rows % 2
+        rows -= rows % num_ubatches
         if rows:
             buckets.add(
                 replace(
@@ -81,23 +86,33 @@ def window_dspark_capture_descs(
                     num_tokens=rows * width,
                     uniform_token_count=width,
                     max_query_len=None,
-                    num_ubatches=2,
+                    num_ubatches=num_ubatches,
                 )
             )
     if not buckets:
         raise ValueError(
-            f"Window DSpark U2 needs max_num_seqs >= 2 and a target "
-            f"graph bucket of at least {2 * width} tokens"
+            f"Window DSpark needs max_num_seqs >= {num_ubatches} and a target "
+            f"graph bucket of at least {num_ubatches * width} tokens"
         )
     return sorted(buckets, key=lambda desc: desc.num_tokens, reverse=True)
 
 
 def verification_stage_ranges(
-    rows: int, tokens: int, width: int
-) -> tuple[tuple[slice, slice], tuple[slice, slice]]:
-    if rows < 2 or rows % 2 or width < 1 or tokens != rows * width:
-        raise ValueError(f"Invalid U2 verification shape: {rows} rows, {tokens} tokens")
-    return (
-        (slice(0, rows // 2), slice(0, tokens // 2)),
-        (slice(rows // 2, rows), slice(tokens // 2, tokens)),
+    rows: int, tokens: int, width: int, num_ubatches: int
+) -> tuple[tuple[slice, slice], ...]:
+    if (
+        num_ubatches < 1
+        or rows < num_ubatches
+        or rows % num_ubatches
+        or width < 1
+        or tokens != rows * width
+    ):
+        raise ValueError(f"Invalid verification shape: {rows} rows, {tokens} tokens")
+    rows_per_stage = rows // num_ubatches
+    return tuple(
+        (
+            slice(start, start + rows_per_stage),
+            slice(start * width, (start + rows_per_stage) * width),
+        )
+        for start in range(0, rows, rows_per_stage)
     )

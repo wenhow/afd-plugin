@@ -8,6 +8,10 @@ from types import ModuleType, SimpleNamespace
 
 import pytest
 
+from afd_plugin.compat.npu.feature_validation import (
+    _fail_if_unsupported_dspark_features,
+)
+from afd_plugin.config import parse_afd_config
 from afd_plugin.validation import (
     ATTENTION_WORKER_FQCN,
     FFN_WORKER_FQCN,
@@ -17,8 +21,40 @@ from afd_plugin.validation import (
     validate_gpu_model_runner_v2_config,
     validate_npu_model_runner_v2_config,
 )
+from tests.unit.fakes.vllm_config import window_dspark_config
 
 MODEL_UTILS_MODULE = "afd_plugin.model_executor.models.model_utils"
+
+
+@pytest.mark.parametrize("stages", [1, 2, 4])
+@pytest.mark.parametrize(
+    "target_eager,draft_eager",
+    [
+        (True, True),
+        (False, True),
+        (False, False),
+        (True, False),
+    ],
+)
+def test_dspark_mode_policy_is_independent_of_target_stages(
+    stages,
+    target_eager,
+    draft_eager,
+):
+    config = window_dspark_config(stages, target_eager, draft_eager)
+    if target_eager and not draft_eager:
+        with pytest.raises(RuntimeError, match="draft graphs require a graph target"):
+            _fail_if_unsupported_dspark_features(config, parse_afd_config(config))
+    else:
+        _fail_if_unsupported_dspark_features(config, parse_afd_config(config))
+
+
+@pytest.mark.parametrize("stages", [1, 2])
+def test_graph_verification_requires_fixed_width_independent_of_stages(stages):
+    config = window_dspark_config(stages, False, False)
+    config.speculative_config.enable_adaptive_verification = True
+    with pytest.raises(RuntimeError, match="fixed draft width"):
+        _fail_if_unsupported_dspark_features(config, parse_afd_config(config))
 
 
 def _vllm_like_config(*, afd, worker_cls):
@@ -370,7 +406,9 @@ def test_mrv2_validator_rejects_before_importing_model_runtime(
         ("CAMP2pAFDConnector", "attention", "dspark", 2, False),
     ],
 )
-def test_npu_dbo_speculative_deployment(mrv2_config, connector, role, method, slots, allowed):
+def test_npu_dbo_speculative_deployment(
+    mrv2_config, connector, role, method, slots, allowed
+):
     overrides = {
         **GRAPH,
         **_symmetric_ranks(4, 1),
@@ -384,7 +422,7 @@ def test_npu_dbo_speculative_deployment(mrv2_config, connector, role, method, sl
     if allowed:
         _run_mrv2_validator(mrv2_config, "npu", role, overrides)
     else:
-        with pytest.raises(RuntimeError, match="only for Window U2 Attention with DSpark"):
+        with pytest.raises(RuntimeError, match="only for Window Attention with DSpark"):
             _run_mrv2_validator(mrv2_config, "npu", role, overrides)
 
 

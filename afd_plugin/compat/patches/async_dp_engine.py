@@ -46,7 +46,7 @@ from vllm.v1.engine.core_client import DPAsyncMPClient
 from afd_plugin.compat.vllm import (
     is_target_vllm_compatible as _is_target_vllm_compatible,
 )
-from afd_plugin.config import parse_optional_afd_config, uses_independent_dp_steps
+from afd_plugin.config import is_afd_async_dp, parse_optional_afd_config
 
 if TYPE_CHECKING:
     from multiprocessing.queues import Queue
@@ -248,8 +248,7 @@ def launch_core_engines(
             # aggregation off this flag, so async Attention ranks get
             # independent request-count publication.
             enable_wave_coordination=(
-                vllm_config.model_config.is_moe
-                and not uses_independent_dp_steps(vllm_config)
+                vllm_config.model_config.is_moe and not is_afd_async_dp(vllm_config)
             ),
             # ### PATCH END: AFD async-DP coordinator wave mode
         )
@@ -389,7 +388,7 @@ async def add_request_async(
     # ### PATCH START: AFD async-DP request wakeup
     # Async-DP engines step independently, so skip the coordinator FIRST_REQ
     # wakeup while preserving normal routing.
-    if not self.engines_running and not uses_independent_dp_steps(self.vllm_config):
+    if not self.engines_running and not is_afd_async_dp(self.vllm_config):
         req_msg = core_client_module.msgspec.msgpack.encode(
             ("FIRST_REQ", chosen_engine),
         )
@@ -407,7 +406,7 @@ def _is_afd_async_attention_config(vllm_config: VllmConfig) -> bool:
     afd_config = parse_optional_afd_config(vllm_config, validate=False)
     return (
         afd_config is not None
-        and uses_independent_dp_steps(vllm_config)
+        and is_afd_async_dp(vllm_config)
         and afd_config.role == "attention"
     )
 

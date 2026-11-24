@@ -46,7 +46,6 @@ from vllm_ascend.worker.v2.aclgraph_utils import (
 from vllm_ascend.worker.v2.attn_utils import build_attn_metadata, build_attn_state
 from vllm_ascend.worker.v2.input_batch import AscendInputBatch
 
-from afd_plugin.config import uses_window_dspark
 from afd_plugin.compat.npu.runtime_config import uses_async_cam_dbo
 from afd_plugin.compat.patches.npu.mla_graph import AFD_MLA_GRAPH_PARAMS_KEY
 from afd_plugin.compat.patches.npu.mrv2_ubatching import (
@@ -55,6 +54,7 @@ from afd_plugin.compat.patches.npu.mrv2_ubatching import (
     use_npu_ubatch_contexts,
     use_npu_ubatch_output_merge,
 )
+from afd_plugin.config import use_afd_dspark
 from afd_plugin.model_executor.models.npu.deepseek_attention_metadata import (
     materialize_deepseek_attention_metadata_by_layer,
 )
@@ -86,7 +86,8 @@ class NPUUBatchRunner(UBatchRunner):
         self.ready_barrier = threading.Barrier(self.num_ubatches + 1, timeout=timeout_s)
         self._verification_width = (
             vllm_config.speculative_config.num_speculative_tokens + 1
-            if uses_window_dspark(vllm_config) else None
+            if use_afd_dspark(vllm_config)
+            else None
         )
         self._prepared_state: UBatchState | None = None
         self._mla_capture_params: dict[
@@ -190,7 +191,8 @@ class NPUUBatchRunner(UBatchRunner):
                 for buffer, table in zip(buffers, block_tables, strict=True)
             )
         verification_graph = (
-            self._verification_width is not None and cudagraph_mode == CUDAGraphMode.FULL
+            self._verification_width is not None
+            and cudagraph_mode == CUDAGraphMode.FULL
         )
         is_prefilling = torch.from_numpy(input_batch.is_prefilling_np)
         if verification_graph and is_prefilling.numel() < num_reqs:

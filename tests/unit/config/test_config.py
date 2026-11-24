@@ -13,6 +13,7 @@ from afd_plugin.config import (
     connector_extra_config_from_mapping,
     has_afd_config,
     is_afd_active,
+    is_afd_async_connector,
     is_afd_async_dp,
     parse_afd_config,
     parse_optional_afd_config,
@@ -24,6 +25,22 @@ def test_parse_empty_additional_config_is_inactive():
 
     with pytest.raises(ValueError, match="requires additional_config"):
         parse_afd_config({})
+
+
+@pytest.mark.parametrize("method,independent", [("dspark", False), ("mtp", True)])
+def test_window_draft_selects_dp_coordination(method, independent):
+    config = SimpleNamespace(
+        additional_config={
+            "afd": {
+                "connector": "WindowAFDConnector",
+                "role": "attention",
+                "async": True,
+            }
+        },
+        speculative_config=SimpleNamespace(method=method),
+    )
+    assert is_afd_async_dp(config) is independent
+    assert is_afd_async_connector(config)
 
 
 def test_connector_extra_fields_participate_in_the_graph_hash():

@@ -310,7 +310,7 @@ def is_afd_active(source: Any) -> bool:
     return parse_optional_afd_config(source, validate=True) is not None
 
 
-def uses_window_dspark(
+def use_afd_dspark(
     vllm_config: VllmConfig, afd_config: AFDConfig | None = None
 ) -> bool:
     """Whether Attention uses a native DSpark drafter with A-side EP."""
@@ -325,7 +325,7 @@ def uses_window_dspark(
     )
 
 
-def is_afd_async_dp(vllm_config: VllmConfig) -> bool:
+def is_afd_async_connector(vllm_config: VllmConfig) -> bool:
     """Return whether ``vllm_config`` selects AFD's async connector mode.
 
     This is a lightweight selector for import-time async-DP patches, not a full
@@ -341,9 +341,13 @@ def is_afd_async_dp(vllm_config: VllmConfig) -> bool:
     )
 
 
-def uses_independent_dp_steps(vllm_config: VllmConfig) -> bool:
-    """An idle Attention rank must join the native DSpark draft MoE collectives."""
-    return is_afd_async_dp(vllm_config) and not uses_window_dspark(vllm_config)
+def is_afd_async_dp(vllm_config: VllmConfig) -> bool:
+    """Whether Attention ranks can advance independent DP steps.
+
+    DSpark requires idle ranks to join native draft MoE collectives. Use
+    is_afd_async_connector for connector eligibility independent of scheduling.
+    """
+    return is_afd_async_connector(vllm_config) and not use_afd_dspark(vllm_config)
 
 
 def validate_afd_config(
@@ -407,7 +411,7 @@ __all__ = [
     "is_afd_active",
     "parse_afd_config",
     "parse_optional_afd_config",
-    "uses_independent_dp_steps",
-    "uses_window_dspark",
+    "is_afd_async_connector",
+    "use_afd_dspark",
     "validate_afd_config",
 ]

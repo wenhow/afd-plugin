@@ -113,8 +113,11 @@ _DEEPSEEK_MODEL_REGISTRATIONS = {
         else "afd_plugin.model_executor.models.deepseek_v4:AFDDeepseekV4ForCausalLM"
     ),
     "DeepseekV41ForCausalLM": (
-        "afd_plugin.model_executor.models.npu.deepseek_v41:"
-        "AFDDeepseekV41ForCausalLM"
+        "afd_plugin.model_executor.models.npu.deepseek_v41:AFDDeepseekV41ForCausalLM"
+    ),
+    "DeepseekV41DSparkModel": (
+        "afd_plugin.model_executor.models.npu.deepseek_v41_dspark:"
+        "AFDDeepseekV41DSparkModel"
     ),
     "GlmMoeDsaForCausalLM": (
         "afd_plugin.model_executor.models.deepseek_v2:AFDGlmMoeDsaForCausalLM"
@@ -217,13 +220,6 @@ def register_afd() -> None:
 
     for model_arch, model_cls in _MODEL_REGISTRATIONS.items():
         ModelRegistry.register_model(f"AFD{model_arch}", model_cls)
-
-    if current_platform.device_type == "npu":
-        ModelRegistry.register_model(
-            "AFDDeepseekV41DSparkModel",
-            "afd_plugin.model_executor.models.npu.deepseek_v41_dspark:"
-            "AFDDeepseekV41DSparkModel",
-        )
 
     _registered = True
 
