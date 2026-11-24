@@ -183,24 +183,53 @@ def ep_graph_parent_records(peer, phase, max_stages):
 
 
 class TestEpGraphLogVerification(unittest.TestCase):
-    def test_graph_u1_pass_precedes_shutdown_failure(self):  # long-test: lifecycle
+    @contextmanager
+    def graph_u1_services(self, directory):
         launcher = load_launcher()
+        roles = ("ffn", "attention")
+        children = [
+            SimpleNamespace(
+                role=role,
+                process=SimpleNamespace(returncode=-9, poll=lambda: -9),
+                stream=io.BytesIO(),
+                text=(directory / f"{role}-server.log").read_text,
+            )
+            for role in roles
+        ]
+        owner = Mock(processes=children, forced_cleanup=True)
+        owner.start.side_effect = children
+        owner.survivors.return_value = []
+        plan = {
+            "mode": "graph-u1",
+            "request_suite": "ep-rank-matrix-v2",
+            "expert_parallel": True,
+            "native_dp_size": 2,
+            "physical_devices": list(range(4)),
+            "repo_root": str(ROOT),
+            "roles": {
+                role: {
+                    "argv": [],
+                    "environment": {launcher.EP_GRAPH_TRACE_ENV: "1"},
+                }
+                for role in roles
+            },
+        }
+        with patch.multiple(
+            launcher,
+            Supervision=Mock(return_value=owner),
+            check_resources=Mock(),
+            probe_library=Mock(),
+            wait_ready=Mock(),
+            npu_snapshot=Mock(
+                return_value={"exit_code": 0, "idle_devices": list(range(4))}
+            ),
+        ):
+            yield launcher, owner, plan
+
+    def test_graph_u1_pass_precedes_shutdown_failure(self):
         with tempfile.TemporaryDirectory() as temporary:
             directory = Path(temporary)
             write_ep_graph_logs(directory, 1)
-            roles = ("ffn", "attention")
-            children = [
-                SimpleNamespace(
-                    role=role,
-                    process=SimpleNamespace(returncode=-9, poll=lambda: -9),
-                    stream=io.BytesIO(),
-                    text=(directory / f"{role}-server.log").read_text,
-                )
-                for role in roles
-            ]
-            owner = Mock(processes=children, forced_cleanup=True)
-            owner.start.side_effect = children
-            owner.survivors.return_value = []
 
             def stop_attention(*_args, **_kwargs):
                 report = json.loads(
@@ -209,26 +238,8 @@ class TestEpGraphLogVerification(unittest.TestCase):
                 self.assertTrue(report["passed"])
                 raise TimeoutError("attention teardown timed out")
 
-            owner.stop_attention.side_effect = stop_attention
-            plan = {
-                "mode": "graph-u1",
-                "request_suite": "ep-rank-matrix-v2",
-                "expert_parallel": True,
-                "native_dp_size": 2,
-                "physical_devices": list(range(4)),
-                "repo_root": str(ROOT),
-                "roles": {role: {"argv": [], "environment": {}} for role in roles},
-            }
-            with patch.multiple(
-                launcher,
-                Supervision=Mock(return_value=owner),
-                check_resources=Mock(),
-                probe_library=Mock(),
-                wait_ready=Mock(),
-                npu_snapshot=Mock(
-                    return_value={"exit_code": 0, "idle_devices": list(range(4))}
-                ),
-            ):
+            with self.graph_u1_services(directory) as (launcher, owner, plan):
+                owner.stop_attention.side_effect = stop_attention
                 code = launcher.run_candidate(
                     plan,
                     directory,
@@ -242,6 +253,40 @@ class TestEpGraphLogVerification(unittest.TestCase):
             self.assertTrue(report["graph_verification"]["passed"])
             self.assertFalse(report["clean_shutdown"])
             self.assertIn("attention teardown timed out", report["shutdown_error"])
+            self.assertEqual(code, 1)
+
+    def test_graph_u1_request_timeout_collects_stacks_before_shutdown(self):
+        def request_timeout(*_args):
+            raise TimeoutError("first wave timed out")
+
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary)
+            write_ep_graph_logs(directory, 1)
+            with self.graph_u1_services(directory) as (launcher, owner, plan):
+                stack_dir = directory.resolve() / launcher.EP_GRAPH_STACK_DIR
+
+                def capture_stacks(_attention, name):
+                    (directory / name / "42.log").write_text(
+                        "worker waiting for graph query"
+                    )
+
+                def stop_attention(*_args, **_kwargs):
+                    self.assertTrue((stack_dir / "42.log").is_file())
+
+                owner.request_attention_stacks.side_effect = capture_stacks
+                owner.stop_attention.side_effect = stop_attention
+                code = launcher.run_candidate(
+                    plan,
+                    directory,
+                    Path("/vendor"),
+                    1,
+                    None,
+                    request_runner=request_timeout,
+                )
+            report = json.loads((directory / "summary.json").read_bytes())
+            self.assertEqual(report["error"], "TimeoutError: first wave timed out")
+            self.assertFalse(report["request_passed"])
+            self.assertNotIn("shutdown_error", report)
             self.assertEqual(code, 1)
 
     def test_reports_capture_replay_and_runtime_eager_from_complete_logs(self):

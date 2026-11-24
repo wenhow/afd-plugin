@@ -22,6 +22,7 @@ from torch.distributed.distributed_c10d import ProcessGroup
 from vllm.logger import init_logger
 
 from afd_plugin.compat.npu.stream import use_npu_current_stream
+from afd_plugin.connectors.npu.hccl_diagnostics import EP_GRAPH_TRACE_ENV
 from afd_plugin.connectors.npu.hccl_eager_pipeline import (
     HcclEagerPipeline,
     validate_eager_topology,
@@ -86,6 +87,11 @@ class HcclStagedTransport:
             raise ValueError("timeout_seconds must be a positive integer")
         self.role, self.role_rank = role, role_rank
         self.capabilities = self.negotiated_capabilities = capabilities
+        self._trace_graph_control = (
+            capabilities.expert_parallel
+            and capabilities.graph_execution_version == 1
+            and os.environ.get(EP_GRAPH_TRACE_ENV) == "1"
+        )
         self.world_rank = role_rank + (
             capabilities.ffn_size if role == "attention" else 0
         )
@@ -496,7 +502,9 @@ class HcclStagedTransport:
             reports, error = [local_report], None
             for rank in self._other_ranks:
                 try:
-                    message = self._recv_control(rank)
+                    message = self._recv_graph_control(
+                        rank, "GRAPH_REPORT", transaction_id
+                    )
                 except ValueError as exc:
                     error = error or str(exc)
                     continue
@@ -553,7 +561,7 @@ class HcclStagedTransport:
     ) -> HcclGraphDecision | None:
         try:
             try:
-                query = self._recv_control(self.coordinator_rank)
+                query = self._recv_graph_control(self.coordinator_rank, "GRAPH_QUERY")
             except ValueError as exc:
                 self._report_rejection(str(exc))
                 raise
@@ -1301,8 +1309,46 @@ class HcclStagedTransport:
         data = encode_hccl_plan_message(message)
         size = torch.tensor([len(data)], dtype=torch.int64, device="cpu")
         body = torch.tensor(list(data), dtype=torch.uint8, device="cpu")
+        trace = self._trace_graph_control and message.kind in (
+            "GRAPH_QUERY",
+            "GRAPH_REPORT",
+        )
+        if trace:
+            self._log_graph_control(
+                "send_begin", rank, message.kind, message.transaction_id
+            )
         dist.send(size, group_dst=rank, group=self.control_group)
         dist.send(body, group_dst=rank, group=self.control_group)
+        if trace:
+            self._log_graph_control(
+                "send_returned", rank, message.kind, message.transaction_id
+            )
+
+    def _recv_graph_control(
+        self, rank: int, kind: str, transaction_id: str | None = None
+    ) -> HcclPlanMessage:
+        if self._trace_graph_control:
+            self._log_graph_control("recv_begin", rank, kind, transaction_id)
+        message = self._recv_control(rank)
+        if self._trace_graph_control:
+            self._log_graph_control(
+                "recv_returned", rank, message.kind, message.transaction_id
+            )
+        return message
+
+    def _log_graph_control(
+        self, event: str, peer_rank: int, kind: str, transaction_id: str | None
+    ) -> None:
+        logger.info(
+            "AFD HCCL graph control: event=%s role=%s world_rank=%d "
+            "peer_world_rank=%d kind=%s transaction_id=%s",
+            event,
+            self.role,
+            self.world_rank,
+            peer_rank,
+            kind,
+            transaction_id,
+        )
 
     def _recv_control(self, rank: int) -> HcclPlanMessage:
         size = torch.empty(1, dtype=torch.int64, device="cpu")

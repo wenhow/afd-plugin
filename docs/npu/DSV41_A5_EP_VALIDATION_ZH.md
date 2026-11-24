@@ -65,6 +65,11 @@ DSV41_EP_REFERENCE=results/ep-native-n0/full-eager-u1-4v59wo3p
 若当时仍有事务日志在写入，则在归档阶段复核。功能以 `request_passed` 和
 `graph_verification.passed` 判定。正常停机以 `clean_shutdown` 判定，
 整体退出码仍会反映清理失败。
+独立 EP Graph/U1 N=0 请求超时时，入口会先请求已注册的 Attention worker
+输出 Python 栈，再发送退出信号。回传 `request-timeout-stacks/`、
+`lifecycle.json` 和 A/F 日志。按 `transaction_id` 与 `peer_world_rank`
+检查 `GRAPH_QUERY` 和 `GRAPH_REPORT` 的开始及返回记录，并核对 A 侧
+`AFD HCCL graph execute` 的有效 token 数和 dummy 状态。
 若并发首波因 token 差异提前结束，以 A/F 日志核对已发生的捕获和
 回放，回退和取消后请求仍需相应执行证据。正式数值对照需使用同 checkpoint、
 同 N、同请求顺序与批形状的原生结果。本轮串行首波结果保留为 eager/U1 对照证据。

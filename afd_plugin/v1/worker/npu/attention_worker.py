@@ -4,6 +4,8 @@
 
 from __future__ import annotations
 
+import os
+
 from vllm.config import VllmConfig
 from vllm.v1.worker.workspace import init_workspace_manager
 from vllm_ascend.worker.worker import NPUWorker
@@ -16,6 +18,8 @@ from afd_plugin.compat.npu import (
 )
 from afd_plugin.compat.npu.profiler import AFDNPUProfilerSession
 from afd_plugin.compat.npu.runtime_config import configure_async_cam_dbo
+from afd_plugin.connectors.npu.hccl_diagnostics import EP_GRAPH_TRACE_ENV
+from afd_plugin.entrypoints.dsv41_ep_stack import register_stack_dump
 from afd_plugin.model_executor.models.model_utils import get_afd_model_config
 from afd_plugin.v1.worker.npu.attention_model_runner_v2 import (
     AFDNPUAttentionModelRunnerV2,
@@ -87,6 +91,8 @@ class AFDNPUAttentionWorker(NPUWorker):
             self.vllm_config,
             self.device,
         )
+        if os.environ.get(EP_GRAPH_TRACE_ENV) == "1":
+            register_stack_dump()
 
     # Upstream: NPUWorker.profile, vllm_ascend/worker/worker.py:1223,
     # 7e37e29a7803d6897a7113088e2b771f83205bc0. Exact native signature.

@@ -21,6 +21,8 @@ if TYPE_CHECKING:
     )
     from afd_plugin.distributed.hccl_graph import HcclGraphDecision
 
+EP_GRAPH_TRACE_ENV = "AFD_DSV41_EP_GRAPH_TRACE"
+
 
 @dataclass(frozen=True, slots=True)
 class HcclGraphParentDiagnostics:

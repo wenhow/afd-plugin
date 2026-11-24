@@ -206,6 +206,7 @@ class TestFullCheckpointPlans(unittest.TestCase):
             compilation = json.loads(argv[argv.index("--compilation-config") + 1])
             self.assertEqual(compilation["cudagraph_mode"], "FULL_DECODE_ONLY")
             self.assertEqual(compilation["cudagraph_capture_sizes"], [1, 2])
+            self.assertEqual(settings["environment"]["AFD_DSV41_EP_GRAPH_TRACE"], "1")
 
     def test_modes_keep_native_quantized_weights_and_cpu_engram(self):
         driver = load_driver()

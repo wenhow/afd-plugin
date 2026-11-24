@@ -197,6 +197,12 @@ def make_plan(
                 )
         if ep_diagnostics:
             env["AFD_DSV41_EP_DIAGNOSTICS"] = "1"
+        if (
+            expert_parallel
+            and mode == "graph-u1"
+            and not (spec_tokens or pd_role or repeatability)
+        ):
+            env[launch.EP_GRAPH_TRACE_ENV] = "1"
         env.update(AFD_DSV41_EAGER_QUALIFICATION="0", AFD_DSV41_FULL_QUALIFICATION="1")
         if expert_parallel:
             set_option(argv, "--tensor-parallel-size", "1")

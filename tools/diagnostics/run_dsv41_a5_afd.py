@@ -61,6 +61,9 @@ TERM_GRACE_SECONDS = 10
 KILL_GRACE_SECONDS = 10
 EP_STACK_DIR_ENV = "AFD_DSV41_EP_STACK_DIR"
 EP_STACK_DIR = "shutdown-stacks"
+EP_GRAPH_TRACE_ENV = "AFD_DSV41_EP_GRAPH_TRACE"
+EP_GRAPH_STACK_DIR = "request-timeout-stacks"
+STACK_DUMP_GRACE_SECONDS = 2
 EP_GRAPH_ROLES = ("attention", "ffn")
 HCCL_CONFIGURATION_PREFIX = "AFD HCCL session configuration: "
 HCCL_STAGE_PREFIX = "AFD HCCL stage diagnostic: "
@@ -789,17 +792,20 @@ class Supervision:
                 self._record_attention_signal_state(
                     attention, f"{signal_phase}_timeout"
                 )
-                self._request_attention_stacks(attention)
+                self.request_attention_stacks(attention)
 
-    def _request_attention_stacks(self, attention: OwnedProcess) -> None:
-        stack_directory = self.directory / EP_STACK_DIR
+    def request_attention_stacks(
+        self, attention: OwnedProcess, directory_name: str = EP_STACK_DIR
+    ) -> None:
+        stack_directory = self.directory / directory_name
         if not stack_directory.is_dir():
             return
         armed = {
-            int(path.stem)
+            int(path.stem): path
             for path in stack_directory.glob("*.log")
             if path.stem.isdecimal()
         }
+        requested = set()
         for process in attention.observe(process_table()):
             if process.pid not in armed:
                 continue
@@ -812,6 +818,21 @@ class Supervision:
                 )
             else:
                 self.record("attention_stack_requested", pid=process.pid)
+                requested.add(process.pid)
+        if directory_name == EP_GRAPH_STACK_DIR:
+            deadline = time.monotonic() + STACK_DUMP_GRACE_SECONDS
+            pending = requested
+            while pending:
+                pending = {pid for pid in pending if armed[pid].stat().st_size == 0}
+                if not pending or time.monotonic() >= deadline:
+                    break
+                time.sleep(POLL_SECONDS)
+            captured = requested - pending
+            self.record(
+                "attention_request_timeout_stacks",
+                captured_pids=sorted(captured),
+                missing_pids=sorted(armed.keys() - captured),
+            )
 
     @contextmanager
     def _open_process_fd(
@@ -1282,8 +1303,11 @@ def run_candidate(
                 "ffn", roles["ffn"]["argv"], roles["ffn"]["environment"], repo
             )
         attention_environment = roles["attention"]["environment"]
-        if plan.get("ep_diagnostics") is True:
-            stack_directory = directory.resolve() / EP_STACK_DIR
+        trace_ep_graph = attention_environment.get(EP_GRAPH_TRACE_ENV) == "1"
+        if trace_ep_graph or plan.get("ep_diagnostics") is True:
+            stack_directory = directory.resolve() / (
+                EP_GRAPH_STACK_DIR if trace_ep_graph else EP_STACK_DIR
+            )
             stack_directory.mkdir()
             attention_environment = {
                 **attention_environment,
@@ -1307,7 +1331,17 @@ def run_candidate(
             if verify_eager_u2 and ffn is not None
             else {}
         )
-        result["request"] = (request_runner or send_request)(directory, reference)
+        try:
+            result["request"] = (request_runner or send_request)(directory, reference)
+        except TimeoutError:
+            if trace_ep_graph:
+                try:
+                    owner.request_attention_stacks(attention, EP_GRAPH_STACK_DIR)
+                except OSError as error:
+                    owner.record(
+                        "attention_request_timeout_stacks_failed", error=str(error)
+                    )
+            raise
         result["request_passed"] = True
         owner.record("request_completed")
         if ffn is not None and verify_graph and plan["mode"] == "graph-u1":

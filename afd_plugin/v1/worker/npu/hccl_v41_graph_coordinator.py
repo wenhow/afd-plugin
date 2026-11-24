@@ -10,6 +10,7 @@ admission remains separate.
 
 from __future__ import annotations
 
+import os
 from collections.abc import Callable, Iterator
 from contextlib import ExitStack, contextmanager
 from dataclasses import dataclass
@@ -18,6 +19,7 @@ from typing import TYPE_CHECKING, Any, Literal, cast
 import torch
 from vllm.config import CUDAGraphMode, set_current_vllm_config
 from vllm.forward_context import ForwardContext, get_forward_context
+from vllm.logger import init_logger
 from vllm.sequence import IntermediateTensors
 from vllm.v1.kv_cache_interface import KVCacheConfig
 from vllm.v1.worker.gpu.block_table import BlockTables
@@ -47,6 +49,7 @@ from afd_plugin.compat.patches.npu.hccl_v41_u1_graph import (
     use_hccl_v41_u1_preparation,
 )
 from afd_plugin.connectors.npu.hccl_diagnostics import (
+    EP_GRAPH_TRACE_ENV,
     HcclGraphParentDiagnostics,
     HcclStageDiagnostics,
 )
@@ -117,6 +120,9 @@ class HcclV41GraphResources:
     intermediate_tensors: IntermediateTensors | None
     pipeline: HcclGraphComputePipeline | None = None
     overlap_settings: HcclOverlapSettings | None = None
+
+
+logger = init_logger(f"vllm.{__name__}")
 
 
 class HcclV41GraphCoordinator:
@@ -818,6 +824,15 @@ class HcclV41GraphCoordinator:
         Runtime use is explicit after KV initialization. The pre-KV native
         profile EAGER bridge and production admission remain separate.
         """
+        if os.environ.get(EP_GRAPH_TRACE_ENV) == "1":
+            logger.info(
+                "AFD HCCL graph execute: role_rank=%d mode=%s "
+                "valid_tokens=%d dummy_run=%s",
+                self.transport.role_rank,
+                mode,
+                valid_tokens,
+                dummy_run,
+            )
         if (
             self._runtime_active
             or self.current_execution is not None
