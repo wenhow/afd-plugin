@@ -70,6 +70,9 @@ DSV41_EP_REFERENCE=results/ep-native-n0/full-eager-u1-4v59wo3p
 `lifecycle.json` 和 A/F 日志。按 `transaction_id` 与 `peer_world_rank`
 检查 `GRAPH_QUERY` 和 `GRAPH_REPORT` 的开始及返回记录，并核对 A 侧
 `AFD HCCL graph execute` 的有效 token 数和 dummy 状态。
+若首波有 DP rank 提前完成，零 token 的请求清理先由原生 runner 返回，
+随后由 EngineCore 的 dummy step 参加同一轮 DP 协商。复测时核对该 rank
+从 `valid_tokens=0 dummy_run=False` 进入 `mode=dummy`，以及其余请求继续返回。
 若并发首波因 token 差异提前结束，以 A/F 日志核对已发生的捕获和
 回放，回退和取消后请求仍需相应执行证据。正式数值对照需使用同 checkpoint、
 同 N、同请求顺序与批形状的原生结果。本轮串行首波结果保留为 eager/U1 对照证据。

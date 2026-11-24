@@ -54,7 +54,7 @@ from tests.unit.fakes.graph_capture import cpu_capture_boundary
 from tests.unit.fakes.hccl_graph_stage import make_graph_stage_bank
 from tests.unit.fakes.hccl_v41_graph_control import make_attention_graph_control_case
 from tests.unit.fakes.input_batch import make_ascend_decode_batch, make_hccl_ubatch_seam
-from tests.unit.fakes.vllm_config import v41_dspark_config
+from tests.unit.fakes.vllm_config import configure_hccl_ep, v41_dspark_config
 
 
 def make_coordinator_case(
@@ -68,6 +68,7 @@ def make_coordinator_case(
     engram=False,
     external_engram=False,
     capture_tokens=None,
+    expert_parallel=False,
 ):
     tokens = 4 if target_query_len == 1 else 3 * target_query_len
     if capture_tokens is not None:
@@ -84,51 +85,31 @@ def make_coordinator_case(
     rows = tuple(stage.token_stop - stage.token_start for stage in geometry.stages)
     scheduled = (target_query_len,) * descriptor.num_reqs
     capacity = max((8, *(item.num_tokens for item in descriptors)))
+    role_size = 2 if role_rank or expert_parallel else 1
     capabilities = HcclPlanCapabilities(
         4,
         128,
         capacity,
         (0, 1),
-        1,
-        1,
-        1,
+        role_size,
+        role_size,
+        1 if expert_parallel else role_size,
         local_counts_version=1,
         graph_execution_version=1,
         graph_exchange_order=exchange_order,
         target_query_len=target_query_len,
+        expert_parallel=expert_parallel,
     )
     case = make_attention_graph_control_case(
         descriptor=descriptor,
         local_descriptors=descriptors,
         cached=False,
-        peer_states={0: "missing"},
+        role_rank=role_rank,
+        peer_states={0: "missing"} if role_size == 1 else None,
         capabilities=capabilities,
         rows=rows,
         scheduled=scheduled,
     )
-    if role_rank:
-        capabilities = HcclPlanCapabilities(
-            4,
-            128,
-            capacity,
-            (0, 1),
-            2,
-            2,
-            2,
-            local_counts_version=1,
-            graph_execution_version=1,
-            graph_exchange_order=exchange_order,
-            target_query_len=target_query_len,
-        )
-        case = make_attention_graph_control_case(
-            descriptor=descriptor,
-            local_descriptors=descriptors,
-            cached=False,
-            role_rank=role_rank,
-            capabilities=capabilities,
-            rows=rows,
-            scheduled=scheduled,
-        )
     model_case = make_graph_model_case(rows, engram=engram)
     wrapper = AFDDeepseekV41AttentionForCausalLM.__new__(
         AFDDeepseekV41AttentionForCausalLM
@@ -168,6 +149,8 @@ def make_coordinator_case(
     config.model_config.hf_text_config.num_hidden_layers = 2
     config.compilation_config.cudagraph_mode = CUDAGraphMode.FULL_DECODE_ONLY
     config.parallel_config.tensor_parallel_size = capabilities.native_tp_size
+    if expert_parallel:
+        configure_hccl_ep(config, dp_size=role_size, dp_rank=role_rank)
     config.compilation_config.static_forward_context = {}
     session = HcclV41GraphSession(case.transport)
     runner.graph_owner, runner.transport = session, case.transport

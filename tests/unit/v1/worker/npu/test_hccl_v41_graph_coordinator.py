@@ -1356,6 +1356,21 @@ def test_zero_native_execution_retires_an_honest_empty_parent(
     assert not case.transport.terminal
 
 
+@pytest.mark.parametrize("role_rank", [0, 1])
+def test_ep_zero_token_housekeeping_returns_without_reserving_a_parent(
+    coordinator_case, role_rank
+):
+    case = coordinator_case(stages=1, expert_parallel=True, role_rank=role_rank)
+
+    with case.coordinator.execution_scope(
+        mode="target", valid_tokens=0, dummy_run=False
+    ):
+        # The native real-request RPC returns after no-forward bookkeeping.
+        pass
+
+    assert case.transport.transcript == []
+
+
 @pytest.mark.parametrize("native_dispatch", [False, True])
 def test_zero_graph_fallback_records_accepted_rank_configuration(
     coordinator_case, native_dispatch

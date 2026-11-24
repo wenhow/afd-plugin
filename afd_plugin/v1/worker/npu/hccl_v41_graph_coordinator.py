@@ -939,6 +939,17 @@ class HcclV41GraphCoordinator:
                         raise RuntimeError(
                             "native execution returned before graph dispatch"
                         )
+                    if (
+                        self._capabilities.expert_parallel
+                        and self.owner.parallel_config.data_parallel_size > 1
+                        and mode == "target"
+                        and not dummy_run
+                    ):
+                        # Native finishes request/KV bookkeeping before its
+                        # zero-token return, then EngineCore runs a dummy step
+                        # if the DP wave is active. That step must join native
+                        # DP dispatch before reserving an A/F parent.
+                        return
                     # Native zero-work paths may return even before dispatch.
                     # Reserve an honest zero descriptor, without request state.
                     zero = BatchExecutionDescriptor(CUDAGraphMode.NONE, 0, 0)
