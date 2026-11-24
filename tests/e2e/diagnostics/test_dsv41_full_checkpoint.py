@@ -81,12 +81,17 @@ class RepeatabilityReplies:
 class TestFullCheckpointPlans(unittest.TestCase):
     def test_ep_diagnostics_use_native_scheduler_with_admission_logging_on_a(self):
         driver = load_driver()
-        for native in (False, True):
-            with self.subTest(native=native):
+        for native, mode in (
+            (True, "eager-u1"),
+            (False, "eager-u1"),
+            (False, "graph-u1"),
+        ):
+            with self.subTest(native=native, mode=mode):
                 plan = driver.make_plan(
                     Path("/model"),
                     Path("/vendor"),
                     ROOT,
+                    mode=mode,
                     expert_parallel=True,
                     native_control=native,
                     ep_diagnostics=True,
@@ -971,6 +976,45 @@ class TestFullCheckpointRequests(unittest.TestCase):
             self.assertEqual(
                 json.loads((afd / "request-matrix.json").read_bytes()), report
             )
+
+    def test_cold_ep_first_wave_records_third_token_scores_and_scheduler_batches(self):
+        driver = load_driver()
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary)
+            (directory / "attention-server.log").write_text(
+                "DSV41 EP scheduled tokens: dp_rank=0 requests={'cmpl-a-0': 10}\n"
+                "DSV41 EP scheduled tokens: dp_rank=2 requests={'cmpl-b-0': 10}\n"
+                "DSV41 EP scheduled tokens: dp_rank=0 requests={'cmpl-a-0': 1}\n"
+                "DSV41 EP scheduled tokens: dp_rank=1 requests={\n"
+            )
+            with patch(
+                "urllib.request.OpenerDirector.open",
+                side_effect=RepeatabilityReplies().open,
+            ):
+                driver.run_requests(
+                    directory,
+                    None,
+                    spec_tokens=0,
+                    prefill_url=None,
+                    data_parallel_size=4,
+                    ep_diagnostics=True,
+                )
+            evidence = json.loads((directory / "ep-first-wave.json").read_bytes())
+            self.assertEqual(evidence["token_index"], 2)
+            self.assertEqual(evidence["unreadable_scheduler_lines"], [4])
+            self.assertEqual(
+                evidence["scheduler_batches"],
+                {"0": [{"cmpl-a-0": 10}, {"cmpl-a-0": 1}], "2": [{"cmpl-b-0": 10}]},
+            )
+            self.assertEqual(
+                [item["dp_rank"] for item in evidence["requests"]], list(range(4))
+            )
+            for item in evidence["requests"]:
+                self.assertEqual(item["actual"]["prefix_token_ids"], [0, 1])
+                self.assertEqual(item["actual"]["selected_token_id"], 2)
+                scores = item["actual"]["logprobs"]
+                self.assertEqual(scores["ranked_candidates"][0], ["token_id:2", -0.1])
+                self.assertAlmostEqual(scores["top1_minus_top2"], 1.0)
 
     def test_dspark_requires_a_later_step_after_rejection(self):
         driver = load_driver()

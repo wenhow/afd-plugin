@@ -11,7 +11,9 @@ producer stays alive until its explicit stop file appears on that node.
 from __future__ import annotations
 
 import argparse
+import ast
 import json
+import re
 import signal
 import sys
 import tempfile
@@ -30,6 +32,10 @@ from preflight_dsv41_a5_afd import DEFAULT_PROFILE, SourceIdentity
 MODES = ("eager-u1", "eager-u2", "graph-u1", "graph-u2")
 PD_MODULE = "afd_plugin.compat.npu.kv_layout_connector"
 CANCEL_OUTPUT_TOKENS = 256
+EP_FIRST_WAVE_TOKEN_INDEX = 2
+EP_SCHEDULE_LINE = re.compile(
+    r"DSV41 EP scheduled tokens: dp_rank=(\d+) requests=(\{[^}]*\})"
+)
 DEFAULT_KV_PORT = 14579
 TP4_HEAD_ADAPTER = "tp4-query-16-to-64-v1"
 FULL_CHECKPOINT_PROFILE = replace(
@@ -114,19 +120,16 @@ def make_plan(
         raise ValueError("EP qualification requires native prefill trace off")
     if trace_native_prefill and not (native_control and repeatability):
         raise ValueError("native prefill trace requires native repeatability")
-    if ep_diagnostics and (
-        not expert_parallel
-        or mode != "eager-u1"
-        or spec_tokens
-        or pd_role
-        or repeatability
-    ):
-        raise ValueError("EP diagnostics require standalone EP eager/U1 with N=0")
-    ep_graph_trace = (
-        expert_parallel
-        and mode == "graph-u1"
-        and not (spec_tokens or pd_role or repeatability)
+    ep_u1_diagnostics = expert_parallel and not (
+        spec_tokens or pd_role or repeatability
     )
+    ep_graph_trace = ep_u1_diagnostics and mode == "graph-u1"
+    if ep_diagnostics and (
+        not ep_u1_diagnostics or mode not in ("eager-u1", "graph-u1")
+    ):
+        raise ValueError(
+            "EP diagnostics require standalone EP eager/U1 or Graph/U1 with N=0"
+        )
     if attention_stop_signal is not None and (
         not (ep_diagnostics or ep_graph_trace)
         or attention_stop_signal not in ("SIGINT", "SIGTERM", "SIGUSR2")
@@ -136,11 +139,14 @@ def make_plan(
             "with N=0, "
             "and SIGINT, SIGTERM or SIGUSR2"
         )
-    if ep_serial_first_wave and not ep_diagnostics:
-        raise ValueError("serial first wave requires EP diagnostics")
-    if ep_shutdown_smoke and (not ep_diagnostics or ep_serial_first_wave):
+    if ep_serial_first_wave and (not ep_diagnostics or mode != "eager-u1"):
+        raise ValueError("serial first wave requires eager/U1 EP diagnostics")
+    if ep_shutdown_smoke and (
+        not ep_diagnostics or mode != "eager-u1" or ep_serial_first_wave
+    ):
         raise ValueError(
-            "EP shutdown smoke requires EP diagnostics without serial first wave"
+            "EP shutdown smoke requires eager/U1 EP diagnostics "
+            "without serial first wave"
         )
     if pd_role == "producer" and mode != "eager-u1":
         raise ValueError("PD producer qualification uses eager U1")
@@ -420,6 +426,65 @@ def prefill_request(
     return {**params, "do_remote_prefill": True, "do_remote_decode": False}
 
 
+def record_cold_ep_first_wave(directory: Path, wave_size: int) -> None:
+    """Record the requested rank, observed scheduler batches and third-token scores."""
+    index = EP_FIRST_WAVE_TOKEN_INDEX
+    samples = []
+    for request_index in range(wave_size):
+        target = directory / f"request-{request_index:02d}"
+        sample = json.loads((target / "request-routing.json").read_bytes())
+        comparison = json.loads((target / "token-comparison.json").read_bytes())
+        sample.update(
+            request=target.name,
+            prompt_token_ids_match=comparison["prompt_token_ids_match"],
+            first_output_mismatch=comparison["first_output_mismatch"],
+        )
+        for name, filename in (
+            ("actual", "response.json"),
+            ("reference", "reference-response.json"),
+        ):
+            path = target / filename
+            if path.is_file():
+                response = json.loads(path.read_bytes())
+                tokens = response["choices"][0]["token_ids"]
+                sample[name] = {
+                    "response_id": response.get("id"),
+                    "prefix_token_ids": tokens[:index],
+                    "selected_token_id": tokens[index],
+                    "logprobs": repeatability_check.token_logprobs_at(response, index),
+                }
+        samples.append(sample)
+
+    scheduler_batches: dict[str, list[dict[str, int]]] = {}
+    unreadable_scheduler_lines = []
+    log = directory / "attention-server.log"
+    if log.is_file():
+        with log.open(encoding="utf-8", errors="replace") as stream:
+            for line_number, line in enumerate(stream, 1):
+                matches = EP_SCHEDULE_LINE.findall(line)
+                if not matches and "DSV41 EP scheduled tokens:" in line:
+                    unreadable_scheduler_lines.append(line_number)
+                for rank, scheduled in matches:
+                    try:
+                        batch = ast.literal_eval(scheduled)
+                    except (SyntaxError, ValueError):
+                        unreadable_scheduler_lines.append(line_number)
+                    else:
+                        if isinstance(batch, dict):
+                            scheduler_batches.setdefault(rank, []).append(batch)
+                        else:
+                            unreadable_scheduler_lines.append(line_number)
+    launch.save_json(
+        directory / "ep-first-wave.json",
+        {
+            "token_index": index,
+            "requests": samples,
+            "scheduler_batches": scheduler_batches,
+            "unreadable_scheduler_lines": unreadable_scheduler_lines,
+        },
+    )
+
+
 def run_requests(
     directory: Path,
     reference: Path | None,
@@ -519,6 +584,8 @@ def run_requests(
                 results.extend(future.result() for future in futures)
         request_index += wave_size
         if wave == 0:
+            if ep_diagnostics and directed and not ep_serial_first_wave:
+                record_cold_ep_first_wave(directory, wave_size)
             cancel_stream(directory, prefill_url=prefill_url, api_url=api_url)
     results.append(one(request_index, PROMPTS[2], 1 if directed else None))
     report = {"passed": True, "requests": results, "hardware_acceptance": False}
@@ -768,7 +835,7 @@ def main() -> int:
     parser.add_argument(
         "--ep-diagnostics",
         action="store_true",
-        help="collect DP admission, top-5 scores and STOP diagnostics for EP eager/U1",
+        help="collect DP scheduling, top-5 scores and STOP diagnostics for EP U1",
     )
     parser.add_argument(
         "--attention-stop-signal",

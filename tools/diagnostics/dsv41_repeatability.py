@@ -47,6 +47,19 @@ def validate_logprobs(response: dict) -> None:
             raise ValueError("repeatability requires finite top-5 logprobs")
 
 
+def token_logprobs_at(response: dict, index: int) -> dict | None:
+    scores = response["choices"][0].get("logprobs")
+    if scores is None:
+        return None
+    candidates = scores["top_logprobs"][index]
+    ranked = sorted(candidates.items(), key=lambda pair: pair[1], reverse=True)
+    return {
+        "selected_logprob": scores["token_logprobs"][index],
+        "ranked_candidates": ranked,
+        "top1_minus_top2": ranked[0][1] - ranked[1][1],
+    }
+
+
 def compare_responses(actual: Path, reference: Path) -> dict:
     response = json.loads((actual / "response.json").read_bytes())
     baseline = json.loads((reference / "response.json").read_bytes())
@@ -55,18 +68,11 @@ def compare_responses(actual: Path, reference: Path) -> dict:
     mismatch = comparison["first_output_mismatch"]
     if mismatch is not None:
         index = mismatch["index"]
-        divergence = {}
-        for name, body in (("actual", response), ("reference", baseline)):
-            scores = body["choices"][0]["logprobs"]
-            if scores is None:
-                continue
-            candidates = scores["top_logprobs"][index]
-            ranked = sorted(candidates.items(), key=lambda pair: pair[1], reverse=True)
-            divergence[name] = {
-                "selected_logprob": scores["token_logprobs"][index],
-                "ranked_candidates": ranked,
-                "top1_minus_top2": ranked[0][1] - ranked[1][1],
-            }
+        divergence = {
+            name: scores
+            for name, body in (("actual", response), ("reference", baseline))
+            if (scores := token_logprobs_at(body, index)) is not None
+        }
         comparison["first_divergence_logprobs"] = divergence or None
     return comparison
 

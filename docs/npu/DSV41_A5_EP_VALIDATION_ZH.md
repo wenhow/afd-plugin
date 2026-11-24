@@ -146,12 +146,31 @@ checkpoint config/index 摘要以及 13 条原始响应。AFD 的 `summary.json`
 通过 `native_reference.diagnostic_only=true` 记录该对照的范围，
 并保留其 `clean_shutdown=false`。正式 EP 验收仍需正常退出的原生对照。
 
-## eager/U1 N=0 定向诊断
+## U1 N=0 首波数值诊断
 
 首波请求出现 token 分叉或停机超时时，原生和 AFD 命令均加
 `--ep-diagnostics`，使用独立输出目录并将 AFD 指向此次原生结果。
 拓扑保持 TP1/DP4/EP4，继续运行原有 4+8+1 矩阵。纯 token 差异会记录在
 `token-comparison.json`，其余请求继续执行，最终 `request_passed=false`。
+
+更换 A5 宿主机或容器后，先在当前环境独立冷启动两次原生 eager/U1，
+使用同一 checkpoint、拓扑和请求矩阵。第二次把输出目录改为
+`results/ep-native-cold-2`，待前一轮完成和释放设备后再运行。
+
+```bash
+"$DSV41_PY" -B tools/diagnostics/run_dsv41_full_checkpoint.py \
+  --model "$DSV41_MODEL" --transformer-vendor "$DSV41_VENDOR" \
+  --native-control --expert-parallel --mode eager-u1 --spec-tokens 0 \
+  --attention-devices 0,1,2,3 --ep-diagnostics \
+  --attention-stop-signal SIGUSR2 --output-root results/ep-native-cold-1 --run
+```
+
+先比较两次原生的 `ep-first-wave.json`，再把 AFD eager/U1 和 Graph/U1
+的 `--reference-run` 指向同一份新原生结果。两个 AFD 模式均加
+`--ep-diagnostics --attention-stop-signal SIGUSR2`。
+在第一波完成时，`ep-first-wave.json` 已保存第 3 个 token、前两 token、
+top-5 raw logprobs、top-1 和 top-2 的分数差，以及按 DP rank 记录的原生
+调度器 batch。核对请求 ID、每步 token 数和前缀后再比较分数。
 
 若原生矩阵已完成，但归档在强制清理后仍记录进程或设备占用，使用同一
 A5 容器执行 AFD 的 `--ep-diagnostics --reference-run`。入口会重新核对
