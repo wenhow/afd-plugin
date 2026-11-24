@@ -1265,6 +1265,9 @@ def run_candidate(
     }
     if "native_reference" in plan:
         result["native_reference"] = plan["native_reference"]
+    ep_functional_only = plan.get("ep_functional_only") is True
+    if ep_functional_only:
+        result["ep_functional_only"] = True
     exit_code = 1
     attention = ffn = None
     verify_eager_u2 = (
@@ -1275,6 +1278,7 @@ def run_candidate(
         and plan.get("mode") in ("graph-u1", "graph-u2")
         and plan.get("request_suite") != "repeatability"
     )
+    graph_stages = 2 if plan.get("mode") == "graph-u2" else 1
     try:
         check_resources(directory, plan)
         roles = plan["roles"]
@@ -1324,7 +1328,10 @@ def run_candidate(
             )
         attention_environment = roles["attention"]["environment"]
         trace_ep_graph = attention_environment.get(EP_GRAPH_TRACE_ENV) == "1"
-        if trace_ep_graph or plan.get("ep_diagnostics") is True:
+        trace_shutdown = (
+            trace_ep_graph or ep_functional_only or plan.get("ep_diagnostics") is True
+        )
+        if trace_shutdown:
             stack_directory = directory.resolve() / (
                 EP_GRAPH_STACK_DIR if trace_ep_graph else EP_STACK_DIR
             )
@@ -1372,9 +1379,11 @@ def run_candidate(
             result["error"] = (
                 "EP matrix completed with token mismatches; see request-matrix.json"
             )
-        if ffn is not None and verify_graph and plan["mode"] == "graph-u1":
+        if ffn is not None and verify_graph:
             try:
-                graph_report = verify_ep_graph_run(directory, plan["native_dp_size"], 1)
+                graph_report = verify_ep_graph_run(
+                    directory, plan["native_dp_size"], graph_stages
+                )
             except (OSError, ValueError, KeyError):
                 # A dummy transaction may still be appending to a server log.
                 # Retry from the final logs if the pre-shutdown snapshot was incomplete.
@@ -1413,7 +1422,7 @@ def run_candidate(
                     stop_signal=signal.Signals[
                         plan.get("attention_stop_signal", "SIGINT")
                     ],
-                    trace_signal=trace_ep_graph or plan.get("ep_diagnostics") is True,
+                    trace_signal=trace_shutdown,
                     stack_directory=EP_GRAPH_STACK_DIR
                     if trace_ep_graph
                     else EP_STACK_DIR,
@@ -1492,7 +1501,7 @@ def run_candidate(
                 result["graph_verification"] = verify_ep_graph_run(
                     directory,
                     plan["native_dp_size"],
-                    2 if plan["mode"] == "graph-u2" else 1,
+                    graph_stages,
                 )
             except (OSError, ValueError, KeyError) as error:
                 result["graph_verification"] = {"passed": False, "error": str(error)}

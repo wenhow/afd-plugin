@@ -833,6 +833,70 @@ class TestRepeatabilityRequests(unittest.TestCase):
 
 
 class TestFullCheckpointRequests(unittest.TestCase):
+    def test_ep_u2_functional_matrix(self):  # long-test: CLI to HTTP matrix
+        driver = load_driver()
+        for mode in ("eager-u2", "graph-u2"):
+            with self.subTest(mode=mode), tempfile.TemporaryDirectory() as temporary:
+                argv = [
+                    "run_dsv41_full_checkpoint.py",
+                    "--transformer-vendor",
+                    "/vendor",
+                    "--output-root",
+                    temporary,
+                    "--expert-parallel",
+                    "--ep-functional-only",
+                    "--mode",
+                    mode,
+                    "--attention-stop-signal",
+                    "SIGUSR2",
+                    "--run",
+                ]
+                replies = RepeatabilityReplies()
+
+                def execute(
+                    plan, directory, _vendor, _timeout, reference, *, request_runner
+                ):
+                    self.assertIsNone(reference)
+                    self.assertTrue(plan["ep_functional_only"])
+                    self.assertEqual(plan["request_suite"], "ep-rank-matrix-v2")
+                    self.assertEqual(plan["attention_stop_signal"], "SIGUSR2")
+                    self.assertFalse(plan["stream_overlap"])
+                    attention = plan["roles"]["attention"]
+                    self.assertIn(
+                        "afd_plugin.entrypoints.dsv41_ep_stack", attention["argv"]
+                    )
+                    self.assertEqual(
+                        attention["environment"]["AFD_DSV41_EP_SHUTDOWN_RELAY"], "1"
+                    )
+                    for role in plan["roles"].values():
+                        self.assertIn("--enable-dbo", role["argv"])
+                    result = request_runner(directory, reference)
+                    self.assertTrue(result["passed"])
+                    self.assertEqual(len(result["requests"]), 13)
+                    self.assertTrue(
+                        all(
+                            r["reference_token_ids_match"] is None
+                            for r in result["requests"]
+                        )
+                    )
+                    return 0
+
+                with (
+                    patch.object(sys, "argv", argv),
+                    patch.object(sys, "platform", "linux"),
+                    patch.object(
+                        driver.launch,
+                        "collect_preflight",
+                        return_value={"passed": True},
+                    ),
+                    patch.object(driver.launch, "run_candidate", side_effect=execute),
+                    patch(
+                        "urllib.request.OpenerDirector.open", side_effect=replies.open
+                    ),
+                ):
+                    self.assertEqual(driver.main(), 0)
+                self.assertTrue(replies.cancelled)
+
     def test_shutdown_smoke_without_reference_sends_one_dp1_request(self):
         driver = load_driver()
         replies = RepeatabilityReplies()

@@ -106,6 +106,7 @@ def make_plan(
     repeat_logprobs: int = 0,
     trace_native_prefill: bool = False,
     ep_diagnostics: bool = False,
+    ep_functional_only: bool = False,
     attention_stop_signal: str | None = None,
     ep_serial_first_wave: bool = False,
     ep_shutdown_smoke: bool = False,
@@ -123,7 +124,17 @@ def make_plan(
     ep_u1_diagnostics = expert_parallel and not (
         spec_tokens or pd_role or repeatability
     )
-    ep_graph_trace = ep_u1_diagnostics and mode == "graph-u1"
+    if ep_functional_only and (
+        not expert_parallel
+        or native_control
+        or pd_role == "producer"
+        or repeatability
+        or ep_shutdown_smoke
+    ):
+        raise ValueError("EP functional validation requires an AFD EP request matrix")
+    graph, u2 = mode.startswith("graph"), mode.endswith("u2")
+    ep_graph_trace = graph and (ep_functional_only or (ep_u1_diagnostics and not u2))
+    trace_shutdown = ep_diagnostics or ep_graph_trace or ep_functional_only
     if ep_diagnostics and (
         not ep_u1_diagnostics or mode not in ("eager-u1", "graph-u1")
     ):
@@ -131,13 +142,12 @@ def make_plan(
             "EP diagnostics require standalone EP eager/U1 or Graph/U1 with N=0"
         )
     if attention_stop_signal is not None and (
-        not (ep_diagnostics or ep_graph_trace)
+        not trace_shutdown
         or attention_stop_signal not in ("SIGINT", "SIGTERM", "SIGUSR2")
     ):
         raise ValueError(
-            "attention stop signal requires EP diagnostics or standalone EP Graph/U1 "
-            "with N=0, "
-            "and SIGINT, SIGTERM or SIGUSR2"
+            "attention stop signal requires EP functional validation, EP diagnostics "
+            "or standalone EP Graph/U1 with N=0, and SIGINT, SIGTERM or SIGUSR2"
         )
     if ep_serial_first_wave and (not ep_diagnostics or mode != "eager-u1"):
         raise ValueError("serial first wave requires eager/U1 EP diagnostics")
@@ -179,7 +189,6 @@ def make_plan(
     ):
         raise ValueError("require four distinct devices per role and valid ports")
     port_options = ("--port", "--master-port", "--data-parallel-rpc-port")
-    graph, u2 = mode.startswith("graph"), mode.endswith("u2")
     stream_overlap = stream_overlap and not (expert_parallel and u2)
     width = spec_tokens + 1
     for role, settings in plan["roles"].items():
@@ -194,7 +203,7 @@ def make_plan(
                 )
         if role == "attention":
             set_option(argv, "--host", bind_host)
-            if ep_diagnostics or ep_graph_trace:
+            if trace_shutdown:
                 argv[argv.index("vllm.entrypoints.cli.main")] = (
                     "afd_plugin.entrypoints.dsv41_ep_stack"
                 )
@@ -208,7 +217,7 @@ def make_plan(
                     "afd_plugin.compat.npu.dsv41_ep_diagnostics."
                     "DSV41EPDiagnosticScheduler",
                 )
-        if ep_diagnostics:
+        if ep_diagnostics or ep_functional_only:
             env["AFD_DSV41_EP_DIAGNOSTICS"] = "1"
         if ep_graph_trace:
             env[launch.EP_GRAPH_TRACE_ENV] = "1"
@@ -365,7 +374,9 @@ def make_plan(
     if ep_diagnostics:
         plan["ep_diagnostics"] = True
         plan["ep_serial_first_wave"] = ep_serial_first_wave
-    if ep_diagnostics or ep_graph_trace:
+    if ep_functional_only:
+        plan["ep_functional_only"] = True
+    if trace_shutdown:
         plan["attention_stop_signal"] = attention_stop_signal or "SIGINT"
     if repeatability:
         plan["repeatability_protocol"] = {
@@ -804,7 +815,13 @@ def main() -> int:
     parser.add_argument("--stream-overlap", type=int, choices=(0, 1), default=1)
     parser.add_argument("--prefill-url")
     parser.add_argument("--producer-stop-file", type=Path)
-    parser.add_argument("--reference-run", type=Path)
+    validation = parser.add_mutually_exclusive_group()
+    validation.add_argument("--reference-run", type=Path)
+    validation.add_argument(
+        "--ep-functional-only",
+        action="store_true",
+        help="validate AFD EP requests and execution without a native reference",
+    )
     parser.add_argument(
         "--repeatability",
         action="store_true",
@@ -875,6 +892,7 @@ def main() -> int:
         and not args.native_control
         and args.pd_role != "producer"
         and not args.ep_shutdown_smoke
+        and not args.ep_functional_only
         and args.reference_run is None
     ):
         parser.error(
@@ -903,6 +921,7 @@ def main() -> int:
         repeat_logprobs=args.repeat_logprobs,
         trace_native_prefill=args.trace_native_prefill,
         ep_diagnostics=args.ep_diagnostics,
+        ep_functional_only=args.ep_functional_only,
         attention_stop_signal=args.attention_stop_signal,
         ep_serial_first_wave=args.ep_serial_first_wave,
         ep_shutdown_smoke=args.ep_shutdown_smoke,

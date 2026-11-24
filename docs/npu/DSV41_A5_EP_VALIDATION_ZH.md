@@ -22,7 +22,35 @@ Graph 使用 `FULL_DECODE_ONLY`。U2 使用原生 DBO，A/F 按 stage 串行推�
 `N=1` 或 `N=2`，草稿只在 A 侧以 eager 运行，关闭 adaptive verification。
 PD 的 P 固定 eager/U1，D 使用上述四档。SP、EPLB 和 elastic EP 关闭。
 
-## 2026-11-23 A5 eager/U1 结果与下一轮
+## EP 功能验收（2026-11-24）
+
+同一 A5 上的 eager/U1 和 Graph/U1、`N=0` 已完成标准 4+8+1 请求、
+流式取消后继续和 `SIGUSR2` 正常退出。Graph/U1 同时记录了两档捕获、
+61 笔 A/F 回放和包括空闲 rank 回退的 eager 事务。对应用户归档为
+`4767ed73c21a4273976a4e2163eb9933.zip`、
+`d376b67fc94c47f8a89fd7d4d34d1a44.zip` 及其 A/F 日志
+`d0ec6685d37e4568805635e53e234cac.zip`。
+
+下一项保持 `N=0`，先验串行 eager/U2。按下文「准备和配置检查」设置环境变量。
+
+```bash
+"$DSV41_PY" -B tools/diagnostics/run_dsv41_full_checkpoint.py \
+  --model "$DSV41_MODEL" --transformer-vendor "$DSV41_VENDOR" \
+  --expert-parallel --ep-functional-only --mode eager-u2 --spec-tokens 0 \
+  --attention-devices 0,1,2,3 --ffn-devices 4,5,6,7 \
+  --attention-stop-signal SIGUSR2 \
+  --output-root results/ep-afd-eager-u2-n0-functional --run
+```
+
+`--ep-functional-only` 直接运行 AFD EP 请求矩阵。验收核对 13 条请求均返回
+HTTP 200 和指定生成长度、取消后续跑、`eager_u2_verification.passed=true`
+以及 `clean_shutdown=true`。双 stage 证据要求同一 A/F 事务的各 rank 两阶段
+均完成，A 侧父输出成功合并。归档在 `summary.json` 标出功能验收模式。
+
+eager/U2 通过后把 `--mode` 换成 `graph-u2` 并使用新的输出目录。Graph/U2 再核对
+双 stage 捕获、A/F 全 rank 实际回放与回退，判定见 `graph_verification.passed`。
+
+## 2026-11-23 A5 eager/U1 历史结果
 
 真实权重、TP1/DP4/EP4、A4/F4、DSpark N=0。原生和 AFD 按 DP0–3
 逐路预热，再串行执行首波。4 条预热和 13 条正式请求的输出 token、
