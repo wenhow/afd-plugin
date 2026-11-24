@@ -122,12 +122,18 @@ def make_plan(
         or repeatability
     ):
         raise ValueError("EP diagnostics require standalone EP eager/U1 with N=0")
+    ep_graph_trace = (
+        expert_parallel
+        and mode == "graph-u1"
+        and not (spec_tokens or pd_role or repeatability)
+    )
     if attention_stop_signal is not None and (
-        not ep_diagnostics
+        not (ep_diagnostics or ep_graph_trace)
         or attention_stop_signal not in ("SIGINT", "SIGTERM", "SIGUSR2")
     ):
         raise ValueError(
-            "attention stop signal requires EP diagnostics "
+            "attention stop signal requires EP diagnostics or standalone EP Graph/U1 "
+            "with N=0, "
             "and SIGINT, SIGTERM or SIGUSR2"
         )
     if ep_serial_first_wave and not ep_diagnostics:
@@ -182,12 +188,13 @@ def make_plan(
                 )
         if role == "attention":
             set_option(argv, "--host", bind_host)
-            if ep_diagnostics:
+            if ep_diagnostics or ep_graph_trace:
                 argv[argv.index("vllm.entrypoints.cli.main")] = (
                     "afd_plugin.entrypoints.dsv41_ep_stack"
                 )
                 if attention_stop_signal == "SIGUSR2":
                     env["AFD_DSV41_EP_SHUTDOWN_RELAY"] = "1"
+            if ep_diagnostics:
                 set_option(argv, "--logprobs-mode", "raw_logprobs")
                 set_option(
                     argv,
@@ -197,11 +204,7 @@ def make_plan(
                 )
         if ep_diagnostics:
             env["AFD_DSV41_EP_DIAGNOSTICS"] = "1"
-        if (
-            expert_parallel
-            and mode == "graph-u1"
-            and not (spec_tokens or pd_role or repeatability)
-        ):
+        if ep_graph_trace:
             env[launch.EP_GRAPH_TRACE_ENV] = "1"
         env.update(AFD_DSV41_EAGER_QUALIFICATION="0", AFD_DSV41_FULL_QUALIFICATION="1")
         if expert_parallel:
@@ -355,8 +358,9 @@ def make_plan(
         plan["trace_native_prefill"] = True
     if ep_diagnostics:
         plan["ep_diagnostics"] = True
-        plan["attention_stop_signal"] = attention_stop_signal or "SIGINT"
         plan["ep_serial_first_wave"] = ep_serial_first_wave
+    if ep_diagnostics or ep_graph_trace:
+        plan["attention_stop_signal"] = attention_stop_signal or "SIGINT"
     if repeatability:
         plan["repeatability_protocol"] = {
             "version": repeatability_check.PROTOCOL_VERSION,
@@ -426,7 +430,10 @@ def run_requests(
     data_parallel_size: int = 1,
     ep_diagnostics: bool = False,
     ep_serial_first_wave: bool = False,
+    return_mismatch_report: bool = False,
 ) -> dict:
+    collect_mismatches = ep_diagnostics or return_mismatch_report
+
     def one(
         index: int, prompt: str, dp_rank: int | None = None, *, warmup: bool = False
     ) -> dict:
@@ -468,7 +475,7 @@ def run_requests(
             payload=payload,
             api_url=api_url,
             data_parallel_rank=dp_rank,
-            collect_token_mismatch=ep_diagnostics,
+            collect_token_mismatch=collect_mismatches,
         )
         if ep_diagnostics:
             repeatability_check.validate_logprobs(
@@ -515,7 +522,7 @@ def run_requests(
             cancel_stream(directory, prefill_url=prefill_url, api_url=api_url)
     results.append(one(request_index, PROMPTS[2], 1 if directed else None))
     report = {"passed": True, "requests": results, "hardware_acceptance": False}
-    if ep_diagnostics:
+    if collect_mismatches:
         report["passed"] = all(result["passed"] for result in results)
     if spec_tokens:
         metrics = [result["dspark"] for result in results]
@@ -543,7 +550,9 @@ def run_requests(
         )
     launch.save_json(directory / "request-matrix.json", report)
     if not report["passed"]:
-        if ep_diagnostics:
+        if collect_mismatches and not spec_tokens:
+            if return_mismatch_report:
+                return report
             raise RuntimeError(
                 "EP diagnostic matrix completed with token mismatches; "
                 "see request-matrix.json"
@@ -976,6 +985,10 @@ def main() -> int:
             data_parallel_size=plan["native_dp_size"],
             ep_diagnostics=args.ep_diagnostics,
             ep_serial_first_wave=args.ep_serial_first_wave,
+            return_mismatch_report=(
+                plan["roles"]["attention"]["environment"].get(launch.EP_GRAPH_TRACE_ENV)
+                == "1"
+            ),
         )
     previous_handler = signal.signal(signal.SIGTERM, launch.handle_termination)
     try:

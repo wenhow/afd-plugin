@@ -766,6 +766,7 @@ class Supervision:
         *,
         stop_signal: signal.Signals = signal.SIGINT,
         trace_signal: bool = False,
+        stack_directory: str = EP_STACK_DIR,
     ) -> None:
         if attention.process.poll() is None:
             signal_phase = stop_signal.name.lower()
@@ -792,10 +793,20 @@ class Supervision:
                 self._record_attention_signal_state(
                     attention, f"{signal_phase}_timeout"
                 )
-                self.request_attention_stacks(attention)
+                self.request_attention_stacks(
+                    attention,
+                    stack_directory,
+                    phase="shutdown_timeout"
+                    if stack_directory == EP_GRAPH_STACK_DIR
+                    else None,
+                )
 
     def request_attention_stacks(
-        self, attention: OwnedProcess, directory_name: str = EP_STACK_DIR
+        self,
+        attention: OwnedProcess,
+        directory_name: str,
+        *,
+        phase: str | None = None,
     ) -> None:
         stack_directory = self.directory / directory_name
         if not stack_directory.is_dir():
@@ -805,6 +816,11 @@ class Supervision:
             for path in stack_directory.glob("*.log")
             if path.stem.isdecimal()
         }
+        preceding_sizes = (
+            {pid: path.stat().st_size for pid, path in armed.items()}
+            if phase is not None
+            else {}
+        )
         requested = set()
         for process in attention.observe(process_table()):
             if process.pid not in armed:
@@ -819,17 +835,21 @@ class Supervision:
             else:
                 self.record("attention_stack_requested", pid=process.pid)
                 requested.add(process.pid)
-        if directory_name == EP_GRAPH_STACK_DIR:
+        if phase is not None:
             deadline = time.monotonic() + STACK_DUMP_GRACE_SECONDS
             pending = requested
             while pending:
-                pending = {pid for pid in pending if armed[pid].stat().st_size == 0}
+                pending = {
+                    pid
+                    for pid in pending
+                    if armed[pid].stat().st_size <= preceding_sizes[pid]
+                }
                 if not pending or time.monotonic() >= deadline:
                     break
                 time.sleep(POLL_SECONDS)
             captured = requested - pending
             self.record(
-                "attention_request_timeout_stacks",
+                f"attention_{phase}_stacks",
                 captured_pids=sorted(captured),
                 missing_pids=sorted(armed.keys() - captured),
             )
@@ -1332,18 +1352,26 @@ def run_candidate(
             else {}
         )
         try:
-            result["request"] = (request_runner or send_request)(directory, reference)
+            request_report = (request_runner or send_request)(directory, reference)
         except TimeoutError:
             if trace_ep_graph:
                 try:
-                    owner.request_attention_stacks(attention, EP_GRAPH_STACK_DIR)
+                    owner.request_attention_stacks(
+                        attention, EP_GRAPH_STACK_DIR, phase="request_timeout"
+                    )
                 except OSError as error:
                     owner.record(
                         "attention_request_timeout_stacks_failed", error=str(error)
                     )
             raise
-        result["request_passed"] = True
-        owner.record("request_completed")
+        result["request"] = request_report
+        request_passed = request_report.get("passed", True) is True
+        result["request_passed"] = request_passed
+        owner.record("request_completed", request_passed=request_passed)
+        if not result["request_passed"]:
+            result["error"] = (
+                "EP matrix completed with token mismatches; see request-matrix.json"
+            )
         if ffn is not None and verify_graph and plan["mode"] == "graph-u1":
             try:
                 graph_report = verify_ep_graph_run(directory, plan["native_dp_size"], 1)
@@ -1385,7 +1413,10 @@ def run_candidate(
                     stop_signal=signal.Signals[
                         plan.get("attention_stop_signal", "SIGINT")
                     ],
-                    trace_signal=plan.get("ep_diagnostics") is True,
+                    trace_signal=trace_ep_graph or plan.get("ep_diagnostics") is True,
+                    stack_directory=EP_GRAPH_STACK_DIR
+                    if trace_ep_graph
+                    else EP_STACK_DIR,
                 )
             if ffn is not None:
                 owner.wait_exit(ffn, OUTER_SHUTDOWN_SECONDS)
@@ -1453,7 +1484,7 @@ def run_candidate(
             result["token_comparison"] = json.loads(comparison_path.read_bytes())
         if (
             ffn is not None
-            and result["request_passed"]
+            and "request" in result
             and verify_graph
             and "graph_verification" not in result
         ):
@@ -1465,7 +1496,7 @@ def run_candidate(
                 )
             except (OSError, ValueError, KeyError) as error:
                 result["graph_verification"] = {"passed": False, "error": str(error)}
-                result["error"] = f"Graph host evidence incomplete: {error}"
+                result.setdefault("error", f"Graph host evidence incomplete: {error}")
         if (
             result["request_passed"]
             and result["clean_shutdown"]

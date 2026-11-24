@@ -208,6 +208,20 @@ class TestFullCheckpointPlans(unittest.TestCase):
             self.assertEqual(compilation["cudagraph_capture_sizes"], [1, 2])
             self.assertEqual(settings["environment"]["AFD_DSV41_EP_GRAPH_TRACE"], "1")
 
+    def test_ep_graph_u1_plan_can_relay_the_native_stop_callback(self):
+        plan = load_driver().make_plan(
+            Path("/model"),
+            Path("/vendor"),
+            ROOT,
+            mode="graph-u1",
+            expert_parallel=True,
+            attention_stop_signal="SIGUSR2",
+        )
+        attention = plan["roles"]["attention"]
+        self.assertIn("afd_plugin.entrypoints.dsv41_ep_stack", attention["argv"])
+        self.assertEqual(attention["environment"]["AFD_DSV41_EP_SHUTDOWN_RELAY"], "1")
+        self.assertEqual(plan["attention_stop_signal"], "SIGUSR2")
+
     def test_modes_keep_native_quantized_weights_and_cpu_engram(self):
         driver = load_driver()
         for mode in driver.MODES:
@@ -931,6 +945,32 @@ class TestFullCheckpointRequests(unittest.TestCase):
             response = json.loads((afd / "request-12/response.json").read_bytes())
             scores = response["choices"][0]["logprobs"]["top_logprobs"]
             self.assertEqual(len(scores), 32)
+
+    def test_graph_u1_returns_failed_comparison_after_the_entire_matrix(self):
+        driver = load_driver()
+        with tempfile.TemporaryDirectory() as temporary:
+            native = Path(temporary) / "native"
+            afd = Path(temporary) / "afd"
+            native.mkdir()
+            afd.mkdir()
+            options = dict(spec_tokens=0, prefill_url=None, data_parallel_size=4)
+            with patch(
+                "urllib.request.OpenerDirector.open",
+                side_effect=RepeatabilityReplies().open,
+            ):
+                driver.run_requests(native, None, **options)
+            replies = RepeatabilityReplies(difference="all")
+            with patch("urllib.request.OpenerDirector.open", side_effect=replies.open):
+                report = driver.run_requests(
+                    afd, native, **options, return_mismatch_report=True
+                )
+            self.assertFalse(report["passed"])
+            self.assertEqual(len(report["requests"]), 13)
+            self.assertTrue(replies.cancelled)
+            self.assertTrue((afd / "request-12/response.json").is_file())
+            self.assertEqual(
+                json.loads((afd / "request-matrix.json").read_bytes()), report
+            )
 
     def test_dspark_requires_a_later_step_after_rejection(self):
         driver = load_driver()

@@ -226,7 +226,7 @@ class TestEpGraphLogVerification(unittest.TestCase):
         ):
             yield launcher, owner, plan
 
-    def test_graph_u1_pass_precedes_shutdown_failure(self):
+    def test_graph_u1_verification_precedes_shutdown_even_with_token_mismatch(self):
         with tempfile.TemporaryDirectory() as temporary:
             directory = Path(temporary)
             write_ep_graph_logs(directory, 1)
@@ -246,10 +246,11 @@ class TestEpGraphLogVerification(unittest.TestCase):
                     Path("/vendor"),
                     1,
                     None,
-                    request_runner=lambda *_: {"passed": True},
+                    request_runner=lambda *_: {"passed": False},
                 )
             report = json.loads((directory / "summary.json").read_bytes())
-            self.assertTrue(report["request_passed"])
+            self.assertFalse(report["request_passed"])
+            self.assertIn("token mismatches", report["error"])
             self.assertTrue(report["graph_verification"]["passed"])
             self.assertFalse(report["clean_shutdown"])
             self.assertIn("attention teardown timed out", report["shutdown_error"])
@@ -265,13 +266,14 @@ class TestEpGraphLogVerification(unittest.TestCase):
             with self.graph_u1_services(directory) as (launcher, owner, plan):
                 stack_dir = directory.resolve() / launcher.EP_GRAPH_STACK_DIR
 
-                def capture_stacks(_attention, name):
+                def capture_stacks(_attention, name, *, phase):
                     (directory / name / "42.log").write_text(
-                        "worker waiting for graph query"
+                        f"{phase}: worker waiting for graph query"
                     )
 
                 def stop_attention(*_args, **_kwargs):
-                    self.assertTrue((stack_dir / "42.log").is_file())
+                    dump = (stack_dir / "42.log").read_text()
+                    self.assertIn("request_timeout", dump)
 
                 owner.request_attention_stacks.side_effect = capture_stacks
                 owner.stop_attention.side_effect = stop_attention

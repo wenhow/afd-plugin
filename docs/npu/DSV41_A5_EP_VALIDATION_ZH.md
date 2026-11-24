@@ -73,9 +73,13 @@ DSV41_EP_REFERENCE=results/ep-native-n0/full-eager-u1-4v59wo3p
 若首波有 DP rank 提前完成，零 token 的请求清理先由原生 runner 返回，
 随后由 EngineCore 的 dummy step 参加同一轮 DP 协商。复测时核对该 rank
 从 `valid_tokens=0 dummy_run=False` 进入 `mode=dummy`，以及其余请求继续返回。
-若并发首波因 token 差异提前结束，以 A/F 日志核对已发生的捕获和
-回放，回退和取消后请求仍需相应执行证据。正式数值对照需使用同 checkpoint、
-同 N、同请求顺序与批形状的原生结果。本轮串行首波结果保留为 eager/U1 对照证据。
+独立 EP Graph/U1 N=0 会在有 token 差异时继续收集完整的 4+8+1 矩阵和
+取消证据，保留 `request_passed=false`。正式数值对照需使用同 checkpoint、
+同 N、同请求顺序与批形状的原生结果。
+若 `SIGINT` 停机超时，可在上述命令加 `--attention-stop-signal SIGUSR2`，
+由 Attention 根进程调用原生多 API server 退出回调。停机超时会在
+`lifecycle.json` 记录 signal 状态，并把根进程和 worker 的栈追加到
+`request-timeout-stacks/`。两个抓栈阶段分别记录在生命周期中。
 EP7.2 在 EP6 收口后按本页验收项判定。
 
 ## 准备和配置检查
