@@ -30,6 +30,7 @@ from collect_dsv41_dspark_requests import validate_response
 from preflight_dsv41_a5_afd import DEFAULT_PROFILE, SourceIdentity
 
 MODES = ("eager-u1", "eager-u2", "graph-u1", "graph-u2")
+SPEC_TOKEN_CHOICES = (0, 1, 2, 5)
 PD_MODULE = "afd_plugin.compat.npu.kv_layout_connector"
 CANCEL_OUTPUT_TOKENS = 256
 EP_FIRST_WAVE_TOKEN_INDEX = 2
@@ -111,7 +112,7 @@ def make_plan(
     ep_serial_first_wave: bool = False,
     ep_shutdown_smoke: bool = False,
 ) -> dict:
-    if mode not in MODES or spec_tokens not in (0, 1, 2):
+    if mode not in MODES or spec_tokens not in SPEC_TOKEN_CHOICES:
         raise ValueError("unsupported full-checkpoint qualification mode")
     if native_control and (
         mode != "eager-u1" or (spec_tokens and not expert_parallel) or pd_role
@@ -609,6 +610,9 @@ def run_requests(
         report.update(
             accepted_tokens=accepted,
             rejected_tokens=drafted - accepted,
+            max_proposed_tokens_per_step=max(
+                proposed for item in metrics for proposed in item["per_step_drafted"]
+            ),
             acceptance_and_rejection_observed=0 < accepted < drafted,
             rejection_continuation_observed=any(
                 any(
@@ -798,7 +802,9 @@ def main() -> int:
     )
     parser.add_argument("--transformer-vendor", type=Path, required=True)
     parser.add_argument("--mode", choices=MODES, default="eager-u1")
-    parser.add_argument("--spec-tokens", type=int, choices=(0, 1, 2), default=0)
+    parser.add_argument(
+        "--spec-tokens", type=int, choices=SPEC_TOKEN_CHOICES, default=0
+    )
     parser.add_argument("--native-control", action="store_true")
     parser.add_argument(
         "--expert-parallel",

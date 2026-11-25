@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING
 from afd_plugin.compat.npu.pd_topology import validate_ep_pd_topology
 from afd_plugin.config import (
     AFD_ASYNC_CONNECTOR,
+    DSV41_HCCL_DSPARK_STEPS,
     HCCL_P2P_CONNECTOR,
     is_afd_async_dp,
     parse_afd_config,
@@ -22,7 +23,6 @@ if TYPE_CHECKING:
 FLASHINFER_ALL2ALLV_BACKEND = "flashinfer_all2allv"
 HCCL_NATIVE_PD_CONNECTOR = "MooncakeHybridConnector"
 HCCL_ATTESTED_PD_MODULE = "afd_plugin.compat.npu.kv_layout_connector"
-V41_EP_DSPARK_STEPS = (1, 2)
 DEEPSEEK_V2_MODEL_TYPES = frozenset(
     ("deepseek", "deepseek_v2", "deepseek_v3", "deepseek_v32", "glm_moe_dsa")
 )
@@ -146,7 +146,7 @@ def validate_deepseek_v41_speculation(vllm_config: VllmConfig) -> None:
         speculative.enforce_eager is not True
         or speculative.enable_adaptive_verification
         or type(speculative.num_speculative_tokens) is not int
-        or speculative.num_speculative_tokens not in V41_EP_DSPARK_STEPS
+        or speculative.num_speculative_tokens not in DSV41_HCCL_DSPARK_STEPS
         or parallel.tensor_parallel_size != 1
         or (
             parallel.num_ubatches != 2
@@ -155,7 +155,7 @@ def validate_deepseek_v41_speculation(vllm_config: VllmConfig) -> None:
         )
     ):
         raise ValueError(
-            "V4.1 EP DSpark requires TP1 with U1 or U2 and an eager N=1/2 draft "
+            "V4.1 EP DSpark requires TP1 with U1 or U2 and an eager N=1/2/5 draft "
             "with adaptive verification off"
         )
     if speculative.enable_adaptive_verification and (

@@ -91,9 +91,9 @@ def test_ffn_entrypoint_rejects_dspark_pd_before_isolation(ffn_config, field):
 
 @pytest.mark.parametrize("graph", [False, True])
 @pytest.mark.parametrize("stages", [1, 2])
-@pytest.mark.parametrize("dspark,pd", [(True, False), (False, True), (True, True)])
+@pytest.mark.parametrize("steps,pd", [(2, False), (None, True), (2, True), (5, False)])
 def test_ffn_full_candidate_preserves_a_owned_modes_before_worker_isolation(
-    ffn_config, monkeypatch, graph, stages, dspark, pd
+    ffn_config, monkeypatch, graph, stages, steps, pd
 ):
     source = v41_full_qualification_config(
         dtype=torch.bfloat16,
@@ -102,9 +102,11 @@ def test_ffn_full_candidate_preserves_a_owned_modes_before_worker_isolation(
         role="ffn",
         graph=graph,
         stages=stages,
-        dspark=dspark,
+        dspark=steps is not None,
         pd=pd,
     )
+    if steps is not None:
+        source.speculative_config.num_speculative_tokens = steps
     source.parallel_config.distributed_executor_backend = "mp"
     source.parallel_config.data_parallel_size_local = 1
     source.parallel_config.nnodes = 1

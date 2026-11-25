@@ -52,27 +52,17 @@ def check_matrix(model: Path, output: Path, *, expert_parallel: bool = False) ->
             "attention": make_arg_parser(FlexibleArgumentParser()),
             "ffn": EngineArgs.add_cli_args(FlexibleArgumentParser()),
         }
-        scenarios = (
-            [("native", 0, None)]
-            + [
+        native_steps = launch.SPEC_TOKEN_CHOICES if expert_parallel else (0,)
+        scenarios = [
+            *(("native", steps, None) for steps in native_steps),
+            *(
                 (mode, steps, pd_role)
                 for mode in launch.MODES
-                for steps in (0, 1, 2)
+                for steps in launch.SPEC_TOKEN_CHOICES
                 for pd_role in (None, "consumer")
-            ]
-            + [("eager-u1", steps, "producer") for steps in (0, 1, 2)]
-        )
-        if expert_parallel:
-            scenarios = [
-                *[("native", steps, None) for steps in (0, 1, 2)],
-                *[
-                    (mode, steps, pd_role)
-                    for mode in launch.MODES
-                    for steps in (0, 1, 2)
-                    for pd_role in (None, "consumer")
-                ],
-                *[("eager-u1", steps, "producer") for steps in (0, 1, 2)],
-            ]
+            ),
+            *(("eager-u1", steps, "producer") for steps in launch.SPEC_TOKEN_CHOICES),
+        ]
         for mode, steps, pd_role in scenarios:
             plan = launch.make_plan(
                 model,

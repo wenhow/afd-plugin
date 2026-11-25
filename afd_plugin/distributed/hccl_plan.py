@@ -15,6 +15,7 @@ import json
 from dataclasses import dataclass
 from typing import TypeAlias
 
+from afd_plugin.config import DSV41_HCCL_DSPARK_STEPS
 from afd_plugin.distributed.hccl import MAX_HCCL_STAGES, HcclStageLayout
 from afd_plugin.distributed.hccl_graph import (
     HcclGraphCandidate,
@@ -30,6 +31,7 @@ HCCL_PLAN_PROTOCOL_VERSION = 3
 # Paired roles preserve the native TP coordinate: A[tp + r] <-> F[r].
 # TP4 uses the same per-coordinate packets; native MoE owns its TP reduction.
 PAIRED_NATIVE_TP_SIZES = (1, 2, 4)
+EP_TARGET_QUERY_LENGTHS = (1, *(steps + 1 for steps in DSV41_HCCL_DSPARK_STEPS))
 MAX_ROLE_RANKS = 1_024
 MAX_CONTROL_MESSAGE_BYTES = 65_536
 MAX_TRANSACTION_ID_BYTES = 256
@@ -140,11 +142,11 @@ class HcclPlanCapabilities:
             and self.attention_size == self.ffn_size
             and self.local_counts_version == 1
             and self.eager_pipeline_version == 0
-            and self.target_query_len <= 3
+            and self.target_query_len in EP_TARGET_QUERY_LENGTHS
         ):
             raise ValueError(
                 "expert_parallel requires symmetric TP1/DP roles, local counts v1 "
-                "and U1/U2 without eager pipeline execution"
+                "and U1/U2 without eager pipeline execution, with Q=1/2/3/6"
             )
         if self.eager_pipeline_version == 1 and not (
             self.graph_execution_version == 0

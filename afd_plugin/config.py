@@ -21,6 +21,7 @@ AFD_ADDITIONAL_CONFIG_KEY: Final[str] = "afd"
 AFD_ASYNC_CONNECTOR: Final[str] = "CAMAsyncAFDConnector"
 CAMP2P_CONNECTOR: Final[str] = "CAMP2pAFDConnector"
 HCCL_P2P_CONNECTOR: Final[str] = "P2pHcclAFDConnector"
+DSV41_HCCL_DSPARK_STEPS: Final[tuple[int, ...]] = (1, 2, 5)
 MAX_TCP_PORT: Final[int] = 65535
 DEEPEP_M2N_CONNECTOR: Final[str] = "DeepEPM2NAFDConnector"
 DEEPEP_M2N_CONNECTORS: Final[tuple[str, ...]] = (DEEPEP_M2N_CONNECTOR,)

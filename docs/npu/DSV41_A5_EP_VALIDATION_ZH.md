@@ -18,8 +18,8 @@ AFD 只传 BF16 hidden、FP32 router input、原始 IDs，并回传完整 MoE �
 
 EP 资格入口支持 eager/U1、Graph/U1、串行 eager/U2 和串行 Graph/U2。
 Graph 使用 `FULL_DECODE_ONLY`。U2 使用原生 DBO，A/F 按 stage 串行推进，
-对应 `launch-plan.json` 中 `stream_overlap=false`。各档可用 `N=0`（关闭 DSpark）、
-`N=1` 或 `N=2`，草稿只在 A 侧以 eager 运行，关闭 adaptive verification。
+对应 `launch-plan.json` 中 `stream_overlap=false`。启动入口接受 `N=0`（关闭 DSpark）
+和固定 `N=1/2/5`，草稿只在 A 侧以 eager 运行，关闭 adaptive verification。
 PD 的 P 固定 eager/U1，D 使用上述四档。SP、EPLB 和 elastic EP 关闭。
 
 ## EP 功能验收（2026-11-24）
@@ -138,6 +138,41 @@ DSV41_VENDOR=/usr/local/Ascend/ascend-toolkit/latest/opp/vendors/custom_transfor
 A 侧使用原生 `cpu_offload=true, dp_shared_memory=true, embedding_across_dp=false`；
 F 在 native worker 构造前隔离 Engram。需要足够 host RAM 和原生 DP 共享内存容量；
 专家分片约为四分之一的估算不替代完整 HBM 峰值实测。
+
+## N=5 原生对照与 AFD 验证
+
+沿用上面的三个路径变量和源码预检。单套空闲八卡，先用 0–3 跑原生
+TP1/DP4/EP4 eager/U1，然后用 0–3 跑 A、4–7 跑 F。下面每档使用独立目录，
+前一档退出且检查通过后才运行下一档。
+
+```bash
+(
+  set -e
+  mkdir -p results
+  run_root=$(mktemp -d results/ep-n5.XXXXXX)
+  launch_n5() {
+    "$DSV41_PY" -B tools/diagnostics/run_dsv41_full_checkpoint.py \
+      --model "$DSV41_MODEL" --transformer-vendor "$DSV41_VENDOR" \
+      --expert-parallel --spec-tokens 5 --attention-devices 0,1,2,3 "$@"
+  }
+  launch_n5 --native-control --mode eager-u1 --output-root "$run_root/native" --run
+  native_run=$(find "$run_root/native" -mindepth 1 -maxdepth 1 \
+    -type d -name 'full-eager-u1-*' -print -quit)
+  test -n "$native_run"
+  for mode in eager-u1 eager-u2 graph-u1 graph-u2; do
+    launch_n5 --mode "$mode" --ffn-devices 4,5,6,7 --stream-overlap 0 \
+      --reference-run "$native_run" --output-root "$run_root/$mode" --run
+  done
+)
+```
+
+单独跑功能档时，可跳过原生对照，将 AFD 命令中的 `--reference-run "$native_run"` 换成 `--ep-functional-only --attention-stop-signal SIGUSR2`。
+
+检查 `launch-plan.json` 的 `spec_tokens=5`、草稿 eager 和 Graph 捕获档位
+`[6, 12]`。检查 `request-matrix.json` 中 `max_proposed_tokens_per_step=5`，
+并确认有实际接受和拒绝，且至少有一次拒绝后继续解码。
+eager/U2 需记录全 rank 双 stage 完成，Graph/U2 需记录实际双 stage 回放。
+保留各档的汇总、原始响应和 A/F 日志。N=5 的真实权重 A5 验收待执行。
 
 ## 原生 TP1 环境检查和精度对照
 

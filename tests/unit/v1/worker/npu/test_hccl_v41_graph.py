@@ -59,7 +59,7 @@ def parallel_config():
     )
 
 
-@pytest.mark.parametrize("query_len", [2, 3])
+@pytest.mark.parametrize("query_len", [2, 3, 6])
 @pytest.mark.parametrize("requests", [1, 3])
 @pytest.mark.parametrize("num_ubatches", [1, 2])
 def test_target_width_preview_uses_actual_native_request_slicing(
@@ -101,7 +101,7 @@ def test_target_width_preview_uses_actual_native_request_slicing(
         )
 
 
-@pytest.mark.parametrize("query_len", [2, 3])
+@pytest.mark.parametrize("query_len", [2, 3, 6])
 @pytest.mark.parametrize("num_ubatches", [1, 2])
 def test_target_capture_matches_native_uniform_dummy_and_dispatch(
     query_len, num_ubatches, parallel_config

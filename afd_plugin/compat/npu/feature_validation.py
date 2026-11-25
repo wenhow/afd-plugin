@@ -14,6 +14,7 @@ from afd_plugin.compat.npu.runtime_config import (
 from afd_plugin.config import (
     AFD_ASYNC_CONNECTOR,
     CAMP2P_CONNECTOR,
+    DSV41_HCCL_DSPARK_STEPS,
     AFDConfig,
     is_afd_async_dp,
     parse_afd_config,
@@ -95,12 +96,10 @@ def _validate_v41_eager_qualification(
             speculative.enforce_eager is not True
             or speculative.enable_adaptive_verification
             or type(speculative.num_speculative_tokens) is not int
-            or not 0
-            < speculative.num_speculative_tokens
-            <= V41_FUNCTIONAL_MAX_SPECULATIVE_TOKENS
+            or speculative.num_speculative_tokens not in DSV41_HCCL_DSPARK_STEPS
         ):
             raise ValueError(
-                "V4.1 full qualification requires fixed eager DSpark N=1/2"
+                "V4.1 full qualification requires fixed eager DSpark N=1/2/5"
             )
         transfer = vllm_config.kv_transfer_config
         if transfer is not None and (

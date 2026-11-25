@@ -78,7 +78,7 @@ def test_ep_pd_rejects_foreign_dp_declaration_before_ffn_isolation(ep_pd_source)
     assert ep_pd_source == before
 
 
-@pytest.mark.parametrize("steps", [1, 2])
+@pytest.mark.parametrize("steps", [1, 2, 5])
 @pytest.mark.parametrize("ubatches", [1, 2])
 def test_ffn_ep_preserves_dspark_target_width_without_owning_the_drafter(
     steps, ubatches
@@ -101,8 +101,8 @@ def test_ffn_ep_preserves_dspark_target_width_without_owning_the_drafter(
 @pytest.mark.parametrize(
     ("axis", "changes", "reason"),
     [
-        ("speculative_config", {"num_speculative_tokens": 3}, "eager N=1/2 draft"),
-        ("speculative_config", {"enforce_eager": False}, "eager N=1/2 draft"),
+        ("speculative_config", {"num_speculative_tokens": 3}, "eager N=1/2/5 draft"),
+        ("speculative_config", {"enforce_eager": False}, "eager N=1/2/5 draft"),
         ("speculative_config", {"enable_adaptive_verification": True}, "adaptive"),
         ("parallel_config", {"num_ubatches": 2}, "with U1 or U2"),
         (

@@ -227,6 +227,38 @@ class TestFullCheckpointPlans(unittest.TestCase):
         self.assertEqual(attention["environment"]["AFD_DSV41_EP_SHUTDOWN_RELAY"], "1")
         self.assertEqual(plan["attention_stop_signal"], "SIGUSR2")
 
+    def test_ep_n5_plans_keep_eager_draft_and_allocate_q6_graph_buckets(self):
+        driver = load_driver()
+        for mode in driver.MODES:
+            with self.subTest(mode=mode):
+                plan = driver.make_plan(
+                    Path("/model"),
+                    Path("/vendor"),
+                    ROOT,
+                    mode=mode,
+                    spec_tokens=5,
+                    expert_parallel=True,
+                )
+                for settings in plan["roles"].values():
+                    argv = settings["argv"]
+                    spec = json.loads(argv[argv.index("--speculative-config") + 1])
+                    self.assertEqual(spec["num_speculative_tokens"], 5)
+                    self.assertTrue(spec["enforce_eager"])
+                    self.assertFalse(spec["enable_adaptive_verification"])
+                    if mode.startswith("graph"):
+                        graph = json.loads(argv[argv.index("--compilation-config") + 1])
+                        self.assertEqual(graph["cudagraph_capture_sizes"], [6, 12])
+        native = driver.make_plan(
+            Path("/model"),
+            Path("/vendor"),
+            ROOT,
+            native_control=True,
+            expert_parallel=True,
+            spec_tokens=5,
+        )
+        self.assertEqual(set(native["roles"]), {"attention"})
+        self.assertEqual(native["spec_tokens"], 5)
+
     def test_modes_keep_native_quantized_weights_and_cpu_engram(self):
         driver = load_driver()
         for mode in driver.MODES:
@@ -1080,31 +1112,39 @@ class TestFullCheckpointRequests(unittest.TestCase):
                 self.assertEqual(scores["ranked_candidates"][0], ["token_id:2", -0.1])
                 self.assertAlmostEqual(scores["top1_minus_top2"], 1.0)
 
-    def test_dspark_requires_a_later_step_after_rejection(self):
+    def test_dspark_requires_a_step_after_rejection(self):  # long-test: HTTP fixture
         driver = load_driver()
-        for accepted in ([1, 0], [0, 1]):
+        for proposed, accepted, passed in (
+            ([1, 1], [1, 0], False),
+            ([1, 1], [0, 1], True),
+            ([5, 2], [2, 1], True),
+        ):
+            steps = max(proposed)
+            metrics = {
+                "speculative_decoding": {
+                    "num_spec_tokens": steps,
+                    "num_spec_steps": 2,
+                    "num_draft_tokens": sum(proposed),
+                    "num_accepted_draft_tokens": sum(accepted),
+                    "acceptance_histogram": [
+                        accepted.count(i) for i in range(steps + 1)
+                    ],
+                    "per_step_accepted": accepted,
+                    "per_step_drafted": proposed,
+                    "draft_acceptance_rate": sum(accepted) / sum(proposed),
+                    "mean_acceptance_length": 1 + sum(accepted) / 2,
+                }
+            }
             with (
-                self.subTest(accepted=accepted),
+                self.subTest(proposed=proposed, accepted=accepted),
                 tempfile.TemporaryDirectory() as temporary,
             ):
                 directory = Path(temporary)
 
-                def reply(request, per_step_accepted=accepted, **kwargs):
+                def reply(request, metrics=metrics, **kwargs):
                     payload = json.loads(request.data)
                     body = response(payload["prompt"])
-                    body["metrics"] = {
-                        "speculative_decoding": {
-                            "num_spec_tokens": 1,
-                            "num_spec_steps": 2,
-                            "num_draft_tokens": 2,
-                            "num_accepted_draft_tokens": 1,
-                            "acceptance_histogram": [1, 1],
-                            "per_step_accepted": per_step_accepted,
-                            "per_step_drafted": [1, 1],
-                            "draft_acceptance_rate": 0.5,
-                            "mean_acceptance_length": 1.5,
-                        }
-                    }
+                    body["metrics"] = metrics
                     raw = (
                         b'data: {"choices":[{"text":"generated"}]}\n\n'
                         if payload["stream"]
@@ -1115,18 +1155,19 @@ class TestFullCheckpointRequests(unittest.TestCase):
                     return stream
 
                 with patch("urllib.request.OpenerDirector.open", side_effect=reply):
-                    if accepted == [1, 0]:
+                    if not passed:
                         with self.assertRaisesRegex(RuntimeError, "continuation"):
                             driver.run_requests(
-                                directory, None, spec_tokens=1, prefill_url=None
+                                directory, None, spec_tokens=steps, prefill_url=None
                             )
                     else:
                         report = driver.run_requests(
-                            directory, None, spec_tokens=1, prefill_url=None
+                            directory, None, spec_tokens=steps, prefill_url=None
                         )
                         self.assertTrue(report["rejection_continuation_observed"])
                 saved = json.loads((directory / "request-matrix.json").read_bytes())
-                self.assertEqual(saved["passed"], accepted == [0, 1])
+                self.assertEqual(saved["passed"], passed)
+                self.assertEqual(saved["max_proposed_tokens_per_step"], steps)
 
     def test_parallel_waves_and_post_cancel_request_compare_to_native(self):
         driver = load_driver()

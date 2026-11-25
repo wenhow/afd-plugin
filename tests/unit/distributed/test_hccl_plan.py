@@ -59,6 +59,29 @@ def test_ep_session_roundtrips_and_projects_all_ffn_dp_counts(size):
     )
 
 
+@pytest.mark.parametrize("stages", [1, 2])
+def test_ep_graph_q6_is_preserved_and_requires_matching_peer_width(stages):
+    cap = HcclPlanCapabilities(
+        16,
+        1024,
+        32,
+        (0, 1),
+        4,
+        4,
+        max_stages=stages,
+        local_counts_version=1,
+        graph_execution_version=1,
+        target_query_len=6,
+        expert_parallel=True,
+    )
+    peer = HcclPlanMessage("HELLO", role="ffn", world_rank=0, capabilities=cap)
+    parsed = decode_hccl_plan_message(encode_hccl_plan_message(peer))
+    assert parsed == peer
+    assert cap.negotiate(parsed.capabilities) == cap
+    with pytest.raises(ValueError, match="peer target_query_len does not match"):
+        cap.negotiate(replace(cap, target_query_len=3))
+
+
 @pytest.mark.parametrize(
     "change",
     [

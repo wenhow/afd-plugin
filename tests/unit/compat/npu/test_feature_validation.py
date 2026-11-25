@@ -188,14 +188,16 @@ def test_ep_full_candidate_preserves_native_dp_and_a_owned_engram(
 @pytest.mark.parametrize("role", ["attention", "ffn"])
 @pytest.mark.parametrize("graph,stages", [(False, 1), (False, 2), (True, 1), (True, 2)])
 @pytest.mark.parametrize(
-    "dspark,pd", [(False, False), (True, False), (False, True), (True, True)]
+    "steps,pd", [(None, False), (2, False), (None, True), (2, True), (5, False)]
 )
 def test_full_checkpoint_candidate_preserves_weights_and_a_owned_history(
-    monkeypatch, v41_full_candidate, role, graph, stages, dspark, pd
+    monkeypatch, v41_full_candidate, role, graph, stages, steps, pd
 ):
     source = v41_full_candidate(
-        role=role, graph=graph, stages=stages, dspark=dspark, pd=pd
+        role=role, graph=graph, stages=stages, dspark=steps is not None, pd=pd
     )
+    if steps is not None:
+        source.speculative_config.num_speculative_tokens = steps
     original = deepcopy(source)
     config = get_npu_ffn_config(source) if role == "ffn" else source
     before = deepcopy(config)

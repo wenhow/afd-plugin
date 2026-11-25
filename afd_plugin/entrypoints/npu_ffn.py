@@ -34,7 +34,11 @@ from afd_plugin.compat.npu.runtime_config import (
     get_npu_ffn_config,
     validate_deepseek_v41_graph_speculation,
 )
-from afd_plugin.config import HCCL_P2P_CONNECTOR, parse_afd_config
+from afd_plugin.config import (
+    DSV41_HCCL_DSPARK_STEPS,
+    HCCL_P2P_CONNECTOR,
+    parse_afd_config,
+)
 from afd_plugin.validation import validate_npu_model_runner_v2_config
 
 SUCCESS_MESSAGE = "AFD FFN launcher exited with all engine exit codes zero."
@@ -88,9 +92,9 @@ def validate_ffn_configuration(vllm_config: VllmConfig) -> None:
         speculative = vllm_config.speculative_config
         if speculative is not None and (
             type(speculative.num_speculative_tokens) is not int
-            or speculative.num_speculative_tokens not in (1, 2)
+            or speculative.num_speculative_tokens not in DSV41_HCCL_DSPARK_STEPS
         ):
-            raise ValueError("full-checkpoint FFN requires DSpark N=1/2")
+            raise ValueError("full-checkpoint FFN requires DSpark N=1/2/5")
     ffn_config = get_npu_ffn_config(vllm_config)
     validate_npu_model_runner_v2_config(
         ffn_config,
