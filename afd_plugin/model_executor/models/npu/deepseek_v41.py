@@ -9,7 +9,7 @@ from typing import Any
 import torch
 import torch.nn as nn
 from vllm.config import VllmConfig
-from vllm.forward_context import get_forward_context, is_forward_context_available
+from vllm.forward_context import get_forward_context
 from vllm.model_executor.layers.linear import ReplicatedLinear
 from vllm_ascend.ascend_forward_context import get_mrv2_in_profile_run
 
@@ -428,21 +428,6 @@ class AFDDeepseekV41Model(native.DeepseekV41Model):
     """V4.1 backbone retaining baseline forward and pre_mix propagation."""
 
     decoder_layer_cls = AFDDeepseekV41DecoderLayer
-
-    @property
-    def _mtp_hidden_buffer(self):
-        # Native forward writes [:num_tokens] for each child. The sampler
-        # reads the full batch after both children have finished.
-        buffer = self._afd_mtp_hidden_buffer
-        if buffer is not None and is_forward_context_available():
-            rows = get_forward_context().additional_kwargs.get("afd_target_token_slice")
-            if rows is not None:
-                return buffer[rows]
-        return buffer
-
-    @_mtp_hidden_buffer.setter
-    def _mtp_hidden_buffer(self, buffer):
-        self._afd_mtp_hidden_buffer = buffer
 
     # Upstream source: vllm-ascend rfc/vllm_cann, DeepseekV41Model.__init__.
     # Patch reason: Window FFN never executes the full text-model forward.

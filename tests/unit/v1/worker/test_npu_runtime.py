@@ -1507,52 +1507,45 @@ def test_async_cam_dbo_configuration_preserves_thresholds(native_flag, dp_size):
     assert config.parallel_config.dbo_prefill_token_threshold == 8
 
 
-@pytest.mark.parametrize("dp_size", [1, 2])
-def test_native_dbo_initializes_two_workspace_lanes_before_runner(monkeypatch, dp_size):
+@pytest.mark.parametrize(
+    "stages,rows,tokens,ranges",
+    [
+        (1, 5, 25, [(0, 5, 0, 25)]),
+        (2, 4, 20, [(0, 2, 0, 10), (2, 4, 10, 20)]),
+        (4, 4, 20, [(0, 1, 0, 5), (1, 2, 5, 10), (2, 3, 10, 15), (3, 4, 15, 20)]),
+    ],
+)
+def test_capture_and_partition_preserve_whole_verification_rows(
+    stages, rows, tokens, ranges
+):
     _require_npu_runtime()
-    from vllm.config import ParallelConfig
+    from vllm.config import CUDAGraphMode
+    from vllm.v1.worker.gpu.cudagraph_utils import BatchExecutionDescriptor
 
-    from afd_plugin.v1.worker.npu import attention_worker
-
-    parallel = object.__new__(ParallelConfig)
-    parallel.enable_dbo = True
-    parallel.ubatch_size = 1
-    parallel.data_parallel_size = dp_size
-    config = _vllm_config(
-        connector="CAMAsyncAFDConnector",
-        async_dp=True,
-    )
-    config.parallel_config = parallel
-    worker = SimpleNamespace(vllm_config=config, _init_device=lambda: "device")
-    events = []
-    monkeypatch.setattr(
-        attention_worker, "assert_compatible_afd_stack", lambda *a, **k: None
-    )
-    monkeypatch.setattr(
-        attention_worker,
-        "fail_if_unsupported_npu_afd_features",
-        lambda cfg: events.append(("validate", cfg.parallel_config.enable_dbo)),
-    )
-    monkeypatch.setattr(
-        attention_worker, "fix_all2all_backend_for_afd", lambda *a: None
-    )
-    monkeypatch.setattr(
-        attention_worker, "validate_npu_model_runner_v2_config", lambda *a, **k: None
-    )
-    monkeypatch.setattr(attention_worker, "get_afd_model_config", lambda cfg, **kw: cfg)
-    monkeypatch.setattr(
-        attention_worker,
-        "init_workspace_manager",
-        lambda device, ubatches, num_lanes: events.append(
-            ("workspace", ubatches, num_lanes)
-        ),
+    from afd_plugin.compat.patches.npu.mrv2_ubatching import verification_stage_ranges
+    from afd_plugin.v1.worker.npu.attention_model_runner_v2 import (
+        window_dspark_capture_descs,
     )
 
-    def runner(cfg, device):
-        assert cfg.parallel_config.enable_dbo
-        events.append(("runner", cfg.parallel_config.num_ubatches))
-        return object()
-
-    monkeypatch.setattr(attention_worker, "AFDNPUAttentionModelRunnerV2", runner)
-    attention_worker.AFDNPUAttentionWorker.init_device(worker)
-    assert events == [("validate", True), ("workspace", 2, 1), ("runner", 2)]
+    # U4 exercises geometry, not device/transport support. One live request
+    # and the remaining padding rows must use the same capture/replay layout.
+    graphs = window_dspark_capture_descs(
+        [BatchExecutionDescriptor(CUDAGraphMode.FULL, 32, None)],
+        width=5,
+        max_reqs=5,
+        num_ubatches=stages,
+    )
+    assert graphs == [
+        BatchExecutionDescriptor(
+            CUDAGraphMode.FULL, tokens, rows, num_ubatches=stages, uniform_token_count=5
+        )
+    ]
+    partitions = verification_stage_ranges(rows, tokens, width=5, num_ubatches=stages)
+    assert [
+        (requests.start, requests.stop, span.start, span.stop)
+        for requests, span in partitions
+    ] == ranges
+    owners = ["request"] + [None] * (rows - 1)
+    captured = [owner for owner in owners for _ in range(5)]
+    for requests, span in partitions:
+        assert captured[span] == [owner for owner in owners[requests] for _ in range(5)]

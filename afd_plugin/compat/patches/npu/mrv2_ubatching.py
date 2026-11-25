@@ -36,7 +36,6 @@ from vllm.v1.worker.utils import AttentionGroup
 from vllm_ascend.worker.v2.input_batch import AscendInputBatch
 
 from afd_plugin.config import is_afd_async_connector, parse_afd_config
-from afd_plugin.v1.worker.npu.window_dspark import verification_stage_ranges
 
 if TYPE_CHECKING:
     from afd_plugin.v1.worker.npu.attention_model_runner_v2 import (
@@ -313,6 +312,27 @@ def use_async_cam_child_dp_metadata() -> Iterator[None]:
         yield
     finally:
         ubatch_utils.DPMetadata = original_metadata
+
+
+def verification_stage_ranges(
+    rows: int, tokens: int, width: int, num_ubatches: int
+) -> tuple[tuple[slice, slice], ...]:
+    if (
+        num_ubatches < 1
+        or rows < num_ubatches
+        or rows % num_ubatches
+        or width < 1
+        or tokens != rows * width
+    ):
+        raise ValueError(f"Invalid verification shape: {rows} rows, {tokens} tokens")
+    rows_per_stage = rows // num_ubatches
+    return tuple(
+        (
+            slice(start, start + rows_per_stage),
+            slice(start * width, (start + rows_per_stage) * width),
+        )
+        for start in range(0, rows, rows_per_stage)
+    )
 
 
 @contextmanager

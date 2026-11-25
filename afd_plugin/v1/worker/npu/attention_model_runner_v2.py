@@ -6,6 +6,7 @@ from __future__ import annotations
 
 from collections.abc import Iterator
 from contextlib import AbstractContextManager, contextmanager, nullcontext
+from copy import copy
 from dataclasses import replace
 from types import MethodType
 from typing import TYPE_CHECKING
@@ -54,13 +55,128 @@ from afd_plugin.v1.worker.attention_model_runner_v2 import (
     _use_afd_capture_input_preparation,
     _use_afd_ubatch_preparation,
 )
-from afd_plugin.v1.worker.npu.window_dspark import (
-    window_dspark_capture_descs,
-    window_dspark_draft_graph_sizes,
-)
 from afd_plugin.validation import validate_npu_model_runner_v2_config
 
+if TYPE_CHECKING:
+    from vllm.v1.worker.gpu.cudagraph_utils import BatchExecutionDescriptor
+    from vllm_ascend.worker.v2.spec_decode.dflash.aclgraph import DFlashAclGraphManager
+    from vllm_ascend.worker.v2.spec_decode.dspark.speculator import (
+        AscendDSparkSpeculator,
+    )
+
+    from afd_plugin.v1.worker.npu.ubatch_runner import NPUUBatchRunner
+
 logger = init_logger(__name__)
+
+
+@contextmanager
+def window_dspark_draft_graph_sizes(
+    speculator: AscendDSparkSpeculator,
+) -> Iterator[None]:
+    """Give the native draft manager whole query rows within each token budget."""
+    original = speculator.vllm_config
+    draft_config = copy(original)
+    compilation = copy(original.compilation_config)
+    width = speculator.num_query_per_req
+    sizes = {
+        min(budget // width, speculator.max_num_reqs) * width
+        for budget in (compilation.cudagraph_capture_sizes or ())
+        if budget >= width
+    }
+    if not sizes:
+        raise ValueError(
+            f"Window DSpark needs a draft graph budget of at least {width} tokens"
+        )
+    compilation.cudagraph_capture_sizes = sorted(sizes)
+    compilation.max_cudagraph_capture_size = max(sizes)
+    draft_config.compilation_config = compilation
+    # The Ascend manager constructs both its dispatch table and its per-size
+    # graph update records during KV initialization. It retains draft_config.
+    speculator.vllm_config = draft_config
+    try:
+        yield
+    finally:
+        speculator.vllm_config = original
+
+
+def window_dspark_capture_descs(
+    descs: list[BatchExecutionDescriptor],
+    width: int,
+    max_reqs: int,
+    num_ubatches: int,
+) -> list[BatchExecutionDescriptor]:
+    """Align whole verification rows to the target's chosen stage count."""
+    if width < 1 or num_ubatches < 1:
+        raise ValueError("Verification width and target stage count must be positive")
+    buckets = set()
+    for desc in descs:
+        rows = min(desc.num_tokens // width, max_reqs)
+        rows -= rows % num_ubatches
+        if rows:
+            buckets.add(
+                replace(
+                    desc,
+                    num_reqs=rows,
+                    num_tokens=rows * width,
+                    uniform_token_count=width,
+                    max_query_len=None,
+                    num_ubatches=num_ubatches,
+                )
+            )
+    if not buckets:
+        raise ValueError(
+            f"Window DSpark needs max_num_seqs >= {num_ubatches} and a target "
+            f"graph bucket of at least {num_ubatches * width} tokens"
+        )
+    return sorted(buckets, key=lambda desc: desc.num_tokens, reverse=True)
+
+
+def install_window_dspark_replay(manager: DFlashAclGraphManager) -> None:
+    """Bind draft metadata replay only on the current worker's draft manager."""
+    # Lazy worker imports keep draft-only Ascend dependencies off other runners.
+    from vllm.forward_context import get_forward_context, set_forward_context
+    from vllm_ascend.ascend_forward_context import _EXTRA_CTX
+    from vllm_ascend.compilation.acl_graph import update_full_graph_params
+    from vllm_ascend.worker.v2.spec_decode.dflash.aclgraph import DFlashAclGraphManager
+
+    # Upstream: vllm-ascend 8d4409d6, DFlashAclGraphManager._graph_replay.
+    # Patch reason: target metadata may describe only one target stage.
+    # Patch functionality: replay uses the complete draft batch's live metadata.
+    # Signature matches upstream, including its absent return annotation.
+    # Remove when Ascend uses draft metadata here. Parent replay stays native.
+    def _graph_replay(self, desc, attn_backend, num_tokens, draft_attn_metadatas):
+        self.update_stream.wait_stream(torch.npu.current_stream())
+        # Same parent replay as the native method. Calling self.run_fullgraph
+        # would redispatch into this instance method.
+        # ### PATCH START: explicit parent for the bound instance method.
+        result = super(DFlashAclGraphManager, self).run_fullgraph(desc)
+        # ### PATCH END: explicit parent for the bound instance method.
+        num_tokens_across_dp = torch.full([self.speculator.dp_size], num_tokens)
+        with set_forward_context(
+            # ### PATCH START: use the current draft attention metadata.
+            draft_attn_metadatas[0],
+            # ### PATCH END: use the current draft attention metadata.
+            self.vllm_config,
+            num_tokens=num_tokens,
+            cudagraph_runtime_mode=desc.cg_mode,
+            num_tokens_across_dp=num_tokens_across_dp,
+            batch_descriptor=None,
+            slot_mapping=None,
+        ):
+            _EXTRA_CTX.is_draft_model = True
+            _EXTRA_CTX.is_draft_model_prefill = False
+            update_full_graph_params(
+                attn_backend,
+                self.update_stream,
+                get_forward_context(),
+                num_tokens,
+                self.vllm_config,
+                self.speculator.speculative_config,
+                draft_attn_metadatas=draft_attn_metadatas,
+            )
+        return result
+
+    manager._graph_replay = MethodType(_graph_replay, manager)
 
 
 def _normalize_window_u2_capture_descs(
@@ -83,9 +199,6 @@ def _normalize_window_u2_capture_descs(
             normalized.append(fixed)
     return normalized
 
-
-if TYPE_CHECKING:
-    from afd_plugin.v1.worker.npu.ubatch_runner import NPUUBatchRunner
 
 _AFD_FULLGRAPH_HOOK_MARKER = "_afd_fullgraph_replay_hook_active"
 
@@ -388,11 +501,6 @@ class AFDNPUAttentionModelRunnerV2(AFDMetadataProviderMixin, NPUModelRunnerV2):
                 "attention backend and graph token budgets."
             )
         if draft_graph:
-            # Load the Ascend draft adapter only on a Window DSpark graph worker.
-            from afd_plugin.compat.patches.npu.dspark_replay import (
-                install_window_dspark_replay,
-            )
-
             install_window_dspark_replay(self.speculator.query_cudagraph_manager)
         if self.ubatch_runner is not None:
             # Native MRV2 prepares only its own Attention builders. U2 owns an

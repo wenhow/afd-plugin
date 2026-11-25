@@ -326,7 +326,6 @@ class NPUUBatchRunner(UBatchRunner):
             # group from this context field at execution time. Python connector
             # assignments run during tracing and cannot initialize each native
             # child: without this, stage 1 silently selects stage 0's group.
-            context.additional_kwargs["afd_target_token_slice"] = stage.token_slice
             context.ubatch_idx = stage_idx
             context.num_ubatches = len(ubatch_slices)
             context.dbo_enabled = True

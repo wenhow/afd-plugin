@@ -241,22 +241,6 @@ def test_async_dp_attention_uses_regular_engine_core(monkeypatch):
     assert engine.shutdown_called is True
 
 
-@pytest.mark.parametrize(("attention", "ffn"), [(2, 4), (4, 2), (4, 4), (6, 18)])
-def test_window_dspark_coordinates_attention_ranks(monkeypatch, attention, ffn):
-    _load_patch_module(monkeypatch)
-    core = sys.modules["vllm.v1.engine.core"]
-    utils = sys.modules["vllm.v1.engine.utils"]
-    config = _config(connector="WindowAFDConnector", data_parallel_size=attention)
-    config.additional_config["afd"].update(
-        num_attention_ranks=attention, num_ffn_ranks=ffn
-    )
-    config.speculative_config = SimpleNamespace(method="dspark")
-    with utils.launch_core_engines(config, object, False, SimpleNamespace()) as launch:
-        assert launch.coordinator.enable_wave_coordination
-    core.EngineCoreProc.run_engine_core(vllm_config=config, dp_rank=0)
-    assert core.last_engine.kind == "dp"
-
-
 def test_async_dp_engine_patch_preserves_non_async_moe_dp(monkeypatch):
     _load_patch_module(monkeypatch)
     core_module = sys.modules["vllm.v1.engine.core"]

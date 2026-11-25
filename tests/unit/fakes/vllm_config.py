@@ -104,32 +104,6 @@ def npu_vllm_config(
     )
 
 
-def window_dspark_config(stages=1, target_eager=False, draft_eager=False):
-    config = npu_vllm_config(
-        connector="WindowAFDConnector",
-        async_dp=True,
-        compute_gate_on_attention=True,
-        use_ubatching=stages > 1,
-        num_ubatches=stages,
-        extra_config={"micro_batch_num": stages},
-        speculative_config=SimpleNamespace(
-            method="dspark",
-            enforce_eager=draft_eager,
-            enable_adaptive_verification=False,
-            num_speculative_tokens=4,
-            draft_model_config=SimpleNamespace(
-                hf_text_config=SimpleNamespace(
-                    dspark_block_size=4,
-                    dspark_target_layer_ids=[1, 2],
-                )
-            ),
-        ),
-    )
-    config.model_config.enforce_eager = target_eager
-    config.model_config.hf_text_config.num_hidden_layers = 2
-    return config
-
-
 def async_moe_config(
     *,
     role="attention",

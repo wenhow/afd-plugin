@@ -17,11 +17,13 @@ from afd_plugin.compat.npu import (
 )
 from afd_plugin.compat.npu.runtime_config import configure_async_cam_dbo
 from afd_plugin.config import use_afd_dspark
-from afd_plugin.model_executor.models.model_utils import get_afd_model_config
+from afd_plugin.model_executor.models.model_utils import (
+    configure_window_dspark_draft,
+    get_afd_model_config,
+)
 from afd_plugin.v1.worker.npu.attention_model_runner_v2 import (
     AFDNPUAttentionModelRunnerV2,
 )
-from afd_plugin.v1.worker.npu.window_dspark import configure_window_dspark_draft
 from afd_plugin.validation import (
     NPU_ATTENTION_WORKER_FQCN,
     assert_compatible_afd_stack,
