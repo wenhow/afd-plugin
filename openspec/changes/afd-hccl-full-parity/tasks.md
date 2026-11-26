@@ -125,7 +125,12 @@ A5同TP4单层MoE及DSpark两场景已提交推送至`feat/dsv41-flash-hccl-v030
   2026-11-26 原生对照在载权后整表比较 embedding 触发 NPU OOM，启动未就绪。
   原生 EP DSpark 对照使用分块 CPU 精确比较兼容，A5 复跑待验。
   后续归档在四卡通过载权后，原生对照的 KV 预算为 −1.73 至 −1.74 GiB
-  （显存比例 0.90）。原生预算可单独配置，0.95 复跑待验。
+  （显存比例 0.90）。原生预算可单独配置。
+  0.95 原生对照返回 13 条完整响应，退出超时后清理；仅用于诊断对照。四档 AFD
+  功能请求完成并正常退出，eager/U1、Graph/U1 各 13/13 与原生逐 token 一致，
+  eager/U2、Graph/U2 分别为 8/13、9/13。补齐的 eager/U2 原日志复核通过宿主侧双
+  stage 校验，首波数值差异待带探针复跑，见
+  [首波 U1/U2 定向采样](../../../docs/npu/DSV41_A5_EP_VALIDATION_ZH.md#n5-首波-u1u2-定向采样)。
 - [ ] 1.5 【源码已接入，联合验收待 A5】完成目标 v0.30 PD 请求接入、KV/index、layer/component 和退出适配，不启用过时补丁或改上游；本轮补齐 Engram 原始 history 声明与校验，设备 handoff 验收见 2.6。
 - [ ] 1.6 迁移 recipe/preflight/capture-size/拓扑校验和所有 overlap/诊断值记录，保留显式 0 覆盖。
 - [ ] 1.7 【低：功能后】对齐 A/F profiler 控制与 F 管理 RPC，验证启停/step/trace 不阻塞业务（H14）；已有实现保留，不阻塞功能开发验证。

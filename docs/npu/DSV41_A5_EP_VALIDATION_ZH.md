@@ -181,7 +181,36 @@ TP1/DP4/EP4 eager/U1，然后用 0–3 跑 A、4–7 跑 F。下面每档使用�
 `[6, 12]`。检查 `request-matrix.json` 中 `max_proposed_tokens_per_step=5`，
 并确认有实际接受和拒绝，且至少有一次拒绝后继续解码。
 eager/U2 需记录全 rank 双 stage 完成，Graph/U2 需记录实际双 stage 回放。
-保留各档的汇总、原始响应和 A/F 日志。N=5 的真实权重 A5 验收待执行。
+保留各档的汇总、原始响应和 A/F 日志。2026-11-26 的 A5 功能档中，eager/U1 和
+Graph/U1 各有 13/13 条输出与原生逐 token 一致，eager/U2 为 8/13，Graph/U2 为 9/13。
+两档 U2 的首波均从第 2 个输出 token 起偏离，N=5 的 U2 数值验收仍待通过。
+
+### N=5 首波 U1/U2 定向采样
+
+沿用同一套 A5 Python、权重和 vendor 路径。每档只发送原矩阵的首波，DP0–3 各并发一条
+相同 prompt，保留原来的生成长度和采样参数。两档串行运行，使用相同的 A/F 卡位。
+
+```bash
+(
+  set -e
+  mkdir -p results
+  run_root=$(mktemp -d results/ep-n5-first-wave.XXXXXX)
+  for mode in eager-u1 eager-u2; do
+    "$DSV41_PY" -B tools/diagnostics/run_dsv41_full_checkpoint.py \
+      --model "$DSV41_MODEL" --transformer-vendor "$DSV41_VENDOR" \
+      --mode "$mode" --spec-tokens 5 --expert-parallel --ep-functional-only \
+      --attention-devices 0,1,2,3 --ffn-devices 4,5,6,7 --stream-overlap 0 \
+      --attention-stop-signal SIGUSR2 --trace-dspark-first-wave \
+      --output-root "$run_root/$mode" --run
+  done
+)
+```
+
+回传两档各自生成的 `full-eager-u*.tar.gz`。`dspark-first-wave-trace.json` 每档应有
+8 条记录，对应 4 个 DP rank 的首次 prefill 与首次带 draft 的 target 验证步。记录包含
+实际 request/token 切片、`positions`、SWA `query_start_loc`、`seq_lens` 和 `slot_mapping`，
+以及父批次 `logits_indices` 和逐行 target top-1。`request-matrix.json` 保留 DSpark 统计，
+此处 `passed` 表示四条请求和采样记录齐全，数值一致性仍由两档记录和原响应判断。
 
 ## 原生 TP1 环境检查和精度对照
 

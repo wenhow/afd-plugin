@@ -78,6 +78,10 @@ from afd_plugin.v1.worker.attention_model_runner_v2 import (
     _use_afd_capture_input_preparation,
     _use_afd_ubatch_preparation,
 )
+from afd_plugin.v1.worker.npu.dsv41_dspark_trace import (
+    DSPARK_FIRST_WAVE_TRACE_ENV,
+    DSV41DSparkFirstWaveTrace,
+)
 from afd_plugin.v1.worker.npu.hccl_v41_diagnostics import HcclV41DiagnosticBinding
 from afd_plugin.v1.worker.npu.hccl_v41_eager import HcclV41EagerSession
 from afd_plugin.v1.worker.npu.hccl_v41_eager_bootstrap import HcclV41EagerBootstrap
@@ -259,6 +263,7 @@ class AFDNPUAttentionModelRunnerV2(AFDMetadataProviderMixin, NPUModelRunnerV2):
 
     afd_expected_role = "attention"
     ubatch_runner: NPUUBatchRunner | None
+    _dspark_first_wave_trace: DSV41DSparkFirstWaveTrace | None = None
     hccl_v41_transport: HcclStagedTransport | None = None
     hccl_v41_graph_eager: HcclV41GraphEager | None = None
     hccl_v41_graph_session: HcclV41GraphSession | None = None
@@ -300,6 +305,12 @@ class AFDNPUAttentionModelRunnerV2(AFDMetadataProviderMixin, NPUModelRunnerV2):
         connector: AFDConnectorBase | None = None
         try:
             self.afd_config = self.parse_config(self.vllm_config)
+            # ### PATCH START: opt-in A-side first-wave DSpark trace.
+            if os.environ.get(DSPARK_FIRST_WAVE_TRACE_ENV) == "1":
+                self._dspark_first_wave_trace = DSV41DSparkFirstWaveTrace(
+                    self.parallel_config.data_parallel_rank
+                )
+            # ### PATCH END: opt-in A-side first-wave DSpark trace.
             # ### PATCH START: preserve native DP agreement for EP PD
             if (
                 self.afd_config.connector == HCCL_P2P_CONNECTOR
@@ -951,6 +962,7 @@ class AFDNPUAttentionModelRunnerV2(AFDMetadataProviderMixin, NPUModelRunnerV2):
     # output work to native V2 while temporarily installing AFD metadata. An
     # explicit Graph session reserves its mode before native input preparation,
     # using its eager bridge before KV initialization and coordinator after KV.
+    # The opt-in first-wave probe reads eager target metadata after forward.
     # Signature: matches Ascend 7e37e29a NPUModelRunner.execute_model, including
     # its missing return annotation and the forwarded dummy-state parameters.
     # Upstream source: vllm_ascend/worker/v2/model_runner.py,
@@ -1017,7 +1029,7 @@ class AFDNPUAttentionModelRunnerV2(AFDMetadataProviderMixin, NPUModelRunnerV2):
                     diagnostics=self.hccl_v41_diagnostics,
                 )
                 with execution.scope():
-                    return super().execute_model(
+                    output = super().execute_model(
                         scheduler_output,
                         intermediate_tensors,
                         dummy_run=dummy_run,
@@ -1026,6 +1038,15 @@ class AFDNPUAttentionModelRunnerV2(AFDMetadataProviderMixin, NPUModelRunnerV2):
                         context_len=context_len,
                         valid_dummy_state_slots=valid_dummy_state_slots,
                     )
+                if (
+                    self._dspark_first_wave_trace is not None
+                    and mode == "target"
+                    and valid_tokens > 0
+                ):
+                    self._dspark_first_wave_trace.record_execute(
+                        self.execute_model_state, execution
+                    )
+                return output
             use_fullgraph_replay_hook = (
                 self.vllm_config.compilation_config.cudagraph_mode
                 in (CUDAGraphMode.FULL, CUDAGraphMode.FULL_DECODE_ONLY)
@@ -1106,6 +1127,7 @@ class AFDNPUAttentionModelRunnerV2(AFDMetadataProviderMixin, NPUModelRunnerV2):
     # before native sampling/proposal fails, after history or draft KV writes.
     # Patch functionality: publish P Ready only after native proposal/post writes
     # and final prefix projection; retain failed owners and reject their retries.
+    # The opt-in first-wave probe observes the native target logits processor.
     # Upstream: vllm_ascend/worker/v2/model_runner.py, 7e37e29a, sample_tokens.
     # Signature matches upstream, including its missing annotations.
     # Delegation exception: Ascend/GPU own the full sampling, history, proposal
@@ -1128,7 +1150,13 @@ class AFDNPUAttentionModelRunnerV2(AFDMetadataProviderMixin, NPUModelRunnerV2):
             raise RuntimeError("DSpark prefix consumer is terminal")
         report_started = False
         try:
-            output = super().sample_tokens(grammar_output)
+            trace = self._dspark_first_wave_trace
+            with (
+                trace.observe_sampling(state, self.model)
+                if trace is not None
+                else nullcontext()
+            ):
+                output = super().sample_tokens(grammar_output)
             if scheduler_output is not None:
                 assert consumer is not None
                 connector = None

@@ -1376,8 +1376,9 @@ def run_candidate(
         result["request_passed"] = request_passed
         owner.record("request_completed", request_passed=request_passed)
         if not result["request_passed"]:
-            result["error"] = (
-                "EP matrix completed with token mismatches; see request-matrix.json"
+            result["error"] = request_report.get(
+                "error",
+                "EP matrix completed with token mismatches; see request-matrix.json",
             )
         if ffn is not None and verify_graph:
             try:
