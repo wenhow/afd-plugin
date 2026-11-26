@@ -133,7 +133,16 @@ A5同TP4单层MoE及DSpark两场景已提交推送至`feat/dsv41-flash-hccl-v030
   在首次 target 验证确认 U2 同请求 `3+3`，四个 DP rank 的输入、采样行索引
   和 SWA slot 映射与 U1 对齐，target 第 0 行 top-1 从 `270` 变为 `52480`。
   锁定 Ascend 的 decode RoPE 共用可写缓冲区，后构建的 child 覆盖前一个 child 的 RoPE 行。
-  AFD 在 child metadata 准备时保留各自的 RoPE 行。eager/U2 与 Graph/U2 数值待 A5 复验。
+  AFD 在 child metadata 准备时保留各自的 RoPE 行。`3aa3899` A5 eager/U2 首波复验中，
+  四个 DP rank 的首次验证六行 top-1 与此前 U1 一致，覆盖 `3+3` 和 `5+1`（其余为 padding）。
+  四条 32-token 输出及逐步 DSpark 接受数均与 U1/原生对照一致，A/F 正常退出。
+  归档 `c42d198f8ba74c4ca122116318f96648.zip`，SHA-256
+  `27e64d3ce2f4c8d3b1c90b0dd7c128860d82b5a990b3bcb4cdafb94e865ff746`。
+  同一提交的 13 请求复验中，Graph/U2 13/13 与原生逐 token 和逐步接受数一致，记录
+  2 次双 stage capture 与 26 次双 stage replay。eager/U2 12/13 一致，DP1 最终的
+  219-token prompt 从第 3 个输出 token 起偏离（`1528` → `0`）。两档 A/F 正常退出。
+  归档 `aab130b0361c4312aeeffd4b53f45eb7.zip`（eager）和
+  `e0d4d18234594c3baa9878d5bac29237.zip`（Graph）。eager/U2 长请求和多流联合验收仍待完成。
 - [ ] 1.5 【源码已接入，联合验收待 A5】完成目标 v0.30 PD 请求接入、KV/index、layer/component 和退出适配，不启用过时补丁或改上游；本轮补齐 Engram 原始 history 声明与校验，设备 handoff 验收见 2.6。
 - [ ] 1.6 迁移 recipe/preflight/capture-size/拓扑校验和所有 overlap/诊断值记录，保留显式 0 覆盖。
 - [ ] 1.7 【低：功能后】对齐 A/F profiler 控制与 F 管理 RPC，验证启停/step/trace 不阻塞业务（H14）；已有实现保留，不阻塞功能开发验证。

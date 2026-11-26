@@ -80,6 +80,7 @@ from afd_plugin.v1.worker.attention_model_runner_v2 import (
 )
 from afd_plugin.v1.worker.npu.dsv41_dspark_trace import (
     DSPARK_FIRST_WAVE_TRACE_ENV,
+    DSPARK_LONG_REQUEST_TRACE_ENV,
     DSV41DSparkFirstWaveTrace,
 )
 from afd_plugin.v1.worker.npu.hccl_v41_diagnostics import HcclV41DiagnosticBinding
@@ -305,12 +306,16 @@ class AFDNPUAttentionModelRunnerV2(AFDMetadataProviderMixin, NPUModelRunnerV2):
         connector: AFDConnectorBase | None = None
         try:
             self.afd_config = self.parse_config(self.vllm_config)
-            # ### PATCH START: opt-in A-side first-wave DSpark trace.
-            if os.environ.get(DSPARK_FIRST_WAVE_TRACE_ENV) == "1":
+            # ### PATCH START: opt-in A-side DSpark trace.
+            trace_long_request = os.environ.get(DSPARK_LONG_REQUEST_TRACE_ENV) == "1"
+            if trace_long_request or os.environ.get(DSPARK_FIRST_WAVE_TRACE_ENV) == "1":
                 self._dspark_first_wave_trace = DSV41DSparkFirstWaveTrace(
-                    self.parallel_config.data_parallel_rank
+                    self.parallel_config.data_parallel_rank,
+                    chunk_budget=self.scheduler_config.max_num_batched_tokens
+                    if trace_long_request
+                    else None,
                 )
-            # ### PATCH END: opt-in A-side first-wave DSpark trace.
+            # ### PATCH END: opt-in A-side DSpark trace.
             # ### PATCH START: preserve native DP agreement for EP PD
             if (
                 self.afd_config.connector == HCCL_P2P_CONNECTOR

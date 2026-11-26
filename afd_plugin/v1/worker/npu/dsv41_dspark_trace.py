@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: Copyright contributors to the AFD plugin project
-"""Bounded diagnostics for the first single-request DSpark step on each DP rank."""
+"""Bounded diagnostics for single-request DSpark prefill and verification."""
 
 from __future__ import annotations
 
@@ -22,37 +22,51 @@ if TYPE_CHECKING:
     from afd_plugin.v1.worker.npu.hccl_v41_execution import HcclV41Execution
 
 DSPARK_FIRST_WAVE_TRACE_ENV = "AFD_DSV41_DSPARK_FIRST_WAVE_TRACE"
+DSPARK_LONG_REQUEST_TRACE_ENV = "AFD_DSV41_DSPARK_LONG_REQUEST_TRACE"
+LONG_REQUEST_VERIFY_STEPS = 2
 
 
 class DSV41DSparkFirstWaveTrace:
-    """Capture actual SWA coordinates and target logits on two eager steps."""
+    """Capture child cache coordinates and target logits on selected eager steps."""
 
-    def __init__(self, dp_rank: int) -> None:
+    def __init__(self, dp_rank: int, *, chunk_budget: int | None = None) -> None:
         self.dp_rank = dp_rank
+        self.chunk_budget = chunk_budget
         self.request_id: str | None = None
-        self.phases: set[str] = set()
+        self.verify_steps = 0
         self.pending: tuple[ExecuteModelState, dict] | None = None
 
     def record_execute(
         self, state: ExecuteModelState | None, execution: HcclV41Execution
     ) -> None:
         self.pending = None
-        if state is None or execution.parent_context is None or len(self.phases) == 2:
+        verify_limit = 1 if self.chunk_budget is None else LONG_REQUEST_VERIFY_STEPS
+        if (
+            state is None
+            or execution.parent_context is None
+            or self.verify_steps >= verify_limit
+        ):
             return
         batch = state.input_batch
         if batch.num_reqs != 1:
             return
         request_id = batch.req_ids[0]
+        computed_tokens = int(batch.num_computed_tokens_np[0])
+        prompt_tokens = int(batch.prefill_len_np[0])
         if self.request_id is None:
-            if batch.num_computed_tokens_np[0] != 0 or not batch.is_prefilling_np[0]:
+            if computed_tokens != 0 or not batch.is_prefilling_np[0]:
+                return
+            if self.chunk_budget is not None and prompt_tokens <= self.chunk_budget:
                 return
             self.request_id = request_id
             phase = "prefill"
-        elif request_id == self.request_id and batch.num_draft_tokens > 0:
-            phase = "verify"
-        else:
+        elif request_id != self.request_id:
             return
-        if phase in self.phases:
+        elif batch.num_draft_tokens > 0:
+            phase = "verify"
+        elif self.chunk_budget is not None and batch.is_prefilling_np[0]:
+            phase = "prefill"
+        else:
             return
 
         prepared = execution.prepared
@@ -77,8 +91,8 @@ class DSV41DSparkFirstWaveTrace:
                 "dp_rank": self.dp_rank,
                 "request_id": request_id,
                 "phase": phase,
-                "prompt_tokens": int(batch.prefill_len_np[0]),
-                "computed_tokens": int(batch.num_computed_tokens_np[0]),
+                "prompt_tokens": prompt_tokens,
+                "computed_tokens": computed_tokens,
                 "scheduled_tokens": batch.num_scheduled_tokens.tolist(),
                 "num_draft_tokens": batch.num_draft_tokens,
                 "input_ids": batch.input_ids[: batch.num_tokens].tolist(),
@@ -88,31 +102,56 @@ class DSV41DSparkFirstWaveTrace:
                         "request_range": [requests.start, requests.stop],
                         "token_range": [tokens.start, tokens.stop],
                         "positions": batch.positions[tokens].tolist(),
-                        "swa": self._swa_coordinates(context),
+                        "swa": self._cache_coordinates(context, swa=True),
+                        **(
+                            {"compressed": self._cache_coordinates(context, swa=False)}
+                            if self.chunk_budget is not None
+                            else {}
+                        ),
                     }
                     for requests, tokens, context in stages
                 ],
             },
         )
 
-    @staticmethod
-    def _swa_coordinates(context: ForwardContext) -> list[dict]:
+    def _cache_coordinates(self, context: ForwardContext, *, swa: bool) -> list[dict]:
         # Load only after model initialization, like the child builder setup.
         from vllm_ascend.attention.dsa_v41 import AscendDSAV41Metadata
 
         records = []
         seen: set[int] = set()
+        plane_kinds: set[tuple[str, int]] = set()
         if context.attn_metadata is None:
             return records
         assert isinstance(context.attn_metadata, dict)
         for layer, metadata in context.attn_metadata.items():
             if (
                 not isinstance(metadata, AscendDSAV41Metadata)
-                or metadata.cache_kind != "swa"
+                or (metadata.cache_kind == "swa") != swa
                 or id(metadata) in seen
             ):
                 continue
             seen.add(id(metadata))
+            if self.chunk_budget is not None:
+                plane_kind = (metadata.cache_kind, metadata.compress_ratio)
+                if plane_kind in plane_kinds:
+                    continue
+                plane_kinds.add(plane_kind)
+            if not swa:
+                records.append(
+                    {
+                        "layer": layer,
+                        "kind": metadata.cache_kind,
+                        "compress_ratio": metadata.compress_ratio,
+                        "cache_seq_lens": metadata.cache_seq_lens.tolist()
+                        if metadata.cache_seq_lens is not None
+                        else None,
+                        "c2_ring_metadata": metadata.c2_ring_metadata.tolist()
+                        if metadata.c2_ring_metadata is not None
+                        else None,
+                    }
+                )
+                continue
             records.append(
                 {
                     "layer": layer,
@@ -139,21 +178,27 @@ class DSV41DSparkFirstWaveTrace:
             return
         _, record = pending
         top_ids: torch.Tensor | None = None
+        top2: torch.Tensor | None = None
 
         def observe(
             _module: torch.nn.Module,
             _inputs: tuple[torch.Tensor, ...],
             logits: torch.Tensor | None,
         ) -> None:
-            nonlocal top_ids
+            nonlocal top_ids, top2
             # Native sampling calls the target head before draft proposal.
             if top_ids is None and logits is not None:
                 top_ids = logits.argmax(dim=-1)
+                if self.chunk_budget is not None:
+                    top2 = logits.float().topk(2, dim=-1).values
 
         with model.language_model.logits_processor.register_forward_hook(observe):
             yield
         record["target_top1_token_ids"] = None if top_ids is None else top_ids.tolist()
-        self.phases.add(record["phase"])
+        if top2 is not None:
+            record["target_top1_margin"] = (top2[:, 0] - top2[:, 1]).tolist()
+        if record["phase"] == "verify":
+            self.verify_steps += 1
         init_logger("vllm.afd_dsv41_dspark_trace").info(
             "AFD DSpark first-wave trace %s", json.dumps(record, separators=(",", ":"))
         )

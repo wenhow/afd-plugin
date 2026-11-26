@@ -33,6 +33,7 @@ MODES = ("eager-u1", "eager-u2", "graph-u1", "graph-u2")
 SPEC_TOKEN_CHOICES = (0, 1, 2, 5)
 DSPARK_FIRST_WAVE_TRACE_ENV = "AFD_DSV41_DSPARK_FIRST_WAVE_TRACE"
 DSPARK_FIRST_WAVE_TRACE_PREFIX = "AFD DSpark first-wave trace "
+DSPARK_LONG_REQUEST_TRACE_ENV = "AFD_DSV41_DSPARK_LONG_REQUEST_TRACE"
 PD_MODULE = "afd_plugin.compat.npu.kv_layout_connector"
 CANCEL_OUTPUT_TOKENS = 256
 EP_FIRST_WAVE_TOKEN_INDEX = 2
@@ -110,6 +111,7 @@ def make_plan(
     repeat_logprobs: int = 0,
     trace_native_prefill: bool = False,
     trace_dspark_first_wave: bool = False,
+    trace_dspark_long_request: bool = False,
     ep_diagnostics: bool = False,
     ep_functional_only: bool = False,
     attention_stop_signal: str | None = None,
@@ -144,11 +146,14 @@ def make_plan(
     ):
         raise ValueError("EP functional validation requires an AFD EP request matrix")
     graph, u2 = mode.startswith("graph"), mode.endswith("u2")
-    if trace_dspark_first_wave and (
+    if trace_dspark_first_wave and trace_dspark_long_request:
+        raise ValueError("select one DSpark trace per run")
+    if (trace_dspark_first_wave or trace_dspark_long_request) and (
         not ep_functional_only or graph or spec_tokens != 5 or pd_role or stream_overlap
     ):
+        scope = "first-wave" if trace_dspark_first_wave else "long-request"
         raise ValueError(
-            "DSpark first-wave trace requires standalone AFD EP eager/U1 or "
+            f"DSpark {scope} trace requires standalone AFD EP eager/U1 or "
             "eager/U2, --ep-functional-only, --spec-tokens 5 and --stream-overlap 0"
         )
     ep_graph_trace = graph and (ep_functional_only or (ep_u1_diagnostics and not u2))
@@ -223,6 +228,8 @@ def make_plan(
             set_option(argv, "--host", bind_host)
             if trace_dspark_first_wave:
                 env[DSPARK_FIRST_WAVE_TRACE_ENV] = "1"
+            if trace_dspark_long_request:
+                env[DSPARK_LONG_REQUEST_TRACE_ENV] = "1"
             if trace_shutdown:
                 argv[argv.index("vllm.entrypoints.cli.main")] = (
                     "afd_plugin.entrypoints.dsv41_ep_stack"
@@ -521,9 +528,9 @@ def record_cold_ep_first_wave(directory: Path, wave_size: int) -> None:
     )
 
 
-def collect_dspark_first_wave_trace(directory: Path, dp_size: int) -> bool:
+def read_dspark_trace(directory: Path) -> list[dict]:
     decoder = json.JSONDecoder()
-    records = {}
+    records = []
     with (directory / "attention-server.log").open(
         encoding="utf-8", errors="replace"
     ) as log:
@@ -534,7 +541,15 @@ def collect_dspark_first_wave_trace(directory: Path, dp_size: int) -> bool:
                     record, _ = decoder.raw_decode(body)
                 except json.JSONDecodeError:
                     continue
-                records[(record["dp_rank"], record["phase"])] = record
+                records.append(record)
+    return records
+
+
+def collect_dspark_first_wave_trace(directory: Path, dp_size: int) -> bool:
+    records = {
+        (record["dp_rank"], record["phase"]): record
+        for record in read_dspark_trace(directory)
+    }
     missing = []
     for rank in range(dp_size):
         for phase in ("prefill", "verify"):
@@ -552,6 +567,35 @@ def collect_dspark_first_wave_trace(directory: Path, dp_size: int) -> bool:
     return not missing
 
 
+def collect_dspark_long_request_trace(directory: Path, request_idx: int) -> bool:
+    request = directory / f"request-{request_idx:02d}"
+    prompt_tokens = json.loads((request / "response.json").read_bytes())["usage"][
+        "prompt_tokens"
+    ]
+    dp_rank = json.loads((request / "request-routing.json").read_bytes())["dp_rank"]
+    records = [
+        r
+        for r in read_dspark_trace(directory)
+        if r["dp_rank"] == dp_rank and r["prompt_tokens"] == prompt_tokens
+    ]
+    prefill = [r for r in records if r["phase"] == "prefill"]
+    verify = [r for r in records if r["phase"] == "verify"]
+    passed = (
+        len({r["request_id"] for r in records}) == 1
+        and len(prefill) >= 2
+        and prefill[0]["computed_tokens"] == 0
+        and prefill[-1]["computed_tokens"] + sum(prefill[-1]["scheduled_tokens"])
+        == prompt_tokens
+        and len(verify) == 2
+        and all(r["target_top1_token_ids"] for r in (prefill[-1], *verify))
+    )
+    launch.save_json(
+        directory / "dspark-long-request-trace.json",
+        {"passed": passed, "request_index": request_idx, "records": records},
+    )
+    return passed
+
+
 def run_requests(
     directory: Path,
     reference: Path | None,
@@ -564,6 +608,7 @@ def run_requests(
     ep_serial_first_wave: bool = False,
     return_mismatch_report: bool = False,
     trace_dspark_first_wave: bool = False,
+    trace_dspark_long_request: bool = False,
 ) -> dict:
     collect_mismatches = ep_diagnostics or return_mismatch_report
 
@@ -694,8 +739,13 @@ def run_requests(
         )
         if not report["passed"]:
             report["error"] = "missing A-side records; see dspark-first-wave-trace.json"
+    if trace_dspark_long_request and not collect_dspark_long_request_trace(
+        directory, request_index
+    ):
+        report["passed"] = False
+        report["error"] = "incomplete trace; see dspark-long-request-trace.json"
     launch.save_json(directory / "request-matrix.json", report)
-    if trace_dspark_first_wave:
+    if trace_dspark_first_wave or trace_dspark_long_request:
         return report
     if not report["passed"]:
         if collect_mismatches and not spec_tokens:
@@ -926,10 +976,16 @@ def main() -> int:
         action="store_true",
         help="record the first two native sampling steps in attention-server.log",
     )
-    parser.add_argument(
+    trace = parser.add_mutually_exclusive_group()
+    trace.add_argument(
         "--trace-dspark-first-wave",
         action="store_true",
         help="trace only the first EP wave in standalone AFD eager DSpark N=5",
+    )
+    trace.add_argument(
+        "--trace-dspark-long-request",
+        action="store_true",
+        help="trace the final long request while preserving the EP matrix",
     )
     parser.add_argument(
         "--ep-diagnostics",
@@ -1004,6 +1060,7 @@ def main() -> int:
         repeat_logprobs=args.repeat_logprobs,
         trace_native_prefill=args.trace_native_prefill,
         trace_dspark_first_wave=args.trace_dspark_first_wave,
+        trace_dspark_long_request=args.trace_dspark_long_request,
         ep_diagnostics=args.ep_diagnostics,
         ep_functional_only=args.ep_functional_only,
         attention_stop_signal=args.attention_stop_signal,
@@ -1156,6 +1213,7 @@ def main() -> int:
             ep_diagnostics=args.ep_diagnostics,
             ep_serial_first_wave=args.ep_serial_first_wave,
             trace_dspark_first_wave=args.trace_dspark_first_wave,
+            trace_dspark_long_request=args.trace_dspark_long_request,
             return_mismatch_report=(
                 plan["roles"]["attention"]["environment"].get(launch.EP_GRAPH_TRACE_ENV)
                 == "1"

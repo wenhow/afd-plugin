@@ -214,7 +214,21 @@ Graph/U1 各有 13/13 条输出与原生逐 token 一致，eager/U2 为 8/13，G
 
 复验 RoPE 缓冲区隔离修复时，保留 `05df7a5` 的 eager/U1 采样包，将循环改为仅运行
 `eager-u2`。对照四个 DP rank 的首次验证逐行 top-1 和完整 32 个输出 token，
-并确认首次验证仍是两个 stage 各 3 个 token。
+记录实际切片及各 stage 的有效 token 数。
+
+`3aa3899` 的 A5 eager/U2 首波复验通过。DP2/3 首次验证的有效 token 切片是 `3+3`，
+DP0/1 是 `5+1`，后者的 stage 1 还带 4 个 padding token。全部 rank 的首次验证六行
+top-1 与此前的 eager/U1 采样一致，四条 32-token 输出与 eager/U1 和原生对照逐 token
+一致。后续同一提交的完整矩阵中，Graph/U2 的 13 条均与原生逐 token 一致，并记录
+26 次双 stage replay。eager/U2 对齐 12 条，DP1 最后一条 219-token prompt 从第 3 个
+输出 token 起偏离。两档都通过功能请求和正常退出检查。
+
+### N=5 长请求定向采样
+
+在 eager/U1 和 eager/U2 的完整矩阵命令中加 `--trace-dspark-long-request`。完整矩阵
+保留长请求之前的并发和取消流量，探针只采样最终的长请求，记录 prefill 各 chunk 和最初
+两次 DSpark 验证的 cache 坐标、逐行 target top-1 以及 top-1 与 top-2 的分差。回传两档
+的 `dspark-long-request-trace.json` 所在压缩包。
 
 ## 原生 TP1 环境检查和精度对照
 
