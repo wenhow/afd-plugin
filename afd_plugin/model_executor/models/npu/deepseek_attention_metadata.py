@@ -112,30 +112,9 @@ def materialize_deepseek_attention_metadata(
         if rope_buffers is None:
             metadata.req_metadata.cos, metadata.req_metadata.sin = cos, sin
         else:
-            # Pinned vllm-ascend ops/rope_dsv4.py at commit
-            # 8d4409d6256d8a6729140ddcc0d1889e3f96cdd6 shares _data between
-            # the cos/sin proxies. Own each Tensor pair, preserving that API.
-            owned_data: dict[str, dict[str, tuple[torch.Tensor, torch.Tensor]]] = {}
-            for config_key, groups in cos._data.items():
-                owned_data[config_key] = {}
-                for group, (cos_value, sin_value) in groups.items():
-                    field = repr((config_key, group))
-                    owned_data[config_key][group] = (
-                        _own_rope(
-                            cos_value,
-                            f"request.cos.{field}",
-                            rope_buffers,
-                            rope_capacity,
-                        ),
-                        _own_rope(
-                            sin_value,
-                            f"request.sin.{field}",
-                            rope_buffers,
-                            rope_capacity,
-                        ),
-                    )
-            metadata.req_metadata.cos = RopeDataProxy(owned_data)
-            metadata.req_metadata.sin = RopeDataProxy(owned_data, is_cos=False)
+            metadata.req_metadata.cos, metadata.req_metadata.sin = _own_dsa_rope(
+                cos, rope_buffers, rope_capacity
+            )
 
 
 def _own_rope(
@@ -153,6 +132,22 @@ def _own_rope(
     return buffers[field][: value.shape[0]].copy_(value)
 
 
+def _own_dsa_rope(
+    cos: RopeDataProxy, buffers: dict[str, torch.Tensor] | None, capacity: int
+) -> tuple[RopeDataProxy, RopeDataProxy]:
+    # The pinned Ascend getter shares one map between its cos and sin proxies.
+    data: dict[str, dict[str, tuple[torch.Tensor, torch.Tensor]]] = {}
+    for config_key, groups in cos._data.items():
+        data[config_key] = {}
+        for group, (cos_value, sin_value) in groups.items():
+            field = repr((config_key, group))
+            data[config_key][group] = (
+                _own_rope(cos_value, f"request.cos.{field}", buffers, capacity),
+                _own_rope(sin_value, f"request.sin.{field}", buffers, capacity),
+            )
+    return RopeDataProxy(data), RopeDataProxy(data, is_cos=False)
+
+
 def materialize_deepseek_attention_metadata_by_layer(
     metadata_by_layer: Mapping[str, AttentionMetadata],
     input_positions: torch.Tensor,
@@ -161,23 +156,40 @@ def materialize_deepseek_attention_metadata_by_layer(
     rope_buffers: dict[str, dict[str, torch.Tensor]] | None = None,
     rope_capacity: int = 0,
 ) -> None:
-    """Materialize each shared attention-group metadata object exactly once."""
+    """Own mutable RoPE before the next microbatch builds its metadata."""
+
+    # DSA V4.1 registers its custom op on import. Load it at the stage boundary.
+    from vllm_ascend.attention.dsa_v41 import AscendDSAV41Metadata
 
     materialized_ids: set[int] = set()
+    v41_rope: dict[int, tuple[RopeDataProxy, RopeDataProxy]] = {}
     for layer, metadata in metadata_by_layer.items():
         metadata_id = id(metadata)
         if metadata_id in materialized_ids:
+            continue
+        materialized_ids.add(metadata_id)
+        layer_buffers = (
+            rope_buffers.setdefault(layer, {}) if rope_buffers is not None else None
+        )
+        if isinstance(metadata, AscendDSAV41Metadata):
+            # Ascend 7e37e29a's DSA V4.1 builder returns views of the same
+            # runtime buffer for decode and FULL. The next child overwrites
+            # the first one's token positions. Eager prefill owns fresh rows.
+            cos = metadata.cos
+            if cos is None or (rope_buffers is None and metadata.num_prefills > 0):
+                continue
+            source_id = id(cos)
+            if source_id not in v41_rope:
+                v41_rope[source_id] = _own_dsa_rope(cos, layer_buffers, rope_capacity)
+            metadata.cos, metadata.sin = v41_rope[source_id]
             continue
         materialize_deepseek_attention_metadata(
             metadata,
             input_positions,
             num_input_tokens,
-            rope_buffers=rope_buffers.setdefault(layer, {})
-            if rope_buffers is not None
-            else None,
+            rope_buffers=layer_buffers,
             rope_capacity=rope_capacity,
         )
-        materialized_ids.add(metadata_id)
 
 
 __all__ = [

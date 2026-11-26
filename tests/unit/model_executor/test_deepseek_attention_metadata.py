@@ -15,6 +15,7 @@ from vllm_ascend.attention.dsa_v1 import (  # noqa: E402
     AscendDSAMetadata,
     AscendDSAMetadataBuilder,
 )
+from vllm_ascend.attention.dsa_v41 import AscendDSAV41Metadata  # noqa: E402
 from vllm_ascend.attention.mla_v1 import AscendMLAMetadata  # noqa: E402
 from vllm_ascend.attention.sfa_v1 import (  # noqa: E402
     AscendSFAMetadata,
@@ -193,6 +194,46 @@ def test_dsa_eager_keeps_real_rope_proxies(dsa_rope_source):
         ([1, 4, 6], False),
         ([9, 10], False),
     ]
+
+
+@pytest.mark.parametrize("full_graph", [False, True], ids=["eager", "full"])
+def test_v41_decode_stages_own_rope_rows(dsa_rope_source, full_graph):
+    state = dsa_rope_source.state
+    table = state.full_rope_cache["config-a"]
+    state.runtime_buffer["config-a"] = {
+        "default": tuple(torch.empty_like(value) for value in table)
+    }
+    buffers = [{}, {}] if full_graph else [None, None]
+
+    def prepare(positions, stage):
+        metadata = object.__new__(AscendDSAV41Metadata)
+        metadata.cos, metadata.sin = rope_dsv4.get_cos_and_sin_dsa(
+            positions, use_cache=True
+        )
+        deepseek_attention_metadata.materialize_deepseek_attention_metadata_by_layer(
+            {"layer-a": metadata},
+            positions,
+            len(positions),
+            rope_buffers=buffers[stage],
+            rope_capacity=8,
+        )
+        return metadata.cos["layer-a"], metadata.sin["layer-a"]
+
+    first_positions = torch.tensor([10, 11, 12])
+    second_positions = torch.tensor([13, 14, 15])
+    first = prepare(first_positions, 0)
+    second = prepare(second_positions, 1)
+    for i, values in enumerate(table):
+        torch.testing.assert_close(first[i], values[first_positions])
+        torch.testing.assert_close(second[i], values[second_positions])
+
+    if full_graph:
+        # Capture retains these exact tensor views and reads the updated rows.
+        replay_positions = torch.tensor([16, 17, 18])
+        prepare(replay_positions, 0)
+        for i, values in enumerate(table):
+            torch.testing.assert_close(first[i], values[replay_positions])
+            torch.testing.assert_close(second[i], values[second_positions])
 
 
 @pytest.mark.parametrize("num_tokens", [1, 4])

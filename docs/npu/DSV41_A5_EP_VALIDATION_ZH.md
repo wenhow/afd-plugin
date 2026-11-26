@@ -212,6 +212,10 @@ Graph/U1 各有 13/13 条输出与原生逐 token 一致，eager/U2 为 8/13，G
 以及父批次 `logits_indices` 和逐行 target top-1。`request-matrix.json` 保留 DSpark 统计，
 此处 `passed` 表示四条请求和采样记录齐全，数值一致性仍由两档记录和原响应判断。
 
+复验 RoPE 缓冲区隔离修复时，保留 `05df7a5` 的 eager/U1 采样包，将循环改为仅运行
+`eager-u2`。对照四个 DP rank 的首次验证逐行 top-1 和完整 32 个输出 token，
+并确认首次验证仍是两个 stage 各 3 个 token。
+
 ## 原生 TP1 环境检查和精度对照
 
 统一验证精度时，按 `N=0`、`N=1`、`N=2` 依次执行。每个 N 在空闲节点生成一次原生
