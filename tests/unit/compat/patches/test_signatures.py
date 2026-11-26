@@ -34,6 +34,7 @@ import pytest
         "attention-shutdown",
         "dspark-pd-sampling",
         "npu-model-loader",
+        "npu-dspark-weight-sharing",
         "npu-kv-zeroing",
         "pd-outer-constructor",
         "pd-outer-bind-metadata",
@@ -155,6 +156,15 @@ def test_scoped_patch_preserves_upstream_signature(hook):  # long-test: shared t
         assert inspect.signature(replacement, eval_str=True) == inspect.signature(
             namespace[method_name], eval_str=True
         )
+        return
+    elif hook == "npu-dspark-weight-sharing":
+        from vllm.v1.worker.gpu.spec_decode.eagle import utils as native
+
+        from afd_plugin.compat.patches.npu import dspark_weight_sharing
+
+        assert inspect.signature(
+            dspark_weight_sharing.should_share, eval_str=True
+        ) == inspect.signature(native._should_share, eval_str=True)
         return
     elif hook.startswith("pd-"):
         pytest.importorskip("torch_npu")

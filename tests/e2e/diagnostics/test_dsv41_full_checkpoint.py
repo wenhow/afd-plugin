@@ -258,6 +258,12 @@ class TestFullCheckpointPlans(unittest.TestCase):
         )
         self.assertEqual(set(native["roles"]), {"attention"})
         self.assertEqual(native["spec_tokens"], 5)
+        argv = native["roles"]["attention"]["argv"]
+        self.assertEqual(
+            argv[argv.index("--worker-cls") + 1],
+            "afd_plugin.v1.worker.npu.dsv41_native_worker."
+            "DSV41NativeEPDSparkControlWorker",
+        )
 
     def test_modes_keep_native_quantized_weights_and_cpu_engram(self):
         driver = load_driver()

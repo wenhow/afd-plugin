@@ -122,6 +122,8 @@ A5同TP4单层MoE及DSpark两场景已提交推送至`feat/dsv41-flash-hccl-v030
   固定 N=5 已接入完整权重 A/F 启动与配置检查。EP Graph 用现有协议协商 Q=6，
   TP1/DP4/EP4 的原生 eager 与四档 AFD 真机结果待
   [A5 验证](../../../docs/npu/DSV41_A5_EP_VALIDATION_ZH.md#n5-原生对照与-afd-验证)。
+  2026-11-26 原生对照在载权后整表比较 embedding 触发 NPU OOM，启动未就绪。
+  原生 EP DSpark 对照使用分块 CPU 精确比较兼容，A5 复跑待验。
 - [ ] 1.5 【源码已接入，联合验收待 A5】完成目标 v0.30 PD 请求接入、KV/index、layer/component 和退出适配，不启用过时补丁或改上游；本轮补齐 Engram 原始 history 声明与校验，设备 handoff 验收见 2.6。
 - [ ] 1.6 迁移 recipe/preflight/capture-size/拓扑校验和所有 overlap/诊断值记录，保留显式 0 覆盖。
 - [ ] 1.7 【低：功能后】对齐 A/F profiler 控制与 F 管理 RPC，验证启停/step/trace 不阻塞业务（H14）；已有实现保留，不阻塞功能开发验证。

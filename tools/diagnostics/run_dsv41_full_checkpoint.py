@@ -328,18 +328,17 @@ def make_plan(
         if native_control and role == "attention":
             additional.pop("afd")
             env["AFD_DSV41_FULL_QUALIFICATION"] = "0"
-            worker = (
-                "DSV41NativeTP4PrefillTraceWorker"
-                if trace_native_prefill
-                else "DSV41NativeTP4ControlWorker"
-            )
-            set_option(
-                argv,
-                "--worker-cls",
-                "vllm_ascend.worker.worker.NPUWorker"
-                if expert_parallel
-                else f"afd_plugin.v1.worker.npu.dsv41_native_worker.{worker}",
-            )
+            if expert_parallel and not spec_tokens:
+                worker_class = "vllm_ascend.worker.worker.NPUWorker"
+            else:
+                if expert_parallel:
+                    worker = "DSV41NativeEPDSparkControlWorker"
+                elif trace_native_prefill:
+                    worker = "DSV41NativeTP4PrefillTraceWorker"
+                else:
+                    worker = "DSV41NativeTP4ControlWorker"
+                worker_class = f"afd_plugin.v1.worker.npu.dsv41_native_worker.{worker}"
+            set_option(argv, "--worker-cls", worker_class)
         set_option(argv, "--additional-config", json.dumps(additional))
     if native_control:
         plan["roles"].pop("ffn")
