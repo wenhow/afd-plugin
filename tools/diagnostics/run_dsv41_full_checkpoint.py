@@ -92,6 +92,7 @@ def make_plan(
     mode: str = "eager-u1",
     spec_tokens: int = 0,
     native_control: bool = False,
+    native_gpu_memory_utilization: float | None = None,
     expert_parallel: bool = False,
     pd_role: str | None = None,
     engine_id: str | None = None,
@@ -118,6 +119,12 @@ def make_plan(
         mode != "eager-u1" or (spec_tokens and not expert_parallel) or pd_role
     ):
         raise ValueError("native control requires eager U1 without PD")
+    if native_gpu_memory_utilization is not None and (
+        not native_control or not 0 < native_gpu_memory_utilization <= 1
+    ):
+        raise ValueError(
+            "native GPU memory utilization requires native control and (0, 1]"
+        )
     if expert_parallel and trace_native_prefill:
         raise ValueError("EP qualification requires native prefill trace off")
     if trace_native_prefill and not (native_control and repeatability):
@@ -328,6 +335,10 @@ def make_plan(
         if native_control and role == "attention":
             additional.pop("afd")
             env["AFD_DSV41_FULL_QUALIFICATION"] = "0"
+            if native_gpu_memory_utilization is not None:
+                set_option(
+                    argv, "--gpu-memory-utilization", str(native_gpu_memory_utilization)
+                )
             if expert_parallel and not spec_tokens:
                 worker_class = "vllm_ascend.worker.worker.NPUWorker"
             else:
@@ -806,6 +817,11 @@ def main() -> int:
     )
     parser.add_argument("--native-control", action="store_true")
     parser.add_argument(
+        "--native-gpu-memory-utilization",
+        type=float,
+        help="override the per-device memory budget for native control only",
+    )
+    parser.add_argument(
         "--expert-parallel",
         action="store_true",
         help="qualify TP1/DP4/EP4 on both roles with serial U2 exchange",
@@ -911,6 +927,7 @@ def main() -> int:
         mode=args.mode,
         spec_tokens=args.spec_tokens,
         native_control=args.native_control,
+        native_gpu_memory_utilization=args.native_gpu_memory_utilization,
         expert_parallel=args.expert_parallel,
         pd_role=args.pd_role,
         engine_id=args.engine_id,

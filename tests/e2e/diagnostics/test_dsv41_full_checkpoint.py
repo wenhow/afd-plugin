@@ -241,6 +241,9 @@ class TestFullCheckpointPlans(unittest.TestCase):
                 )
                 for settings in plan["roles"].values():
                     argv = settings["argv"]
+                    self.assertEqual(
+                        argv[argv.index("--gpu-memory-utilization") + 1], "0.90"
+                    )
                     spec = json.loads(argv[argv.index("--speculative-config") + 1])
                     self.assertEqual(spec["num_speculative_tokens"], 5)
                     self.assertTrue(spec["enforce_eager"])
@@ -253,12 +256,14 @@ class TestFullCheckpointPlans(unittest.TestCase):
             Path("/vendor"),
             ROOT,
             native_control=True,
+            native_gpu_memory_utilization=0.95,
             expert_parallel=True,
             spec_tokens=5,
         )
         self.assertEqual(set(native["roles"]), {"attention"})
         self.assertEqual(native["spec_tokens"], 5)
         argv = native["roles"]["attention"]["argv"]
+        self.assertEqual(argv[argv.index("--gpu-memory-utilization") + 1], "0.95")
         self.assertEqual(
             argv[argv.index("--worker-cls") + 1],
             "afd_plugin.v1.worker.npu.dsv41_native_worker."

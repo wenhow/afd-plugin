@@ -144,7 +144,10 @@ F 在 native worker 构造前隔离 Engram。需要足够 host RAM 和原生 DP 
 2026-11-26 的原生 DP4/EP4 回传在 target/draft 载权后比较词表 embedding 时
 触发四卡 NPU OOM。单次比较申请 4.93 GiB，失败时卡上剩余 2.99–4.38 GiB。
 原生 EP DSpark 对照现在按行分块搬到 CPU 做精确比较。保留原生权重共享判定，
-差异权重仍各自独立。复跑使用同一模型和命令，首次验证仍为原生 eager/U1。
+差异权重仍各自独立。随后的原生 N=5 回传中，四卡均完成载权，每卡模型占用
+80.27 GiB。默认 0.90 预算下，profile 后的 KV 预算为 −1.73 至 −1.74 GiB。
+复跑只把原生对照的预算提高到 0.95。按 91.66 GiB 总量和相同 profiling 开销估算，
+KV 预算约为 2.84 GiB，实际值以复跑日志为准。A/F 仍使用默认 0.90。
 
 沿用上面的三个路径变量和源码预检。单套空闲八卡，先用 0–3 跑原生
 TP1/DP4/EP4 eager/U1，然后用 0–3 跑 A、4–7 跑 F。下面每档使用独立目录，
@@ -160,7 +163,8 @@ TP1/DP4/EP4 eager/U1，然后用 0–3 跑 A、4–7 跑 F。下面每档使用�
       --model "$DSV41_MODEL" --transformer-vendor "$DSV41_VENDOR" \
       --expert-parallel --spec-tokens 5 --attention-devices 0,1,2,3 "$@"
   }
-  launch_n5 --native-control --mode eager-u1 --output-root "$run_root/native" --run
+  launch_n5 --native-control --native-gpu-memory-utilization 0.95 \
+    --mode eager-u1 --output-root "$run_root/native" --run
   native_run=$(find "$run_root/native" -mindepth 1 -maxdepth 1 \
     -type d -name 'full-eager-u1-*' -print -quit)
   test -n "$native_run"
