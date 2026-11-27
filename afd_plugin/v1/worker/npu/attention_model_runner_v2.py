@@ -6,7 +6,6 @@ from __future__ import annotations
 
 from collections.abc import Iterator
 from contextlib import AbstractContextManager, contextmanager, nullcontext
-from copy import copy
 from dataclasses import replace
 from types import MethodType
 from typing import TYPE_CHECKING
@@ -61,43 +60,10 @@ from afd_plugin.validation import validate_npu_model_runner_v2_config
 if TYPE_CHECKING:
     from vllm.v1.worker.gpu.cudagraph_utils import BatchExecutionDescriptor
     from vllm_ascend.worker.v2.spec_decode.dflash.aclgraph import DFlashAclGraphManager
-    from vllm_ascend.worker.v2.spec_decode.dspark.speculator import (
-        AscendDSparkSpeculator,
-    )
 
     from afd_plugin.v1.worker.npu.ubatch_runner import NPUUBatchRunner
 
 logger = init_logger(__name__)
-
-
-@contextmanager
-def window_dspark_draft_graph_sizes(
-    speculator: AscendDSparkSpeculator,
-) -> Iterator[None]:
-    """Give the native draft manager whole query rows within each token budget."""
-    original = speculator.vllm_config
-    draft_config = copy(original)
-    compilation = copy(original.compilation_config)
-    width = speculator.num_query_per_req
-    sizes = {
-        min(budget // width, speculator.max_num_reqs) * width
-        for budget in (compilation.cudagraph_capture_sizes or ())
-        if budget >= width
-    }
-    if not sizes:
-        raise ValueError(
-            f"Window DSpark needs a draft graph budget of at least {width} tokens"
-        )
-    compilation.cudagraph_capture_sizes = sorted(sizes)
-    compilation.max_cudagraph_capture_size = max(sizes)
-    draft_config.compilation_config = compilation
-    # The Ascend manager constructs both its dispatch table and its per-size
-    # graph update records during KV initialization. It retains draft_config.
-    speculator.vllm_config = draft_config
-    try:
-        yield
-    finally:
-        speculator.vllm_config = original
 
 
 def window_dspark_capture_descs(
@@ -133,14 +99,10 @@ def window_dspark_capture_descs(
 
 
 class _WindowDSparkTargetGraphManager(ascend_model_runner.ModelAclGraphManager):
-    # Ascend 8d4409d6 registers its per-size graph parameters immediately
-    # after MRV2 builds candidates. Align before that registration so capture,
-    # native dispatch and ACL replay all use the same verification shapes.
     def _init_candidates(self) -> None:
         super()._init_candidates()
         if self.cudagraph_mode != CUDAGraphMode.FULL_DECODE_ONLY:
             return
-        # ### PATCH START: register whole verification rows for Window.
         descs = window_dspark_capture_descs(
             self._capture_descs.get(CUDAGraphMode.FULL, []),
             self.decode_query_len,
@@ -148,8 +110,6 @@ class _WindowDSparkTargetGraphManager(ascend_model_runner.ModelAclGraphManager):
             npu_afd_num_ubatches(self.vllm_config),
         )
         self._capture_descs[CUDAGraphMode.FULL] = descs
-        # FULL_DECODE_ONLY has one width and one stage count per LoRA case.
-        # Assign each live token count to the smallest aligned capture bucket.
         self._candidates.clear()
         next_token_count: dict[int, int] = {}
         for desc in reversed(descs):
@@ -157,13 +117,10 @@ class _WindowDSparkTargetGraphManager(ascend_model_runner.ModelAclGraphManager):
             for tokens in range(next_token_count.get(loras, 1), desc.num_tokens + 1):
                 self._candidates[tokens, loras] = [desc]
             next_token_count[loras] = desc.num_tokens + 1
-        # ### PATCH END: register whole verification rows for Window.
 
 
 @contextmanager
 def _use_window_dspark_target_graph_manager() -> Iterator[None]:
-    # Ascend's graph_manager_wrapper constructs the target via this alias.
-    # Draft managers have separate factories.
     original = ascend_model_runner.ModelAclGraphManager
     try:
         ascend_model_runner.ModelAclGraphManager = _WindowDSparkTargetGraphManager
@@ -174,29 +131,17 @@ def _use_window_dspark_target_graph_manager() -> Iterator[None]:
 
 def install_window_dspark_replay(manager: DFlashAclGraphManager) -> None:
     """Bind draft metadata replay only on the current worker's draft manager."""
-    # Lazy worker imports keep draft-only Ascend dependencies off other runners.
     from vllm.forward_context import get_forward_context, set_forward_context
     from vllm_ascend.ascend_forward_context import _EXTRA_CTX
     from vllm_ascend.compilation.acl_graph import update_full_graph_params
     from vllm_ascend.worker.v2.spec_decode.dflash.aclgraph import DFlashAclGraphManager
 
-    # Upstream: vllm-ascend 8d4409d6, DFlashAclGraphManager._graph_replay.
-    # Patch reason: target metadata may describe only one target stage.
-    # Patch functionality: replay uses the complete draft batch's live metadata.
-    # Signature matches upstream, including its absent return annotation.
-    # Remove when Ascend uses draft metadata here. Parent replay stays native.
     def _graph_replay(self, desc, attn_backend, num_tokens, draft_attn_metadatas):
         self.update_stream.wait_stream(torch.npu.current_stream())
-        # Same parent replay as the native method. Calling self.run_fullgraph
-        # would redispatch into this instance method.
-        # ### PATCH START: explicit parent for the bound instance method.
         result = super(DFlashAclGraphManager, self).run_fullgraph(desc)
-        # ### PATCH END: explicit parent for the bound instance method.
         num_tokens_across_dp = torch.full([self.speculator.dp_size], num_tokens)
         with set_forward_context(
-            # ### PATCH START: use the current draft attention metadata.
             draft_attn_metadatas[0],
-            # ### PATCH END: use the current draft attention metadata.
             self.vllm_config,
             num_tokens=num_tokens,
             cudagraph_runtime_mode=desc.cg_mode,
@@ -532,21 +477,8 @@ class AFDNPUAttentionModelRunnerV2(AFDMetadataProviderMixin, NPUModelRunnerV2):
             _use_window_dspark_target_graph_manager()
             if target_graph
             else nullcontext(),
-            window_dspark_draft_graph_sizes(self.speculator)
-            if draft_graph
-            else nullcontext(),
         ):
             super().initialize_kv_cache(kv_cache_config, kv_cache_allocation_context)
-        if (
-            draft_graph
-            and self.speculative_config.enforce_eager is False
-            and not self.speculator.query_cudagraph_manager.needs_capture()
-        ):
-            raise RuntimeError(
-                "Window DSpark draft FULL graph was requested but the native "
-                "draft manager has no capture descriptors. Check the draft "
-                "attention backend and graph token budgets."
-            )
         if draft_graph:
             install_window_dspark_replay(self.speculator.query_cudagraph_manager)
         if self.ubatch_runner is not None:
