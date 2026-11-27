@@ -113,8 +113,10 @@ _DEEPSEEK_MODEL_REGISTRATIONS = {
         else "afd_plugin.model_executor.models.deepseek_v4:AFDDeepseekV4ForCausalLM"
     ),
     "DeepseekV41ForCausalLM": (
-        "afd_plugin.model_executor.models.npu.deepseek_v41:"
-        "AFDDeepseekV41ForCausalLM"
+        "afd_plugin.model_executor.models.npu.deepseek_v41:AFDDeepseekV41ForCausalLM"
+    ),
+    "DeepseekV41DSparkModel": (
+        "vllm_ascend.models.deepseek_v41.dspark:DSparkDeepseekV41ForCausalLM"
     ),
     "GlmMoeDsaForCausalLM": (
         "afd_plugin.model_executor.models.deepseek_v2:AFDGlmMoeDsaForCausalLM"

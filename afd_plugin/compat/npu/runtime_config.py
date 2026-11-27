@@ -8,8 +8,9 @@ from typing import TYPE_CHECKING
 
 from afd_plugin.config import (
     WINDOW_CONNECTOR,
-    is_afd_async_dp,
+    is_afd_async_connector,
     parse_afd_config,
+    use_afd_dspark,
 )
 
 if TYPE_CHECKING:
@@ -25,7 +26,7 @@ def configure_async_cam_dbo(vllm_config: VllmConfig) -> None:
     """Normalize native ubatching for async AFD Attention connectors."""
     afd_config = parse_afd_config(vllm_config)
     parallel = vllm_config.parallel_config
-    if not is_afd_async_dp(vllm_config) or not afd_config.is_attention_server:
+    if not is_afd_async_connector(vllm_config) or not afd_config.is_attention_server:
         return
     if not parallel.use_ubatching:
         return
@@ -48,7 +49,7 @@ def configure_async_cam_dbo(vllm_config: VllmConfig) -> None:
 
 
 def uses_async_cam_dbo(vllm_config: VllmConfig) -> bool:
-    return is_afd_async_dp(vllm_config) and (
+    return is_afd_async_connector(vllm_config) and (
         vllm_config.parallel_config.enable_dbo
         or vllm_config.parallel_config.use_ubatching
     )
@@ -92,6 +93,10 @@ def fix_all2all_backend_for_afd(vllm_config: VllmConfig) -> None:
     Rewriting its all2all backend disables model-owned token sharding even
     when EP/DP/TP requested it. Non-SP workers keep the legacy backend fix.
     """
+    # The draft executes native MoE collectives inside the Attention service.
+    # Retain the backend selected by Ascend for the configured EP topology.
+    if use_afd_dspark(vllm_config):
+        return
     parallel_config = vllm_config.parallel_config
     if (
         not parallel_config.use_sequence_parallel_moe

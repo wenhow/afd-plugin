@@ -23,6 +23,7 @@ from afd_plugin.compat.vllm import (
 from afd_plugin.config import (
     WINDOW_CONNECTOR,
     parse_optional_afd_config,
+    use_afd_dspark,
 )
 from afd_plugin.validation import (
     afd_worker_qualname_for_platform_default,
@@ -169,11 +170,10 @@ def _get_dbo_unsupported_features(self) -> list[str]:
     unsupported = _original_dbo_unsupported_features(self)
     if not _is_text_only_dsv41_window_u2(self):
         return unsupported
-    return [
-        reason
-        for reason in unsupported
-        if reason != "dual batch overlap with multimodal models"
-    ]
+    handled = {"dual batch overlap with multimodal models"}
+    if use_afd_dspark(self):
+        handled.add("dual batch overlap with speculative decoding")
+    return [reason for reason in unsupported if reason not in handled]
 
 
 def _is_text_only_dsv41_window_u2(vllm_config: VllmConfig) -> bool:

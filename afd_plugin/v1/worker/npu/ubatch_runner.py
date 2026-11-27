@@ -54,6 +54,7 @@ from afd_plugin.compat.patches.npu.mrv2_ubatching import (
     use_npu_ubatch_contexts,
     use_npu_ubatch_output_merge,
 )
+from afd_plugin.config import use_afd_dspark
 from afd_plugin.model_executor.models.npu.deepseek_attention_metadata import (
     materialize_deepseek_attention_metadata_by_layer,
 )
@@ -65,6 +66,8 @@ from afd_plugin.v1.worker.npu.mla_graph import (
 
 
 class NPUUBatchRunner(UBatchRunner):
+    _verification_width: int | None = None
+
     def __init__(
         self,
         vllm_config: VllmConfig,
@@ -81,6 +84,11 @@ class NPUUBatchRunner(UBatchRunner):
             vllm_config, device, model_state, attn_groups, kv_cache_config, max_num_reqs
         )
         self.ready_barrier = threading.Barrier(self.num_ubatches + 1, timeout=timeout_s)
+        self._verification_width = (
+            vllm_config.speculative_config.num_speculative_tokens + 1
+            if use_afd_dspark(vllm_config)
+            else None
+        )
         self._prepared_state: UBatchState | None = None
         self._mla_capture_params: dict[
             BatchExecutionDescriptor, tuple[GraphParams, GraphParams]
@@ -182,6 +190,17 @@ class NPUUBatchRunner(UBatchRunner):
                 buffer[: table.shape[0]].copy_(table)
                 for buffer, table in zip(buffers, block_tables, strict=True)
             )
+        verification_graph = (
+            self._verification_width is not None
+            and cudagraph_mode == CUDAGraphMode.FULL
+        )
+        is_prefilling = torch.from_numpy(input_batch.is_prefilling_np)
+        if verification_graph and is_prefilling.numel() < num_reqs:
+            # Pad the host phase flags to the same physical request rows as
+            # query_start_loc. DSA uses these counts to select its decode path.
+            is_prefilling = torch.nn.functional.pad(
+                is_prefilling, (0, num_reqs - is_prefilling.numel()), value=False
+            )
         metadata = build_attn_metadata(
             attn_groups=self.stage_attn_groups[ubatch_idx],
             num_reqs=num_reqs,
@@ -191,7 +210,11 @@ class NPUUBatchRunner(UBatchRunner):
             num_input_tokens=num_input_tokens,
             query_start_loc_gpu=input_batch.query_start_loc,
             query_start_loc_cpu=torch.from_numpy(input_batch.query_start_loc_np),
-            max_query_len=int(input_batch.num_scheduled_tokens.max(initial=0)),
+            max_query_len=(
+                self._verification_width
+                if verification_graph
+                else int(input_batch.num_scheduled_tokens.max(initial=0))
+            ),
             seq_lens=input_batch.seq_lens,
             seq_lens_np=input_batch.seq_lens_np,
             seq_lens_cpu_upper_bound=input_batch.seq_lens_cpu_upper_bound,
@@ -213,8 +236,9 @@ class NPUUBatchRunner(UBatchRunner):
                     kv_cache_config,
                 )
             ),
-            is_prefilling=torch.from_numpy(input_batch.is_prefilling_np),
+            is_prefilling=is_prefilling,
             for_cudagraph_capture=for_capture,
+            full_graph_mode=verification_graph,
         )
         if cudagraph_mode == CUDAGraphMode.FULL:
             materialize_deepseek_attention_metadata_by_layer(
@@ -242,7 +266,8 @@ class NPUUBatchRunner(UBatchRunner):
         previous_override = self.model_state.__dict__.get("prepare_attn")
         self.model_state.prepare_attn = self._prepare_attn
         try:
-            with use_npu_input_batch_slicing():
+            width = self._verification_width if cg_mode == CUDAGraphMode.FULL else None
+            with use_npu_input_batch_slicing(verification_width=width):
                 prepared = super().prepare(
                     input_batch, block_tables, slot_mappings, cg_mode, for_capture
                 )
