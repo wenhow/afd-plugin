@@ -23,6 +23,7 @@ from vllm.v1.worker.dp_utils import skip_dp_coordination
 from vllm.v1.worker.gpu import cudagraph_utils as v2_cudagraph_utils
 from vllm.v1.worker.gpu import model_runner as v2_model_runner
 from vllm.v1.worker.gpu.dp_utils import DPSyncState
+from vllm_ascend.worker.v2 import model_runner as ascend_model_runner
 from vllm_ascend.worker.v2.model_runner import NPUModelRunner as NPUModelRunnerV2
 
 from afd_plugin.compat.npu import fail_if_unsupported_npu_afd_features
@@ -129,6 +130,46 @@ def window_dspark_capture_descs(
             f"graph bucket of at least {num_ubatches * width} tokens"
         )
     return sorted(buckets, key=lambda desc: desc.num_tokens, reverse=True)
+
+
+class _WindowDSparkTargetGraphManager(ascend_model_runner.ModelAclGraphManager):
+    # Ascend 8d4409d6 registers its per-size graph parameters immediately
+    # after MRV2 builds candidates. Align before that registration so capture,
+    # native dispatch and ACL replay all use the same verification shapes.
+    def _init_candidates(self) -> None:
+        super()._init_candidates()
+        if self.cudagraph_mode != CUDAGraphMode.FULL_DECODE_ONLY:
+            return
+        # ### PATCH START: register whole verification rows for Window.
+        descs = window_dspark_capture_descs(
+            self._capture_descs.get(CUDAGraphMode.FULL, []),
+            self.decode_query_len,
+            self.max_num_reqs,
+            npu_afd_num_ubatches(self.vllm_config),
+        )
+        self._capture_descs[CUDAGraphMode.FULL] = descs
+        # FULL_DECODE_ONLY has one width and one stage count per LoRA case.
+        # Assign each live token count to the smallest aligned capture bucket.
+        self._candidates.clear()
+        next_token_count: dict[int, int] = {}
+        for desc in reversed(descs):
+            loras = desc.num_active_loras
+            for tokens in range(next_token_count.get(loras, 1), desc.num_tokens + 1):
+                self._candidates[tokens, loras] = [desc]
+            next_token_count[loras] = desc.num_tokens + 1
+        # ### PATCH END: register whole verification rows for Window.
+
+
+@contextmanager
+def _use_window_dspark_target_graph_manager() -> Iterator[None]:
+    # Ascend's graph_manager_wrapper constructs the target via this alias.
+    # Draft managers have separate factories.
+    original = ascend_model_runner.ModelAclGraphManager
+    try:
+        ascend_model_runner.ModelAclGraphManager = _WindowDSparkTargetGraphManager
+        yield
+    finally:
+        ascend_model_runner.ModelAclGraphManager = original
 
 
 def install_window_dspark_replay(manager: DFlashAclGraphManager) -> None:
@@ -477,14 +518,20 @@ class AFDNPUAttentionModelRunnerV2(AFDMetadataProviderMixin, NPUModelRunnerV2):
         kv_cache_allocation_context: AbstractContextManager | None = None,
     ) -> None:
         # ### PATCH START: create the native NPU ubatch adapter.
+        target_graph = (
+            use_afd_dspark(self.vllm_config, self.afd_config)
+            and not self.model_config.enforce_eager
+        )
         draft_graph = (
             self.speculator is not None
-            and use_afd_dspark(self.vllm_config, self.afd_config)
-            and not self.model_config.enforce_eager
+            and target_graph
             and not self.speculative_config.enforce_eager
         )
         with (
             use_npu_ubatch_factory(self),
+            _use_window_dspark_target_graph_manager()
+            if target_graph
+            else nullcontext(),
             window_dspark_draft_graph_sizes(self.speculator)
             if draft_graph
             else nullcontext(),
@@ -562,15 +609,9 @@ class AFDNPUAttentionModelRunnerV2(AFDMetadataProviderMixin, NPUModelRunnerV2):
         # ### PATCH START: publish AFD FULL graph warmup/capture control.
         manager = self.cudagraph_manager
         capture_descs = manager._capture_descs.get(CUDAGraphMode.FULL, [])
-        if use_afd_dspark(self.vllm_config, self.afd_config):
-            capture_descs = window_dspark_capture_descs(
-                capture_descs,
-                self.decode_query_len,
-                self.max_num_reqs,
-                npu_afd_num_ubatches(self.vllm_config),
-            )
-            manager._capture_descs[CUDAGraphMode.FULL] = capture_descs
-        elif self._uses_fixed_window_u2():
+        if self._uses_fixed_window_u2() and not use_afd_dspark(
+            self.vllm_config, self.afd_config
+        ):
             capture_descs = _normalize_window_u2_capture_descs(capture_descs)
             manager._capture_descs[CUDAGraphMode.FULL] = capture_descs
         # Native graph-memory profiling captures only this descriptor prefix.

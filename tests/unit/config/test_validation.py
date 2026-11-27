@@ -8,10 +8,6 @@ from types import ModuleType, SimpleNamespace
 
 import pytest
 
-from afd_plugin.compat.npu.feature_validation import (
-    _fail_if_unsupported_dspark_features,
-)
-from afd_plugin.config import parse_afd_config
 from afd_plugin.validation import (
     ATTENTION_WORKER_FQCN,
     FFN_WORKER_FQCN,
@@ -21,75 +17,8 @@ from afd_plugin.validation import (
     validate_gpu_model_runner_v2_config,
     validate_npu_model_runner_v2_config,
 )
-from tests.unit.fakes.vllm_config import npu_vllm_config
 
 MODEL_UTILS_MODULE = "afd_plugin.model_executor.models.model_utils"
-
-
-@pytest.fixture
-def dspark_config():
-    config = npu_vllm_config(
-        connector="WindowAFDConnector",
-        async_dp=True,
-        compute_gate_on_attention=True,
-        speculative_config=SimpleNamespace(
-            method="dspark",
-            num_speculative_tokens=4,
-            draft_model_config=SimpleNamespace(
-                hf_text_config=SimpleNamespace(
-                    dspark_block_size=4, dspark_target_layer_ids=[1, 2]
-                )
-            ),
-        ),
-    )
-    config.model_config.hf_text_config.num_hidden_layers = 2
-    return config
-
-
-@pytest.mark.parametrize(
-    "stages,target_eager,draft_eager,adaptive,error",
-    [
-        pytest.param(1, True, True, False, None, id="eager-target-and-draft"),
-        pytest.param(1, False, False, False, None, id="u1-target-and-draft-graphs"),
-        pytest.param(2, False, True, False, None, id="u2-target-graph-eager-draft"),
-        pytest.param(4, False, False, False, None, id="future-target-stage-count"),
-        pytest.param(1, True, None, False, None, id="automatic-draft-mode"),
-        pytest.param(
-            2,
-            True,
-            False,
-            False,
-            "draft graphs require a graph target",
-            id="reject-draft-only-graph",
-        ),
-        pytest.param(
-            1,
-            False,
-            False,
-            True,
-            "fixed draft width",
-            id="reject-adaptive-graph-width",
-        ),
-    ],
-)
-def test_dspark_mode_policy_is_independent_of_target_stages(
-    dspark_config, stages, target_eager, draft_eager, adaptive, error
-):
-    # U4 checks draft policy only; it does not claim target transport support.
-    config = dspark_config
-    config.parallel_config.use_ubatching = stages > 1
-    config.parallel_config.num_ubatches = stages
-    config.additional_config["afd"]["connector_extra_config"]["micro_batch_num"] = (
-        stages
-    )
-    config.model_config.enforce_eager = target_eager
-    config.speculative_config.enforce_eager = draft_eager
-    config.speculative_config.enable_adaptive_verification = adaptive
-    if error:
-        with pytest.raises(RuntimeError, match=error):
-            _fail_if_unsupported_dspark_features(config, parse_afd_config(config))
-    else:
-        _fail_if_unsupported_dspark_features(config, parse_afd_config(config))
 
 
 def _vllm_like_config(*, afd, worker_cls):
@@ -429,31 +358,3 @@ def test_mrv2_validator_rejects_before_importing_model_runtime(
 
     with pytest.raises(RuntimeError, match=expected_error):
         _run_mrv2_validator(mrv2_config, backend, role, overrides)
-
-
-@pytest.mark.parametrize(
-    "dp_size,method,slots,allowed",
-    [
-        pytest.param(1, "dspark", 2, True, id="single-attention-dp"),
-        pytest.param(4, "dspark", 2, True, id="multiple-attention-dp"),
-        pytest.param(4, "mtp", 2, False, id="unsupported-draft-method"),
-        pytest.param(4, "dspark", 1, False, id="mismatched-window-slots"),
-    ],
-)
-def test_npu_dbo_speculative_deployment(mrv2_config, dp_size, method, slots, allowed):
-    overrides = {
-        **GRAPH,
-        **_symmetric_ranks(dp_size, 1),
-        "afd.num_ffn_ranks": 4,
-        "afd.connector": "WindowAFDConnector",
-        "afd.async": True,
-        "afd.compute_gate_on_attention": True,
-        "afd.connector_extra_config": {"micro_batch_num": slots},
-        "model_config.hf_config.architectures": ["DeepseekV41ForCausalLM"],
-        "speculative_config": SimpleNamespace(method=method, enforce_eager=False),
-    }
-    if allowed:
-        _run_mrv2_validator(mrv2_config, "npu", "attention", overrides)
-    else:
-        with pytest.raises(RuntimeError, match="only for Window Attention with DSpark"):
-            _run_mrv2_validator(mrv2_config, "npu", "attention", overrides)

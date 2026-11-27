@@ -162,8 +162,8 @@ def use_async_cam_dbo_dispatch(
     original_dispatch = model_runner.dispatch_cg_and_sync_dp
 
     # Patch reason: native dispatch returns early at DP=1 before DBO selection.
-    # Patch functionality: apply native eligibility and thresholds at DP=1;
-    # native dispatch continues to own every DP>1 descriptor.
+    # Patch functionality: apply native DBO eligibility at DP=1. Window DSpark
+    # dispatches the local target shape and keeps native DP sync for the draft.
     # Signature matches dispatch_cg_and_sync_dp at ced6857a.
     # Delegation exception: native descriptor/threshold selection stays upstream.
     # Removal plan: remove when native dispatch supports local DP=1 DBO.
@@ -205,21 +205,22 @@ def use_async_cam_dbo_dispatch(
                 and uniform_token_count == dspark_query_width
                 and cudagraph_manager is not None
             ):
-                target = min(
-                    (
-                        desc
-                        for desc in cudagraph_manager.graphs
-                        if desc.cg_mode == CUDAGraphMode.FULL
-                        and desc.num_ubatches == num_ubatches
-                        and desc.uniform_token_count == dspark_query_width
-                        and desc.num_tokens >= num_tokens
-                        and desc.num_reqs is not None
-                        and desc.num_reqs >= num_reqs
-                        and desc.num_active_loras == num_active_loras
-                    ),
-                    key=lambda desc: desc.num_tokens,
-                    default=target,
+                # ### PATCH START: native bucket selection, captured target only.
+                candidate = cudagraph_manager.dispatch(
+                    num_reqs=num_reqs,
+                    num_tokens=num_tokens,
+                    uniform_token_count=uniform_token_count,
+                    num_active_loras=num_active_loras,
+                    max_query_len=max_query_len,
+                    num_ubatches=num_ubatches,
                 )
+                if (
+                    candidate.cg_mode == CUDAGraphMode.FULL
+                    and candidate.num_active_loras == num_active_loras
+                    and candidate in cudagraph_manager.graphs
+                ):
+                    target = candidate
+                # ### PATCH END: native bucket selection, captured target only.
             _, sync = original_dispatch(
                 None,
                 num_reqs,
