@@ -161,6 +161,12 @@ def use_async_cam_dbo_dispatch(
     """Extend native DBO dispatch and keep Window U2 structurally fixed."""
     original_dispatch = model_runner.dispatch_cg_and_sync_dp
 
+    # Patch reason: native dispatch returns early at DP=1 before DBO selection.
+    # Patch functionality: apply native DBO eligibility at DP=1. Window DSpark
+    # dispatches the local target shape and keeps native DP sync for the draft.
+    # Signature matches dispatch_cg_and_sync_dp at ced6857a.
+    # Delegation exception: native descriptor/threshold selection stays upstream.
+    # Removal plan: remove when native dispatch supports local DP=1 DBO.
     def dispatch_cg_and_sync_dp(
         cudagraph_manager: CudaGraphManager | None,
         num_reqs: int,
