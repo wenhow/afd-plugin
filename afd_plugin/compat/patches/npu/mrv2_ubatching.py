@@ -16,7 +16,7 @@ from dataclasses import replace
 from typing import TYPE_CHECKING, Any
 
 import torch
-from vllm.config import ParallelConfig, VllmConfig
+from vllm.config import CUDAGraphMode, ParallelConfig, VllmConfig
 from vllm.utils import torch_utils
 from vllm.v1.kv_cache_interface import KVCacheConfig
 from vllm.v1.worker import ubatching
@@ -45,7 +45,7 @@ from afd_plugin.compat.npu.runtime_config import (
 )
 from afd_plugin.config import (
     HCCL_P2P_CONNECTOR,
-    is_afd_async_dp,
+    is_afd_async_connector,
     parse_afd_config,
     parse_optional_afd_config,
 )
@@ -237,7 +237,7 @@ def use_npu_ubatch_factory(
                 graph_owner=hccl_graph_owner,
             )
         if not parallel.use_ubatching or (
-            parallel.data_parallel_size <= 1 and not is_afd_async_dp(vllm_config)
+            parallel.data_parallel_size <= 1 and not is_afd_async_connector(vllm_config)
         ):
             return None
         return NPUUBatchRunner(
@@ -261,13 +261,18 @@ def use_npu_ubatch_factory(
 
 
 @contextmanager
-def use_async_cam_dbo_dispatch() -> Iterator[None]:
-    """Extend native threshold selection to Async CAM Attention DP=1."""
+def use_async_cam_dbo_dispatch(
+    *,
+    force_window_u2: bool = False,
+    dspark_query_width: int | None = None,
+    allow_target_graph: bool = True,
+) -> Iterator[None]:
+    """Extend native DBO dispatch and keep Window U2 structurally fixed."""
     original_dispatch = model_runner.dispatch_cg_and_sync_dp
 
     # Patch reason: native dispatch returns early at DP=1 before DBO selection.
-    # Patch functionality: apply native eligibility and thresholds at DP=1;
-    # native dispatch continues to own every DP>1 descriptor.
+    # Patch functionality: apply native DBO eligibility at DP=1. Window DSpark
+    # dispatches the local target shape and keeps native DP sync for the draft.
     # Signature matches dispatch_cg_and_sync_dp at ced6857a.
     # Delegation exception: native descriptor/threshold selection stays upstream.
     # Removal plan: remove when native dispatch supports local DP=1 DBO.
@@ -286,6 +291,60 @@ def use_async_cam_dbo_dispatch() -> Iterator[None]:
         uniform_decode: bool = False,
         dp_sync: DPSyncState | None = None,
     ) -> tuple[BatchExecutionDescriptor, DPSyncState | None]:
+        if dspark_query_width is not None:
+            # The main model uses Window, so its target batch is local even
+            # when idle peers execute dummy steps. Only the A-side draft MoE
+            # needs the real DP agreement. All ranks enter one native sync.
+            num_ubatches = (
+                get_num_ubatches(parallel_config)
+                if allow_ubatching and parallel_config is not None
+                else 1
+            )
+            target = BatchExecutionDescriptor(
+                cg_mode=CUDAGraphMode.NONE,
+                num_tokens=max(num_tokens, num_ubatches),
+                num_reqs=num_reqs,
+                num_ubatches=num_ubatches,
+                num_active_loras=num_active_loras,
+            )
+            if (
+                allow_target_graph
+                and not need_eager
+                and uniform_decode
+                and uniform_token_count == dspark_query_width
+                and cudagraph_manager is not None
+            ):
+                candidate = cudagraph_manager.dispatch(
+                    num_reqs=num_reqs,
+                    num_tokens=num_tokens,
+                    uniform_token_count=uniform_token_count,
+                    num_active_loras=num_active_loras,
+                    max_query_len=max_query_len,
+                    num_ubatches=num_ubatches,
+                )
+                if (
+                    candidate.cg_mode == CUDAGraphMode.FULL
+                    and candidate.num_active_loras == num_active_loras
+                    and candidate in cudagraph_manager.graphs
+                ):
+                    target = candidate
+            _, sync = original_dispatch(
+                None,
+                num_reqs,
+                target.num_tokens,
+                uniform_token_count,
+                dp_size,
+                dp_rank,
+                max_query_len=max_query_len,
+                need_eager=True,
+                num_active_loras=num_active_loras,
+                parallel_config=parallel_config,
+                allow_ubatching=False,
+                uniform_decode=uniform_decode,
+                dp_sync=dp_sync,
+            )
+            return target, sync
+
         desc, sync = original_dispatch(
             cudagraph_manager,
             num_reqs,
@@ -301,8 +360,22 @@ def use_async_cam_dbo_dispatch() -> Iterator[None]:
             uniform_decode=uniform_decode,
             dp_sync=dp_sync,
         )
-        # ### PATCH START: native DBO eligibility without a DP handshake.
-        if (
+        # ### PATCH START: fixed Window U2 or native DBO eligibility.
+        if force_window_u2:
+            if parallel_config is None or get_num_ubatches(parallel_config) != 2:
+                raise RuntimeError("Window U2 requires exactly two microbatches")
+            # Window allocates two transport slots and cannot dynamically fall
+            # back to U1.  Match the verified DSV4 path: a one-token decode is
+            # padded to a second model token/request slot so both children run.
+            desc = replace(
+                desc,
+                num_tokens=max(int(desc.num_tokens), int(num_tokens), 2),
+                num_reqs=max(int(desc.num_reqs or num_reqs), 2)
+                if num_tokens < 2
+                else desc.num_reqs,
+                num_ubatches=2,
+            )
+        elif (
             dp_size == 1
             and allow_ubatching
             and parallel_config is not None
@@ -310,7 +383,7 @@ def use_async_cam_dbo_dispatch() -> Iterator[None]:
             and num_tokens >= get_num_ubatches(parallel_config)
         ):
             desc = replace(desc, num_ubatches=get_num_ubatches(parallel_config))
-        # ### PATCH END: native DBO eligibility without a DP handshake.
+        # ### PATCH END: fixed Window U2 or native DBO eligibility.
         return desc, sync
 
     model_runner.dispatch_cg_and_sync_dp = dispatch_cg_and_sync_dp
@@ -349,9 +422,47 @@ def use_async_cam_child_dp_metadata() -> Iterator[None]:
         ubatch_utils.DPMetadata = original_metadata
 
 
+def verification_stage_ranges(
+    rows: int, tokens: int, width: int, num_ubatches: int
+) -> tuple[tuple[slice, slice], ...]:
+    if (
+        num_ubatches < 1
+        or rows < num_ubatches
+        or rows % num_ubatches
+        or width < 1
+        or tokens != rows * width
+    ):
+        raise ValueError(f"Invalid verification shape: {rows} rows, {tokens} tokens")
+    rows_per_stage = rows // num_ubatches
+    return tuple(
+        (
+            slice(start, start + rows_per_stage),
+            slice(start * width, (start + rows_per_stage) * width),
+        )
+        for start in range(0, rows, rows_per_stage)
+    )
+
+
 @contextmanager
-def use_npu_input_batch_slicing() -> Iterator[None]:
+def use_npu_input_batch_slicing(
+    *, verification_width: int | None = None
+) -> Iterator[None]:
     original_slice = ubatch_utils._slice_input_batch
+    original_create = ubatch_utils.create_ubatch_slices
+
+    # Ascend pads query_start_loc by whole rows for a uniform FULL graph.
+    # Native slicing clamps an all-padding child back onto the last live
+    # request, changing its captured request count and its block-table rows.
+    def create_ubatch_slices(input_batch: InputBatch, num_ubatches: int):
+        rows = input_batch.num_reqs_after_padding
+        tokens = input_batch.num_tokens_after_padding
+        assert verification_width is not None
+        return [
+            UBatchSlice(reqs, toks)
+            for reqs, toks in verification_stage_ranges(
+                rows, tokens, verification_width, num_ubatches
+            )
+        ]
 
     # Native replace() retains the Ascend subtype but leaves seq_lens_np whole.
     # Delegation preserves native query/sequence truncation. Apply exactly its
@@ -391,10 +502,13 @@ def use_npu_input_batch_slicing() -> Iterator[None]:
         # ### PATCH END: extend native slicing with Ascend host lengths.
 
     ubatch_utils._slice_input_batch = _slice_input_batch
+    if verification_width is not None:
+        ubatch_utils.create_ubatch_slices = create_ubatch_slices
     try:
         yield
     finally:
         ubatch_utils._slice_input_batch = original_slice
+        ubatch_utils.create_ubatch_slices = original_create
 
 
 @contextmanager

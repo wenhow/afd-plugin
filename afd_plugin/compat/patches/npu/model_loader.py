@@ -14,14 +14,18 @@ from vllm.model_executor.model_loader.dummy_loader import DummyModelLoader
 from vllm.model_executor.model_loader.utils import initialize_model
 
 from afd_plugin.compat.npu.runtime_config import is_deepseek_v41_model
-from afd_plugin.config import HCCL_P2P_CONNECTOR, parse_optional_afd_config
+from afd_plugin.config import (
+    HCCL_P2P_CONNECTOR,
+    WINDOW_CONNECTOR,
+    parse_optional_afd_config,
+)
 
 
 # Upstream: vllm/model_executor/model_loader/base_loader.py,
 # BaseModelLoader.create_model @ ced6857afa0ea7b2e3f0846a62e1394e90f15607.
 # Patch reason: native class resolution cannot select AFD roles without changing
 # ModelConfig identity; initialize_model already supports explicit class input.
-# Patch functionality: select the guarded V4.1 NPU role class at construction.
+# Patch functionality: select the connector-owned V4.1 class at construction.
 # Quantized checkpoints require the explicit DS FP4-expert quantization class;
 # native V4.1 auto selection currently resolves to generic FP8 on this lock.
 # Signature: matches upstream; no added parameters. Native load_model is retained.
@@ -47,7 +51,13 @@ def create_model(
         )
     ):
         afd_config = parse_optional_afd_config(vllm_config, validate=False)
-        if afd_config is not None:
+        if afd_config is not None and afd_config.connector == WINDOW_CONNECTOR:
+            from afd_plugin.model_executor.models.npu.deepseek_v41_window import (
+                AFDDeepseekV41WindowForCausalLM,
+            )
+
+            model_class = AFDDeepseekV41WindowForCausalLM
+        elif afd_config is not None:
             if (
                 vllm_config.quant_config is not None
                 and vllm_config.quant_config.get_name() != "deepseek_v4_fp8"

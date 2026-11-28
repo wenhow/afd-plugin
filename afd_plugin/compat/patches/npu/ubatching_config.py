@@ -22,7 +22,12 @@ from afd_plugin.compat.npu.runtime_config import (
     resolve_deepseek_v41_target_shape,
     validate_deepseek_v41_pd,
 )
-from afd_plugin.config import HCCL_P2P_CONNECTOR, parse_optional_afd_config
+from afd_plugin.config import (
+    HCCL_P2P_CONNECTOR,
+    WINDOW_CONNECTOR,
+    parse_optional_afd_config,
+    use_afd_dspark,
+)
 
 
 def _uses_afd_text_ubatching(config: VllmConfig) -> bool:
@@ -91,13 +96,36 @@ def _uses_afd_text_ubatching(config: VllmConfig) -> bool:
     return True
 
 
+def _uses_window_text_ubatching(config: VllmConfig) -> bool:
+    if (
+        current_platform.device_type != "npu"
+        or envs.VLLM_USE_V2_MODEL_RUNNER is not True
+    ):
+        return False
+    afd_config = parse_optional_afd_config(config)
+    if afd_config is None or afd_config.connector != WINDOW_CONNECTOR:
+        return False
+    model = config.model_config
+    parallel = config.parallel_config
+    return (
+        afd_config.is_attention_server
+        and parallel.use_ubatching
+        and parallel.num_ubatches == 2
+        and model is not None
+        and is_deepseek_v41_model(config)
+        and model.multimodal_config is not None
+        and model.multimodal_config.language_model_only
+        and not model.hf_text_config.engram_layer_ids
+    )
+
+
 # Upstream symbol: VllmConfig._get_dbo_unsupported_features at the module's
 # pinned vLLM commit; copy the full method again when that source lock changes.
 # Patch reason: native DBO excludes all speculation and multimodal identities,
 # including language-only PD consumers whose enable_mm_embeds sets MM identity.
-# Patch functionality: permit validated AFD HCCL V4.1 text U2, with either no
-# speculation or the existing fixed/eager native DSpark contract;
-# retain every other native exclusion and never alter the configuration fields.
+# Patch functionality: admit the connector-specific HCCL and Window V4.1
+# language-only U2 profiles and their permitted native DSpark combinations.
+# Retain every other native exclusion and leave configuration fields intact.
 # Cost: host config validation only; no tensor allocation, RPC or device sync.
 # Removal: delete when the pinned native gate supports this connector-owned path.
 # Signature: matches upstream; no added parameters.
@@ -119,12 +147,15 @@ def get_dbo_unsupported_features(self) -> list[str]:
     parallel_config = self.parallel_config
     # ### PATCH START: AFD text U2 admission
     afd_text_ubatching = _uses_afd_text_ubatching(self)
+    window_text_ubatching = _uses_window_text_ubatching(self)
     # ### PATCH END: AFD text U2 admission
 
     if self.lora_config is not None:
         unsupported.append("dual batch overlap with LoRA")
     # ### PATCH START: AFD text U2 admission
-    if self.speculative_config is not None and not afd_text_ubatching:
+    if self.speculative_config is not None and not (
+        afd_text_ubatching or (window_text_ubatching and use_afd_dspark(self))
+    ):
         # ### PATCH END: AFD text U2 admission
         unsupported.append("dual batch overlap with speculative decoding")
     if parallel_config.pipeline_parallel_size > 1:
@@ -136,7 +167,10 @@ def get_dbo_unsupported_features(self) -> list[str]:
         unsupported.append("dual batch overlap with context parallelism")
     # ### PATCH START: AFD text U2 admission
     if model_config is not None and (
-        (model_config.is_multimodal_model and not afd_text_ubatching)
+        (
+            model_config.is_multimodal_model
+            and not (afd_text_ubatching or window_text_ubatching)
+        )
         or model_config.is_encoder_decoder
     ):
         # ### PATCH END: AFD text U2 admission

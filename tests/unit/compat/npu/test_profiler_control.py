@@ -22,6 +22,7 @@ from afd_plugin.compat.npu.profiler_control import (
     RPC_TIMEOUT_SECONDS,
     SOCKET_PERMISSIONS,
     FfnProfilerControl,
+    FfnProfilerControlError,
     create_ffn_profiler_control,
     request_ffn_profiler,
 )
@@ -148,10 +149,12 @@ def test_partial_response_writes_preserve_the_complete_json_message(
 def test_rpc_error_is_reported_without_false_acceptance(control_path, failure, code):
     with profiler_control_case(control_path) as case:
         case.executor.failure = failure
-        assert control_exchange(case, {"operation": "start"}) == {
-            "ok": False,
-            "error": code,
-        }
+        case.client.sendall(b'{"operation":"start"}\n')
+        with pytest.raises(FfnProfilerControlError, match="terminal") as terminal:
+            case.server.poll()
+        assert terminal.value.__cause__ is failure
+        with case.client.makefile("r", encoding="utf-8") as response:
+            assert json.load(response) == {"ok": False, "error": code}
 
 
 @pytest.mark.parametrize("response", [[{1, 2}], [float("nan")]])

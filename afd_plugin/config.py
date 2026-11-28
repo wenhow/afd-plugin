@@ -19,6 +19,10 @@ if TYPE_CHECKING:
 
 AFD_ADDITIONAL_CONFIG_KEY: Final[str] = "afd"
 AFD_ASYNC_CONNECTOR: Final[str] = "CAMAsyncAFDConnector"
+WINDOW_CONNECTOR: Final[str] = "WindowAFDConnector"
+AFD_ASYNC_DP_CONNECTORS: Final[frozenset[str]] = frozenset(
+    {AFD_ASYNC_CONNECTOR, WINDOW_CONNECTOR}
+)
 CAMP2P_CONNECTOR: Final[str] = "CAMP2pAFDConnector"
 HCCL_P2P_CONNECTOR: Final[str] = "P2pHcclAFDConnector"
 DSV41_HCCL_DSPARK_STEPS: Final[tuple[int, ...]] = (1, 2, 5)
@@ -34,6 +38,7 @@ SUPPORTED_AFD_CONNECTORS: Final[tuple[str, ...]] = (
     CAMP2P_CONNECTOR,
     HCCL_P2P_CONNECTOR,
     AFD_ASYNC_CONNECTOR,
+    WINDOW_CONNECTOR,
 )
 
 _ALIASES: Final[dict[str, str]] = {
@@ -78,6 +83,8 @@ class AFDConfig:
     connector_extra_config: dict[str, Any] = field(
         default_factory=dict, repr=False, hash=False
     )
+    # Enable the Window FFN two-stream pipeline and operator core limits.
+    window_ffn_multistream_enabled: bool = True
 
     @property
     def afd_connector(self) -> str:
@@ -113,6 +120,10 @@ class AFDConfig:
             self.num_attention_ranks,
             self.num_ffn_ranks,
         ]
+        if self.connector == WINDOW_CONNECTOR:
+            factors.extend(
+                (self.compute_gate_on_attention, self.window_ffn_multistream_enabled)
+            )
         extra = (
             json.dumps(self.connector_extra_config, sort_keys=True)
             if self.connector_extra_config
@@ -178,6 +189,12 @@ def _normalize_mapping(
         normalized["compute_gate_on_attention"] = _coerce_bool(
             normalized["compute_gate_on_attention"],
             field_name="compute_gate_on_attention",
+        )
+
+    if "window_ffn_multistream_enabled" in normalized:
+        normalized["window_ffn_multistream_enabled"] = _coerce_bool(
+            normalized["window_ffn_multistream_enabled"],
+            field_name="window_ffn_multistream_enabled",
         )
 
     return normalized, connector_extra_config or {}
@@ -299,7 +316,18 @@ def is_afd_active(source: Any) -> bool:
     return parse_optional_afd_config(source, validate=True) is not None
 
 
-def is_afd_async_dp(vllm_config: VllmConfig) -> bool:
+def use_afd_dspark(
+    vllm_config: VllmConfig, afd_config: AFDConfig | None = None
+) -> bool:
+    """Whether Attention uses a native DSpark drafter with A-side EP."""
+    config = afd_config or parse_optional_afd_config(vllm_config, validate=False)
+    if config is None or config.connector != WINDOW_CONNECTOR:
+        return False
+    spec = vllm_config.speculative_config
+    return config.is_attention_server and spec is not None and spec.method == "dspark"
+
+
+def is_afd_async_connector(vllm_config: VllmConfig) -> bool:
     """Return whether ``vllm_config`` selects AFD's async connector mode.
 
     This is a lightweight selector for import-time async-DP patches, not a full
@@ -311,8 +339,17 @@ def is_afd_async_dp(vllm_config: VllmConfig) -> bool:
     return (
         config is not None
         and config.async_dp
-        and config.connector == AFD_ASYNC_CONNECTOR
+        and config.connector in AFD_ASYNC_DP_CONNECTORS
     )
+
+
+def is_afd_async_dp(vllm_config: VllmConfig) -> bool:
+    """Whether Attention ranks can advance independent DP steps.
+
+    DSpark requires idle ranks to join native draft MoE collectives. Use
+    is_afd_async_connector for connector eligibility independent of scheduling.
+    """
+    return is_afd_async_connector(vllm_config) and not use_afd_dspark(vllm_config)
 
 
 def validate_afd_config(
@@ -335,9 +372,10 @@ def validate_afd_config(
             "AFD connector must be one of "
             f"{SUPPORTED_AFD_CONNECTORS!r}, got {config.connector!r}",
         )
-    if config.async_dp and config.connector != AFD_ASYNC_CONNECTOR:
+    if config.async_dp and config.connector not in AFD_ASYNC_DP_CONNECTORS:
         raise ValueError(
-            "AFD async mode requires connector='CAMAsyncAFDConnector'",
+            "AFD async mode requires connector='CAMAsyncAFDConnector' "
+            "or connector='WindowAFDConnector'",
         )
     if config.connector == "P2pNcclAFDConnector":
         from afd_plugin.distributed import validate_p2p_topology
@@ -380,6 +418,7 @@ def validate_afd_config(
 __all__ = [
     "AFDConfig",
     "AFD_ASYNC_CONNECTOR",
+    "AFD_ASYNC_DP_CONNECTORS",
     "afd_config_from_mapping",
     "AFD_ADDITIONAL_CONFIG_KEY",
     "AFDRole",
@@ -387,12 +426,15 @@ __all__ = [
     "HCCL_P2P_CONNECTOR",
     "SUPPORTED_AFD_CONNECTORS",
     "SUPPORTED_AFD_ROLES",
+    "WINDOW_CONNECTOR",
     "connector_extra_config_from_mapping",
     "connector_extra_config_from_source",
     "has_afd_config",
+    "is_afd_async_connector",
     "is_afd_async_dp",
     "is_afd_active",
     "parse_afd_config",
     "parse_optional_afd_config",
+    "use_afd_dspark",
     "validate_afd_config",
 ]

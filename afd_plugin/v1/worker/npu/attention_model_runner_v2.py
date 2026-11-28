@@ -17,6 +17,7 @@ from vllm.config import CUDAGraphMode, ParallelConfig, VllmConfig
 from vllm.distributed import get_tp_group
 from vllm.distributed.kv_transfer import get_kv_transfer_group
 from vllm.forward_context import ForwardContext
+from vllm.logger import init_logger
 from vllm.sequence import IntermediateTensors
 from vllm.v1.core.sched.output import SchedulerOutput
 from vllm.v1.kv_cache_interface import KVCacheConfig
@@ -24,10 +25,13 @@ from vllm.v1.worker.dp_utils import skip_dp_coordination
 from vllm.v1.worker.gpu import cudagraph_utils as v2_cudagraph_utils
 from vllm.v1.worker.gpu import model_runner as v2_model_runner
 from vllm.v1.worker.gpu.dp_utils import DPSyncState
+from vllm.v1.worker.gpu.model_runner import BatchReqState
 from vllm_ascend.models.deepseek_v41.dspark import DeepseekV41DSparkAttention
 from vllm_ascend.models.deepseek_v41.mixed_quant_attention import (
     MixedQuantPackedCacheOps,
 )
+from vllm_ascend.worker.v2 import model_runner as ascend_model_runner
+from vllm_ascend.worker.v2.input_batch import AscendInputBatch
 from vllm_ascend.worker.v2.model_runner import NPUModelRunner as NPUModelRunnerV2
 
 from afd_plugin.compat.npu import fail_if_unsupported_npu_afd_features
@@ -45,6 +49,7 @@ from afd_plugin.compat.npu.profiler import (
 from afd_plugin.compat.npu.runtime_config import (
     configure_async_cam_dbo,
     is_deepseek_v41_model,
+    npu_afd_num_ubatches,
     uses_deepseek_v41_dspark_pd,
 )
 from afd_plugin.compat.patches.npu.mrv2_ubatching import (
@@ -52,7 +57,13 @@ from afd_plugin.compat.patches.npu.mrv2_ubatching import (
     use_async_cam_dbo_dispatch,
     use_npu_ubatch_factory,
 )
-from afd_plugin.config import HCCL_P2P_CONNECTOR, AFDConfig, parse_afd_config
+from afd_plugin.config import (
+    HCCL_P2P_CONNECTOR,
+    WINDOW_CONNECTOR,
+    AFDConfig,
+    parse_afd_config,
+    use_afd_dspark,
+)
 from afd_plugin.connectors import (
     AFDConnectorBase,
     AFDForwardContextMetadata,
@@ -89,16 +100,142 @@ from afd_plugin.v1.worker.npu.hccl_v41_graph_bootstrap import (
     HcclV41AttentionGraphBootstrap,
 )
 from afd_plugin.v1.worker.npu.hccl_v41_ubatch_runner import HcclV41UBatchRunner
+from afd_plugin.v1.worker.npu.ubatch_runner import NPUUBatchRunner
 from afd_plugin.validation import validate_npu_model_runner_v2_config
 
 if TYPE_CHECKING:
+    from vllm.v1.worker.gpu.cudagraph_utils import BatchExecutionDescriptor
+    from vllm_ascend.worker.v2.spec_decode.dflash.aclgraph import DFlashAclGraphManager
+
     from afd_plugin.compat.npu.kv_layout_connector import MooncakeHybridConnector
     from afd_plugin.v1.worker.npu.hccl_v41_graph_coordinator import (
         HcclV41GraphCoordinator,
     )
     from afd_plugin.v1.worker.npu.hccl_v41_graph_eager import HcclV41GraphEager
     from afd_plugin.v1.worker.npu.hccl_v41_graph_session import HcclV41GraphSession
-    from afd_plugin.v1.worker.npu.ubatch_runner import NPUUBatchRunner
+
+logger = init_logger(__name__)
+
+
+def window_dspark_capture_descs(
+    descs: list[BatchExecutionDescriptor],
+    width: int,
+    max_reqs: int,
+    num_ubatches: int,
+) -> list[BatchExecutionDescriptor]:
+    """Align whole verification rows to the target's chosen stage count."""
+    if width < 1 or num_ubatches < 1:
+        raise ValueError("Verification width and target stage count must be positive")
+    buckets = set()
+    for desc in descs:
+        rows = min(desc.num_tokens // width, max_reqs)
+        rows -= rows % num_ubatches
+        if rows:
+            buckets.add(
+                replace(
+                    desc,
+                    num_reqs=rows,
+                    num_tokens=rows * width,
+                    uniform_token_count=width,
+                    max_query_len=None,
+                    num_ubatches=num_ubatches,
+                )
+            )
+    if not buckets:
+        raise ValueError(
+            f"Window DSpark needs max_num_seqs >= {num_ubatches} and a target "
+            f"graph bucket of at least {num_ubatches * width} tokens"
+        )
+    return sorted(buckets, key=lambda desc: desc.num_tokens, reverse=True)
+
+
+class _WindowDSparkTargetGraphManager(ascend_model_runner.ModelAclGraphManager):
+    def _init_candidates(self) -> None:
+        super()._init_candidates()
+        if self.cudagraph_mode != CUDAGraphMode.FULL_DECODE_ONLY:
+            return
+        descs = window_dspark_capture_descs(
+            self._capture_descs.get(CUDAGraphMode.FULL, []),
+            self.decode_query_len,
+            self.max_num_reqs,
+            npu_afd_num_ubatches(self.vllm_config),
+        )
+        self._capture_descs[CUDAGraphMode.FULL] = descs
+        self._candidates.clear()
+        next_token_count: dict[int, int] = {}
+        for desc in reversed(descs):
+            loras = desc.num_active_loras
+            for tokens in range(next_token_count.get(loras, 1), desc.num_tokens + 1):
+                self._candidates[tokens, loras] = [desc]
+            next_token_count[loras] = desc.num_tokens + 1
+
+
+@contextmanager
+def _use_window_dspark_target_graph_manager() -> Iterator[None]:
+    original = ascend_model_runner.ModelAclGraphManager
+    try:
+        ascend_model_runner.ModelAclGraphManager = _WindowDSparkTargetGraphManager
+        yield
+    finally:
+        ascend_model_runner.ModelAclGraphManager = original
+
+
+def install_window_dspark_replay(manager: DFlashAclGraphManager) -> None:
+    """Bind draft metadata replay only on the current worker's draft manager."""
+    from vllm.forward_context import get_forward_context, set_forward_context
+    from vllm_ascend.ascend_forward_context import _EXTRA_CTX
+    from vllm_ascend.compilation.acl_graph import update_full_graph_params
+    from vllm_ascend.worker.v2.spec_decode.dflash.aclgraph import DFlashAclGraphManager
+
+    def _graph_replay(self, desc, attn_backend, num_tokens, draft_attn_metadatas):
+        self.update_stream.wait_stream(torch.npu.current_stream())
+        result = super(DFlashAclGraphManager, self).run_fullgraph(desc)
+        num_tokens_across_dp = torch.full([self.speculator.dp_size], num_tokens)
+        with set_forward_context(
+            draft_attn_metadatas[0],
+            self.vllm_config,
+            num_tokens=num_tokens,
+            cudagraph_runtime_mode=desc.cg_mode,
+            num_tokens_across_dp=num_tokens_across_dp,
+            batch_descriptor=None,
+            slot_mapping=None,
+        ):
+            _EXTRA_CTX.is_draft_model = True
+            _EXTRA_CTX.is_draft_model_prefill = False
+            update_full_graph_params(
+                attn_backend,
+                self.update_stream,
+                get_forward_context(),
+                num_tokens,
+                self.vllm_config,
+                self.speculator.speculative_config,
+                draft_attn_metadatas=draft_attn_metadatas,
+            )
+        return result
+
+    manager._graph_replay = MethodType(_graph_replay, manager)
+
+
+def _normalize_window_u2_capture_descs(
+    capture_descs: list[v2_cudagraph_utils.BatchExecutionDescriptor],
+) -> list[v2_cudagraph_utils.BatchExecutionDescriptor]:
+    """Keep Window graph capture structurally U2, including one-token decode."""
+    normalized: list[v2_cudagraph_utils.BatchExecutionDescriptor] = []
+    for desc in capture_descs:
+        fixed = replace(
+            desc,
+            num_tokens=max(int(desc.num_tokens), 2),
+            num_reqs=(
+                max(int(desc.num_reqs or 1), 2)
+                if int(desc.num_tokens) < 2
+                else desc.num_reqs
+            ),
+            num_ubatches=2,
+        )
+        if fixed not in normalized:
+            normalized.append(fixed)
+    return normalized
+
 
 _AFD_FULLGRAPH_HOOK_MARKER = "_afd_fullgraph_replay_hook_active"
 
@@ -107,6 +244,8 @@ _AFD_FULLGRAPH_HOOK_MARKER = "_afd_fullgraph_replay_hook_active"
 def _use_afd_fullgraph_replay_hook(
     runner: AFDNPUAttentionModelRunnerV2,
     real_tokens: int,
+    *,
+    verifying_drafts: bool = False,
 ) -> Iterator[None]:
     """Scope AFD full ACL-graph replay control to one graph manager instance."""
 
@@ -146,7 +285,16 @@ def _use_afd_fullgraph_replay_hook(
             # complete A/F transaction. Update their captured MLA records at
             # this graph-manager seam without publishing duplicate control.
             assert runner.ubatch_runner is not None
-            return runner.ubatch_runner.run_fullgraph(self, desc)
+            result = runner.ubatch_runner.run_fullgraph(self, desc)
+            if verifying_drafts:
+                logger.info_once(
+                    "Window DSpark target replayed U2 FULL verification graph "
+                    "(requests=%d, tokens=%d, query_width=%d)",
+                    desc.num_reqs,
+                    desc.num_tokens,
+                    desc.uniform_token_count,
+                )
+            return result
         previous_is_graph_replaying = getattr(
             runner,
             "_afd_is_graph_replaying",
@@ -161,10 +309,11 @@ def _use_afd_fullgraph_replay_hook(
             runner._is_warmup = False
             runner._afd_is_graph_capturing = False
             runner._afd_is_graph_replaying = True
-            runner.send_dp_metadata(
-                runner.build_capture_dp_metadata(padded_tokens),
-                None,
-            )
+            if runner.connector.control_plane is not None:
+                runner.send_dp_metadata(
+                    runner.build_capture_dp_metadata(padded_tokens),
+                    None,
+                )
             result = original_run_fullgraph(desc)
         finally:
             runner._afd_is_graph_replaying = previous_is_graph_replaying
@@ -797,6 +946,15 @@ class AFDNPUAttentionModelRunnerV2(AFDMetadataProviderMixin, NPUModelRunnerV2):
         kv_cache_allocation_context: AbstractContextManager | None = None,
     ) -> None:
         # ### PATCH START: create the native NPU ubatch adapter.
+        target_graph = (
+            use_afd_dspark(self.vllm_config, self.afd_config)
+            and not self.model_config.enforce_eager
+        )
+        draft_graph = (
+            self.speculator is not None
+            and target_graph
+            and not self.speculative_config.enforce_eager
+        )
         transport = (
             self.hccl_v41_transport
             if self.vllm_config.parallel_config.use_ubatching
@@ -837,10 +995,15 @@ class AFDNPUAttentionModelRunnerV2(AFDMetadataProviderMixin, NPUModelRunnerV2):
         if bootstrap is not None:
             bootstrap.begin_kv_init()
         try:
-            with use_npu_ubatch_factory(
-                self,
-                hccl_transport=transport,
-                hccl_graph_owner=graph_session if transport is not None else None,
+            with (
+                use_npu_ubatch_factory(
+                    self,
+                    hccl_transport=transport,
+                    hccl_graph_owner=graph_session if transport is not None else None,
+                ),
+                _use_window_dspark_target_graph_manager()
+                if target_graph
+                else nullcontext(),
             ):
                 super().initialize_kv_cache(
                     kv_cache_config, kv_cache_allocation_context
@@ -866,7 +1029,60 @@ class AFDNPUAttentionModelRunnerV2(AFDMetadataProviderMixin, NPUModelRunnerV2):
             if eager_bootstrap is not None:
                 eager_bootstrap.fail()
             raise
+        if draft_graph:
+            install_window_dspark_replay(self.speculator.query_cudagraph_manager)
+        if (
+            self.afd_config.connector == WINDOW_CONNECTOR
+            and isinstance(self.ubatch_runner, NPUUBatchRunner)
+        ):
+            # Native MRV2 prepares only its own Attention builders. U2 owns an
+            # independent builder per stage, so initialize their V4.1 source
+            # RoPE after KV/cache registration has completed as well.
+            self.ubatch_runner.prepare_v41_source_rope()
         # ### PATCH END: create the native NPU ubatch adapter.
+
+    def _uses_fixed_window_u2(self) -> bool:
+        return bool(
+            getattr(self.connector, "is_window_connector", False)
+            and int(getattr(self.connector, "micro_batch_num", 1)) == 2
+        )
+
+    # Upstream: Ascend NPUModelRunner.prepare_inputs at 7e37e29a.
+    # Fixed Window U2 needs deterministic dummy-child inputs when native MRV2
+    # pads a single real child. Keep all native input preparation in super().
+    def prepare_inputs(
+        self,
+        scheduler_output: SchedulerOutput,
+        batch_req_state: BatchReqState,
+        batch_desc: BatchExecutionDescriptor,
+    ) -> AscendInputBatch:
+        input_batch = super().prepare_inputs(
+            scheduler_output,
+            batch_req_state,
+            batch_desc,
+        )
+        # ### PATCH START: initialize padding for the fixed Window U2 child.
+        if not self._uses_fixed_window_u2() or batch_desc.num_ubatches != 2:
+            return input_batch
+
+        num_tokens = int(input_batch.num_tokens)
+        num_tokens_padded = int(input_batch.num_tokens_after_padding)
+        if num_tokens_padded <= num_tokens:
+            return input_batch
+
+        # Native MRV2 represents the dummy child as zero real query tokens over
+        # one padded model token.  Make that token deterministic and keep its
+        # Attention state empty, equivalent to DSV4's fixed-U2 dummy padding.
+        padding = slice(num_tokens, num_tokens_padded)
+        input_batch.input_ids[padding].copy_(
+            input_batch.input_ids[:1].expand(num_tokens_padded - num_tokens)
+        )
+        input_batch.positions[padding].fill_(127)
+        input_batch.is_padding[:num_tokens].fill_(False)
+        input_batch.is_padding[padding].fill_(True)
+        input_batch.seq_lens[input_batch.num_reqs :].zero_()
+        return input_batch
+        # ### PATCH END: initialize padding for the fixed Window U2 child.
 
     # Patch reason: vLLM v0.30.0 prepares FULL graph inputs before each warmup
     # and formal capture forward, outside torch.cuda.graph, but does not expose
@@ -897,10 +1113,14 @@ class AFDNPUAttentionModelRunnerV2(AFDMetadataProviderMixin, NPUModelRunnerV2):
             coordinator.preflight_capture()
             return coordinator.capture_native(profile_only=profile_only)
         manager = self.cudagraph_manager
+        capture_descs = manager._capture_descs.get(CUDAGraphMode.FULL, [])
+        if self._uses_fixed_window_u2() and not use_afd_dspark(
+            self.vllm_config, self.afd_config
+        ):
+            capture_descs = _normalize_window_u2_capture_descs(capture_descs)
+            manager._capture_descs[CUDAGraphMode.FULL] = capture_descs
         # Native graph-memory profiling captures only this descriptor prefix.
-        capture_descs = manager._capture_descs.get(CUDAGraphMode.FULL, [])[
-            : manager._max_full_descs_to_capture
-        ]
+        capture_descs = capture_descs[: manager._max_full_descs_to_capture]
         if not capture_descs:
             raise RuntimeError(
                 "AFD NPU ModelRunnerV2 ACL graph expected at least one FULL "
@@ -1052,10 +1272,16 @@ class AFDNPUAttentionModelRunnerV2(AFDMetadataProviderMixin, NPUModelRunnerV2):
                 )
                 self._afd_pending_metadata = None
 
+            window_dspark = use_afd_dspark(self.vllm_config, self.afd_config)
             replay_scope = (
                 _use_afd_fullgraph_replay_hook(
                     self,
                     int(scheduler_output.total_num_scheduled_tokens),
+                    verifying_drafts=(
+                        not dummy_run
+                        and window_dspark
+                        and bool(scheduler_output.scheduled_spec_decode_tokens)
+                    ),
                 )
                 if use_fullgraph_replay_hook
                 else nullcontext()
@@ -1063,7 +1289,7 @@ class AFDNPUAttentionModelRunnerV2(AFDMetadataProviderMixin, NPUModelRunnerV2):
             try:
                 with (
                     skip_dp_coordination()
-                    if self.afd_config.async_dp
+                    if self.afd_config.async_dp and not window_dspark
                     else nullcontext(),
                     _use_camp2p_dp_padding(
                         self.afd_config.num_attention_ranks,
@@ -1074,8 +1300,13 @@ class AFDNPUAttentionModelRunnerV2(AFDMetadataProviderMixin, NPUModelRunnerV2):
                     > self.afd_config.num_ffn_ranks
                     else nullcontext(),
                     replay_scope,
-                    use_async_cam_dbo_dispatch()
-                    if self.afd_config.async_dp and self.ubatch_runner is not None
+                    use_async_cam_dbo_dispatch(
+                        allow_target_graph=not dummy_run or not window_dspark,
+                        force_window_u2=self._uses_fixed_window_u2() and not dummy_run,
+                        dspark_query_width=self.decode_query_len if window_dspark else None,
+                    )
+                    if self.afd_config.async_dp
+                    and (self.ubatch_runner is not None or window_dspark)
                     else nullcontext(),
                     _use_afd_ubatch_preparation(self),
                     use_afd_metadata_provider(

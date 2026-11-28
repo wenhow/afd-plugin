@@ -8,11 +8,13 @@ from types import SimpleNamespace
 import pytest
 
 from afd_plugin.config import (
+    WINDOW_CONNECTOR,
     AFDConfig,
     afd_config_from_mapping,
     connector_extra_config_from_mapping,
     has_afd_config,
     is_afd_active,
+    is_afd_async_connector,
     is_afd_async_dp,
     parse_afd_config,
     parse_optional_afd_config,
@@ -120,6 +122,28 @@ def test_connector_extra_config_is_extracted_for_connector_parser():
     assert connector_extra_config_from_mapping(raw) == {
         "dynamicQuant": "1",
     }
+
+
+@pytest.mark.parametrize(
+    ("role", "spec_method", "independent_dp"),
+    [("attention", None, True), ("attention", "dspark", False), ("ffn", None, True)],
+)
+def test_window_dspark_keeps_native_attention_dp_participation(
+    role, spec_method, independent_dp
+):
+    source = SimpleNamespace(
+        additional_config={
+            "afd": {
+                "connector": WINDOW_CONNECTOR,
+                "role": role,
+                "async": True,
+                "compute_gate_on_attention": True,
+            },
+        },
+        speculative_config=SimpleNamespace(method=spec_method) if spec_method else None,
+    )
+    assert is_afd_async_connector(source)
+    assert is_afd_async_dp(source) is independent_dp
 
 
 def test_parse_async_dp_config_from_async_alias():

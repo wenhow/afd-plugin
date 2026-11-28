@@ -504,6 +504,13 @@ class AFDNPUFFNWorker(NPUWorker):
                 ):
                     torch.npu.synchronize()
                 continue
+            if getattr(self.model_runner.connector, "is_window_connector", False):
+                assert isinstance(self.model_runner, AFDNPUFFNModelRunner)
+                self.model_runner.execute_connector_driven_step()
+                if not self.model_runner.window_ffn_multistream_enabled:
+                    torch.npu.synchronize()
+                step_afd_npu_profiler(session)
+                continue
             control_plane = self.model_runner.connector.control_plane
             assert control_plane is not None
             payload = control_plane.recv_dp_metadata_list()

@@ -10,11 +10,14 @@ from typing import TYPE_CHECKING
 
 from afd_plugin.compat.npu.pd_topology import validate_ep_pd_topology
 from afd_plugin.config import (
-    AFD_ASYNC_CONNECTOR,
+    AFD_ASYNC_DP_CONNECTORS,
     DSV41_HCCL_DSPARK_STEPS,
     HCCL_P2P_CONNECTOR,
-    is_afd_async_dp,
+    WINDOW_CONNECTOR,
+    is_afd_async_connector,
     parse_afd_config,
+    parse_optional_afd_config,
+    use_afd_dspark,
 )
 
 if TYPE_CHECKING:
@@ -53,6 +56,9 @@ def resolve_deepseek_v41_target_shape(
     No drafter, mutable config child or model state is retained in this object.
     """
     if not is_deepseek_v41_model(vllm_config):
+        return None
+    afd_config = parse_optional_afd_config(vllm_config, validate=False)
+    if afd_config is not None and afd_config.connector == WINDOW_CONNECTOR:
         return None
     validate_deepseek_v41_speculation(vllm_config)
     speculative = vllm_config.speculative_config
@@ -370,7 +376,11 @@ def get_npu_ffn_config(vllm_config: VllmConfig) -> VllmConfig:
     if not is_deepseek_v41_model(vllm_config):
         return vllm_config
     afd_config = parse_afd_config(vllm_config, expected_role="ffn")
-    validate_deepseek_v41_speculation(vllm_config)
+    if afd_config.connector == WINDOW_CONNECTOR:
+        if vllm_config.speculative_config is not None:
+            raise ValueError("Window speculative decoding runs on Attention only")
+    else:
+        validate_deepseek_v41_speculation(vllm_config)
     if afd_config.connector == HCCL_P2P_CONNECTOR:
         # Validate the original target before removing its A-owned fields.
         validate_deepseek_v41_pd(vllm_config)
@@ -396,11 +406,12 @@ def get_npu_ffn_config(vllm_config: VllmConfig) -> VllmConfig:
 
 
 def configure_async_cam_dbo(vllm_config: VllmConfig) -> None:
-    """Normalize native ubatching to DBO on every Attention DP size."""
+    """Normalize native ubatching for async AFD Attention connectors."""
     afd_config = parse_afd_config(vllm_config)
     parallel = vllm_config.parallel_config
     if (
-        afd_config.connector != AFD_ASYNC_CONNECTOR
+        not afd_config.async_dp
+        or afd_config.connector not in AFD_ASYNC_DP_CONNECTORS
         or not afd_config.is_attention_server
     ):
         return
@@ -408,10 +419,11 @@ def configure_async_cam_dbo(vllm_config: VllmConfig) -> None:
         return
 
     parallel.enable_dbo = True
-    # Normalizing ubatching happens after ParallelConfig validation.
-    # Repeat its native threshold guard so no empty child can be selected.
+    # Dynamic DBO connectors still rely on thresholds to avoid an empty child.
+    # Window U2 is a fixed two-slot protocol and pads that child explicitly.
     if (
-        min(
+        afd_config.connector != WINDOW_CONNECTOR
+        and min(
             parallel.dbo_decode_token_threshold,
             parallel.dbo_prefill_token_threshold,
         )
@@ -424,7 +436,7 @@ def configure_async_cam_dbo(vllm_config: VllmConfig) -> None:
 
 
 def uses_async_cam_dbo(vllm_config: VllmConfig) -> bool:
-    return is_afd_async_dp(vllm_config) and (
+    return is_afd_async_connector(vllm_config) and (
         vllm_config.parallel_config.enable_dbo
         or vllm_config.parallel_config.use_ubatching
     )
@@ -468,6 +480,9 @@ def fix_all2all_backend_for_afd(vllm_config: VllmConfig) -> None:
     Rewriting its all2all backend disables model-owned token sharding even
     when EP/DP/TP requested it. Non-SP workers keep the legacy backend fix.
     """
+    # Window's native draft uses the original A-side EP backend.
+    if use_afd_dspark(vllm_config):
+        return
     parallel_config = vllm_config.parallel_config
     if (
         not parallel_config.use_sequence_parallel_moe

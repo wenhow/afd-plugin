@@ -220,10 +220,11 @@ def _use_afd_capture_input_preparation(
             None,
             int(desc.num_tokens),
         )
-        runner.send_dp_metadata(
-            runner.build_capture_dp_metadata(int(desc.num_tokens)),
-            None,
-        )
+        if runner.connector.control_plane is not None:
+            runner.send_dp_metadata(
+                runner.build_capture_dp_metadata(int(desc.num_tokens)),
+                None,
+            )
         runner._afd_suppress_metadata_send = True
         return attention_state
         # ### PATCH END: stage one exact AFD capture event.

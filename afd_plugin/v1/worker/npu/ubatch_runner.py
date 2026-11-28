@@ -54,6 +54,7 @@ from afd_plugin.compat.patches.npu.mrv2_ubatching import (
     use_npu_ubatch_contexts,
     use_npu_ubatch_output_merge,
 )
+from afd_plugin.config import use_afd_dspark
 from afd_plugin.model_executor.models.npu.deepseek_attention_metadata import (
     materialize_deepseek_attention_metadata_by_layer,
 )
@@ -65,6 +66,8 @@ from afd_plugin.v1.worker.npu.mla_graph import (
 
 
 class NPUUBatchRunner(UBatchRunner):
+    _verification_width: int | None = None
+
     # Native UBatchRunner owns child slicing/storage; this adapter creates
     # independent Ascend builders and prepares V4.1 source tables as MRV2 does.
     # Added keyword-only kernel_block_sizes and timeout_s select each builder's
@@ -86,6 +89,11 @@ class NPUUBatchRunner(UBatchRunner):
             vllm_config, device, model_state, attn_groups, kv_cache_config, max_num_reqs
         )
         self.ready_barrier = threading.Barrier(self.num_ubatches + 1, timeout=timeout_s)
+        self._verification_width = (
+            vllm_config.speculative_config.num_speculative_tokens + 1
+            if use_afd_dspark(vllm_config)
+            else None
+        )
         self._prepared_state: UBatchState | None = None
         self._mla_capture_params: dict[
             BatchExecutionDescriptor, tuple[GraphParams, GraphParams]
@@ -96,6 +104,7 @@ class NPUUBatchRunner(UBatchRunner):
             and not hasattr(hf_config, "index_topk")
             and not hasattr(hf_config, "compress_ratios")
         )
+        self._uses_dsa_graph_buffers = hasattr(hf_config, "compress_ratios")
         self._stage_block_tables: list[tuple[torch.Tensor, ...] | None] = [
             None for _ in range(self.num_ubatches)
         ]
@@ -131,6 +140,17 @@ class NPUUBatchRunner(UBatchRunner):
                                 builder.prepare_source_rope()
                         # ### PATCH END: initialize each V4.1 child source RoPE
                 self.stage_attn_groups.append(groups)
+
+    def prepare_v41_source_rope(self) -> None:
+        """Prepare DSV4.1 source RoPE on each microbatch-local builder."""
+        from vllm_ascend.attention.dsa_v41 import AscendDSAV41MetadataBuilder
+
+        for groups in self.stage_attn_groups:
+            for cache_group in groups:
+                for group in cache_group:
+                    for builder in group.metadata_builders:
+                        if isinstance(builder, AscendDSAV41MetadataBuilder):
+                            builder.prepare_source_rope()
 
     # Ascend 8d4409d6 asserts ubatch_idx == 0 and always selects builder zero.
     # Feed its existing builder function an independent group per native child;
@@ -188,6 +208,17 @@ class NPUUBatchRunner(UBatchRunner):
                 buffer[: table.shape[0]].copy_(table)
                 for buffer, table in zip(buffers, block_tables, strict=True)
             )
+        verification_graph = (
+            self._verification_width is not None
+            and cudagraph_mode == CUDAGraphMode.FULL
+        )
+        is_prefilling = torch.from_numpy(input_batch.is_prefilling_np)
+        if verification_graph and is_prefilling.numel() < num_reqs:
+            # Pad the host phase flags to the same physical request rows as
+            # query_start_loc. DSA uses these counts to select its decode path.
+            is_prefilling = torch.nn.functional.pad(
+                is_prefilling, (0, num_reqs - is_prefilling.numel()), value=False
+            )
         metadata = build_attn_metadata(
             attn_groups=self.stage_attn_groups[ubatch_idx],
             num_reqs=num_reqs,
@@ -197,7 +228,11 @@ class NPUUBatchRunner(UBatchRunner):
             num_input_tokens=num_input_tokens,
             query_start_loc_gpu=input_batch.query_start_loc,
             query_start_loc_cpu=torch.from_numpy(input_batch.query_start_loc_np),
-            max_query_len=int(input_batch.num_scheduled_tokens.max(initial=0)),
+            max_query_len=(
+                self._verification_width
+                if verification_graph
+                else int(input_batch.num_scheduled_tokens.max(initial=0))
+            ),
             seq_lens=input_batch.seq_lens,
             seq_lens_np=input_batch.seq_lens_np,
             seq_lens_cpu_upper_bound=input_batch.seq_lens_cpu_upper_bound,
@@ -219,7 +254,7 @@ class NPUUBatchRunner(UBatchRunner):
                     kv_cache_config,
                 )
             ),
-            is_prefilling=torch.from_numpy(input_batch.is_prefilling_np),
+            is_prefilling=is_prefilling,
             for_cudagraph_capture=for_capture,
             full_graph_mode=cudagraph_mode == CUDAGraphMode.FULL,
         )
@@ -249,7 +284,8 @@ class NPUUBatchRunner(UBatchRunner):
         previous_override = self.model_state.__dict__.get("prepare_attn")
         self.model_state.prepare_attn = self._prepare_attn
         try:
-            with use_npu_input_batch_slicing():
+            width = self._verification_width if cg_mode == CUDAGraphMode.FULL else None
+            with use_npu_input_batch_slicing(verification_width=width):
                 prepared = super().prepare(
                     input_batch, block_tables, slot_mappings, cg_mode, for_capture
                 )
@@ -309,6 +345,8 @@ class NPUUBatchRunner(UBatchRunner):
             # assignments run during tracing and cannot initialize each native
             # child: without this, stage 1 silently selects stage 0's group.
             context.ubatch_idx = stage_idx
+            context.num_ubatches = len(ubatch_slices)
+            context.dbo_enabled = True
             mask = context.additional_kwargs.get("mc2_mask")
             if mask is not None:
                 context.additional_kwargs["mc2_mask"] = mask.clone()
@@ -392,7 +430,20 @@ class NPUUBatchRunner(UBatchRunner):
     def run_fullgraph(
         self, manager: ModelAclGraphManager, desc: BatchExecutionDescriptor
     ) -> Any:
-        """Replay the native graph and update the two captured MLA stages."""
+        """Replay the native graph with backend-specific U2 metadata handling."""
+        if self._uses_dsa_graph_buffers:
+            # DSV4.1 DSA owns graph-stable metadata buffers per stage and its
+            # update_graph_params() is intentionally a no-op.  The Ascend
+            # single-batch manager cannot be used here because it reads one
+            # model_state.attn_metadata, while U2 carries two stage contexts.
+            # Match the verified DSV4 DSA U2 path: replay the captured graph
+            # directly after live preparation has refreshed those buffers.
+            device_metadata = getattr(self.model_state, "device_metadata", None)
+            try:
+                return ModelCudaGraphManager.run_fullgraph(manager, desc)
+            finally:
+                if device_metadata is not None:
+                    device_metadata.finish_replay()
         if not self._uses_mla_graph_params:
             return ModelAclGraphManager.run_fullgraph(manager, desc)
         prepared = self._prepared_state

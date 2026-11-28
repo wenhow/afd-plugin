@@ -592,6 +592,11 @@ _NPU_ASYNC = {
     "afd.async_dp": True,
     "afd.compute_gate_on_attention": True,
 }
+_NPU_WINDOW = {
+    "afd.connector": "WindowAFDConnector",
+    "afd.async_dp": True,
+    "afd.compute_gate_on_attention": True,
+}
 _NPU_DBO = {
     **_NPU_SYNC,
     "afd.num_attention_ranks": 2,
@@ -612,6 +617,7 @@ _NPU_GRAPH = {
     ("overrides", "error"),
     [
         pytest.param(_NPU_ASYNC, None, id="accept-async-cam"),
+        pytest.param(_NPU_WINDOW, None, id="accept-window"),
         pytest.param(
             {
                 **_NPU_ASYNC,

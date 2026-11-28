@@ -15,9 +15,11 @@ from afd_plugin.config import (
     AFD_ASYNC_CONNECTOR,
     CAMP2P_CONNECTOR,
     DSV41_HCCL_DSPARK_STEPS,
+    WINDOW_CONNECTOR,
     AFDConfig,
     is_afd_async_dp,
     parse_afd_config,
+    use_afd_dspark,
 )
 from afd_plugin.envs import async_cam_layered_gmm_enabled
 from afd_plugin.validation import cam_receive_capacity, requested_ffn_mode
@@ -499,6 +501,15 @@ def fail_if_unsupported_npu_afd_features(
     """Fail fast for NPU AFD settings that are not currently supported."""
 
     afd_config = afd_config or parse_afd_config(vllm_config)
+    if afd_config.connector == WINDOW_CONNECTOR:
+        from afd_plugin.connectors.factory import AFDConnectorFactory
+
+        _fail_if_unsupported_window_features(
+            vllm_config,
+            afd_config,
+            AFDConnectorFactory.parse_connector_extra_info(WINDOW_CONNECTOR, vllm_config),
+        )
+        return
     if is_deepseek_v41_model(vllm_config):
         qualification = os.environ.get(V41_EAGER_QUALIFICATION_ENV, "0")
         if qualification not in ("0", "1"):
@@ -621,6 +632,94 @@ def _is_dsv4_target(vllm_config: VllmConfig) -> bool:
         architecture.removeprefix("AFD") == "DeepseekV4ForCausalLM"
         for architecture in (hf_config.architectures or ())
     )
+
+
+def _fail_if_unsupported_window_features(
+    vllm_config: VllmConfig,
+    afd_config: AFDConfig,
+    extra_info: ConnectorExtraInfo,
+) -> None:
+    """Validate the DSV4.1 Window U1 and U2 eager/graph paths."""
+
+    from afd_plugin.connectors.npu.window import WindowAFDExtraInfo
+
+    if not is_deepseek_v41_model(vllm_config):
+        raise RuntimeError("Initial WindowAFDConnector support requires DSV4.1")
+    if not isinstance(extra_info, WindowAFDExtraInfo):
+        raise TypeError("WindowAFDConnector requires WindowAFDExtraInfo")
+    if not afd_config.async_dp or not afd_config.compute_gate_on_attention:
+        raise RuntimeError(
+            "Window execution requires async=true and compute_gate_on_attention=true"
+        )
+    micro_batch_num = int(extra_info.micro_batch_num)
+    if micro_batch_num not in (1, 2):
+        raise RuntimeError("DSV4.1 Window supports micro_batch_num=1 or 2")
+    parallel = vllm_config.parallel_config
+    uses_ubatching = bool(parallel.use_ubatching)
+    if micro_batch_num == 1 and uses_ubatching:
+        raise RuntimeError("Window U1 must not enable DBO/ubatching")
+    if micro_batch_num == 2:
+        if vllm_config.model_config.hf_text_config.engram_layer_ids:
+            raise RuntimeError(
+                "DSV4.1 Window U2 does not support Engram yet; "
+                "clear engram_layer_ids with the model override"
+            )
+        if afd_config.is_attention_server:
+            multimodal_config = vllm_config.model_config.multimodal_config
+            if multimodal_config is None or not multimodal_config.language_model_only:
+                raise RuntimeError(
+                    "DSV4.1 Window Attention U2 requires --language-model-only"
+                )
+            if not uses_ubatching or int(parallel.num_ubatches) != 2:
+                raise RuntimeError(
+                    "Window Attention U2 requires vLLM DBO with exactly two ubatches"
+                )
+        elif uses_ubatching:
+            raise RuntimeError(
+                "Window FFN uses two transport slots but must not enable the "
+                "vLLM model-forward UBatchRunner"
+            )
+    if not vllm_config.model_config.enforce_eager:
+        graph_mode = vllm_config.compilation_config.cudagraph_mode.name
+        if graph_mode != "FULL_DECODE_ONLY":
+            raise RuntimeError(
+                "DSV4.1 Window graph execution requires FULL_DECODE_ONLY"
+            )
+    if vllm_config.speculative_config is not None:
+        _fail_if_unsupported_dspark_features(vllm_config, afd_config)
+    if parallel.use_sequence_parallel_moe:
+        raise RuntimeError("DSV4.1 Window U1/U2 does not enable MoE SP")
+    if parallel.enable_eplb:
+        raise RuntimeError("Window AFD does not support EPLB")
+    if vllm_config.additional_config.get("mix_placement", False):
+        raise RuntimeError("Window AFD requires mix_placement=false")
+    if int(vllm_config.model_config.hf_text_config.n_shared_experts) != 1:
+        raise RuntimeError("Window AFD requires exactly one shared expert")
+
+
+def _fail_if_unsupported_dspark_features(
+    vllm_config: VllmConfig,
+    afd_config: AFDConfig,
+) -> None:
+    """Validate draft policy independently of the target transport stage count."""
+    if not use_afd_dspark(vllm_config, afd_config):
+        raise RuntimeError("Window speculative decoding requires DSpark on Attention")
+    spec = vllm_config.speculative_config
+    if not vllm_config.model_config.enforce_eager:
+        if spec.enable_adaptive_verification:
+            raise RuntimeError("Window verification graphs require fixed draft width")
+    elif spec.enforce_eager is False:
+        raise RuntimeError("Window DSpark draft graphs require a graph target")
+    draft = spec.draft_model_config.hf_text_config
+    if spec.num_speculative_tokens != draft.dspark_block_size:
+        raise RuntimeError("Use the checkpoint's dspark_block_size for Window DSpark")
+    # V4.1 captures inputs at one-based target layer IDs, in model order.
+    ids = list(draft.dspark_target_layer_ids)
+    depth = vllm_config.model_config.hf_text_config.num_hidden_layers
+    if not ids or ids != sorted(set(ids)) or ids[0] < 1 or ids[-1] > depth:
+        raise RuntimeError(
+            f"DSpark target layers {ids} must be unique, ordered and in 1..{depth}"
+        )
 
 
 def _fail_if_unsupported_dsv4_async_features(

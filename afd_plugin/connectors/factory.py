@@ -112,4 +112,11 @@ AFDConnectorFactory.register_connector(
 )
 
 
+AFDConnectorFactory.register_connector(
+    "WindowAFDConnector",
+    "afd_plugin.connectors.npu.window",
+    "WindowAFDConnector",
+)
+
+
 __all__ = ["AFDConnectorFactory"]

@@ -19,6 +19,7 @@ def _vllm_config(
     all2all_backend="allgather_reducescatter",
 ):
     return SimpleNamespace(
+        additional_config={},
         compilation_config=SimpleNamespace(
             pass_config=SimpleNamespace(enable_sp=enable_sp),
         ),

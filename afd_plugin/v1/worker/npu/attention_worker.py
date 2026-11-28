@@ -16,7 +16,11 @@ from afd_plugin.compat.npu import (
 )
 from afd_plugin.compat.npu.profiler import AFDNPUProfilerSession
 from afd_plugin.compat.npu.runtime_config import configure_async_cam_dbo
-from afd_plugin.model_executor.models.model_utils import get_afd_model_config
+from afd_plugin.config import use_afd_dspark
+from afd_plugin.model_executor.models.model_utils import (
+    configure_window_dspark_draft,
+    get_afd_model_config,
+)
 from afd_plugin.v1.worker.npu.attention_model_runner_v2 import (
     AFDNPUAttentionModelRunnerV2,
 )
@@ -75,14 +79,24 @@ class AFDNPUAttentionWorker(NPUWorker):
         )
 
         self.device = self._init_device()
+        window_dspark = use_afd_dspark(self.vllm_config)
+        # MRV2 selects lane 1 during draft loading, capture and proposal.
+        # Each lane has its own per-ubatch workspace retained by its graph.
         init_workspace_manager(
             self.device,
             npu_afd_num_ubatches(self.vllm_config),
+            num_lanes=2 if window_dspark else 1,
         )
         self.vllm_config.model_config = get_afd_model_config(
             self.vllm_config.model_config,
             device_type="npu",
         )
+        # MRV2 selects and loads the draft separately from the target model.
+        spec = self.vllm_config.speculative_config
+        if spec is not None and window_dspark:
+            draft = spec.draft_model_config
+            configure_window_dspark_draft(self.vllm_config.model_config, draft)
+            spec.update_arch_()
         self.model_runner = AFDNPUAttentionModelRunnerV2(
             self.vllm_config,
             self.device,

@@ -13,8 +13,10 @@ from afd_plugin.config import (
     AFD_ASYNC_CONNECTOR,
     CAMP2P_CONNECTOR,
     DEEPEP_M2N_CONNECTORS,
+    WINDOW_CONNECTOR,
     AFDConfig,
     parse_afd_config,
+    use_afd_dspark,
 )
 from afd_plugin.v1.worker.cuda_graph import (
     cudagraph_mode_name,
@@ -232,12 +234,18 @@ def validate_npu_model_runner_v2_config(
                     "on Attention"
                 )
             requested_ffn_mode(vllm_config)
+    elif afd_config.connector == WINDOW_CONNECTOR:
+        if not afd_config.async_dp or not afd_config.compute_gate_on_attention:
+            raise RuntimeError(
+                "AFD NPU ModelRunnerV2 Window requires async DP and "
+                "compute_gate_on_attention=true",
+            )
     elif (
         afd_config.connector != CAMP2P_CONNECTOR or afd_config.compute_gate_on_attention
     ):
         raise RuntimeError(
             "AFD NPU ModelRunnerV2 requires synchronous CAMP2pAFDConnector "
-            "with compute_gate_on_attention=false, or Async CAM",
+            "with compute_gate_on_attention=false, Async CAM, or Window",
         )
 
     parallel = vllm_config.parallel_config
@@ -275,13 +283,18 @@ def validate_npu_model_runner_v2_config(
             expected_role == "attention"
             and parallel.data_parallel_size <= 1
             and afd_config.connector != AFD_ASYNC_CONNECTOR
+            and not use_afd_dspark(vllm_config, afd_config)
         ):
             raise RuntimeError("AFD NPU ModelRunnerV2 DBO requires Attention DP > 1")
         if parallel.num_ubatches != 2:
             raise RuntimeError(
                 "AFD NPU ModelRunnerV2 DBO requires exactly two ubatches"
             )
-        if vllm_config.speculative_config is not None:
+        if vllm_config.speculative_config is not None and not (
+            use_afd_dspark(vllm_config, afd_config)
+            and int(afd_config.connector_extra_config.get("micro_batch_num", 1))
+            == parallel.num_ubatches
+        ):
             raise RuntimeError(
                 "AFD NPU ModelRunnerV2 DBO does not support speculative decoding"
             )
@@ -290,7 +303,13 @@ def validate_npu_model_runner_v2_config(
         has_afd_model_registration,
     )
 
-    if not has_afd_model_registration(vllm_config.model_config):
+    if afd_config.connector == WINDOW_CONNECTOR:
+        # The native model loader patch selects Window's explicit role class.
+        from afd_plugin.compat.npu.runtime_config import is_deepseek_v41_model
+
+        if not is_deepseek_v41_model(vllm_config):
+            raise RuntimeError("WindowAFDConnector requires DeepSeek V4.1")
+    elif not has_afd_model_registration(vllm_config.model_config):
         raise RuntimeError("AFD ModelRunnerV2 requires a registered AFD model")
 
     if not vllm_config.model_config.enforce_eager:

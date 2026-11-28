@@ -12,6 +12,7 @@ from vllm_ascend.attention.dsa_v1 import (
     AscendDSAMetadata,
     AscendDSAMetadataBuilder,
 )
+from vllm_ascend.attention.dsa_v41 import AscendDSAV41Metadata
 from vllm_ascend.attention.mla_v1 import AscendMLAMetadata
 from vllm_ascend.attention.sfa_v1 import (
     AscendSFAMetadata,
@@ -100,19 +101,26 @@ def materialize_deepseek_attention_metadata(
             )
         return
 
-    if isinstance(metadata, AscendDSAMetadata):
-        # Target Ascend stores RoPE proxies on request metadata. Rebuild the
-        # exact physical token span before another async stage reuses the
+    if isinstance(metadata, (AscendDSAMetadata, AscendDSAV41Metadata)):
+        if isinstance(metadata, AscendDSAV41Metadata):
+            # V4.1 SWA metadata owns the RoPE used by the main Attention path.
+            if metadata.cos is None or metadata.sin is None:
+                return
+            rope_metadata = metadata
+        else:
+            assert metadata.req_metadata is not None
+            rope_metadata = metadata.req_metadata
+
+        # Rebuild this stage's positions before another stage reuses the
         # process-wide runtime RoPE buffers.
-        assert metadata.req_metadata is not None
         cos, sin = get_cos_and_sin_dsa(
             input_positions[:num_input_tokens].long(),
             use_cache=False,
         )
         if rope_buffers is None:
-            metadata.req_metadata.cos, metadata.req_metadata.sin = cos, sin
+            rope_metadata.cos, rope_metadata.sin = cos, sin
         else:
-            metadata.req_metadata.cos, metadata.req_metadata.sin = _own_dsa_rope(
+            rope_metadata.cos, rope_metadata.sin = _own_dsa_rope(
                 cos, rope_buffers, rope_capacity
             )
 
