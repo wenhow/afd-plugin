@@ -11,6 +11,18 @@ primary_code_paths:
   - "afd_plugin/v1/worker/attention_worker.py"
   - "afd_plugin/v1/worker/ubatch_wrapper.py"
   - "afd_plugin/v1/worker/npu/attention_model_runner_v2.py"
+  - "afd_plugin/v1/worker/npu/hccl_v41_ubatch_runner.py"
+  - "afd_plugin/v1/worker/npu/hccl_v41_execution.py"
+  - "afd_plugin/v1/worker/npu/hccl_v41_eager.py"
+  - "afd_plugin/v1/worker/npu/hccl_v41_eager_bootstrap.py"
+  - "afd_plugin/v1/worker/npu/hccl_v41_diagnostics.py"
+  - "afd_plugin/v1/worker/npu/hccl_v41_graph.py"
+  - "afd_plugin/v1/worker/npu/hccl_v41_graph_control.py"
+  - "afd_plugin/v1/worker/npu/hccl_v41_graph_execution.py"
+  - "afd_plugin/v1/worker/npu/hccl_v41_graph_session.py"
+  - "afd_plugin/v1/worker/npu/hccl_v41_graph_coordinator.py"
+  - "afd_plugin/v1/worker/npu/hccl_v41_graph_eager.py"
+  - "afd_plugin/v1/worker/npu/hccl_v41_graph_bootstrap.py"
   - "afd_plugin/v1/worker/npu/attention_worker.py"
 related_code_paths:
   - "afd_plugin/connectors/**"
@@ -27,6 +39,19 @@ validation_paths:
   - "tests/unit/v1/worker/test_model_runner_v2.py"
   - "tests/unit/v1/worker/test_npu_runtime.py"
   - "tests/unit/v1/worker/test_npu_model_runner_v2.py"
+  - "tests/unit/v1/worker/npu/test_hccl_v41_ubatch_runner.py"
+  - "tests/unit/v1/worker/npu/test_hccl_v41_execution.py"
+  - "tests/unit/v1/worker/npu/test_hccl_v41_eager.py"
+  - "tests/unit/v1/worker/npu/test_hccl_v41_diagnostics.py"
+  - "tests/unit/v1/worker/npu/test_hccl_v41_graph.py"
+  - "tests/unit/v1/worker/npu/test_hccl_v41_graph_control.py"
+  - "tests/unit/v1/worker/npu/test_hccl_v41_graph_execution.py"
+  - "tests/unit/v1/worker/npu/test_hccl_v41_graph_session.py"
+  - "tests/unit/v1/worker/npu/test_hccl_v41_graph_coordinator.py"
+  - "tests/unit/v1/worker/npu/test_hccl_v41_graph_eager.py"
+  - "tests/unit/v1/worker/npu/test_hccl_v41_graph_bootstrap.py"
+  - "tests/unit/v1/worker/npu/test_attention_model_runner_v2.py"
+  - "tests/unit/v1/worker/npu/test_attention_worker.py"
   - "tests/unit/model_executor/test_async_cam_dbo.py"
   - "tests/npu/test_mrv2_dbo.py"
   - "tests/e2e/models/deepseek_v2_lite/test_deepseek_v2_lite.py"
@@ -71,6 +96,28 @@ model modules must not depend on the Attention worker implementation.
 
 ## Runtime selection
 
+The NPU runner selects the V4.1 HCCL execution path from the validated connector
+and model configuration. The staged runner uses native child preparation and
+submits each rank's valid and padded row counts before model work. The parent
+owns the Engram producer, request and KV preparation, sampling, and retirement.
+The accepted wire plan owns peer counts. Each rank verifies its own counts
+before execution. [Staged runner](../../../afd_plugin/v1/worker/npu/hccl_v41_ubatch_runner.py)
+
+HCCL Graph startup creates a pre-KV eager bridge after model loading and binds
+the same session and cache to the native graph manager after KV initialization.
+The graph manager selects U1/U2 from native request and token geometry. All
+peers agree on capture or replay before native input preparation. A cache miss
+selects fresh eager preparation. Uniform decode uses the target query width of
+one for standard decode or N+1 for fixed-width DSpark. FULL metadata keeps its
+native compressed-cache bounds for capture and replay. Acknowledged STOP
+precedes cache and process-group teardown.
+
+Window Attention computes routing before transferring fixed-capacity rows to
+FFN. U2 uses two transport slots. Each slot keeps its own sparse indices,
+metadata, and receive dependency through the native child context. Native
+whole-request slicing preserves fixed-width DSpark verification rows. See the
+[Window connector guide](../../npu/WINDOW_AFD_CONNECTOR_USER_GUIDE.md).
+
 AFD does not add an AFD-specific CLI flag. Configuration is read from vLLM
 `additional_config["afd"]`, and config normalization selects the role-specific
 worker for the active platform when `worker_cls="auto"`.
@@ -78,7 +125,7 @@ worker for the active platform when `worker_cls="auto"`.
 | Platform | Worker | Model runner | Current connectors |
 | --- | --- | --- | --- |
 | CUDA | `afd_plugin.v1.worker.AFDAttentionWorker` | `AFDAttentionModelRunnerV2` (native V2 only) | `P2pNcclAFDConnector` |
-| NPU | `afd_plugin.v1.worker.npu.AFDNPUAttentionWorker` | `AFDNPUAttentionModelRunnerV2` (native V2 only) | `CAMP2pAFDConnector`, `CAMAsyncAFDConnector` |
+| NPU | `afd_plugin.v1.worker.npu.AFDNPUAttentionWorker` | `AFDNPUAttentionModelRunnerV2` (native V2 only) | `CAMP2pAFDConnector`, `CAMAsyncAFDConnector`, `P2pHcclAFDConnector`, `WindowAFDConnector` |
 
 CUDA launch shape:
 
@@ -96,8 +143,10 @@ VLLM_PLUGINS=ascend,afd VLLM_USE_V2_MODEL_RUNNER=1 vllm serve /path/to/model \
 
 Operational connector options and complete launch recipes remain in the
 [NCCL P2P](../../gpu/NCCL_P2P_CONNECTOR_USER_GUIDE.md),
-[CAM P2P](../../npu/CAM_P2P_CONNECTOR_USER_GUIDE.md), and
-[CAM async](../../npu/CAM_ASYNC_CONNECTOR_USER_GUIDE.md) guides. Requests are
+[CAM P2P](../../npu/CAM_P2P_CONNECTOR_USER_GUIDE.md),
+[CAM async](../../npu/CAM_ASYNC_CONNECTOR_USER_GUIDE.md),
+[HCCL P2P](../../npu/HCCL_P2P_CONNECTOR_USER_GUIDE.md), and
+[Window](../../npu/WINDOW_AFD_CONNECTOR_USER_GUIDE.md) guides. Requests are
 sent only to the Attention API process.
 
 ## Initialization and ownership
@@ -394,14 +443,20 @@ the matching platform and connector tests as well.
 
 ## Limitations and open issues
 
+For paired native TP1/TP2, the staged HCCL eager session can prepare fixed
+parent, compute, send, and receive streams before memory profiling. The
+Attention runner binds the same session after KV initialization. U2 uses
+stage-local transport loans and waits for each receive before the matching
+native continuation consumes the output. U1, profiling and warmup stay
+serial. The session keeps its frozen startup settings for its full lifetime.
+
 Current shared limits are the supported vLLM release and registered role-aware
 model integrations. Ascend V1 native ubatching accepts exactly two ubatches. V2
 requires static EP and no PP/CP. CUDA V2 requires a synchronous control-plane
 connector and supports the two-microbatch path above. Ascend V2 supports eager
 native DBO with exactly two microbatches: synchronous CAMP2P requires Attention
-DP > 1, while Async CAM supports Attention DP1 or DP > 1. Ascend V2 DBO graphs
-remain unsupported. Hardware evidence remains limited to the recorded model and
-configuration cells.
+DP > 1, while Async CAM supports Attention DP1 or DP > 1. The V4.1 HCCL and
+Window guides list their connector-specific eager, Graph and DBO constraints.
 Platform/connector limits are intentionally centralized in
 [execution platforms](execution_platforms.md#tested-runtime-matrix).
 

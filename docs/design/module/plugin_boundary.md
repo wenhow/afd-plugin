@@ -29,6 +29,7 @@ validation_paths:
 upstream_refs:
   - "vLLM 0.30.0 ced6857afa0ea7b2e3f0846a62e1394e90f15607"
   - "vLLM vllm.general_plugins entry-point group"
+  - "vLLM vllm.endpoint_plugins opt-in entry-point group"
   - "vLLM vllm.config.VllmConfig"
 verified_platform_refs:
   - "CPU-only import and configuration tests in tests/unit"

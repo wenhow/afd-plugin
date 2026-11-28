@@ -70,6 +70,30 @@ make a backend-specific worker class the shared model API.
 
 ## Model registration
 
+The V4.1 NPU loader selects the role-specific model using the connector and
+requested model configuration. HCCL keeps the native architecture and
+the native Attention, HC, Engram, and shared KV/index lifecycle. Its remote
+MoE boundary carries raw token IDs and native FP32 router input. HCCL FFN
+constructs complete native MoE modules and uses native weight loading.
+[HCCL model](../../../afd_plugin/model_executor/models/npu/deepseek_v41.py)
+
+The HCCL staged executor runs native decoder continuations using disjoint
+parent-token views. The parent prepares Engram lookup and mask views before
+the stages consume them. The Graph tensor driver retains stable views and
+preserves the native layer order, HC/pre_mix, auxiliary states, and collapse.
+Native ModelState owns metadata and retirement for both paths.
+
+Window Attention computes gate scores and top-k routing and sends rows to FFN
+with slot-owned metadata. Window FFN loads routed or shared experts according
+to its role rank and uses the connector's layer-major global batching path.
+[Window model](../../../afd_plugin/model_executor/models/npu/deepseek_v41_window.py)
+
+DSpark keeps native draft execution on Attention. The loader examines the
+requested model configuration because DSpark passes its draft configuration
+separately while retaining the target in `VllmConfig`. The FFN worker obtains
+its private config view before native construction so the target transport
+geometry survives removal of Attention-owned draft and Engram state.
+
 `register_afd()` leaves vLLM's native architecture lookups unchanged and
 registers lazy AFD wrapper paths under `AFD`-prefixed aliases.
 
@@ -95,6 +119,13 @@ express known compatible architecture families; they do not make any wrapper
 a generic MoE model API.
 
 ## Role-aware module construction
+
+The old V4 Ascend gate-on-FFN boundary preserves the native norm's independent
+FP32 router input alongside the rounded activations and raw token IDs. The F
+compute hook forwards that optional input to native MoE; omitting it retains
+the native default. The [CPU role roundtrip](../../../tests/unit/model_executor/models/npu/test_deepseek_v4.py)
+checks observable payloads and output using an arithmetic MoE peer. It does not
+qualify device MoE, connector support, or ordinary MTP execution.
 
 Non-AFD workers use the pinned vLLM model implementation directly. When an AFD
 worker selects an AFD alias, `AFDDeepseekV2DecoderLayer` constructs only the
@@ -340,6 +371,17 @@ load evidence. A unit-only boundary such as the current CUDA DeepSeek V4 path
 must not be described as hardware-validated without new E2E evidence.
 
 ## Limitations and open issues
+
+The V4.1 A-side EngramModelState subclass retains native committed-token
+history and failure retirement. Paired TP4 graphs run one native Engram
+producer before replay, wait for its ordinary events on the parent stream,
+and capture only stable lookup/mask buffers. U2 consumes token-aligned views
+from this same parent; no child gathers its own history or resets a shared
+ExternalEvent. This adds a producer dependency per replay, not a performance
+guarantee. Native capture remains available when the backend supports it.
+Window U2 requires Engram to be disabled. The HCCL and Window guides document
+the connector-specific role constraints. [HCCL guide](../../npu/HCCL_P2P_CONNECTOR_USER_GUIDE.md)
+· [Window guide](../../npu/WINDOW_AFD_CONNECTOR_USER_GUIDE.md)
 
 The common metadata and transfer-state contracts remain DeepSeek-oriented.
 Qwen3 MoE reuses only their existing remote-FFN boundary and does not expand

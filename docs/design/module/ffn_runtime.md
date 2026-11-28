@@ -11,10 +11,15 @@ primary_code_paths:
   - "afd_plugin/v1/worker/ffn_routed_experts_model_runner.py"
   - "afd_plugin/v1/worker/ffn_worker.py"
   - "afd_plugin/v1/worker/npu/ffn_model_runner.py"
+  - "afd_plugin/v1/worker/npu/hccl_v41_ffn_runner.py"
+  - "afd_plugin/v1/worker/npu/hccl_v41_ffn_eager.py"
+  - "afd_plugin/v1/worker/npu/hccl_v41_ffn_graph.py"
+  - "afd_plugin/v1/worker/npu/hccl_v41_graph_service.py"
   - "afd_plugin/v1/worker/npu/async_ffn_model_runner.py"
   - "afd_plugin/v1/worker/npu/async_ffn_two_stream.py"
   - "afd_plugin/v1/worker/npu/ffn_worker.py"
 related_code_paths:
+  - "afd_plugin/v1/worker/npu/hccl_v41_graph_bootstrap.py"
   - "afd_plugin/connectors/**"
   - "afd_plugin/model_executor/**"
   - "afd_plugin/compat/patches/engine_core.py"
@@ -25,6 +30,7 @@ depends_on:
   - "execution_platforms.md"
   - "compatibility_and_patches.md"
 validation_paths:
+  - "tests/unit/v1/worker/npu/**"
   - "tests/unit/v1/worker/test_ffn_metadata.py"
   - "tests/unit/v1/worker/test_ffn_model_runner.py"
   - "tests/unit/v1/worker/test_ffn_routed_experts_model_runner.py"
@@ -75,6 +81,61 @@ platform mechanisms, and EngineCore compatibility. No shared module may depend
 on the FFN worker or runner implementation.
 
 ## Runtime selection
+
+The explicit [V4.1 eager U2 consumer](../../../afd_plugin/v1/worker/npu/hccl_v41_ffn_eager.py)
+uses the caller's warmed, accepted ticket owner and compute stream at paired
+native TP1/TP2 with DP1/PP1/CP1 and non-SP. It receives each layer/stage payload,
+computes native MoE once with the original FP32 router input and IDs, closes the
+input loan before posting output, and completes the parent once. Native MoE
+owns shared experts and TP reduction. The consumer scopes both actual NPU and
+vLLM cached streams, restores prior context, rejects stale owners without
+failing another transaction, and retains a failed live owner for supervision.
+Session construction, stream allocation, matched warmup, selection and shutdown
+remain caller responsibilities; this standalone consumer changes no default
+serial or Graph selection.
+
+The explicit [V4.1 staged FFN executor](../../../afd_plugin/v1/worker/npu/hccl_v41_ffn_runner.py)
+consumes an accepted v3 plan in layer/stage order and passes each full aggregate
+to native MoE. Native MoE owns TP reduction. This component requires DP1/PP1/CP1
+and a single native TP world spanning the FFN role; separate TP1 FFN worlds need
+additional group mapping. `execute_hccl_v41_step` receives and executes a whole
+parent, returning `False` only after peer STOP. The FFN worker's explicit
+`bind_hccl_v41_transport` selects this service before connector initialization.
+It checks actual model dimensions, layers, capacity, native rank and device.
+The worker retains resources after compute/communication failure or while a
+receiver is blocked; only acknowledged idle STOP permits normal close.
+Normal NPU construction selects this adapter for a V4.1 HCCL target configured
+for U2; the FFN worker binds its unique transport during device initialization.
+Both roles must use the same U2 configuration. Default U1 and DSpark/U1 retain
+v2. HCCL DSpark/U2 validates the target checkpoint, fixed verification and
+effective stage count before the FFN role isolates its draft and PD config.
+Non-HCCL connectors retain their existing DSpark/U1 restriction. Binding leaves
+native TP ownership and model admission unchanged.
+Full-checkpoint qualification remains pending.
+
+The explicit `HcclV41GraphService` consumes phase reservations before parent
+counts and device payloads. It retains a separate static bank, FULL contexts,
+model body and graph for each key and storage generation. Warmup never
+publishes readiness; capture publishes only after device synchronization, and
+replay refreshes valid counts outside the graph. Its eager branch uses the
+existing staged executor. This service requires paired native TP and an
+isolated FFN configuration. Normal Graph construction assembles this service
+under the separate, closed model qualification guard.
+The caller closes its graph cache after acknowledged STOP and before groups.
+Failed captures retain their dependencies for external supervision.
+The synchronous runner's explicit `bind_hccl_v41_graph_service` attaches that
+owner to its existing worker loop. Graph/counts version-one execution requires
+the bound runner and exact transport. After the loop acknowledges STOP, worker
+shutdown joins it and closes the service/cache before releasing communicators.
+An active or failed service refuses normal close and retains graph storage.
+
+An optional fixed `HcclGraphPipelinePolicy` moves native MoE compute to a
+side stream while receive, output copy/masking and send stay on the parent.
+The native MoE still owns shared experts and TP reduction. Each phase creates
+its pipeline outside capture, and the frozen cache bundle retains the exact
+pipeline identity until reset. Replay updates counts and launches the existing
+graph without constructing new streams or events. This receive/compute/send
+composition does not establish receive overlap or cross-layer performance.
 
 FFN is launched as a `vllm serve` process, and AFD config normalization selects
 its role-specific worker when `worker_cls="auto"`. It does not serve requests.
@@ -361,6 +422,10 @@ lacks its connector metadata/work item.
 The daemon catches failures, stores the original exception, logs it, and makes
 the error visible through `raise_ffn_loop_error_if_any()`. Re-entering startup
 or completing shutdown therefore surfaces an earlier background failure.
+This includes thread-local interrupts during profiler export after peer STOP.
+HCCL polling and shutdown surface the saved cause before connector/native cleanup;
+STOP_ACK alone cannot turn an export interruption into successful cleanup. The
+legacy CAM event-shutdown exemption still applies only to ordinary exceptions.
 
 Shutdown ordering is:
 
@@ -414,3 +479,14 @@ optional control-plane split. Connector metadata ownership, transfer state
 separation, and the public shape of the connector work-item interface remain
 open in [#88](https://github.com/JiusiServe/afd-plugin/issues/88) and
 [#105](https://github.com/JiusiServe/afd-plugin/issues/105).
+
+
+The TP1/DP/EP path keeps the native complete MoE and EP groups. The
+serial F consumer derives the complete DP padded-token vector from the accepted
+parent layout and supplies it to native forward context on every F rank. Local
+zero-valid ranks still execute padding rows and native collectives; only a
+globally empty stage skips compute. A/F transport remains a separate v3 world.
+Graph U1/U2 uses common static stage buckets on all EP ranks and binds each
+stage's full DP token vector to its retained FFN context before capture. U2
+executes stages serially. A5 acceptance covers graph replay and the return to
+the eager executor. For DSpark and PD, F continues to execute the target MoE.

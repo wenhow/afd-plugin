@@ -25,6 +25,7 @@ validation_paths:
   - "tests/e2e/models/qwen3_moe/test_qwen3_moe_multi_pod.py"
   - "tests/unit/distributed/**"
   - "tests/gpu/**"
+  - "tests/npu/**"
 upstream_refs:
   - "vLLM vllm.forward_context.DPMetadata"
   - "vLLM vllm.distributed.parallel_state"
@@ -66,7 +67,40 @@ depend on role worker implementations.
 | CUDA DeepEP M2N | [`gpu/deepep_m2n/`](../../../afd_plugin/connectors/gpu/deepep_m2n/), `AFDRoutedExpertsConnector` in [`base.py`](../../../afd_plugin/connectors/base.py) | [`test_deepep_m2n_connector.py`](../../../tests/unit/connectors/test_deepep_m2n_connector.py), [GPU device tests](../../../tests/gpu/README.md), [Qwen3 MoE E2E](../../../tests/e2e/models/qwen3_moe/test_qwen3_moe.py) |
 | Ascend CAMP2P | [`npu/camp2p.py`](../../../afd_plugin/connectors/npu/camp2p.py) | [`test_camp2p_connector.py`](../../../tests/unit/connectors/test_camp2p_connector.py), [DeepSeek-V2-Lite E2E](../../../tests/e2e/models/deepseek_v2_lite/test_deepseek_v2_lite.py) |
 | Ascend CAM async | [`npu/async_cam.py`](../../../afd_plugin/connectors/npu/async_cam.py) | [`test_async_cam_connector.py`](../../../tests/unit/connectors/test_async_cam_connector.py), [`test_async_cam_npu.py`](../../../tests/e2e/models/deepseek_v2_lite/test_async_cam_npu.py) |
+| Ascend HCCL P2P | [Pair connector](../../../afd_plugin/connectors/npu/p2p_hccl.py), [staged connector](../../../afd_plugin/connectors/npu/hccl_staged.py) | [Pair tests](../../../tests/unit/connectors/npu/test_p2p_hccl.py), [staged transport tests](../../../tests/unit/connectors/npu/test_hccl_staged_transport.py) |
+| Ascend Window | [Window connector](../../../afd_plugin/connectors/npu/window.py) | [Connector guide](../../npu/WINDOW_AFD_CONNECTOR_USER_GUIDE.md) |
 | Process-group construction | [`afd_process_group.py`](../../../afd_plugin/distributed/afd_process_group.py) | Connector initialization tests plus platform E2E paths |
+
+## V4.1 HCCL and Window
+
+HCCL v2 uses legacy rank pairs for eligible eager U1 deployments. The runtime
+selects the v3 staged connector for U2, Graph, and supported TP1/DP/EP layouts.
+The staged wire negotiates stage capacity and topology through HELLO, agrees
+on parent plans with digests and acknowledgments, and uses per-stage HCCL
+groups for data. Each accepted parent reaches COMPLETE before another parent
+or an idle STOP. The native MoE layout owns expert placement.
+
+In HCCL EP, each native DP rank owns one AFD role rank. Each F rank derives
+the same padded DP count vector from the accepted parent plan, including
+when individual peers have zero valid rows. The v3 target shape remains
+available after FFN isolates the draft. U2 in this EP path progresses serially.
+
+HCCL Graph runs a common phase reservation before native input preparation.
+Unsupported geometry or a cache miss falls back to eager on all peers. Capture
+and replay use an immutable storage and stream bundle for the retained native
+request/token geometry. The `graph_exchange_order` option sets
+`stage_serial` (default), `bulk_v1`, or `cross_layer_v1` for supported
+graphs. Peers agree on the order before capture. Optional U2 overlap has its
+own runtime policy and keeps HCCL on the parent stream. Failed sessions
+retain their resources until supervised cleanup.
+
+Window uses one HCCL CommContext Window across an FFN-first world. Attention
+publishes token records with routed expert IDs and uses the original session,
+layer, and slot when combining returned rows. FFN batches ready records and
+runs the matching weights. FFN rank 0 owns the shared expert and other
+ranks own balanced contiguous routed ranges. The Window owns operator buffer
+setup and handoff. Its transport slots stay distinct from FFN execution
+pipeline slots.
 
 ## Factory and construction
 
@@ -123,6 +157,8 @@ synchronous NPU runtime requires both common and connector-local values to be
 | `DeepEPM2NAFDConnector` | CUDA | FFN ranks, then Attention ranks | `DeepEPM2NAFDControlPlane`; Attention rank 0 sends each step's payload to every FFN rank over the connector's own NCCL or Gloo group | `connector.control_plane is not None`; the FFN worker selects `GPUFFNRoutedExpertsModelRunner` |
 | `CAMP2pAFDConnector` | Ascend | FFN ranks, then Attention ranks | `CAMP2pAFDControlPlane`; stage DP metadata over Gloo plus HCCL data groups | `connector.control_plane is not None` |
 | `CAMAsyncAFDConnector` | Ascend | Attention ranks, then FFN ranks | `None`; routing/token metadata travels with CAM dispatch payloads | `connector.control_plane is None` |
+| `P2pHcclAFDConnector` | Ascend | FFN ranks, then Attention ranks in the connector group | Legacy pair control plane or v3 staged protocol | The HCCL worker owns stage plans and completion |
+| `WindowAFDConnector` | Ascend | FFN ranks, then Attention ranks | `None`; Window scheduling metadata identifies ready records | The FFN runner consumes Window transactions |
 
 The CUDA P2P mapping requires
 `num_attention_ranks >= num_ffn_ranks`. Each FFN rank owns a subgroup containing
@@ -394,5 +430,7 @@ itself make factory registration a public extension contract.
 Operational material: [NCCL P2P guide](../../gpu/NCCL_P2P_CONNECTOR_USER_GUIDE.md),
 [DeepEP M2N guide](../../gpu/DEEPEP_M2N_CONNECTOR_USER_GUIDE.md),
 [CAM P2P guide](../../npu/CAM_P2P_CONNECTOR_USER_GUIDE.md),
-[CAM async guide](../../npu/CAM_ASYNC_CONNECTOR_USER_GUIDE.md), and
+[CAM async guide](../../npu/CAM_ASYNC_CONNECTOR_USER_GUIDE.md),
+[HCCL P2P guide](../../npu/HCCL_P2P_CONNECTOR_USER_GUIDE.md),
+[Window guide](../../npu/WINDOW_AFD_CONNECTOR_USER_GUIDE.md), and
 [connector overview](../../../afd_plugin/connectors/README.md).
