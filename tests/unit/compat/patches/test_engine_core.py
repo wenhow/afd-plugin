@@ -5,18 +5,44 @@
 from __future__ import annotations
 
 import importlib
+import json
 import logging
+import queue
+import socket
 import sys
 import types
-from enum import IntEnum
+from collections import deque
+from dataclasses import replace
+from enum import Enum, IntEnum
 from types import SimpleNamespace
+from typing import TypeVar
 
 import pytest
+
+from afd_plugin.compat.npu.profiler_control import FfnProfilerControlError
+from afd_plugin.config import CAMP2P_CONNECTOR, HCCL_P2P_CONNECTOR
+from tests.unit.fakes.executor import (
+    MultiprocProfilerSubclass,
+    NonMultiprocProfilerExecutor,
+    ProfilerRpcExecutor,
+    make_profiler_rpc_engine_case,
+)
+from tests.unit.fakes.profiler_control import (
+    ProfilerControlExecutor,
+    make_control_socket_path,
+)
 
 
 class _EngineShutdownState(IntEnum):
     RUNNING = 0
     REQUESTED = 1
+    SHUTTING_DOWN = 2
+
+
+class _EngineCoreRequestType(Enum):
+    UTILITY = b"\x03"
+    EXECUTOR_FAILED = b"\x04"
+    WAKEUP = b"\x05"
 
 
 def _engine_core_outputs(**kwargs):
@@ -60,11 +86,43 @@ def _install_fake_vllm_core(monkeypatch: pytest.MonkeyPatch):
         def step_with_batch_queue(self):
             return None
 
+        def get_supported_tasks(self):
+            return self.model_executor.supported_tasks
+
+        def collective_rpc(self, method, timeout=None, args=(), kwargs=None):
+            return self.model_executor.collective_rpc(method, timeout, args, kwargs)
+
     class EngineCoreProc(EngineCore):
         last_counts: tuple[int, int]
 
         def run_busy_loop(self):
             self.original_run_busy_loop_called = True
+
+        def has_work(self):
+            return (
+                self.engines_running
+                or self.scheduler.has_requests()
+                or bool(self.batch_queue)
+            )
+
+        def _handle_shutdown(self):
+            if self.shutdown_state == _EngineShutdownState.RUNNING:
+                return True
+            if self.shutdown_state == _EngineShutdownState.REQUESTED:
+                self.shutdown_state = _EngineShutdownState.SHUTTING_DOWN
+            return self.has_work()
+
+        def _process_input_queue(self):
+            # The fake exposes the management request/response seam only.
+            # Device requests and native socket/serialization paths stay out.
+            while not self.input_queue.empty():
+                request_type, payload = self.input_queue.get_nowait()
+                if request_type is _EngineCoreRequestType.EXECUTOR_FAILED:
+                    raise RuntimeError("Executor failed.")
+                if request_type is _EngineCoreRequestType.UTILITY:
+                    call_id, method = payload
+                    result = getattr(self, method)()
+                    self.output_queue.put_nowait((call_id, result))
 
         def _maybe_publish_request_counts(self):
             if not getattr(self, "publish_dp_lb_stats", False):
@@ -166,6 +224,7 @@ def _install_fake_vllm_core(monkeypatch: pytest.MonkeyPatch):
         return 16, 16
 
     core_module.EngineCore = EngineCore
+    core_module._R = TypeVar("_R")
     core_module.EngineCoreProc = EngineCoreProc
     core_module.DPEngineCoreProc = DPEngineCoreProc
     core_module.EngineShutdownState = _EngineShutdownState
@@ -242,8 +301,10 @@ def _config(role: str, *, async_dp: bool = False):
     )
     parallel_config = SimpleNamespace(
         data_parallel_rank_local=0,
+        data_parallel_size=1,
         decode_context_parallel_size=1,
         prefill_context_parallel_size=1,
+        world_size=1,
     )
     model_config = SimpleNamespace(
         max_model_len=8,
@@ -279,6 +340,194 @@ def _config(role: str, *, async_dp: bool = False):
         ),
         validate_block_size=validate_block_size,
     )
+
+
+@pytest.fixture
+def profiler_rpc_case(monkeypatch):
+    core_module = _install_fake_vllm_core(monkeypatch)
+    multiproc_module = types.ModuleType("vllm.v1.executor.multiproc_executor")
+    multiproc_module.MultiprocExecutor = ProfilerRpcExecutor
+    monkeypatch.setitem(
+        sys.modules, "vllm.v1.executor.multiproc_executor", multiproc_module
+    )
+    _load_patch_module()
+    config = _config("attention")
+    config.device_config.device_type = "npu"
+    config.additional_config["afd"]["connector"] = HCCL_P2P_CONNECTOR
+    return make_profiler_rpc_engine_case(
+        core_module.EngineCoreProc,
+        config,
+        _EngineCoreRequestType.EXECUTOR_FAILED,
+        failure=TimeoutError("profile response remains pending"),
+    )
+
+
+@pytest.mark.parametrize("role", ["attention", "ffn"])
+@pytest.mark.parametrize("method", ["profile", "afd_profiler_status"])
+@pytest.mark.parametrize(
+    "failure_type", [TimeoutError, RuntimeError, KeyboardInterrupt]
+)
+def test_failed_profiler_rpc_rejects_late_reply_and_execution(
+    profiler_rpc_case, role, method, failure_type
+):
+    case = profiler_rpc_case
+    case.engine.vllm_config.additional_config["afd"]["role"] = role
+    failure = failure_type("original profiler failure")
+    case.executor.failure = failure
+    with pytest.raises(failure_type) as caught:
+        case.engine.collective_rpc(method, timeout=0)
+    assert caught.value is failure
+    case.executor.responses.append([None])
+    for operation in (
+        lambda: case.engine.collective_rpc("afd_profiler_status"),
+        lambda: case.executor.execute_model(None),
+    ):
+        with pytest.raises(RuntimeError, match="^Executor failed\\.$"):
+            operation()
+    assert list(case.executor.responses) == [[None]]
+    assert case.executor.transmitted == [(method, 0, (), None)]
+    with pytest.raises(RuntimeError, match="^Executor failed\\.$"):
+        case.engine._process_input_queue()
+    assert case.engine.input_queue.empty()
+
+
+@pytest.mark.parametrize("logging_failure", [False, True])
+def test_profiler_fatal_notification_failure_preserves_original_error(
+    profiler_rpc_case, monkeypatch, logging_failure
+):
+    case = profiler_rpc_case
+    original = case.executor.failure
+
+    def fail_notification():
+        raise ValueError("fatal callback failed")
+
+    def fail_log(*args, **kwargs):
+        raise RuntimeError("logger failed")
+
+    case.executor.failure_callback = fail_notification
+    if logging_failure:
+        monkeypatch.setattr(
+            sys.modules["vllm.v1.engine.core"].logger, "exception", fail_log
+        )
+    with pytest.raises(TimeoutError) as caught:
+        case.engine.collective_rpc("profile")
+    assert caught.value is original
+    case.executor.responses.append([None])
+    with pytest.raises(RuntimeError, match="^Executor failed\\.$"):
+        case.executor.execute_model(None)
+
+
+@pytest.mark.parametrize(
+    "scope", ["cuda", "other-connector", "non-afd", "method", "backend"]
+)
+def test_unrelated_collective_failure_preserves_native_executor_behavior(
+    profiler_rpc_case, scope
+):
+    case = profiler_rpc_case
+    config = case.engine.vllm_config
+    method = "profile"
+    if scope == "cuda":
+        config.device_config.device_type = "cuda"
+    elif scope == "other-connector":
+        config.additional_config["afd"]["connector"] = CAMP2P_CONNECTOR
+    elif scope == "non-afd":
+        config.additional_config.clear()
+    elif scope == "method":
+        method = "get_supported_tasks"
+    else:
+        case.executor = NonMultiprocProfilerExecutor(case.executor.failure)
+        case.engine.model_executor = case.executor
+    original = case.executor.failure
+    with pytest.raises(TimeoutError) as caught:
+        case.engine.collective_rpc(method)
+    assert caught.value is original
+    case.executor.responses.append(["native response"])
+    assert case.engine.collective_rpc("get_supported_tasks") == ["native response"]
+    assert case.engine.input_queue.empty()
+
+
+def test_successful_profiler_rpc_preserves_native_result_and_next_execution(
+    profiler_rpc_case,
+):
+    case = profiler_rpc_case
+    case.executor.failure = None
+    case.executor.responses.extend(([None], ["model output"]))
+    assert case.engine.collective_rpc("profile", kwargs={"is_start": False}) == [None]
+    assert case.executor.execute_model(None) == ["model output"]
+    assert case.engine.input_queue.empty()
+
+
+def test_multiproc_subclass_failure_notifies_native_fatal_queue(profiler_rpc_case):
+    case = profiler_rpc_case
+    executor = MultiprocProfilerSubclass(case.executor.failure)
+    executor.failure_callback = case.executor.failure_callback
+    case.engine.model_executor = executor
+    with pytest.raises(TimeoutError):
+        case.engine.collective_rpc("profile")
+    executor.responses.append([None])
+    with pytest.raises(RuntimeError, match="^Executor failed\\.$"):
+        executor.execute_model(None)
+    with pytest.raises(RuntimeError, match="^Executor failed\\.$"):
+        case.engine._process_input_queue()
+
+
+def test_failed_ffn_profiler_shutdown_does_not_send_stop_rpc(
+    profiler_rpc_case, monkeypatch
+):
+    case = profiler_rpc_case
+    case.engine.vllm_config.additional_config["afd"]["role"] = "ffn"
+    monkeypatch.setattr(
+        sys.modules["vllm.v1.engine.core"],
+        "cleanup_dist_env_and_memory",
+        lambda: None,
+        raising=False,
+    )
+    with pytest.raises(TimeoutError):
+        case.engine.collective_rpc("afd_profiler_status")
+    case.executor.responses.append([None])
+    case.engine.shutdown()
+    assert case.executor.shutdown_complete
+    assert [wire[0] for wire in case.executor.transmitted] == ["afd_profiler_status"]
+
+
+def test_profiler_failure_without_callback_still_rejects_model_rpc(profiler_rpc_case):
+    case = profiler_rpc_case
+    case.executor.failure_callback = None
+    original = case.executor.failure
+    with pytest.raises(TimeoutError) as caught:
+        case.engine.collective_rpc("profile")
+    assert caught.value is original
+    case.executor.responses.append([None])
+    with pytest.raises(RuntimeError, match="^Executor failed\\.$"):
+        case.executor.execute_model(None)
+
+
+def test_native_profiler_timeout_blocks_delayed_reply_and_model_rpc():
+    pytest.importorskip("torch")
+    pytest.importorskip("vllm")
+    pytest.importorskip("torch_npu")
+    pytest.importorskip("vllm_ascend")
+    from tests.unit.fakes.profiler_control import make_native_profiler_engine_case
+
+    case = make_native_profiler_engine_case()
+    patch_module = _load_patch_module()
+    with pytest.raises(TimeoutError, match="RPC call to profile timed out"):
+        # Call the installed seam directly so this case does not mutate native
+        # class methods for other tests; the native executor/worker stay real.
+        patch_module.core_module.EngineCore.collective_rpc(
+            case.engine, "profile", timeout=0, kwargs={"is_start": False}
+        )
+    case.dispatch_pending()
+    for operation in (
+        lambda: case.engine.collective_rpc("afd_profiler_status"),
+        lambda: case.executor.execute_model(None),
+    ):
+        with pytest.raises(RuntimeError, match="^Executor failed\\.$"):
+            operation()
+    assert case.queues.responses.get_nowait() == (case.success, None)
+    assert [wire[0] for wire in case.queues.transmitted] == ["profile"]
+    with pytest.raises(RuntimeError, match="Executor failed"):
+        case.engine._handle_client_request(*case.engine.input_queue.get_nowait())
 
 
 def test_engine_core_patch_skips_kv_scheduler_init_for_ffn(monkeypatch):
@@ -565,6 +814,510 @@ def test_engine_core_patch_runs_and_stops_ffn_loop(monkeypatch):
         "raise_ffn_loop_error_if_any",
         "stop_ffn_server_loop",
     ]
+
+
+@pytest.fixture
+def hccl_engine(monkeypatch):
+    core_module = _install_fake_vllm_core(monkeypatch)
+    patch_module = _load_patch_module()
+    monkeypatch.setattr(patch_module.time, "sleep", lambda _seconds: None)
+
+    class Executor:
+        supported_tasks = ("generate",)
+
+        def __init__(self, vllm_config):
+            self.messages = []
+            self.service_replies = deque()
+            self.start_error = None
+            self.stop_error = None
+            self.shutdown_error = None
+            self.profiler = ProfilerControlExecutor()
+            self.shutdown_complete = False
+
+        def collective_rpc(self, method, timeout=None, args=(), kwargs=None):
+            self.messages.append(method)
+            if method in ("profile", "afd_profiler_status"):
+                return self.profiler.collective_rpc(method, timeout, args, kwargs)
+            if method == "start_ffn_server_loop":
+                if self.start_error is not None:
+                    raise self.start_error
+                return None
+            if method == "stop_ffn_server_loop":
+                if self.stop_error is not None:
+                    raise self.stop_error
+                return None
+            if not self.service_replies:
+                raise AssertionError("FFN engine polled after the service stopped")
+            reply = self.service_replies.popleft()
+            if isinstance(reply, BaseException):
+                raise reply
+            return reply
+
+        def shutdown(self):
+            if self.shutdown_error is not None:
+                raise self.shutdown_error
+            self.shutdown_complete = True
+
+    config = _config("ffn")
+    config.additional_config["afd"]["connector"] = HCCL_P2P_CONNECTOR
+    engine = core_module.EngineCoreProc(config, Executor, log_stats=False)
+    engine.shutdown_state = _EngineShutdownState.RUNNING
+    engine.engines_running = False
+    engine.input_queue = queue.Queue()
+    engine.output_queue = queue.Queue()
+    engine.process_input_queue_block = True
+    return engine
+
+
+@pytest.fixture
+def hccl_distributed_resources(monkeypatch, hccl_engine):
+    resources = SimpleNamespace(is_initialized=True)
+
+    def cleanup_dist_env_and_memory():
+        resources.is_initialized = False
+
+    monkeypatch.setattr(
+        sys.modules["vllm.v1.engine.core"],
+        "cleanup_dist_env_and_memory",
+        cleanup_dist_env_and_memory,
+        raising=False,
+    )
+    return resources
+
+
+@pytest.fixture
+def ff_npu_profiler_socket(hccl_engine, tmp_path_factory, monkeypatch):
+    path = make_control_socket_path(tmp_path_factory)
+    monkeypatch.setenv("AFD_NPU_FFN_PROFILER_ENABLE", "1")
+    monkeypatch.setenv("AFD_NPU_FFN_PROFILER_CONTROL_PATH", str(path))
+    hccl_engine.vllm_config.device_config = SimpleNamespace(device_type="npu")
+    hccl_engine.vllm_config.profiler_config = None
+    return path
+
+
+@pytest.mark.parametrize("failed", [False, True])
+def test_headless_ffn_control_uses_own_executor_and_closes_on_exit(
+    hccl_engine, ff_npu_profiler_socket, failed
+):
+    path = ff_npu_profiler_socket
+    with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as client:
+        client.settimeout(1)
+
+        def open_control():
+            client.connect(str(path))
+            client.sendall(b'{"operation":"stop"}\n')
+
+        hccl_engine.open_control = open_control
+        hccl_engine.input_queue.put_nowait(
+            (_EngineCoreRequestType.UTILITY, ("control", "open_control"))
+        )
+        hccl_engine.model_executor.service_replies.append(
+            RuntimeError("service failed") if failed else [False]
+        )
+        with pytest.raises(RuntimeError if failed else SystemExit):
+            hccl_engine.run_busy_loop()
+        assert json.loads(client.recv(65_536)) == {
+            "ok": True,
+            "role": "ffn",
+            "accepted": True,
+        }
+        assert not path.exists()
+    assert (
+        hccl_engine.model_executor.profiler.profile.session.status()["requested"]
+        is False
+    )
+    assert hccl_engine.model_executor.messages == [
+        "start_ffn_server_loop",
+        "profile",
+        "poll_hccl_ffn_service",
+        *([] if failed else ["stop_ffn_server_loop"]),
+    ]
+
+
+@pytest.mark.parametrize("failure", [TimeoutError("pending"), RuntimeError("partial")])
+def test_headless_ffn_rpc_failure_uses_process_cleanup_without_more_collectives(
+    hccl_engine, ff_npu_profiler_socket, hccl_distributed_resources, caplog, failure
+):
+    path = ff_npu_profiler_socket
+    hccl_engine.model_executor.profiler.failure = failure
+    with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as client:
+        client.settimeout(1)
+
+        def open_control():
+            client.connect(str(path))
+            client.sendall(b'{"operation":"stop"}\n')
+
+        hccl_engine.open_control = open_control
+        hccl_engine.input_queue.put_nowait(
+            (_EngineCoreRequestType.UTILITY, ("control", "open_control"))
+        )
+        with pytest.raises(FfnProfilerControlError, match="terminal") as terminal:
+            try:
+                hccl_engine.run_busy_loop()
+            finally:
+                hccl_engine.shutdown()
+        assert terminal.value.__cause__ is failure
+        assert json.loads(client.recv(65_536))["ok"] is False
+    assert not path.exists()
+    assert hccl_engine.model_executor.messages == ["start_ffn_server_loop", "profile"]
+    assert hccl_engine.model_executor.shutdown_complete
+    assert not hccl_distributed_resources.is_initialized
+    assert "AFD HCCL FFN peer STOP complete." not in caplog.text
+    assert "AFD HCCL FFN engine cleanup complete." not in caplog.text
+
+
+@pytest.mark.parametrize(
+    "method", ["start_ffn_server_loop", "poll_hccl_ffn_service", "stop_ffn_server_loop"]
+)
+@pytest.mark.parametrize(
+    "failure",
+    [
+        TimeoutError("pending"),
+        RuntimeError("partial"),
+        KeyboardInterrupt(),
+        SystemExit(7),
+    ],
+)
+def test_failed_hccl_management_rpc_uses_process_cleanup_without_more_collectives(
+    hccl_engine, hccl_distributed_resources, caplog, method, failure
+):
+    executor = hccl_engine.model_executor
+    if method == "start_ffn_server_loop":
+        executor.start_error = failure
+        expected = [method]
+    elif method == "poll_hccl_ffn_service":
+        executor.service_replies.append(failure)
+        expected = ["start_ffn_server_loop", method]
+    else:
+        executor.service_replies.append([False])
+        executor.stop_error = failure
+        expected = ["start_ffn_server_loop", "poll_hccl_ffn_service", method]
+    with pytest.raises(type(failure)) as terminal:
+        try:
+            hccl_engine.run_busy_loop()
+        finally:
+            hccl_engine.shutdown()
+    assert terminal.value is failure
+    assert executor.messages == expected
+    assert executor.shutdown_complete
+    assert not hccl_distributed_resources.is_initialized
+    assert "AFD HCCL FFN peer STOP complete." not in caplog.text
+    assert "AFD HCCL FFN engine cleanup complete." not in caplog.text
+
+
+@pytest.mark.parametrize("replies", [([False],), ([True], [False])])
+def test_hccl_engine_exits_cleanly_when_the_peer_stops(
+    hccl_engine, hccl_distributed_resources, caplog, replies
+):
+    hccl_engine.model_executor.service_replies.extend(replies)
+
+    with (
+        caplog.at_level(logging.INFO, logger="fake-vllm-core"),
+        pytest.raises(SystemExit) as exited,
+    ):
+        try:
+            hccl_engine.run_busy_loop()
+        finally:
+            hccl_engine.shutdown()
+
+    assert exited.value.code in (None, 0)
+    assert hccl_engine.shutdown_state == _EngineShutdownState.SHUTTING_DOWN
+    assert hccl_engine.model_executor.messages == [
+        "start_ffn_server_loop",
+        *["poll_hccl_ffn_service" for _ in replies],
+        "stop_ffn_server_loop",
+        "stop_ffn_server_loop",
+    ]
+    assert not hccl_distributed_resources.is_initialized
+    assert [
+        record.getMessage()
+        for record in caplog.records
+        if record.getMessage().startswith("AFD HCCL FFN ")
+    ] == [
+        "AFD HCCL FFN peer STOP complete.",
+        "AFD HCCL FFN engine cleanup complete.",
+    ]
+
+
+@pytest.mark.parametrize("boundary", ["requested", "interrupt", "worker-failure"])
+def test_hccl_shutdown_completion_logs_require_successful_peer_stop(
+    hccl_engine, hccl_distributed_resources, caplog, boundary
+):
+    if boundary == "requested":
+        hccl_engine.shutdown_state = _EngineShutdownState.REQUESTED
+    else:
+        hccl_engine.model_executor.service_replies.append(
+            KeyboardInterrupt() if boundary == "interrupt" else RuntimeError("failed")
+        )
+    error_type = {
+        "worker-failure": RuntimeError,
+        "interrupt": KeyboardInterrupt,
+        "requested": SystemExit,
+    }[boundary]
+
+    with (
+        caplog.at_level(logging.INFO, logger="fake-vllm-core"),
+        pytest.raises(error_type),
+    ):
+        try:
+            hccl_engine.run_busy_loop()
+        finally:
+            hccl_engine.shutdown()
+
+    assert not hccl_distributed_resources.is_initialized
+    assert "AFD HCCL FFN peer STOP complete." not in caplog.text
+    assert "AFD HCCL FFN engine cleanup complete." not in caplog.text
+
+
+@pytest.mark.parametrize(
+    "shutdown_error", [KeyboardInterrupt(), RuntimeError("failed"), SystemExit(7)]
+)
+def test_hccl_engine_cleanup_does_not_advertise_success_during_an_active_error(
+    hccl_engine, hccl_distributed_resources, caplog, shutdown_error
+):
+    hccl_engine.model_executor.service_replies.append([False])
+
+    with caplog.at_level(logging.INFO, logger="fake-vllm-core"):
+        with pytest.raises(SystemExit):
+            hccl_engine.run_busy_loop()
+        with pytest.raises(type(shutdown_error)):
+            try:
+                raise shutdown_error
+            finally:
+                hccl_engine.shutdown()
+
+    assert not hccl_distributed_resources.is_initialized
+    assert "AFD HCCL FFN peer STOP complete." in caplog.text
+    assert "AFD HCCL FFN engine cleanup complete." not in caplog.text
+
+
+@pytest.mark.parametrize("world_size,dp_size", [(2, 1), (8, 1), (1, 4)])
+def test_hccl_engine_waits_for_every_executor_worker_to_stop(
+    hccl_engine, world_size, dp_size
+):
+    parallel_config = hccl_engine.vllm_config.parallel_config
+    parallel_config.world_size = world_size
+    parallel_config.data_parallel_size = dp_size
+    rank_count = world_size * dp_size
+    hccl_engine.vllm_config.afd_config = replace(
+        hccl_engine.vllm_config.afd_config,
+        num_attention_ranks=rank_count,
+        num_ffn_ranks=rank_count,
+    )
+    hccl_engine.model_executor.service_replies.extend(
+        ([True] + [False] * (world_size - 1), [False] * world_size)
+    )
+    with pytest.raises(SystemExit) as exited:
+        hccl_engine.run_busy_loop()
+    assert exited.value.code in (None, 0)
+    assert hccl_engine.model_executor.messages == [
+        "start_ffn_server_loop",
+        "poll_hccl_ffn_service",
+        "poll_hccl_ffn_service",
+        "stop_ffn_server_loop",
+    ]
+
+
+def test_hccl_engine_answers_management_utility_requests(hccl_engine):
+    hccl_engine.input_queue.put_nowait(
+        (
+            _EngineCoreRequestType.UTILITY,
+            ("supported-task-query", "get_supported_tasks"),
+        )
+    )
+    hccl_engine.model_executor.service_replies.append([False])
+
+    with pytest.raises(SystemExit):
+        hccl_engine.run_busy_loop()
+
+    assert hccl_engine.output_queue.get_nowait() == (
+        "supported-task-query",
+        ("generate",),
+    )
+
+
+def test_hccl_engine_propagates_executor_failure_from_input(hccl_engine):
+    hccl_engine.input_queue.put_nowait((_EngineCoreRequestType.EXECUTOR_FAILED, b""))
+    hccl_engine.model_executor.service_replies.append([False])
+
+    with pytest.raises(RuntimeError, match="Executor failed"):
+        hccl_engine.run_busy_loop()
+
+
+def test_hccl_engine_completes_requested_shutdown_through_native_state(hccl_engine):
+    hccl_engine.shutdown_state = _EngineShutdownState.REQUESTED
+
+    with pytest.raises(SystemExit) as exited:
+        hccl_engine.run_busy_loop()
+
+    assert exited.value.code in (None, 0)
+    assert hccl_engine.shutdown_state == _EngineShutdownState.SHUTTING_DOWN
+
+
+def test_hccl_engine_shutdown_preserves_primary_failure_and_resources(
+    hccl_engine, hccl_distributed_resources
+):
+    native_error = ValueError("native FFN compute failed")
+    primary_error = RuntimeError("AFD NPU FFN worker loop failed")
+    primary_error.__cause__ = native_error
+    hccl_engine.model_executor.service_replies.append(primary_error)
+    hccl_engine.model_executor.shutdown_error = RuntimeError(
+        "FFN receive still pending"
+    )
+
+    with pytest.raises(RuntimeError, match="worker loop failed") as failure:
+        try:
+            hccl_engine.run_busy_loop()
+        finally:
+            hccl_engine.shutdown()
+
+    assert failure.value is primary_error
+    assert failure.value.__cause__ is native_error
+    assert hccl_distributed_resources.is_initialized
+
+
+@pytest.mark.parametrize("clean_exit", [False, True])
+def test_hccl_engine_shutdown_reports_cleanup_failure(
+    hccl_engine, hccl_distributed_resources, caplog, clean_exit
+):
+    cleanup_error = RuntimeError("FFN receive still pending")
+    hccl_engine.model_executor.shutdown_error = cleanup_error
+    hccl_engine.model_executor.service_replies.append([False])
+
+    with (
+        caplog.at_level(logging.INFO, logger="fake-vllm-core"),
+        pytest.raises(RuntimeError, match="receive still pending") as failure,
+    ):
+        try:
+            if clean_exit:
+                hccl_engine.run_busy_loop()
+        finally:
+            hccl_engine.shutdown()
+
+    assert failure.value is cleanup_error
+    assert hccl_distributed_resources.is_initialized
+    assert "AFD HCCL FFN engine cleanup complete." not in caplog.text
+
+
+def test_hccl_engine_shutdown_releases_resources_after_executor_stops(
+    hccl_engine, hccl_distributed_resources
+):
+    hccl_engine.shutdown()
+
+    assert not hccl_distributed_resources.is_initialized
+
+
+@pytest.mark.parametrize(
+    "connector", ["P2pNcclAFDConnector", CAMP2P_CONNECTOR, HCCL_P2P_CONNECTOR]
+)
+def test_late_loaded_ffn_shutdown_releases_resources_without_advertising_peer_stop(
+    hccl_engine, hccl_distributed_resources, caplog, connector
+):
+    config = _config("ffn")
+    config.additional_config["afd"]["connector"] = connector
+    # A native constructor already on the stack reaches the newly patched KV
+    # method without re-entering the AFD constructor installed during startup.
+    engine = object.__new__(type(hccl_engine))
+    engine.vllm_config = config
+    engine.model_executor = hccl_engine.model_executor
+    cache_config = engine._initialize_kv_caches(config)
+
+    with caplog.at_level(logging.INFO, logger="fake-vllm-core"):
+        engine.shutdown()
+
+    assert cache_config.kv_cache_groups == []
+    assert not hccl_distributed_resources.is_initialized
+    assert "AFD HCCL FFN peer STOP complete." not in caplog.text
+    assert "AFD HCCL FFN engine cleanup complete." not in caplog.text
+
+
+@pytest.mark.parametrize(
+    "rank_count,reply",
+    [(1, []), (1, [None]), (1, [True, False]), (2, [False]), (2, [False, 0])],
+)
+def test_hccl_engine_requires_one_boolean_per_executor_worker(
+    hccl_engine, rank_count, reply
+):
+    hccl_engine.vllm_config.parallel_config.world_size = rank_count
+    hccl_engine.vllm_config.afd_config = replace(
+        hccl_engine.vllm_config.afd_config,
+        num_attention_ranks=rank_count,
+        num_ffn_ranks=rank_count,
+    )
+    hccl_engine.model_executor.service_replies.append(reply)
+
+    with pytest.raises(RuntimeError, match="one boolean"):
+        hccl_engine.run_busy_loop()
+
+    assert hccl_engine.model_executor.messages == [
+        "start_ffn_server_loop",
+        "poll_hccl_ffn_service",
+        "stop_ffn_server_loop",
+    ]
+
+
+def test_hccl_worker_failure_preserves_cause_and_uses_process_cleanup(
+    hccl_engine, hccl_distributed_resources
+):
+    native_error = ValueError("native FFN compute failed")
+    worker_error = RuntimeError("AFD NPU FFN worker loop failed")
+    worker_error.__cause__ = native_error
+    hccl_engine.model_executor.service_replies.append(worker_error)
+    with pytest.raises(RuntimeError, match="worker loop failed") as failure:
+        try:
+            hccl_engine.run_busy_loop()
+        finally:
+            hccl_engine.shutdown()
+
+    assert failure.value is worker_error
+    assert failure.value.__cause__ is native_error
+    assert hccl_engine.model_executor.messages == [
+        "start_ffn_server_loop",
+        "poll_hccl_ffn_service",
+    ]
+    assert hccl_engine.model_executor.shutdown_complete
+    assert not hccl_distributed_resources.is_initialized
+
+
+def test_hccl_engine_reports_cleanup_failure_after_peer_stop(hccl_engine, caplog):
+    cleanup_error = RuntimeError("HCCL worker cleanup failed after peer STOP")
+    hccl_engine.model_executor.service_replies.append([False])
+    hccl_engine.model_executor.stop_error = cleanup_error
+
+    with (
+        caplog.at_level(logging.INFO, logger="fake-vllm-core"),
+        pytest.raises(RuntimeError, match="cleanup failed after peer STOP") as failure,
+    ):
+        hccl_engine.run_busy_loop()
+
+    assert failure.value is cleanup_error
+    assert "AFD HCCL FFN peer STOP complete." not in caplog.text
+    assert "AFD HCCL FFN engine cleanup complete." not in caplog.text
+    assert hccl_engine.model_executor.messages == [
+        "start_ffn_server_loop",
+        "poll_hccl_ffn_service",
+        "stop_ffn_server_loop",
+    ]
+
+
+def test_shutdown_rpc_failure_after_peer_stop_cannot_advertise_clean_exit(
+    hccl_engine, hccl_distributed_resources, caplog
+):
+    hccl_engine.model_executor.service_replies.append([False])
+    with (
+        caplog.at_level(logging.INFO, logger="fake-vllm-core"),
+        pytest.raises(SystemExit),
+    ):
+        hccl_engine.run_busy_loop()
+    hccl_engine.model_executor.stop_error = RuntimeError("shutdown RPC failed")
+    hccl_engine.shutdown()
+    assert hccl_engine.model_executor.shutdown_complete
+    assert not hccl_distributed_resources.is_initialized
+    assert "AFD HCCL FFN peer STOP complete." in caplog.text
+    assert "AFD HCCL FFN engine cleanup complete." not in caplog.text
+    prior_requests = list(hccl_engine.model_executor.messages)
+    hccl_engine.shutdown()
+    assert hccl_engine.model_executor.messages == prior_requests
 
 
 def test_engine_core_ffn_readiness_log_follows_start_rpc(monkeypatch):

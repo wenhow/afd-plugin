@@ -4,8 +4,7 @@
 
 from __future__ import annotations
 
-from typing import Any
-
+from vllm.config import VllmConfig
 from vllm.v1.worker.workspace import init_workspace_manager
 from vllm_ascend.worker.worker import NPUWorker
 
@@ -15,6 +14,7 @@ from afd_plugin.compat.npu import (
     fix_all2all_backend_for_afd,
     npu_afd_num_ubatches,
 )
+from afd_plugin.compat.npu.profiler import AFDNPUProfilerSession
 from afd_plugin.compat.npu.runtime_config import configure_async_cam_dbo
 from afd_plugin.model_executor.models.model_utils import get_afd_model_config
 from afd_plugin.v1.worker.npu.attention_model_runner_v2 import (
@@ -32,9 +32,31 @@ class AFDNPUAttentionWorker(NPUWorker):
 
     afd_expected_role = "attention"
 
-    def __init__(self, *args: Any, **kwargs: Any) -> None:
+    # Upstream: vllm_ascend/worker/worker.py, NPUWorker.__init__, 7e37e29a.
+    # Reason: install AFD config/loader hooks before native worker derivation.
+    # Functionality: preserve the native config, including Attention's Engram.
+    # Signature: matches upstream; no added parameters. Delegate the large
+    # hardware/ops/profiler constructor to retain its native state ownership.
+    def __init__(
+        self,
+        vllm_config: VllmConfig,
+        local_rank: int,
+        rank: int,
+        distributed_init_method: str,
+        is_driver_worker: bool = False,
+        **kwargs,
+    ):
+        # ### PATCH START: AFD runtime hooks
         apply_afd_ascend_patches_if_needed()
-        super().__init__(*args, **kwargs)
+        # ### PATCH END: AFD runtime hooks
+        super().__init__(
+            vllm_config=vllm_config,
+            local_rank=local_rank,
+            rank=rank,
+            distributed_init_method=distributed_init_method,
+            is_driver_worker=is_driver_worker,
+            **kwargs,
+        )
 
     def init_device(self) -> None:
         assert_compatible_afd_stack(
@@ -65,6 +87,69 @@ class AFDNPUAttentionWorker(NPUWorker):
             self.vllm_config,
             self.device,
         )
+
+    # Upstream: NPUWorker.profile, vllm_ascend/worker/worker.py:1223,
+    # 7e37e29a7803d6897a7113088e2b771f83205bc0. Exact native signature.
+    # Reason: native RPC controls a different profiler from the AFD role-env
+    # runner. Functionality: queue requests for its execute thread; native RPC
+    # remains delegated in full when the role-env session is disabled.
+    # Delegation exception: preserve native trace naming/configuration rather
+    # than copying that unrelated implementation. Remove when native Worker
+    # supports a runner-owned profiler session and status callback.
+    def profile(self, is_start: bool = True, profile_prefix: str | None = None):
+        # ### PATCH START: Attention profiler execution owner
+        session = self.model_runner.prof
+        if isinstance(session, AFDNPUProfilerSession):
+            if (
+                self.profiler_config is not None
+                and self.profiler_config.profiler is not None
+            ):
+                raise ValueError(
+                    "AFD_NPU_ATTENTION_PROFILER_ENABLE and native --profiler-config "
+                    "cannot be enabled together"
+                )
+            session.request(is_start, profile_prefix)
+            return
+        # ### PATCH END: Attention profiler execution owner
+        return super().profile(is_start, profile_prefix)
+
+    def afd_profiler_status(self) -> dict[str, bool | int | str | None]:
+        """RPC status; execute-step counts include legal None and KV-only calls."""
+        session = self.model_runner.prof
+        if isinstance(session, AFDNPUProfilerSession):
+            return {"mode": "afd-role", "step_unit": "execute", **session.status()}
+        return {
+            "mode": "native",
+            "configured": self.profiler_config is not None
+            and self.profiler_config.profiler is not None,
+            "control_running": self.profiler is not None and self.profiler.is_running,
+        }
+
+    # Upstream: NPUWorker.shutdown, vllm_ascend/worker/worker.py:365,
+    # 7e37e29a7803d6897a7113088e2b771f83205bc0. Exact native signature.
+    # Reason: native Worker releases its KV/weight-transfer owners before
+    # runner.shutdown, which is too early for failed DSpark owners or role-env
+    # export. Functionality: PD owners and deferred A profiler sessions first
+    # complete the runner's idempotent STOP/cache/export preparation. Failed PD
+    # owners are rejected before native connector retirement or model release.
+    # Delegated native cleanup stays intact; non-PD with role profiling disabled
+    # retains the native order. Cost: constant checks at shutdown; no new sync.
+    # Delegation exception/removal: replace with a native pre-release callback
+    # when Worker exposes one; no native KV or weight cleanup is copied here.
+    def shutdown(self) -> None:
+        # ### PATCH START: check owned state before native release
+        # Native worker_main also shuts down partially constructed workers.
+        if (
+            "model_runner" in self.__dict__
+            and self.model_runner is not None
+            and (
+                isinstance(self.model_runner.prof, AFDNPUProfilerSession)
+                or self.model_runner.dspark_pd_consumer is not None
+            )
+        ):
+            self.model_runner.prepare_shutdown()
+        # ### PATCH END: check owned state before native release
+        super().shutdown()
 
 
 __all__ = ["AFDNPUAttentionWorker"]

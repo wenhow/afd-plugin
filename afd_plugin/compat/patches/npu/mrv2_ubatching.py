@@ -2,9 +2,10 @@
 # SPDX-FileCopyrightText: Copyright contributors to the AFD plugin project
 """Scoped Ascend seams for vLLM ced6857a's native UBatchRunner.
 
-Ascend baseline: 8d4409d6256d8a6729140ddcc0d1889e3f96cdd6.
+Ascend baseline: 7e37e29a7803d6897a7113088e2b771f83205bc0.
 MRV2 owns preparation, threads, handoff and graph lifecycle.
-All bindings are scoped to AFD runners and restored on exit.
+Temporary bindings are scoped to AFD runners and restored on exit. The EP PD
+predicate is installed once per runner process and filters by configuration.
 Remove when upstream supports Ascend child inputs, streams and cancellation.
 """
 
@@ -33,13 +34,70 @@ from vllm.v1.worker.ubatch_utils import (
     get_num_ubatches,
 )
 from vllm.v1.worker.utils import AttentionGroup
+from vllm_ascend import utils as ascend_utils
+from vllm_ascend.worker.v2 import model_runner as ascend_model_runner
 from vllm_ascend.worker.v2.input_batch import AscendInputBatch
 
-from afd_plugin.config import is_afd_async_dp, parse_afd_config
+from afd_plugin.compat.npu.runtime_config import (
+    HCCL_ATTESTED_PD_MODULE,
+    HCCL_NATIVE_PD_CONNECTOR,
+    is_deepseek_v41_model,
+)
+from afd_plugin.config import (
+    HCCL_P2P_CONNECTOR,
+    is_afd_async_dp,
+    parse_afd_config,
+    parse_optional_afd_config,
+)
 
 if TYPE_CHECKING:
+    from afd_plugin.connectors.npu.hccl_staged_transport import HcclStagedTransport
     from afd_plugin.v1.worker.npu.attention_model_runner_v2 import (
         AFDNPUAttentionModelRunnerV2,
+    )
+    from afd_plugin.v1.worker.npu.hccl_v41_ubatch_runner import HcclV41GraphOwner
+
+
+def apply_ep_pd_dp_coordination_patch() -> None:
+    """Replace only the native MRV2 target runner's bound predicate."""
+    ascend_model_runner.should_skip_allreduce_across_dp_group = (
+        should_skip_allreduce_across_dp_group
+    )
+
+
+# Upstream: vllm_ascend/utils.py:1315 at 7e37e29a, imported by MRV2's
+# execute_model. EP HCCL needs one native DP stage count and padded geometry
+# across all A ranks. The DSpark drafter also reuses that agreement in U1.
+# Signature matches upstream; no added parameters. Delegate because the
+# shared helper owns hardware, extension and recompute policy used by V1 and
+# the drafter. The patch changes only the target MRV2 import binding.
+# Remove when Ascend exposes a runner-owned switch for native DP coordination.
+def should_skip_allreduce_across_dp_group(
+    vllm_config: VllmConfig, is_draft_model: bool = False
+) -> bool:
+    # ### PATCH START: keep native DP coordination for HCCL EP PD
+    transfer = vllm_config.kv_transfer_config
+    parallel = vllm_config.parallel_config
+    if (
+        not is_draft_model
+        and transfer is not None
+        and transfer.kv_role == "kv_consumer"
+        and transfer.kv_connector == HCCL_NATIVE_PD_CONNECTOR
+        and transfer.kv_connector_module_path == HCCL_ATTESTED_PD_MODULE
+        and parallel.enable_expert_parallel
+        and parallel.tensor_parallel_size == 1
+        and is_deepseek_v41_model(vllm_config)
+    ):
+        afd_config = parse_optional_afd_config(vllm_config, validate=False)
+        if (
+            afd_config is not None
+            and afd_config.role == "attention"
+            and afd_config.connector == HCCL_P2P_CONNECTOR
+        ):
+            return False
+    # ### PATCH END: keep native DP coordination for HCCL EP PD
+    return ascend_utils.should_skip_allreduce_across_dp_group(
+        vllm_config, is_draft_model
     )
 
 
@@ -106,14 +164,49 @@ class NPUUBatchContext(ubatching.UBatchContext):
 
 
 @contextmanager
-def use_npu_ubatch_factory(runner: "AFDNPUAttentionModelRunnerV2") -> Iterator[None]:
-    """Replace the factory alias actually called by GPUModelRunner initialization."""
-    original_factory = model_runner.maybe_build_ubatch_runner
-    original_sm_control = ubatch_utils.create_sm_control_context
+def use_npu_ubatch_sm_control() -> Iterator[None]:
+    """Use the existing NPU policy while native UBatchRunner allocates streams.
 
-    # This scope runs only during AFD NPU KV initialization. Keep the native
-    # eligibility check, except Async CAM needs no DP handshake at DP=1.
-    # Signature matches maybe_build_ubatch_runner at ced6857a.
+    Native SMControlContextManager requires CUDA/ROCm. NPU runners and the
+    paired Graph component retain their native stream construction without
+    creating this unsupported GPU resource manager. Restore the exact binding
+    even when construction fails.
+    """
+    original_sm_control = ubatch_utils.create_sm_control_context
+    try:
+        ubatch_utils.create_sm_control_context = lambda parallel: nullcontext()
+        yield
+    finally:
+        ubatch_utils.create_sm_control_context = original_sm_control
+
+
+@contextmanager
+def use_npu_ubatch_factory(
+    runner: "AFDNPUAttentionModelRunnerV2",
+    *,
+    hccl_transport: "HcclStagedTransport | None" = None,
+    hccl_graph_owner: "HcclV41GraphOwner | None" = None,
+) -> Iterator[None]:
+    """Scope native construction with explicit HCCL transport/graph ownership.
+
+    Non-HCCL callers omit ``hccl_transport`` and retain their existing
+    connector admission. An optional graph owner must belong to that injected
+    transport and passes the controlled runner's graph admission checks. This
+    injection does not open the V4.1 model guard.
+    """
+    if hccl_graph_owner is not None and (
+        hccl_transport is None or hccl_graph_owner.transport is not hccl_transport
+    ):
+        raise ValueError("native graph owner must use its injected HCCL transport")
+    original_factory = model_runner.maybe_build_ubatch_runner
+
+    # Patch reason: the native factory builds CUDA runners and excludes DP1.
+    # Patch functionality: select the NPU runner, with controlled HCCL U2 at
+    # DP1 or TP1/DP/EP through this scope's added hccl_transport keyword. Its optional
+    # hccl_graph_owner binds the controlled Graph phase session. Ordinary
+    # callers retain admission; U1/profile direct model calls are not routed.
+    # Signature matches maybe_build_ubatch_runner at ced6857a; no added args
+    # on the native factory. Remove when upstream supports NPU runner injection.
     def maybe_build_ubatch_runner(
         vllm_config: VllmConfig,
         device: torch.device,
@@ -126,6 +219,23 @@ def use_npu_ubatch_factory(runner: "AFDNPUAttentionModelRunnerV2") -> Iterator[N
         from afd_plugin.v1.worker.npu.ubatch_runner import NPUUBatchRunner
 
         parallel = vllm_config.parallel_config
+        if hccl_transport is not None:
+            from afd_plugin.v1.worker.npu.hccl_v41_ubatch_runner import (
+                HcclV41UBatchRunner,
+            )
+
+            return HcclV41UBatchRunner(
+                vllm_config,
+                device,
+                model_state,
+                attn_groups,
+                kv_cache_config,
+                max_num_reqs,
+                kernel_block_sizes=runner.kernel_block_sizes,
+                timeout_s=parse_afd_config(vllm_config).afd_process_group_timeout_s,
+                transport=hccl_transport,
+                graph_owner=hccl_graph_owner,
+            )
         if not parallel.use_ubatching or (
             parallel.data_parallel_size <= 1 and not is_afd_async_dp(vllm_config)
         ):
@@ -144,11 +254,10 @@ def use_npu_ubatch_factory(runner: "AFDNPUAttentionModelRunnerV2") -> Iterator[N
 
     try:
         model_runner.maybe_build_ubatch_runner = maybe_build_ubatch_runner
-        ubatch_utils.create_sm_control_context = lambda parallel: nullcontext()
-        yield
+        with use_npu_ubatch_sm_control():
+            yield
     finally:
         model_runner.maybe_build_ubatch_runner = original_factory
-        ubatch_utils.create_sm_control_context = original_sm_control
 
 
 @contextmanager

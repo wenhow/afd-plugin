@@ -4,21 +4,395 @@
 
 from __future__ import annotations
 
+from copy import copy
+from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
+from afd_plugin.compat.npu.pd_topology import validate_ep_pd_topology
 from afd_plugin.config import (
     AFD_ASYNC_CONNECTOR,
+    DSV41_HCCL_DSPARK_STEPS,
+    HCCL_P2P_CONNECTOR,
     is_afd_async_dp,
     parse_afd_config,
 )
 
 if TYPE_CHECKING:
-    from vllm.config import VllmConfig
+    from vllm.config import KVTransferConfig, VllmConfig
 
 FLASHINFER_ALL2ALLV_BACKEND = "flashinfer_all2allv"
+HCCL_NATIVE_PD_CONNECTOR = "MooncakeHybridConnector"
+HCCL_ATTESTED_PD_MODULE = "afd_plugin.compat.npu.kv_layout_connector"
 DEEPSEEK_V2_MODEL_TYPES = frozenset(
     ("deepseek", "deepseek_v2", "deepseek_v3", "deepseek_v32", "glm_moe_dsa")
 )
+
+
+@dataclass(frozen=True, slots=True)
+class DeepseekV41TargetShape:
+    """Target scheduling shape retained independently of the A-local drafter."""
+
+    target_query_len: int = 1
+
+    def __post_init__(self) -> None:
+        if type(self.target_query_len) is not int or self.target_query_len <= 0:
+            raise ValueError("V4.1 target query length must be a positive integer")
+
+    def validate_capacity(self, max_num_batched_tokens: int) -> None:
+        if self.target_query_len > max_num_batched_tokens:
+            raise ValueError("V4.1 target query length exceeds native token capacity")
+
+
+def resolve_deepseek_v41_target_shape(
+    vllm_config: VllmConfig,
+) -> DeepseekV41TargetShape | None:
+    """Read the original validated target before FFN role isolation.
+
+    The pinned Ascend runner uses num_speculative_tokens + 1 for the target;
+    draft query width and HF checkpoint draft block size are separate values.
+    No drafter, mutable config child or model state is retained in this object.
+    """
+    if not is_deepseek_v41_model(vllm_config):
+        return None
+    validate_deepseek_v41_speculation(vllm_config)
+    speculative = vllm_config.speculative_config
+    query_len = 1
+    if speculative is not None:
+        steps = speculative.num_speculative_tokens
+        if type(steps) is not int or steps <= 0:
+            raise ValueError("V4.1 DSpark requires positive integer speculative steps")
+        query_len += steps
+    shape = DeepseekV41TargetShape(query_len)
+    shape.validate_capacity(vllm_config.scheduler_config.max_num_batched_tokens)
+    return shape
+
+
+def validate_deepseek_v41_graph_speculation(
+    vllm_config: VllmConfig,
+) -> DeepseekV41TargetShape | None:
+    """Limit target Graph components to Q1 or fixed DSpark with eager draft.
+
+    This validates scheduling shape without enabling production model admission.
+    Native draft capture/proposal and acceptance remain Attention-local.
+    """
+    shape = resolve_deepseek_v41_target_shape(vllm_config)
+    if shape is None:
+        return None
+    speculative = vllm_config.speculative_config
+    if speculative is not None:
+        if speculative.enforce_eager is not True:
+            raise ValueError("V4.1 target Graph requires an eager DSpark draft")
+        if speculative.enable_adaptive_verification:
+            raise ValueError("V4.1 target Graph requires adaptive verification off")
+    if vllm_config.kv_transfer_config is not None:
+        # PD owns the complete cache/topology contract. This is deliberately
+        # one-way: PD validates ordinary speculation, never Graph speculation.
+        validate_deepseek_v41_pd(vllm_config)
+    return shape
+
+
+def is_deepseek_v41_model(vllm_config: VllmConfig) -> bool:
+    """Match the native or AFD V4.1 identity without matching V4 prefixes."""
+    hf_config = vllm_config.model_config.hf_config
+    return hf_config.model_type == "deepseek_v41" or any(
+        architecture.removeprefix("AFD") == "DeepseekV41ForCausalLM"
+        for architecture in (hf_config.architectures or ())
+    )
+
+
+def uses_deepseek_v41_dspark_pd(vllm_config: VllmConfig) -> bool:
+    """Select the plugin's request-bound DSpark prefix protocol only."""
+    transfer = vllm_config.kv_transfer_config
+    speculative = vllm_config.speculative_config
+    return (
+        is_deepseek_v41_model(vllm_config)
+        and transfer is not None
+        and transfer.kv_connector == HCCL_NATIVE_PD_CONNECTOR
+        and transfer.kv_connector_module_path == HCCL_ATTESTED_PD_MODULE
+        and speculative is not None
+        and speculative.use_dspark()
+    )
+
+
+def validate_deepseek_v41_speculation(vllm_config: VllmConfig) -> None:
+    """Admit native same-checkpoint DSpark components, without enabling serving."""
+    speculative = vllm_config.speculative_config
+    if speculative is None:
+        return
+    if not speculative.use_dspark():
+        raise ValueError("V4.1 HCCL speculative decoding requires method='dspark'")
+    draft = speculative.draft_model_config
+    if (
+        draft.hf_config.model_type != "deepseek_v41"
+        or draft.architectures != ["DeepseekV41DSparkModel"]
+        or draft.hf_config.architectures != ["DeepseekV41DSparkModel"]
+    ):
+        raise ValueError("V4.1 HCCL requires normalized DeepseekV41DSparkModel")
+    if draft.model != vllm_config.model_config.model:
+        raise ValueError("V4.1 HCCL DSpark requires the same target checkpoint")
+    if (
+        speculative.draft_parallel_config.tensor_parallel_size
+        != vllm_config.parallel_config.tensor_parallel_size
+    ):
+        raise ValueError("V4.1 HCCL DSpark requires equal target and draft TP")
+    if speculative.rejection_sample_method == "synthetic":
+        raise ValueError("V4.1 HCCL DSpark requires real acceptance/rejection")
+    parallel = vllm_config.parallel_config
+    ep = (
+        parallel.enable_expert_parallel
+        and parse_afd_config(vllm_config).connector == HCCL_P2P_CONNECTOR
+    )
+    if ep and (
+        speculative.enforce_eager is not True
+        or speculative.enable_adaptive_verification
+        or type(speculative.num_speculative_tokens) is not int
+        or speculative.num_speculative_tokens not in DSV41_HCCL_DSPARK_STEPS
+        or parallel.tensor_parallel_size != 1
+        or (
+            parallel.num_ubatches != 2
+            if parallel.use_ubatching
+            else parallel.num_ubatches not in (0, 1) or parallel.enable_dbo
+        )
+    ):
+        raise ValueError(
+            "V4.1 EP DSpark requires TP1 with U1 or U2 and an eager N=1/2/5 draft "
+            "with adaptive verification off"
+        )
+    if speculative.enable_adaptive_verification and (
+        parallel.enable_dbo or parallel.use_ubatching
+    ):
+        # Ascend prepare_inputs @ 7e37e29a:723-734 compacts query coordinates,
+        # but :864 retains scheduled upper bounds in InputBatch. Native
+        # create_ubatch_slices @ ced6857a:49-75 uses those upper bounds to split
+        # requests; this component has not reconciled that compacted layout.
+        raise ValueError("V4.1 HCCL DSpark U2 requires adaptive verification off")
+    target = vllm_config.model_config.hf_text_config
+    draft_text = draft.hf_text_config
+    layer_ids = target.dspark_target_layer_ids
+    if (
+        not layer_ids
+        or any(type(layer) is not int for layer in layer_ids)
+        or list(layer_ids) != sorted(set(layer_ids))
+        or not 0 < min(layer_ids) <= max(layer_ids) <= target.num_hidden_layers
+        or list(draft_text.dspark_target_layer_ids) != list(layer_ids)
+    ):
+        raise ValueError("V4.1 HCCL DSpark requires matching ordered one-based aux IDs")
+    if (
+        type(target.dspark_block_size) is not int
+        or target.dspark_block_size <= 0
+        or draft_text.dspark_block_size != target.dspark_block_size
+        or draft_text.n_mtp_layers != target.num_nextn_predict_layers
+        or draft_text.n_routed_experts != target.dspark_n_routed_experts
+        or draft_text.num_experts_per_tok != target.dspark_num_experts_per_tok
+    ):
+        raise ValueError("V4.1 HCCL DSpark requires native checkpoint draft metadata")
+    if ep:
+        # The pinned native DSpark loader derives its runtime ParallelConfig
+        # from the target, so the A-local draft uses the same expert world.
+        ep_size = parallel.data_parallel_size
+        if any(
+            type(count) is not int or count < ep_size or count % ep_size
+            for count in (target.n_routed_experts, draft_text.n_routed_experts)
+        ):
+            raise ValueError("V4.1 EP DSpark requires evenly sharded expert counts")
+
+
+def validate_deepseek_v41_pd(vllm_config: VllmConfig) -> None:
+    """Limit native PD eligibility without certifying remote cache layouts.
+
+    The caller selects exact V4.1/HCCL. Native MRV2 retains request/history,
+    KV transfer and Engram retirement. Configured equal P/D TP is a prerequisite;
+    actual checkpoint, physical-page layout and ingress history still require
+    separate P/D qualification while the production model guard stays closed.
+    """
+    transfer: KVTransferConfig | None = vllm_config.kv_transfer_config
+    if transfer is None:
+        return
+    if (
+        transfer.kv_connector != HCCL_NATIVE_PD_CONNECTOR
+        or transfer.kv_connector_module_path not in (None, HCCL_ATTESTED_PD_MODULE)
+    ):
+        raise ValueError(
+            "V4.1 HCCL KV transfer/PD requires native MooncakeHybridConnector "
+            "or its exact plugin attestation module"
+        )
+    if transfer.kv_role not in ("kv_producer", "kv_consumer"):
+        raise ValueError("V4.1 HCCL PD requires a separate producer or consumer")
+    if (
+        not vllm_config.model_config.enforce_eager
+        or vllm_config.compilation_config.cudagraph_mode.name != "NONE"
+    ):
+        # Only D target Graph is composed with the attested prefix protocol.
+        # Native pre_forward/finish_forward stay outside run_fullgraph; parent
+        # sampling/proposal/post_forward retain their original ownership. P
+        # remains eager. Validate the original F view before role isolation too.
+        compilation = vllm_config.compilation_config
+        parallel = vllm_config.parallel_config
+        afd_config = parse_afd_config(vllm_config)
+        stages = parallel.num_ubatches
+        native_u1 = (
+            not parallel.use_ubatching
+            and not parallel.enable_dbo
+            and type(stages) is int
+            and stages in (0, 1)
+        )
+        native_u2 = parallel.use_ubatching and type(stages) is int and stages == 2
+        exchange_order = afd_config.connector_extra_config.get(
+            "graph_exchange_order", "stage_serial"
+        )
+        target_graph = (
+            is_deepseek_v41_model(vllm_config)
+            and transfer.kv_connector_module_path == HCCL_ATTESTED_PD_MODULE
+            and (
+                vllm_config.speculative_config is None
+                or uses_deepseek_v41_dspark_pd(vllm_config)
+            )
+            and transfer.kv_role == "kv_consumer"
+            and afd_config.connector == HCCL_P2P_CONNECTOR
+            and vllm_config.model_config.enforce_eager is False
+            and compilation.cudagraph_mode.name == "FULL_DECODE_ONLY"
+            and compilation.mode.name == "NONE"
+            and not compilation.use_inductor_graph_partition
+            # U1 keeps its existing serial tensor contract. U2 can use the
+            # paired static wavefront; each role's pipeline policy is still
+            # checked by capture preflight before any tensor work is posted.
+            and (
+                exchange_order == "stage_serial"
+                or (native_u2 and exchange_order == "cross_layer_v1")
+            )
+            and (native_u1 or native_u2)
+        )
+        if not target_graph:
+            raise ValueError(
+                "V4.1 HCCL KV transfer/PD requires eager execution without Graph, "
+                "except exact "
+                "attested HCCL consumer FULL_DECODE_ONLY target Graph"
+            )
+    if vllm_config.speculative_config is not None:
+        if not uses_deepseek_v41_dspark_pd(vllm_config):
+            # Native Mooncake has no request-bound draft readiness/lease.
+            raise ValueError(
+                "V4.1 HCCL PD requires speculation off outside the exact "
+                "plugin DSpark prefix protocol"
+            )
+        validate_deepseek_v41_speculation(vllm_config)
+        speculative = vllm_config.speculative_config
+        if (
+            speculative.enforce_eager is not True
+            or speculative.enable_adaptive_verification
+        ):
+            raise ValueError(
+                "V4.1 DSpark PD requires eager draft and fixed verification"
+            )
+        parallel = vllm_config.parallel_config
+        if parallel.use_ubatching or parallel.enable_dbo:
+            # P projects the original parent after native sample/proposal/post;
+            # native child execution does not own the published prefix. D keeps
+            # native KV admission/pre_forward and global parent sampling around
+            # its target children. Read the effective native stage count: DBO
+            # resolves it to two regardless of the raw ubatch_size. Model/device
+            # qualification remains separately closed.
+            hccl_u2 = (
+                parallel.use_ubatching
+                and type(parallel.num_ubatches) is int
+                and parallel.num_ubatches == 2
+                and parse_afd_config(vllm_config).connector == HCCL_P2P_CONNECTOR
+            )
+            if not hccl_u2:
+                raise ValueError(
+                    "V4.1 DSpark PD requires U1 without DBO except exact "
+                    "HCCL U2 producer or consumer"
+                )
+    if vllm_config.cache_config.enable_prefix_caching:
+        raise ValueError("V4.1 HCCL PD requires local prefix caching disabled")
+    if vllm_config.model_config.enable_sleep_mode:
+        raise ValueError("V4.1 HCCL PD requires sleep disabled")
+    if vllm_config.weight_transfer_config is not None:
+        raise ValueError("V4.1 HCCL PD requires weight updates disabled")
+    if vllm_config.additional_config.get("sparse_kv_offload_config", {}).get(
+        "enabled", False
+    ):
+        raise ValueError("V4.1 HCCL PD requires sparse KV offload disabled")
+    parallel = vllm_config.parallel_config
+    expected_dp = (
+        validate_ep_pd_topology(
+            vllm_config, transfer, attested_module=HCCL_ATTESTED_PD_MODULE
+        )
+        if parallel.enable_expert_parallel
+        else 1
+    )
+    for name, size in (
+        ("pipeline_parallel_size", parallel.pipeline_parallel_size),
+        ("prefill_context_parallel_size", parallel.prefill_context_parallel_size),
+        ("decode_context_parallel_size", parallel.decode_context_parallel_size),
+    ):
+        if type(size) is not int or size != 1:
+            raise ValueError(f"V4.1 HCCL PD requires {name}=1")
+    if (
+        type(parallel.data_parallel_size) is not int
+        or parallel.data_parallel_size != expected_dp
+    ):
+        raise ValueError(f"V4.1 HCCL PD requires data_parallel_size={expected_dp}")
+    tp_size = parallel.tensor_parallel_size
+    if type(tp_size) is not int or tp_size <= 0:
+        raise ValueError("V4.1 HCCL PD requires a positive native TP size")
+    # Native MooncakeWorker._get_prefill_decode_size @ 7e37e29a:1864-1884
+    # consumes these exact extra fields. PP defaults to one in that native API.
+    for side in ("prefill", "decode"):
+        layout = transfer.kv_connector_extra_config.get(side, {})
+        if (
+            type(layout.get("tp_size")) is not int
+            or layout.get("tp_size") != tp_size
+            or type(layout.get("dp_size")) is not int
+            or layout.get("dp_size") != expected_dp
+            or type(layout.get("pp_size", 1)) is not int
+            or layout.get("pp_size", 1) != 1
+        ):
+            dp_requirement = (
+                "DP matching local EP with PP=1"
+                if parallel.enable_expert_parallel
+                else "DP/PP=1"
+            )
+            raise ValueError(
+                "V4.1 HCCL PD requires configured equal P/D native TP and "
+                + dp_requirement
+            )
+
+
+def get_npu_ffn_config(vllm_config: VllmConfig) -> VllmConfig:
+    """Detach V4.1's A-owned state before native FFN worker construction.
+
+    A shallow copy preserves the native ModelConfig identity and caches without
+    rerunning VllmConfig validation. Other configuration children remain shared;
+    this view removes F's ownership of Engram and the Attention-local drafter.
+    HCCL's validated native PD connector also remains on Attention only.
+    """
+    if not is_deepseek_v41_model(vllm_config):
+        return vllm_config
+    afd_config = parse_afd_config(vllm_config, expected_role="ffn")
+    validate_deepseek_v41_speculation(vllm_config)
+    if afd_config.connector == HCCL_P2P_CONNECTOR:
+        # Validate the original target before removing its A-owned fields.
+        validate_deepseek_v41_pd(vllm_config)
+    parallel = vllm_config.parallel_config
+    if (
+        vllm_config.speculative_config is not None
+        and (parallel.enable_dbo or parallel.use_ubatching)
+        and afd_config.connector != HCCL_P2P_CONNECTOR
+    ):
+        raise ValueError(
+            "V4.1 FFN requires DSpark with U1 before role isolation "
+            "for non-HCCL connectors"
+        )
+    # HCCL target ubatching belongs to Attention. F retains target scheduling
+    # but must not construct the native Attention-local drafter. Other NPU
+    # connectors retain the existing DSpark/U1 restriction above.
+    ffn_config = copy(vllm_config)
+    ffn_config.engram_config = None
+    ffn_config.speculative_config = None
+    if afd_config.connector == HCCL_P2P_CONNECTOR:
+        ffn_config.kv_transfer_config = None
+    return ffn_config
 
 
 def configure_async_cam_dbo(vllm_config: VllmConfig) -> None:
@@ -104,10 +478,18 @@ def fix_all2all_backend_for_afd(vllm_config: VllmConfig) -> None:
 
 
 __all__ = [
+    "DeepseekV41TargetShape",
     "configure_async_cam_dbo",
     "fix_all2all_backend_for_afd",
+    "get_npu_ffn_config",
+    "is_deepseek_v41_model",
     "npu_afd_num_ubatches",
     "npu_model_uses_sequence_parallel_moe",
     "npu_model_uses_sharded_pp_tensors",
+    "resolve_deepseek_v41_target_shape",
     "uses_async_cam_dbo",
+    "uses_deepseek_v41_dspark_pd",
+    "validate_deepseek_v41_pd",
+    "validate_deepseek_v41_graph_speculation",
+    "validate_deepseek_v41_speculation",
 ]

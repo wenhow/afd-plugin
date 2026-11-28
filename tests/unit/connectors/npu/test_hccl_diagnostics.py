@@ -1,0 +1,437 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright contributors to the AFD plugin project
+"""Pure structured diagnostics; requested-sync callbacks do not execute NPU IO."""
+
+import logging
+import runpy
+from dataclasses import replace
+from pathlib import Path
+from types import SimpleNamespace
+
+import pytest
+
+from afd_plugin.distributed.hccl_graph import HcclGraphDecision
+from tests.unit.fakes.hccl_diagnostics import make_diagnostics_case
+
+
+@pytest.fixture
+def api():
+    root = Path(__file__).resolve().parents[4] / "afd_plugin/connectors/npu"
+    return SimpleNamespace(
+        **runpy.run_path(str(root / "hccl_overlap.py")),
+        **{
+            name: value
+            for name, value in runpy.run_path(str(root / "hccl_diagnostics.py")).items()
+            if name.startswith("Hccl")
+        },
+    )
+
+
+@pytest.fixture
+def case(api):
+    selection = api.select_hccl_overlap(
+        api.HcclOverlapSettings(
+            stage_diagnostics=True, ffn_compute_sync_diagnostics=True
+        ),
+        role="ffn",
+        phase="eager",
+        num_stages=1,
+    )
+    return make_diagnostics_case(api, selection, world_rank=3, role_rank=1)
+
+
+@pytest.mark.parametrize("enabled", [False, True])
+def test_graph_parent_host_records_preserve_keyless_decision_and_explicit_zero(
+    api, enabled
+):
+    records = []
+    settings = api.HcclOverlapSettings(
+        eager_u2_stream_overlap=False,
+        stage_diagnostics=enabled,
+        ffn_compute_sync_diagnostics=True,
+    )
+    diagnostic = api.HcclGraphParentDiagnostics(
+        settings, "ffn", 3, 1, 2, records.append
+    )
+    decision = HcclGraphDecision(
+        "fallback", "eager", "target", None, (2, 2), "cache_miss"
+    )
+    diagnostic.record(
+        decision, "graph_parent_scope_returned", "execute_hccl_v41_parent"
+    )
+    if not enabled:
+        assert not records
+        return
+    (record,) = records
+    assert record["transaction_id"] == "fallback" and record["reason"] == "cache_miss"
+    assert record["key_present"] is False and record["key_digest"] == ""
+    assert record["decision_digest"] == decision.digest
+    assert record["boundary"] == "host_control" and record["outcome"] == "returned"
+    assert record["local_device"] == 2 and record["num_stages"] == 2
+    assert record["configured.AFD_HCCL_EAGER_U2_STREAM_OVERLAP"] is False
+
+
+def test_failed_graph_parent_record_does_not_replace_execution_error(api):
+    def broken_sink(record):
+        raise RuntimeError("diagnostic sink failed")
+
+    diagnostic = api.HcclGraphParentDiagnostics(
+        api.HcclOverlapSettings(stage_diagnostics=True),
+        "attention",
+        1,
+        0,
+        0,
+        broken_sink,
+    )
+    decision = HcclGraphDecision("failed", "eager", "target", None, (0,), "requested")
+    original = ValueError("original execution failed")
+    with pytest.raises(ValueError) as raised:
+        try:
+            raise original
+        except BaseException as error:
+            diagnostic.record(
+                decision, "graph_parent_failed", "graph_owner", error=error
+            )
+            raise
+    assert raised.value is original
+
+
+def test_default_diagnostics_emit_no_configuration_progress_or_sync(api):
+    selection = api.select_hccl_overlap(
+        api.HcclOverlapSettings(), role="ffn", phase="eager", num_stages=1
+    )
+    case = make_diagnostics_case(api, selection)
+    run = case.diagnostics.bind_execution(
+        layer_indices=(0, 2), actual_compute_stream="parent"
+    )
+    run.record("compute_begin", 0, 0)
+    run.synchronize_compute(0, 0)
+    assert case.records == case.events == []
+
+
+def test_configuration_distinguishes_eligible_eager_u2_from_actual_serial_execution(
+    api,
+):
+    selection = api.select_hccl_overlap(
+        api.HcclOverlapSettings(stage_diagnostics=True),
+        role="ffn",
+        phase="eager",
+        num_stages=2,
+    )
+    case = make_diagnostics_case(api, selection)
+    case.diagnostics.bind_execution(
+        layer_indices=(0, 1), actual_compute_stream="parent"
+    )
+    (record,) = case.records
+    assert record["configured.AFD_HCCL_EAGER_U2_STREAM_OVERLAP"] is True
+    assert record["effective.AFD_HCCL_EAGER_U2_STREAM_OVERLAP"] is True
+    assert record["logical.recv_stream"] == record["physical.recv_stream"] == "recv"
+    assert record["actual.mode"] == "serial"
+    assert record["actual.recv_stream"] == record["actual.send_stream"] == "parent"
+    assert record["actual.compute_pipeline_enabled"] is False
+
+
+@pytest.mark.parametrize("phase", ["graph_warmup", "graph_capture", "graph_replay"])
+@pytest.mark.parametrize("actual", ["parent", "compute"])
+def test_graph_records_actual_streams_without_claiming_physical_receive_overlap(
+    api, phase, actual
+):
+    selection = api.select_hccl_overlap(
+        api.HcclOverlapSettings(stage_diagnostics=True),
+        role="ffn",
+        phase=phase,
+        num_stages=2,
+    )
+    case = make_diagnostics_case(api, selection)
+    case.diagnostics.bind_execution(
+        layer_indices=(0, 1),
+        actual_compute_stream=actual,
+        is_warmup=phase == "graph_warmup",
+    )
+    (record,) = case.records
+    assert record["logical.recv_stream"] == "recv"
+    assert record["physical.recv_stream"] == record["actual.recv_stream"] == "parent"
+    assert record["actual.compute_pipeline_enabled"] is (actual == "compute")
+    assert record["actual.ffn_compute_sync"] is False
+
+
+def test_progress_records_only_first_last_layers_and_host_enqueue_boundaries(case):
+    run = case.diagnostics.bind_execution(
+        layer_indices=(0, 2, 7), actual_compute_stream="parent"
+    )
+    for layer in (0, 2, 7):
+        run.record("recv_begin", layer, 0)
+        run.record("recv_returned", layer, 0)
+    assert [(record["event"], record["layer"]) for record in case.records[1:]] == [
+        (event, layer) for layer in (0, 7) for event in ("recv_begin", "recv_returned")
+    ]
+    assert all(record["boundary"] == "host_enqueue" for record in case.records)
+    assert all(
+        record["world_rank"] == 3 and record["role_rank"] == 1
+        for record in case.records
+    )
+
+
+def test_explicit_live_u1_sync_records_real_requested_callback_before_complete(case):
+    run = case.diagnostics.bind_execution(
+        layer_indices=(0, 2), actual_compute_stream="parent"
+    )
+    run.synchronize_compute(0, 0)
+    assert case.events == [
+        "configuration",
+        "compute_sync_begin",
+        "device_sync",
+        "compute_sync_complete",
+    ]
+    assert [record["boundary"] for record in case.records[1:]] == [
+        "explicit_synchronize"
+    ] * 2
+
+
+def test_sync_failure_has_no_false_complete_record(case):
+    case.recorder.fail_sync = True
+    run = case.diagnostics.bind_execution(
+        layer_indices=(0,), actual_compute_stream="parent"
+    )
+    with pytest.raises(RuntimeError, match="requested diagnostic device sync failed"):
+        run.synchronize_compute(0, 0)
+    assert case.events == ["configuration", "compute_sync_begin", "device_sync"]
+
+
+@pytest.mark.parametrize("profile,warmup", [(True, False), (False, True), (True, True)])
+def test_profile_and_warmup_suppress_requested_compute_sync(case, profile, warmup):
+    run = case.diagnostics.bind_execution(
+        layer_indices=(0,),
+        actual_compute_stream="parent",
+        in_profile_run=profile,
+        is_warmup=warmup,
+    )
+    run.synchronize_compute(0, 0)
+    assert case.events == ["configuration"]
+    assert case.records[0]["actual.ffn_compute_sync"] is False
+
+
+@pytest.mark.parametrize(
+    "role,phase,stages",
+    [
+        ("attention", "eager", 1),
+        ("ffn", "eager", 2),
+        ("ffn", "graph_warmup", 1),
+        ("ffn", "graph_capture", 1),
+        ("ffn", "graph_replay", 2),
+    ],
+)
+def test_ineligible_role_stage_or_graph_phase_never_requests_sync(
+    api, role, phase, stages
+):
+    selection = api.select_hccl_overlap(
+        api.HcclOverlapSettings(ffn_compute_sync_diagnostics=True),
+        role=role,
+        phase=phase,
+        num_stages=stages,
+    )
+    case = make_diagnostics_case(api, selection)
+    run = case.diagnostics.bind_execution(
+        layer_indices=(0,), actual_compute_stream="parent"
+    )
+    run.synchronize_compute(0, 0)
+    assert case.events == ["configuration"]
+
+
+def test_active_sync_requires_an_explicit_callback_before_progress(case):
+    diagnostics = replace(case.diagnostics, synchronize=None)
+    with pytest.raises(ValueError, match="require a synchronizer"):
+        diagnostics.bind_execution(layer_indices=(0,), actual_compute_stream="parent")
+    assert case.records == []
+
+
+@pytest.mark.parametrize(
+    "changes", [{"world_rank": -1}, {"role_rank": True}, {"role_rank": 1.0}]
+)
+def test_invalid_rank_rejected_without_records(case, changes):
+    with pytest.raises(ValueError, match="nonnegative integers"):
+        replace(case.diagnostics, **changes)
+    assert case.records == []
+
+
+@pytest.mark.parametrize(
+    "changes,message",
+    [
+        ({"layer_indices": ()}, "layers"),
+        ({"layer_indices": (1, 0)}, "layers"),
+        ({"layer_indices": (True,)}, "layers"),
+        ({"actual_compute_stream": "recv"}, "compute stream"),
+        ({"actual_compute_stream": "compute"}, "serial parent"),
+        ({"in_profile_run": 1}, "markers"),
+        ({"is_warmup": None}, "markers"),
+    ],
+)
+def test_invalid_actual_execution_rejected_before_configuration(case, changes, message):
+    with pytest.raises(ValueError, match=message):
+        case.diagnostics.bind_execution(
+            **{"layer_indices": (0,), "actual_compute_stream": "parent", **changes}
+        )
+    assert case.records == []
+
+
+@pytest.mark.parametrize(
+    "event,layer,stage",
+    [
+        ("done", 0, 0),
+        ("recv_begin", 1, 0),
+        ("recv_begin", 0, 1),
+        ("recv_begin", True, 0),
+    ],
+)
+def test_invalid_stage_record_is_rejected_without_partial_progress(
+    case, event, layer, stage
+):
+    run = case.diagnostics.bind_execution(
+        layer_indices=(0,), actual_compute_stream="parent"
+    )
+    with pytest.raises(ValueError, match="event|coordinates"):
+        run.record(event, layer, stage)
+    assert case.events == ["configuration"]
+
+
+def test_default_sink_uses_standard_logging_without_global_logger(case, caplog):
+    diagnostics = replace(case.diagnostics, emit=None)
+    with caplog.at_level(logging.WARNING):
+        diagnostics.bind_execution(layer_indices=(0,), actual_compute_stream="parent")
+    assert "AFD HCCL stage diagnostic" in caplog.text
+    assert "configuration" in caplog.text
+
+
+@pytest.mark.parametrize("role", ["attention", "ffn"])
+@pytest.mark.parametrize(
+    "streams,aliases",
+    [
+        (("compute", "send", "recv"), (False, False, False)),
+        (("parent", "parent", "parent"), (True, True, True)),
+        (("compute", "send", "recv"), (True, True, True)),
+        (("parent", "parent", "recv"), (True, False, False)),
+    ],
+)
+def test_explicit_eager_family_records_actual_stream_aliases_without_sync(
+    api, role, streams, aliases
+):
+    selection = api.select_hccl_overlap(
+        api.HcclOverlapSettings(
+            stage_diagnostics=True, ffn_compute_sync_diagnostics=True
+        ),
+        role=role,
+        phase="eager",
+        num_stages=2,
+    )
+    case = make_diagnostics_case(api, selection)
+    run = case.diagnostics.bind_execution(
+        layer_indices=(0, 1),
+        transaction_id="ticket-parent",
+        actual_execution=api.HcclDiagnosticExecution(
+            "eager-streamed", *streams, stream_aliases=aliases
+        ),
+    )
+    run.synchronize_compute(0, 0)
+    (record,) = case.records
+    assert record["actual.mode"] == "eager-streamed"
+    assert (
+        tuple(record[f"actual.{key}_stream"] for key in ("compute", "send", "recv"))
+        == streams
+    )
+    assert (
+        tuple(
+            record[f"actual.{key}_alias"]
+            for key in ("compute_send", "compute_recv", "send_recv")
+        )
+        == aliases
+    )
+    assert record["actual.ffn_compute_sync"] is False
+    assert record["transaction_id"] == "ticket-parent"
+    assert case.events == ["configuration"]
+
+
+@pytest.mark.parametrize(
+    "changes",
+    [
+        {"role": "attention"},
+        {"world_rank": 0},
+        {"role_rank": 0},
+        {"num_stages": 2},
+        {"layer_indices": (0, 3)},
+        {"transaction_id": "foreign-parent"},
+    ],
+)
+def test_parent_identity_rejects_foreign_progress(case, changes):
+    run = case.diagnostics.bind_execution(
+        layer_indices=(0, 2), actual_compute_stream="parent", transaction_id="parent"
+    )
+    coordinates = dict(
+        role="ffn",
+        world_rank=3,
+        role_rank=1,
+        num_stages=1,
+        layer_indices=(0, 2),
+        transaction_id="parent",
+    )
+    run.validate_parent(**coordinates)
+    with pytest.raises(ValueError, match="exact accepted parent"):
+        run.validate_parent(**{**coordinates, **changes})
+    assert case.events == ["configuration"]
+
+
+@pytest.mark.parametrize(
+    "kwargs",
+    [
+        {"mode": "unknown", "compute_stream": "parent"},
+        {"mode": "serial", "compute_stream": "compute"},
+        {"mode": "graph-streamed", "compute_stream": "compute", "send_stream": "send"},
+        {
+            "mode": "eager-streamed",
+            "compute_stream": "parent",
+            "stream_aliases": (False, False, False),
+        },
+        {
+            "mode": "eager-streamed",
+            "compute_stream": "compute",
+            "send_stream": "send",
+            "recv_stream": "recv",
+            "stream_aliases": (True, True, False),
+        },
+        {
+            "mode": "eager-streamed",
+            "compute_stream": "compute",
+            "stream_aliases": (1, False, False),
+        },
+    ],
+)
+def test_invalid_actual_family_or_alias_is_rejected_without_records(api, kwargs):
+    with pytest.raises(ValueError, match="actual|parent|serial"):
+        api.HcclDiagnosticExecution(**kwargs)
+
+
+def test_configuration_is_emitted_on_every_paired_tp2_rank(api):
+    records = []
+    for role, offset in (("ffn", 0), ("attention", 2)):
+        for role_rank in (0, 1):
+            selection = api.select_hccl_overlap(
+                api.HcclOverlapSettings(stage_diagnostics=True),
+                role=role,
+                phase="eager",
+                num_stages=2,
+            )
+            case = make_diagnostics_case(
+                api, selection, world_rank=offset + role_rank, role_rank=role_rank
+            )
+            case.diagnostics.bind_execution(
+                layer_indices=(0, 1),
+                actual_compute_stream="parent",
+                transaction_id="same-parent",
+            )
+            records.extend(case.records)
+    assert {(r["world_rank"], r["role"], r["role_rank"]) for r in records} == {
+        (0, "ffn", 0),
+        (1, "ffn", 1),
+        (2, "attention", 0),
+        (3, "attention", 1),
+    }
+    assert all(r["event"] == "configuration" for r in records)

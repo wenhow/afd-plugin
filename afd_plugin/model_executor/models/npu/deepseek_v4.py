@@ -174,6 +174,11 @@ class AFDDeepseekV4RemoteMoE(RemoteFFNProxy):
         # this side must send ids rather than fall back to an activations-only
         # transfer. ``local_hash_input_ids`` raises if the forward context
         # cannot supply them.
+        send_kwargs = {}
+        if hidden_states_fp32 is not None:
+            # Preserve the native norm's independent routing input. A cast of
+            # the rounded activations cannot recover these FP32 values.
+            send_kwargs["hidden_states_fp32"] = hidden_states_fp32
         return self._send_and_receive(
             hidden_states,
             input_ids=local_hash_input_ids(
@@ -182,6 +187,7 @@ class AFDDeepseekV4RemoteMoE(RemoteFFNProxy):
                 ),
                 router_tokens=int(hidden_states.shape[0]),
             ),
+            **send_kwargs,
         )
 
 
@@ -424,6 +430,7 @@ class AFDDeepseekV4DecoderLayer(native.DeepseekV4DecoderLayer):
         self,
         hidden_states: torch.Tensor,
         *,
+        hidden_states_fp32: torch.Tensor | None = None,
         group_list: torch.Tensor | None = None,
         dynamic_scales: torch.Tensor | None = None,
         expand_x_shared: torch.Tensor | None = None,
@@ -458,8 +465,12 @@ class AFDDeepseekV4DecoderLayer(native.DeepseekV4DecoderLayer):
                 # topk_weights, which CAM applies during combine-recv.
                 routed_scale_applied_in_topk=True,
             )
-        # Target Hash MoE takes explicit token IDs from the CAM transfer.
-        return self.mlp(hidden_states, input_ids=get_forward_context().input_ids)
+        # Keep both the raw Hash IDs and independent native router input.
+        return self.mlp(
+            hidden_states,
+            input_ids=get_forward_context().input_ids,
+            hidden_states_fp32=hidden_states_fp32,
+        )
 
 
 @native.support_torch_compile

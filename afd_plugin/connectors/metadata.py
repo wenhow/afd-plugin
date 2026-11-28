@@ -279,12 +279,15 @@ class AFDA2FTransferPayload:
         router_logits: Optional Attention-side routing tensor.
         input_ids: Optional token-aligned identifiers required by the remote
             FFN implementation.
+        hidden_states_fp32: Independently produced router input; never inferred
+            by promoting the BF16 hidden states in the HCCL path.
     """
 
     hidden_states: torch.Tensor
     context: AFDTransferContext
     router_logits: torch.Tensor | None = None
     input_ids: torch.Tensor | None = None
+    hidden_states_fp32: torch.Tensor | None = None
 
 
 @dataclass(slots=True)

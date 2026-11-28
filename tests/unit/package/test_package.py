@@ -29,6 +29,11 @@ def test_package_import_is_cpu_safe():
     assert afd_plugin.AFDConfig().connector == "P2pNcclAFDConnector"
 
 
+def test_optional_mxfp8_registration_is_cpu_safe_when_disabled(monkeypatch):
+    monkeypatch.delenv("AFD_DSV41_MXFP8_SCALE_PATCH", raising=False)
+    assert afd_plugin.register_dsv41_mxfp8_scale_patch() is None
+
+
 def test_register_afd_is_idempotent():
     afd_plugin.register_afd()
     afd_plugin.register_afd()

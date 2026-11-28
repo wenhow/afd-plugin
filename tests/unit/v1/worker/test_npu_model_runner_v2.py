@@ -21,6 +21,10 @@ from vllm.config import CUDAGraphMode  # noqa: E402
 from vllm.v1.worker.dp_utils import should_skip_dp_coordination  # noqa: E402
 from vllm.v1.worker.gpu import cudagraph_utils, dp_utils, ubatch_utils  # noqa: E402
 from vllm.v1.worker.gpu import model_runner as native_v2  # noqa: E402
+from vllm.v1.worker.gpu.spec_decode.dflash.speculator import (  # noqa: E402
+    DFlashSpeculator,
+)
+from vllm_ascend import utils as native_ascend_utils  # noqa: E402
 from vllm_ascend.worker.v2 import model_runner as native_ascend_v2  # noqa: E402
 from vllm_ascend.worker.v2.input_batch import (  # noqa: E402
     AscendInputBatch,
@@ -28,12 +32,24 @@ from vllm_ascend.worker.v2.input_batch import (  # noqa: E402
 )
 from vllm_ascend.worker.v2.model_runner import NPUModelRunner  # noqa: E402
 
+from afd_plugin.compat.npu.runtime_config import (  # noqa: E402
+    HCCL_ATTESTED_PD_MODULE,
+    HCCL_NATIVE_PD_CONNECTOR,
+)
 from afd_plugin.compat.patches.npu import mrv2_ubatching as patches  # noqa: E402
 from afd_plugin.model_executor.models import (  # noqa: E402
     forward_context as afd_context,
 )
 from afd_plugin.v1.worker.npu import attention_model_runner_v2 as npu_v2  # noqa: E402
 from afd_plugin.v1.worker.npu import ubatch_runner as npu_ubatch  # noqa: E402
+from tests.unit.fakes.hccl import (  # noqa: E402
+    HcclLoopbackSession,
+    make_hccl_connector_pair,
+)
+from tests.unit.fakes.input_batch import (  # noqa: E402
+    make_ascend_batch as _ascend_batch,
+)
+from tests.unit.fakes.vllm_config import npu_vllm_config  # noqa: E402
 
 Runner = npu_v2.AFDNPUAttentionModelRunnerV2
 
@@ -53,13 +69,16 @@ def _runner(*, async_dp=False):
         },
         parallel_config=SimpleNamespace(enable_dbo=False, use_ubatching=False),
     )
+    runner.compilation_config = runner.vllm_config.compilation_config
+    runner.input_buffers = SimpleNamespace(dummy_num_tokens=None)
+    runner.speculator = None
     runner.afd_config = SimpleNamespace(
         async_dp=async_dp, num_attention_ranks=2, num_ffn_ranks=2
     )
     runner.connector = SimpleNamespace(extra_info=SimpleNamespace())
     runner.cudagraph_manager = None
     runner.ubatch_runner = None
-    runner.prof = object()
+    runner.prof = None
     runner._afd_pending_metadata = object()
     runner._afd_suppress_metadata_send = True
     runner._is_warmup = True
@@ -80,6 +99,64 @@ def _state(runner):
     )
 
 
+@pytest.mark.parametrize(
+    ("role", "expert_parallel", "num_ubatches", "module", "native_skips"),
+    [
+        ("kv_consumer", True, 2, HCCL_ATTESTED_PD_MODULE, False),
+        ("kv_consumer", True, 0, HCCL_ATTESTED_PD_MODULE, False),
+        ("kv_consumer", False, 2, HCCL_ATTESTED_PD_MODULE, True),
+        ("kv_consumer", True, 2, None, True),
+        ("kv_producer", True, 2, HCCL_ATTESTED_PD_MODULE, True),
+    ],
+)
+def test_native_ep_pd_consumer_retains_dp_coordination(
+    monkeypatch, role, expert_parallel, num_ubatches, module, native_skips
+):
+    runner = _runner()
+    runner.vllm_config = npu_vllm_config(
+        connector="P2pHcclAFDConnector",
+        model_type="deepseek_v41",
+        architectures=["DeepseekV41ForCausalLM"],
+        enable_expert_parallel=expert_parallel,
+        use_ubatching=bool(num_ubatches),
+        num_ubatches=num_ubatches,
+        kv_transfer_config=SimpleNamespace(
+            kv_role=role,
+            kv_connector=HCCL_NATIVE_PD_CONNECTOR,
+            kv_connector_module_path=module,
+        ),
+    )
+    runner.ascend_config = SimpleNamespace(
+        scheduler_config=SimpleNamespace(
+            profiling_chunk_config=SimpleNamespace(need_timing=False)
+        )
+    )
+    runner.model_state = SimpleNamespace()
+    runner.kvpp = SimpleNamespace(complete_forward=lambda: None)
+
+    def native_policy(vllm_config, is_draft_model=False):
+        return True
+
+    monkeypatch.setattr(
+        native_ascend_utils, "should_skip_allreduce_across_dp_group", native_policy
+    )
+    monkeypatch.setattr(
+        native_ascend_v2, "should_skip_allreduce_across_dp_group", native_policy
+    )
+    monkeypatch.setattr(native_ascend_v2, "has_kv_transfer_group", lambda: False)
+    monkeypatch.setattr(
+        native_v2.GPUModelRunner,
+        "execute_model",
+        lambda self, *args, **kwargs: should_skip_dp_coordination(),
+    )
+    patches.apply_ep_pd_dp_coordination_patch()
+
+    target_skips = NPUModelRunner.execute_model(
+        runner, SimpleNamespace(), is_profile=True
+    )
+    assert target_skips is native_skips
+
+
 def test_kv_control_context_does_not_publish_afd_metadata():
     runner = _runner()
     runner.vllm_config.kv_transfer_config, runner._afd_pending_metadata = object(), None
@@ -87,6 +164,132 @@ def test_kv_control_context_does_not_publish_afd_metadata():
     context.additional_kwargs, context.ubatch_slices = {}, None
     runner.install_afd_metadata_on_forward_context(context)
     assert context.additional_kwargs == {}
+
+
+@pytest.fixture
+def hccl_wire():
+    return HcclLoopbackSession()
+
+
+@pytest.fixture
+def hccl_execution(monkeypatch, hccl_wire):
+    attention, ffn = make_hccl_connector_pair(monkeypatch, wire=hccl_wire)
+    runner = _runner()
+    runner.connector, runner.vllm_config = attention, attention.vllm_config
+    runner.afd_config = attention.afd_config
+    runner._afd_hccl_execution, runner._afd_transaction_counter = None, 0
+    forward_module = afd_context.forward_context_module
+    monkeypatch.setattr(
+        forward_module,
+        "create_forward_context",
+        lambda *args, **kwargs: SimpleNamespace(
+            batch_descriptor=SimpleNamespace(num_tokens=3),
+            additional_kwargs={},
+            attn_metadata=None,
+        ),
+    )
+    yield runner, ffn
+    attention.close()
+    ffn.close()
+
+
+@pytest.mark.parametrize(
+    "dummy_run,is_profile,mode,valid_tokens",
+    [
+        (False, False, "target", 2),
+        (True, False, "dummy", 0),
+        (True, True, "profile", 0),
+    ],
+)
+def test_hccl_execute_publishes_native_padded_plan_and_valid_ids_extent(
+    hccl_execution, monkeypatch, dummy_run, is_profile, mode, valid_tokens
+):
+    runner, ffn = hccl_execution
+
+    def native_execute(self, *args, **kwargs):
+        context = afd_context.forward_context_module.create_forward_context()
+        # A repeated provider visit must not publish another peer transaction.
+        self.install_afd_metadata_on_forward_context(context)
+        return context.additional_kwargs["afd_metadata"]
+
+    monkeypatch.setattr(NPUModelRunner, "execute_model", native_execute)
+    metadata = runner.execute_model(
+        SimpleNamespace(total_num_scheduled_tokens=2),
+        dummy_run=dummy_run,
+        is_profile=is_profile,
+    )
+    plan = ffn.receive_forward_plan()
+    assert (plan.mode, plan.valid_tokens, plan.padded_tokens) == (mode, valid_tokens, 3)
+    assert plan.layer_indices == (0, 1)
+    assert plan.transaction_id == metadata.transaction_id
+    assert metadata.tokens_lens == [3]
+    assert metadata.tokens_unpadded_lens == [valid_tokens]
+
+
+def test_hccl_pre_forward_failure_does_not_leave_stale_execution_scope(
+    hccl_execution, monkeypatch
+):
+    runner, ffn = hccl_execution
+
+    def fail_before_context(self, *args, **kwargs):
+        raise ValueError("native input preparation failed")
+
+    monkeypatch.setattr(NPUModelRunner, "execute_model", fail_before_context)
+    with pytest.raises(ValueError, match="native input preparation failed"):
+        runner.execute_model(SimpleNamespace(total_num_scheduled_tokens=2))
+
+    def native_execute(self, *args, **kwargs):
+        return afd_context.forward_context_module.create_forward_context()
+
+    monkeypatch.setattr(NPUModelRunner, "execute_model", native_execute)
+    context = runner.execute_model(
+        SimpleNamespace(total_num_scheduled_tokens=2), dummy_run=True
+    )
+    plan = ffn.receive_forward_plan()
+    assert (plan.mode, plan.valid_tokens) == ("dummy", 0)
+    assert (
+        plan.transaction_id == context.additional_kwargs["afd_metadata"].transaction_id
+    )
+
+
+@pytest.mark.parametrize("mode", ["target", "dummy", "profile"])
+def test_dspark_draft_context_publishes_no_remote_ffn_plan(
+    hccl_execution, hccl_wire, monkeypatch, mode
+):
+    runner, _ = hccl_execution
+
+    def native_execute(self, *args, **kwargs):
+        return afd_context.forward_context_module.create_forward_context()
+
+    def local_draft(input_ids, **kwargs):
+        metadata = afd_context.get_afd_metadata_from_forward_context()
+        return input_ids + int(metadata is None)
+
+    monkeypatch.setattr(NPUModelRunner, "execute_model", native_execute)
+    monkeypatch.setattr(
+        afd_context.forward_context_module.current_platform,
+        "set_additional_forward_context",
+        lambda **kwargs: {},
+    )
+    runner.execute_model(
+        SimpleNamespace(total_num_scheduled_tokens=2),
+        dummy_run=mode != "target",
+        is_profile=mode == "profile",
+    )
+    draft = SimpleNamespace(
+        vllm_config=runner.vllm_config,
+        input_buffers=SimpleNamespace(
+            input_ids=torch.arange(5), positions=torch.arange(5)
+        ),
+        model=local_draft,
+    )
+
+    result = DFlashSpeculator._run_model(draft, 5, None, None, None)
+
+    torch.testing.assert_close(result, torch.arange(5) + 1)
+    assert [(plan.mode, plan.layer_indices) for plan in hccl_wire.plans] == [
+        (mode, (0, 1))
+    ]
 
 
 @pytest.mark.parametrize("failure", [None, "profiler", "abort", "native"])
@@ -230,8 +433,6 @@ def test_execute_forwards_dummy_profile_and_context_then_restores(
 ):
     runner = _runner(async_dp=async_dp)
     original_state = _state(runner)
-    step_calls: list[object] = []
-    monkeypatch.setattr(npu_v2, "step_afd_npu_profiler", step_calls.append)
     context = SimpleNamespace(additional_kwargs={})
     forward_module = afd_context.forward_context_module
     monkeypatch.setattr(forward_module, "create_forward_context", lambda: context)
@@ -285,7 +486,6 @@ def test_execute_forwards_dummy_profile_and_context_then_restores(
         )
     ]
     assert not should_skip_dp_coordination()
-    assert step_calls == [runner.prof]
     assert _state(runner) == original_state
     assert forward_module.create_forward_context is original_factory
 
@@ -422,7 +622,6 @@ def test_native_dummy_run_reaches_afd_execute_with_context_state(monkeypatch, as
     runner.kv_connector = SimpleNamespace(set_disabled=lambda disabled: None)
     runner.maybe_dummy_run_with_lora = lambda *args, **kwargs: nullcontext()
     monkeypatch.setattr(native_ascend_v2, "lmhead_tp_enable", lambda: False)
-    monkeypatch.setattr(npu_v2, "step_afd_npu_profiler", lambda _prof: None)
     calls = []
 
     def native_execute(self, scheduler_output, intermediate_tensors=None, **kwargs):
@@ -459,7 +658,6 @@ def test_async_execute_uses_native_local_dp_dispatch(monkeypatch, num_tokens, dp
     runner.afd_config.num_ffn_ranks = 1
     original_dispatch = native_v2.dispatch_cg_and_sync_dp
 
-    monkeypatch.setattr(npu_v2, "step_afd_npu_profiler", lambda _prof: None)
     monkeypatch.setattr(
         dp_utils, "get_dp_group", lambda: SimpleNamespace(cpu_group=None)
     )
@@ -535,7 +733,6 @@ def test_camp2p_dispatch_pads_many_to_one_before_native_inputs(
 
         manager = SimpleNamespace(dispatch=dispatch, run_fullgraph=run_fullgraph)
         runner.cudagraph_manager = manager
-    monkeypatch.setattr(npu_v2, "step_afd_npu_profiler", lambda _prof: None)
     monkeypatch.setattr(
         dp_utils, "get_dp_group", lambda: SimpleNamespace(cpu_group=None)
     )
@@ -596,7 +793,6 @@ def test_camp2p_padding_preserves_graph_descriptor_and_restores_dispatch(
 ):
     runner = _runner()
     runner.afd_config.num_ffn_ranks = 1
-    monkeypatch.setattr(npu_v2, "step_afd_npu_profiler", lambda _prof: None)
     counts = [8, 8] if mode == CUDAGraphMode.FULL else [3, 7]
     desc = cudagraph_utils.BatchExecutionDescriptor(
         mode, counts[0], 3, uniform_token_count=1, max_query_len=1, num_active_loras=2
@@ -641,19 +837,6 @@ def test_camp2p_padding_preserves_graph_descriptor_and_restores_dispatch(
         )
     assert len(dispatch_calls) == 1
     assert native_v2.dispatch_cg_and_sync_dp is native_dispatch
-
-
-def _ascend_batch(real=5, padded=8):
-    buffers = AscendInputBuffers(2, padded, torch.device("cpu"))
-    batch = AscendInputBatch.make_dummy(1, real, buffers)
-    batch.num_tokens_after_padding = padded
-    batch.input_ids = torch.arange(padded)
-    batch.positions = torch.arange(padded)
-    batch.is_padding = torch.arange(padded) >= real
-    batch.seq_lens += 12
-    batch.seq_lens_cpu_upper_bound += 12
-    batch.seq_lens_np = np.array([real + 12], dtype=np.int32)
-    return batch
 
 
 @pytest.mark.parametrize("real", [2, 5, 7])

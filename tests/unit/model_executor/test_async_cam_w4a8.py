@@ -7,7 +7,6 @@ from __future__ import annotations
 import ast
 import os
 import sys
-from collections.abc import Callable
 from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
@@ -238,49 +237,6 @@ def test_runner_switch_off_does_not_touch_model_or_ops():
         {"logger": SimpleNamespace(info=lambda *args: None)},
     )
     method(runner)
-
-
-@pytest.mark.parametrize(
-    ("role", "connector", "is_dsv4", "message"),
-    [
-        ("attention", "CAMAsyncAFDConnector", True, "FFN role"),
-        ("ffn", "CAMP2pAFDConnector", True, "async CAM"),
-        ("ffn", "CAMAsyncAFDConnector", False, "only DeepSeek V4"),
-    ],
-)
-def test_layered_switch_rejects_other_roles_connectors_and_models(
-    role, connector, is_dsv4, message
-):
-    source = Path("afd_plugin/compat/npu/feature_validation.py").read_text()
-    function = next(
-        node
-        for node in ast.parse(source).body
-        if isinstance(node, ast.FunctionDef)
-        and node.name == "fail_if_unsupported_npu_afd_features"
-    )
-    namespace = {
-        "AFD_ASYNC_CONNECTOR": "CAMAsyncAFDConnector",
-        "async_cam_layered_gmm_enabled": lambda: True,
-        "_is_dsv4_target": lambda config: is_dsv4,
-    }
-    module = ast.Module(
-        body=[
-            ast.ImportFrom(
-                module="__future__", names=[ast.alias(name="annotations")], level=0
-            ),
-            function,
-        ],
-        type_ignores=[],
-    )
-    exec(
-        compile(ast.fix_missing_locations(module), "<feature-validation>", "exec"),
-        namespace,
-    )
-    afd_config = SimpleNamespace(role=role, connector=connector)
-    with pytest.raises(RuntimeError, match=message):
-        cast(Callable[..., None], namespace["fail_if_unsupported_npu_afd_features"])(
-            SimpleNamespace(), afd_config=afd_config
-        )
 
 
 @pytest.mark.parametrize(

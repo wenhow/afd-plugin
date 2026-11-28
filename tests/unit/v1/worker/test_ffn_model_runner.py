@@ -38,7 +38,15 @@ from tests.unit.fakes.dp_metadata import (  # noqa: E402
 )
 from tests.unit.fakes.dp_metadata import dp_tokens as _tokens  # noqa: E402
 from tests.unit.fakes.graph import Graph as _FakeGraph  # noqa: E402
+from tests.unit.fakes.platform import stub_platform_forward_context  # noqa: E402
 from tests.unit.fakes.profiler import StepProfiler as _StepProfiler  # noqa: E402
+
+
+@pytest.fixture(autouse=True)
+def cpu_platform_forward_context(monkeypatch):
+    # These GPU protocol tests exercise native context construction, without
+    # entering an installed accelerator backend's distributed setup.
+    stub_platform_forward_context(monkeypatch)
 
 
 def test_native_weight_update_finishes_without_ffn_lora_state(monkeypatch):

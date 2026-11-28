@@ -3,16 +3,304 @@
 
 """One table owns upstream signature checks for scoped runtime patches."""
 
+import ast
+import importlib
 import inspect
+import textwrap
+from types import SimpleNamespace
+from unittest.mock import patch
 
 import pytest
 
 
-@pytest.mark.parametrize("hook", ["capture-inputs", "camp2p-dispatch"])
-def test_scoped_patch_preserves_upstream_signature(hook):
+@pytest.mark.parametrize(
+    "hook",
+    [
+        "capture-inputs",
+        "engine-core-collective-rpc",
+        "npu-dspark-ubatching-config",
+        "npu-engram-ubatching-config",
+        "npu-ep-pd-dp-coordination",
+        "camp2p-dispatch",
+        "hccl-native-prepare",
+        "hccl-graph-gather",
+        "hccl-graph-dispatch",
+        "hccl-graph-begin",
+        "hccl-graph-capture",
+        "hccl-graph-replay",
+        "hccl-u1-prepare",
+        "ffn-profile",
+        "attention-profile",
+        "attention-shutdown",
+        "dspark-pd-sampling",
+        "npu-model-loader",
+        "npu-dspark-weight-sharing",
+        "npu-kv-zeroing",
+        "pd-outer-constructor",
+        "pd-outer-bind-metadata",
+        "pd-outer-shutdown",
+        "pd-worker-constructor",
+        "pd-register",
+        "pd-remote-metadata",
+        "pd-read",
+        "pd-receiver-run",
+        "pd-receiver-add-request",
+        "pd-receiver-handle-request",
+        "pd-receiver-done",
+        "pd-worker-start-load",
+        "pd-scheduler-constructor",
+        "pd-scheduler-new-request",
+        "pd-scheduler-after-alloc",
+        "pd-scheduler-metadata",
+        "pd-scheduler-finished",
+        "pd-native-source-retirement",
+        "pd-sender-finished",
+        "pd-sender-no-transfer",
+        "pd-sender-delayed",
+        "pd-sender-dispatch",
+        "ds-mxfp8",
+        "ds-mxfp4",
+        "ds-mxfp4-expert-scale",
+        "ds-mxfp4-gmm2",
+        "ds-mxfp4-gmm1-act-quant",
+    ],
+)
+def test_scoped_patch_preserves_upstream_signature(hook):  # long-test: shared table
     pytest.importorskip("torch")
     pytest.importorskip("vllm")
-    if hook == "capture-inputs":
+    if hook == "engine-core-collective-rpc":
+        from vllm.v1.engine import core as native_core
+
+        from afd_plugin.compat.patches import engine_core as adapter
+
+        # CPU core tests reload this module against a temporary fake namespace.
+        # Restore its native core/_R bindings before checking the real contract.
+        importlib.reload(adapter)
+        # Importing the adapter installs this exact method on the native class.
+        # Inspect only the installed upstream declaration, with an empty body,
+        # so alignment never compares the replacement with itself. No plugin
+        # source is read or extracted and no upstream method body is executed.
+        declaration = next(
+            node
+            for node in ast.parse(
+                textwrap.dedent(inspect.getsource(native_core.EngineCore))
+            )
+            .body[0]
+            .body
+            if isinstance(node, ast.FunctionDef) and node.name == "collective_rpc"
+        )
+        declaration.body = [ast.Pass()]
+        namespace = dict(vars(native_core))
+        exec(
+            compile(
+                ast.fix_missing_locations(ast.Module([declaration], [])),
+                native_core.__file__,
+                "exec",
+            ),
+            namespace,
+        )
+        assert inspect.signature(
+            adapter.collective_rpc, eval_str=True
+        ) == inspect.signature(namespace["collective_rpc"], eval_str=True)
+        return
+    elif hook == "npu-ep-pd-dp-coordination":
+        pytest.importorskip("vllm_ascend")
+        from vllm_ascend import utils as native_utils
+
+        from afd_plugin.compat.patches.npu import mrv2_ubatching
+
+        assert inspect.signature(
+            mrv2_ubatching.should_skip_allreduce_across_dp_group, eval_str=True
+        ) == inspect.signature(
+            native_utils.should_skip_allreduce_across_dp_group, eval_str=True
+        )
+        return
+    elif hook in ("npu-dspark-ubatching-config", "npu-engram-ubatching-config"):
+        from vllm.config import vllm as native_config
+
+        from afd_plugin.compat.patches.npu import ubatching_config
+
+        method_name, replacement = (
+            (
+                "_get_dbo_unsupported_features",
+                ubatching_config.get_dbo_unsupported_features,
+            )
+            if hook == "npu-dspark-ubatching-config"
+            else (
+                "_resolve_and_verify_engram_config",
+                ubatching_config.resolve_and_verify_engram_config,
+            )
+        )
+
+        # Read the installed native declaration: the public runtime facade may
+        # already have replaced the class attribute during preceding tests.
+        declaration = next(
+            node
+            for node in ast.parse(
+                textwrap.dedent(inspect.getsource(native_config.VllmConfig))
+            )
+            .body[0]
+            .body
+            if isinstance(node, ast.FunctionDef) and node.name == method_name
+        )
+        declaration.body = [ast.Pass()]
+        namespace = dict(vars(native_config))
+        exec(
+            compile(
+                ast.fix_missing_locations(ast.Module([declaration], [])),
+                native_config.__file__,
+                "exec",
+            ),
+            namespace,
+        )
+        assert inspect.signature(replacement, eval_str=True) == inspect.signature(
+            namespace[method_name], eval_str=True
+        )
+        return
+    elif hook == "npu-dspark-weight-sharing":
+        from vllm.v1.worker.gpu.spec_decode.eagle import utils as native
+
+        from afd_plugin.compat.patches.npu import dspark_weight_sharing
+
+        assert inspect.signature(
+            dspark_weight_sharing.should_share, eval_str=True
+        ) == inspect.signature(native._should_share, eval_str=True)
+        return
+    elif hook.startswith("pd-"):
+        pytest.importorskip("torch_npu")
+        pytest.importorskip("vllm_ascend")
+        from vllm.distributed.kv_transfer.kv_connector.v1.base import KVConnectorBase_V1
+        from vllm.v1.core.kv_cache_manager import KVCacheBlocks  # noqa: F401
+        from vllm.v1.request import Request  # noqa: F401
+        from vllm_ascend.distributed.kv_transfer.kv_p2p import (
+            mooncake_hybrid_connector as native,
+        )
+
+        from afd_plugin.compat.npu import kv_layout_connector as adapter
+
+        if hook == "pd-outer-constructor":
+            target, replacement, symbol = (
+                native.MooncakeConnector,
+                adapter.MooncakeHybridConnector.__init__,
+                "__init__",
+            )
+        elif hook == "pd-worker-constructor":
+            target, replacement, symbol = (
+                native.MooncakeConnectorWorker,
+                adapter.AFDMooncakeConnectorWorker.__init__,
+                "__init__",
+            )
+        elif hook == "pd-register":
+            target, replacement, symbol = (
+                native.MooncakeConnectorWorker,
+                adapter.AFDMooncakeConnectorWorker.register_kv_caches,
+                "register_kv_caches",
+            )
+        elif hook == "pd-remote-metadata":
+            target, replacement, symbol = (
+                native.KVCacheRecvingThread,
+                adapter.AFDMooncakeRecvingThread._get_remote_metadata,
+                "_get_remote_metadata",
+            )
+        elif hook == "pd-read":
+            target, replacement, symbol = (
+                native.KVCacheRecvingThread,
+                adapter.AFDMooncakeRecvingThread._transfer_kv_cache_all_groups,
+                "_transfer_kv_cache_all_groups",
+            )
+        elif hook == "pd-native-source-retirement":
+            from afd_plugin.compat.patches.npu import dspark_pd_scheduler
+
+            target = SimpleNamespace(
+                _connector_finished=dspark_pd_scheduler.NATIVE_CONNECTOR_FINISHED
+            )
+            replacement = dspark_pd_scheduler._connector_finished
+            symbol = "_connector_finished"
+        else:
+            target, replacement, symbol = {
+                "pd-scheduler-constructor": (
+                    native.MooncakeConnectorScheduler,
+                    adapter.AFDMooncakeConnectorScheduler.__init__,
+                    "__init__",
+                ),
+                "pd-scheduler-new-request": (
+                    native.MooncakeConnectorScheduler,
+                    adapter.AFDMooncakeConnectorScheduler.on_new_request,
+                    "on_new_request",
+                ),
+                "pd-scheduler-after-alloc": (
+                    native.MooncakeConnectorScheduler,
+                    adapter.AFDMooncakeConnectorScheduler.update_state_after_alloc,
+                    "update_state_after_alloc",
+                ),
+                "pd-scheduler-metadata": (
+                    native.MooncakeConnectorScheduler,
+                    adapter.AFDMooncakeConnectorScheduler.build_connector_meta,
+                    "build_connector_meta",
+                ),
+                "pd-scheduler-finished": (
+                    native.MooncakeConnectorScheduler,
+                    adapter.AFDMooncakeConnectorScheduler.request_finished_all_groups,
+                    "request_finished_all_groups",
+                ),
+                "pd-sender-finished": (
+                    native.KVCacheSendingThread,
+                    adapter.AFDMooncakeSendingThread.get_and_clear_finished_requests,
+                    "get_and_clear_finished_requests",
+                ),
+                "pd-sender-no-transfer": (
+                    native.KVCacheSendingThread,
+                    adapter.AFDMooncakeSendingThread.add_not_transfer_request,
+                    "add_not_transfer_request",
+                ),
+                "pd-sender-delayed": (
+                    native.KVCacheSendingThread,
+                    adapter.AFDMooncakeSendingThread.add_delayed_request,
+                    "add_delayed_request",
+                ),
+                "pd-sender-dispatch": (
+                    native.KVCacheSendingThread,
+                    adapter.AFDMooncakeSendingThread.run_busy_loop,
+                    "run_busy_loop",
+                ),
+                "pd-outer-shutdown": (
+                    native.MooncakeConnector,
+                    adapter.MooncakeHybridConnector.shutdown,
+                    "shutdown",
+                ),
+                "pd-outer-bind-metadata": (
+                    KVConnectorBase_V1,
+                    adapter.MooncakeHybridConnector.bind_connector_metadata,
+                    "bind_connector_metadata",
+                ),
+                "pd-receiver-run": (
+                    native.KVCacheRecvingThread,
+                    adapter.AFDMooncakeRecvingThread.run,
+                    "run",
+                ),
+                "pd-receiver-add-request": (
+                    native.KVCacheRecvingThread,
+                    adapter.AFDMooncakeRecvingThread.add_request,
+                    "add_request",
+                ),
+                "pd-receiver-handle-request": (
+                    native.KVCacheRecvingThread,
+                    adapter.AFDMooncakeRecvingThread._handle_request,
+                    "_handle_request",
+                ),
+                "pd-receiver-done": (
+                    native.KVCacheRecvingThread,
+                    adapter.AFDMooncakeRecvingThread._send_done_recv_signal,
+                    "_send_done_recv_signal",
+                ),
+                "pd-worker-start-load": (
+                    native.MooncakeConnectorWorker,
+                    adapter.AFDMooncakeConnectorWorker.start_load_kv,
+                    "start_load_kv",
+                ),
+            }[hook]
+        scope = patch.object(target, symbol, replacement)
+    elif hook == "capture-inputs":
         from vllm.v1.worker.gpu import cudagraph_utils as target
         from vllm.v1.worker.gpu.pcp_manager import PCPManager  # noqa: F401
 
@@ -21,7 +309,7 @@ def test_scoped_patch_preserves_upstream_signature(hook):
         symbol = "prepare_inputs_to_capture"
         tracker = adapter._AFDCaptureEventTracker([])
         scope = adapter._use_afd_capture_input_preparation(None, tracker)
-    else:
+    elif hook == "camp2p-dispatch":
         pytest.importorskip("torch_npu")
         pytest.importorskip("vllm_ascend")
         from vllm.v1.worker.gpu import model_runner as target
@@ -30,6 +318,199 @@ def test_scoped_patch_preserves_upstream_signature(hook):
 
         symbol = "dispatch_cg_and_sync_dp"
         scope = adapter._use_camp2p_dp_padding(4, 2)
+    elif hook == "hccl-native-prepare":
+        pytest.importorskip("torch_npu")
+        pytest.importorskip("vllm_ascend")
+        from vllm.v1.worker.gpu.ubatch_utils import UBatchRunner
+
+        from afd_plugin.v1.worker.npu.hccl_v41_execution import HcclV41Execution
+        from tests.unit.fakes.deepseek_v41 import ParentEngramState
+
+        target = object.__new__(UBatchRunner)
+        # Keep a stable bound-method alias so restoration can use the table's
+        # identity assertion as well as its exact signature comparison.
+        target.prepare = target.prepare
+        owner = SimpleNamespace(model_state=ParentEngramState({}), ubatch_runner=target)
+        symbol = "prepare"
+        scope = HcclV41Execution(
+            owner,
+            SimpleNamespace(terminal=False),
+            mode="target",
+            valid_tokens=0,
+            dummy_run=False,
+        ).scope()
+    elif hook in ("hccl-graph-gather", "hccl-graph-dispatch"):
+        pytest.importorskip("torch_npu")
+        pytest.importorskip("vllm_ascend")
+        from vllm.v1.worker.gpu import model_runner
+        from vllm_ascend.worker.v2.model_runner import NPUModelRunner
+
+        from afd_plugin.compat.patches.npu.hccl_graph_dispatch import (
+            use_hccl_graph_dispatch,
+        )
+
+        owner = object.__new__(NPUModelRunner)
+        owner.cudagraph_manager = None
+        owner.parallel_config = SimpleNamespace()
+        owner.gather_batch_req_state = owner.gather_batch_req_state
+        if hook == "hccl-graph-gather":
+            target, symbol = owner, "gather_batch_req_state"
+        else:
+            target, symbol = model_runner, "dispatch_cg_and_sync_dp"
+        scope = use_hccl_graph_dispatch(owner, lambda state, args, desc: desc)
+    elif hook == "hccl-graph-capture":
+        from vllm.v1.worker.gpu.cudagraph_utils import CudaGraphManager
+
+        from afd_plugin.compat.patches.npu.hccl_graph_capture import (
+            use_hccl_graph_capture,
+        )
+
+        target = CudaGraphManager
+        symbol = "capture"
+        scope = use_hccl_graph_capture(
+            object.__new__(CudaGraphManager),
+            before_factory=lambda descriptor, warmup: None,
+            after_capture=lambda: None,
+            fail=lambda: None,
+        )
+    elif hook == "hccl-graph-replay":
+        pytest.importorskip("torch_npu")
+        pytest.importorskip("vllm_ascend")
+        from contextlib import nullcontext
+
+        from vllm_ascend.worker.v2.aclgraph_utils import ModelAclGraphManager
+
+        from afd_plugin.compat.patches.npu.hccl_graph_replay import (
+            use_hccl_graph_replay,
+        )
+
+        target = object.__new__(ModelAclGraphManager)
+        target.run_fullgraph = target.run_fullgraph
+        symbol = "run_fullgraph"
+        scope = use_hccl_graph_replay(
+            target,
+            before_replay=lambda descriptor: nullcontext(),
+            after_replay=lambda descriptor: None,
+            fail=lambda: None,
+        )
+    elif hook == "hccl-u1-prepare":
+        pytest.importorskip("torch_npu")
+        pytest.importorskip("vllm_ascend")
+        from afd_plugin.compat.patches.npu.hccl_v41_u1_graph import (
+            use_hccl_v41_u1_preparation,
+        )
+        from tests.unit.fakes.deepseek_v41 import ParentEngramState
+
+        target = ParentEngramState({})
+        target.prepare_attn = target.prepare_attn
+        symbol = "prepare_attn"
+        scope = use_hccl_v41_u1_preparation(target, None, lambda: None)
+    elif hook == "hccl-graph-begin":
+        pytest.importorskip("torch_npu")
+        pytest.importorskip("vllm_ascend")
+        from vllm.v1.worker.gpu.ubatch_utils import UBatchRunner
+
+        from afd_plugin.v1.worker.npu.hccl_v41_ubatch_runner import HcclV41UBatchRunner
+
+        target = UBatchRunner
+        symbol = "begin_capturable_run"
+        scope = patch.object(target, symbol, HcclV41UBatchRunner.begin_capturable_run)
+    elif hook in ("ffn-profile", "attention-profile", "attention-shutdown"):
+        pytest.importorskip("torch_npu")
+        pytest.importorskip("vllm_ascend")
+        from vllm_ascend.worker.worker import NPUWorker
+
+        from afd_plugin.v1.worker.npu.attention_worker import AFDNPUAttentionWorker
+        from afd_plugin.v1.worker.npu.ffn_worker import AFDNPUFFNWorker
+
+        target = NPUWorker
+        symbol = "shutdown" if hook == "attention-shutdown" else "profile"
+        profile = (
+            AFDNPUFFNWorker.profile
+            if hook == "ffn-profile"
+            else AFDNPUAttentionWorker.shutdown
+            if hook == "attention-shutdown"
+            else AFDNPUAttentionWorker.profile
+        )
+        scope = patch.object(target, symbol, profile)
+    elif hook == "npu-kv-zeroing":
+        pytest.importorskip("torch_npu")
+        pytest.importorskip("vllm_ascend")
+        from vllm.v1.worker.gpu.model_runner import GPUModelRunner
+
+        from afd_plugin.compat.patches.npu.mrv2_kv_zeroing import init_kv_zero_meta
+
+        target, replacement, symbol = (
+            GPUModelRunner,
+            init_kv_zero_meta,
+            "_init_kv_zero_meta",
+        )
+        scope = patch.object(target, symbol, replacement)
+    elif hook == "dspark-pd-sampling":
+        pytest.importorskip("torch_npu")
+        pytest.importorskip("vllm_ascend")
+        from vllm_ascend.worker.v2.model_runner import NPUModelRunner
+
+        from afd_plugin.v1.worker.npu.attention_model_runner_v2 import (
+            AFDNPUAttentionModelRunnerV2,
+        )
+
+        target = NPUModelRunner
+        symbol = "sample_tokens"
+        scope = patch.object(target, symbol, AFDNPUAttentionModelRunnerV2.sample_tokens)
+    elif hook == "ds-mxfp8":
+        pytest.importorskip("torch_npu")
+        pytest.importorskip("vllm_ascend")
+        from vllm_ascend.quantization.methods.w8a8.w8a8_mxfp8 import (
+            AscendW8A8MXFP8DSDynamicLinearMethod,
+        )
+
+        from afd_plugin.compat.patches.npu import mxfp8 as adapter
+
+        target = AscendW8A8MXFP8DSDynamicLinearMethod
+        symbol = "process_weights_after_loading"
+        scope = patch.object(target, symbol, adapter.process_weights_after_loading)
+    elif hook in (
+        "ds-mxfp4",
+        "ds-mxfp4-expert-scale",
+        "ds-mxfp4-gmm2",
+        "ds-mxfp4-gmm1-act-quant",
+    ):
+        pytest.importorskip("torch_npu")
+        pytest.importorskip("vllm_ascend")
+        from vllm_ascend.ops.fused_moe.dataclass.moe_mlp import (  # noqa: F401
+            MoEMlpComputeInput,
+        )
+        from vllm_ascend.quantization.methods.w4a8.w4a8_mxfp4 import (
+            AscendW4A8MXFPDSDynamicFusedMoEMethod,
+        )
+
+        from afd_plugin.compat.patches.npu import mxfp4 as adapter
+
+        target = AscendW4A8MXFPDSDynamicFusedMoEMethod
+        if hook == "ds-mxfp4":
+            symbol = "process_weights_after_loading"
+            replacement = adapter.process_weights_after_loading
+        elif hook == "ds-mxfp4-expert-scale":
+            symbol = "_process_scale_2d"
+            replacement = staticmethod(adapter._process_scale_2d)
+        elif hook == "ds-mxfp4-gmm2":
+            symbol = "apply_gmm2"
+            replacement = adapter.apply_gmm2
+        else:
+            symbol = "apply_gmm1_act_quant"
+            replacement = adapter.apply_gmm1_act_quant
+        scope = patch.object(target, symbol, replacement)
+    else:
+        from torch import nn  # noqa: F401
+        from vllm.config import ModelConfig, VllmConfig  # noqa: F401
+        from vllm.model_executor.model_loader.base_loader import BaseModelLoader
+
+        from afd_plugin.compat.patches.npu import model_loader as adapter
+
+        target = BaseModelLoader
+        symbol = "create_model"
+        scope = patch.object(target, symbol, adapter.create_model)
     original = getattr(target, symbol)
     with scope:
         patched = getattr(target, symbol)

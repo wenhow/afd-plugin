@@ -420,6 +420,36 @@ class AscendConfigLifecycleTests(unittest.TestCase):
             self.assertIsNot(ns["init_ascend_config"](config), result)
             self.assertEqual(len(clears), 2)
 
+    def test_factory_preserves_config_with_target_derived_fields(self):
+        for afd_options in (None, {"role": "attention"}):
+            with self.subTest(afd=afd_options):
+                ns, _, _ = factory_namespace()
+                additional = {
+                    "enable_sparse_li_c4": True,
+                    "enable_sparse_sfa_turboquant": True,
+                    "_sparse_li_c4_layer_ids": {2},
+                    "_sparse_li_c4_layer_names": {"layer2"},
+                    "_sparse_li_layer_filter_enabled": True,
+                }
+                if afd_options is not None:
+                    additional["afd"] = afd_options
+                config = SimpleNamespace(additional_config=additional)
+                before = copy.deepcopy(config)
+                utils = types.ModuleType("vllm_ascend.utils")
+                utils.__dict__["clear_enable_sp"] = lambda: None
+                with patch.dict(sys.modules, {utils.__name__: utils}):
+                    ns["init_ascend_config"](config)
+                self.assertEqual(config, before)
+                self.assertIs(config.additional_config, additional)
+
+    def test_factory_rejects_retired_sparse_filter_key(self):
+        ns, _, _ = factory_namespace()
+        config = SimpleNamespace(
+            additional_config={"_sparse_li_c8_layer_filter_enabled": True}
+        )
+        with self.assertRaisesRegex(ValueError, "_sparse_li_c8_layer_filter_enabled"):
+            ns["init_ascend_config"](config)
+
     def test_async_shared_replication_only_overrides_effective_model_sp(self):
         afd = {
             "connector": "CAMAsyncAFDConnector",

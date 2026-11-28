@@ -18,8 +18,10 @@ class AFDRankMapping:
     """Rank mapping for the P2P connector.
 
     The P2P world always places FFN ranks first, followed by Attention ranks:
-    ``[F0, F1, ..., A0, A1, ...]``. Each FFN rank owns one subgroup containing
-    itself at subgroup rank 0 and one or more consecutive Attention ranks.
+    ``[F0, F1, ..., A0, A1, ...]``. The default builder assigns each FFN rank
+    a subgroup containing itself at rank 0 and consecutive Attention ranks.
+    The HCCL layout builder also represents fanout groups with several FFN
+    peers; consumers use ``subgroup_ranks`` and ``rank_in_subgroup`` directly.
     """
 
     role: str

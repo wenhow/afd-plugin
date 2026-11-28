@@ -74,7 +74,10 @@ def harness(monkeypatch):
     )
     connector._initialized = True
     monkeypatch.setenv("AFD_ASYNC_CAM_LAYERED_GMM", "0")
-    monkeypatch.setattr(runtime, "create_afd_npu_profiler", lambda role: None)
+    monkeypatch.setattr(
+        runtime, "create_deferred_afd_npu_profiler", lambda role, **_: None
+    )
+    cfg.parallel_config.rank = 0
     runner = runtime.AsyncNPUFFNModelRunner(cfg, torch.device("cpu"), connector)
     runner.layer_ids = (2, 5)
     calls: list[str | tuple] = []
@@ -150,6 +153,7 @@ def test_eager_preserves_layer_loop_device_metadata_and_return_headers(
 @pytest.mark.parametrize("fail", [False, True])
 def test_full_receiver_exit_requires_success_even_during_shutdown(harness, fail):
     worker = AFDNPUFFNWorker.__new__(AFDNPUFFNWorker)
+    worker._hccl_v41_transport = None
     worker.model_runner = harness.runner
     harness.runner.effective_mode = "full"
     worker._ffn_thread = None

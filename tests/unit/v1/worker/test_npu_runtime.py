@@ -185,6 +185,83 @@ def _require_npu_runtime():
     pytest.importorskip("torch_npu", reason="NPU runtime tests require torch-npu")
 
 
+@pytest.fixture
+def npu_worker_constructor(monkeypatch):
+    _require_npu_runtime()
+    from afd_plugin.v1.worker.npu import attention_worker, ffn_worker
+
+    def native_init(worker, vllm_config, *args, **kwargs):
+        worker.vllm_config = vllm_config
+        # Model the pinned Ascend derive step's observable config writeback.
+        if vllm_config.engram_config is not None:
+            vllm_config.engram_config.dp_shared_memory = True
+
+    monkeypatch.setattr(ffn_worker.NPUWorker, "__init__", native_init)
+    for module in (attention_worker, ffn_worker):
+        monkeypatch.setattr(module, "apply_afd_ascend_patches_if_needed", lambda: None)
+    return {
+        "attention": attention_worker.AFDNPUAttentionWorker,
+        "ffn": ffn_worker.AFDNPUFFNWorker,
+    }
+
+
+@pytest.mark.parametrize("keyword_config", [False, True])
+def test_ffn_worker_isolates_engram_before_native_construction(
+    npu_worker_constructor, keyword_config
+):
+    worker_class = npu_worker_constructor["ffn"]
+    source = _vllm_config(
+        role="ffn",
+        model_type="deepseek_v41",
+        architectures=["DeepseekV41ForCausalLM"],
+        engram_config=SimpleNamespace(dp_shared_memory=False),
+    )
+    if keyword_config:
+        worker = worker_class(
+            vllm_config=source, local_rank=0, rank=0, distributed_init_method="unused"
+        )
+    else:
+        worker = worker_class(source, 0, 0, "unused")
+
+    assert worker.vllm_config.engram_config is None
+    assert source.engram_config.dp_shared_memory is False
+    assert worker.vllm_config.model_config is source.model_config
+
+
+def test_ffn_worker_preserves_existing_model_configuration(npu_worker_constructor):
+    source = _vllm_config(
+        role="ffn",
+        engram_config=SimpleNamespace(dp_shared_memory=False),
+    )
+
+    worker = npu_worker_constructor["ffn"](source, 0, 0, "unused")
+
+    assert worker.vllm_config is source
+    assert source.engram_config.dp_shared_memory is True
+
+
+@pytest.mark.parametrize("keyword_config", [False, True])
+def test_attention_worker_preserves_engram_for_native_construction(
+    npu_worker_constructor, keyword_config
+):
+    worker_class = npu_worker_constructor["attention"]
+    source = _vllm_config(
+        role="attention",
+        model_type="deepseek_v41",
+        architectures=["DeepseekV41ForCausalLM"],
+        engram_config=SimpleNamespace(dp_shared_memory=False),
+    )
+    if keyword_config:
+        worker = worker_class(
+            vllm_config=source, local_rank=0, rank=0, distributed_init_method="unused"
+        )
+    else:
+        worker = worker_class(source, 0, 0, "unused")
+
+    assert worker.vllm_config is source
+    assert source.engram_config.dp_shared_memory is True
+
+
 def _new_attention_runner():
     _require_npu_runtime()
     from afd_plugin.v1.worker.npu.attention_model_runner_v2 import (
@@ -206,6 +283,7 @@ def _new_ffn_runner():
     runner.prof = None
     runner.device = SimpleNamespace(type="npu")
     runner._is_shutdown = False
+    runner.hccl_v41_graph_service = None
     runner.effective_mode = "eager"
     # _ffn_layer_indices reads these; production runs with the gate on the
     # Attention side, so every layer index is a MoE FFN layer here.
@@ -225,7 +303,10 @@ def _new_ffn_worker():
     from afd_plugin.v1.worker.npu.ffn_worker import AFDNPUFFNWorker
 
     worker = object.__new__(AFDNPUFFNWorker)
+    worker._hccl_v41_transport = None
     worker._ffn_loop_error = None
+    worker.profiler_config = None
+    worker.profiler = None
     # Most tests exercise the daemon loop rather than CPU placement. Tests for
     # the startup binding path explicitly reset this guard.
     worker._cpu_binding_attempted = True
@@ -1004,6 +1085,7 @@ def test_npu_ffn_worker_start_binds_physical_npu_once_before_daemon(
     worker.local_rank = 3
     worker.model_runner = SimpleNamespace(
         connector=SimpleNamespace(is_initialized=True, control_plane=object()),
+        prof=None,
     )
     events: list[tuple[str, object]] = []
     monkeypatch.setattr(
@@ -1069,6 +1151,7 @@ def test_npu_ffn_worker_cpu_binding_failure_does_not_abort_daemon_start(
     worker.local_rank = 5
     worker.model_runner = SimpleNamespace(
         connector=SimpleNamespace(is_initialized=True, control_plane=object()),
+        prof=None,
     )
     thread_starts: list[bool] = []
     monkeypatch.setattr(
@@ -1114,6 +1197,7 @@ def test_npu_ffn_worker_loop_error_is_propagated(caplog):
     worker._ffn_loop_error = None
     worker.model_runner = SimpleNamespace(
         connector=SimpleNamespace(is_initialized=True, control_plane=object()),
+        prof=None,
     )
 
     expected_error = RuntimeError("boom")
@@ -1145,6 +1229,7 @@ def test_npu_ffn_worker_ignores_receive_error_during_shutdown(caplog):
     worker._ffn_loop_error = None
     worker.model_runner = SimpleNamespace(
         connector=SimpleNamespace(is_initialized=True, control_plane=object()),
+        prof=None,
     )
 
     def stop_while_receiving():
@@ -1268,6 +1353,7 @@ def test_npu_ffn_worker_uses_connector_driven_loop_for_async_connector(monkeypat
     worker._ffn_shutdown_event = event
     worker.device = SimpleNamespace(type="cpu")
     worker.model_runner = object.__new__(ffn_worker.AsyncNPUFFNModelRunner)
+    worker.model_runner.prof = None
     worker.model_runner.connector = _AsyncRecordingConnector()
     worker.model_runner.effective_mode = "eager"
     worker.model_runner.execute_connector_driven_step = execute_connector_driven_step
@@ -1354,8 +1440,8 @@ def _fake_npu_connector_factory(monkeypatch, connector):
         return connector
 
     monkeypatch.setattr(
-        attention_model_runner.AFDConnectorFactory,
-        "create_connector",
+        attention_model_runner,
+        "create_npu_runtime_connector",
         create_connector,
     )
     return calls
@@ -1391,8 +1477,8 @@ def test_npu_attention_runner_constructor_does_not_initialize_connector(monkeypa
     )
     monkeypatch.setattr(
         attention_model_runner,
-        "create_afd_npu_profiler",
-        lambda _name: object(),
+        "create_deferred_afd_npu_profiler",
+        lambda _name, **_: None,
     )
     monkeypatch.setattr(
         attention_model_runner.AFDNPUAttentionModelRunnerV2,
@@ -1426,13 +1512,13 @@ def test_npu_ffn_connector_uses_model_device_index_for_dp_worker(monkeypatch):
     connector = _LifecycleConnector([], control_plane=object())
     calls = []
 
-    def create_connector(rank, local_rank, vllm_config, afd_config):
+    def create_connector(rank, local_rank, vllm_config, afd_config, **kwargs):
         calls.append((rank, local_rank))
         return connector
 
     monkeypatch.setattr(ffn_model_runner, "_resolve_world_ranks", lambda: (7, 0))
     monkeypatch.setattr(
-        ffn_model_runner.AFDConnectorFactory, "create_connector", create_connector
+        ffn_model_runner, "create_npu_runtime_connector", create_connector
     )
     monkeypatch.setattr(
         ffn_model_runner,
@@ -1444,10 +1530,13 @@ def test_npu_ffn_connector_uses_model_device_index_for_dp_worker(monkeypatch):
         "fail_if_unsupported_npu_afd_features",
         lambda *_args, **_kwargs: None,
     )
-    monkeypatch.setattr(ffn_model_runner, "create_afd_npu_profiler", lambda _role: None)
+    monkeypatch.setattr(
+        ffn_model_runner, "create_deferred_afd_npu_profiler", lambda _role, **_: None
+    )
     monkeypatch.setattr(ffn_model_runner, "_use_npu_aclgraph", lambda _config: False)
     config = _vllm_config(role="ffn")
-    config.model_config.hf_config = SimpleNamespace(num_hidden_layers=43)
+    config.parallel_config.rank = 7
+    config.model_config.hf_text_config.num_hidden_layers = 43
 
     runner = ffn_model_runner.AFDNPUFFNModelRunner(
         config, SimpleNamespace(index=3, type="npu")

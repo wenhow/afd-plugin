@@ -284,6 +284,11 @@ def _install_fake_npu_config(monkeypatch):
     factory_patch = types.ModuleType("afd_plugin.compat.patches.npu.ascend_config")
     factory_patch.__dict__["apply_afd_ascend_config_patch"] = lambda: None
     monkeypatch.setitem(sys.modules, factory_patch.__name__, factory_patch)
+    # DSpark/U2 admission has a separate native-config seam test. Keep this
+    # normalization test independent of the optional vLLM runtime imports.
+    ubatching_patch = types.ModuleType("afd_plugin.compat.patches.npu.ubatching_config")
+    ubatching_patch.__dict__["apply_afd_dspark_ubatching_config_patch"] = lambda: None
+    monkeypatch.setitem(sys.modules, ubatching_patch.__name__, ubatching_patch)
     monkeypatch.setattr(
         npu_compat,
         "fix_all2all_backend_for_afd",
