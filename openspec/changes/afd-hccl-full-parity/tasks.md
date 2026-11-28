@@ -143,6 +143,10 @@ A5同TP4单层MoE及DSpark两场景已提交推送至`feat/dsv41-flash-hccl-v030
   219-token prompt 从第 3 个输出 token 起偏离（`1528` → `0`）。两档 A/F 正常退出。
   归档 `aab130b0361c4312aeeffd4b53f45eb7.zip`（eager）和
   `e0d4d18234594c3baa9878d5bac29237.zip`（Graph）。eager/U2 长请求和多流联合验收仍待完成。
+  `ee66ad9` 长请求定向归档 `eb2d1efd72e343549216dc296cba04ac.zip`（U1）和
+  `fccd9930b3ff4eb68a8072c80ffc2203.zip`（U2）确认 `124+95` prefill 调度一致，
+  首个 chunk 的 target 分差不同，第二次验证输入一致但第 0 行 top-1 为 `1528` 与 `1`。
+  保留 U2 decode、将两个 prefill chunk 各留在单 stage 的 A5 对照待执行。
 - [ ] 1.5 【源码已接入，联合验收待 A5】完成目标 v0.30 PD 请求接入、KV/index、layer/component 和退出适配，不启用过时补丁或改上游；本轮补齐 Engram 原始 history 声明与校验，设备 handoff 验收见 2.6。
 - [ ] 1.6 迁移 recipe/preflight/capture-size/拓扑校验和所有 overlap/诊断值记录，保留显式 0 覆盖。
 - [ ] 1.7 【低：功能后】对齐 A/F profiler 控制与 F 管理 RPC，验证启停/step/trace 不阻塞业务（H14）；已有实现保留，不阻塞功能开发验证。

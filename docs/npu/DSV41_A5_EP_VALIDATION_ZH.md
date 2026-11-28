@@ -230,6 +230,16 @@ top-1 与此前的 eager/U1 采样一致，四条 32-token 输出与 eager/U1 �
 两次 DSpark 验证的 cache 坐标、逐行 target top-1 以及 top-1 与 top-2 的分差。回传两档
 的 `dspark-long-request-trace.json` 所在压缩包。
 
+`ee66ad9` 的 A5 对照中，两档都将 219-token prompt 分成 `124+95`。U2 将两个 chunk
+再切成 `62+62` 与 `47+48`，首次验证和第二次验证均为 `3+3`。第一个 prefill chunk
+末行的 top-1 一致，分差为 U1 `6.75`、U2 `7.125`。第二次验证输入和采样行一致，
+第 0 行 top-1 分别为 `1528` 与 `1`。这次复跑仍仅有最终长请求未对齐。
+
+要隔离 prefill 的 stage 切分，只复跑 eager/U2，在同一命令追加
+`--trace-dspark-long-request --dspark-trace-unsplit-prefill`。启动器将 prefill DBO
+阈值设为 129，超过每步 128-token 预算，保留 decode DBO 阈值 2。归档里的
+`phase_stage_counts` 应显示两个 prefill chunk 都是单 stage，前两次验证都走双 stage。
+
 ## 原生 TP1 环境检查和精度对照
 
 统一验证精度时，按 `N=0`、`N=1`、`N=2` 依次执行。每个 N 在空闲节点生成一次原生

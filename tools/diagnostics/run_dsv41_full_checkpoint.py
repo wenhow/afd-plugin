@@ -34,6 +34,7 @@ SPEC_TOKEN_CHOICES = (0, 1, 2, 5)
 DSPARK_FIRST_WAVE_TRACE_ENV = "AFD_DSV41_DSPARK_FIRST_WAVE_TRACE"
 DSPARK_FIRST_WAVE_TRACE_PREFIX = "AFD DSpark first-wave trace "
 DSPARK_LONG_REQUEST_TRACE_ENV = "AFD_DSV41_DSPARK_LONG_REQUEST_TRACE"
+FULL_CHECKPOINT_BATCH_TOKENS = 128
 PD_MODULE = "afd_plugin.compat.npu.kv_layout_connector"
 CANCEL_OUTPUT_TOKENS = 256
 EP_FIRST_WAVE_TOKEN_INDEX = 2
@@ -112,6 +113,7 @@ def make_plan(
     trace_native_prefill: bool = False,
     trace_dspark_first_wave: bool = False,
     trace_dspark_long_request: bool = False,
+    dspark_trace_unsplit_prefill: bool = False,
     ep_diagnostics: bool = False,
     ep_functional_only: bool = False,
     attention_stop_signal: str | None = None,
@@ -148,6 +150,13 @@ def make_plan(
     graph, u2 = mode.startswith("graph"), mode.endswith("u2")
     if trace_dspark_first_wave and trace_dspark_long_request:
         raise ValueError("select one DSpark trace per run")
+    if dspark_trace_unsplit_prefill and (
+        mode != "eager-u2" or not trace_dspark_long_request
+    ):
+        raise ValueError(
+            "--dspark-trace-unsplit-prefill requires eager-u2 with "
+            "--trace-dspark-long-request"
+        )
     if (trace_dspark_first_wave or trace_dspark_long_request) and (
         not ep_functional_only or graph or spec_tokens != 5 or pd_role or stream_overlap
     ):
@@ -274,7 +283,7 @@ def make_plan(
         )
         if repeatability:
             set_option(argv, "--logprobs-mode", "raw_logprobs")
-        set_option(argv, "--max-num-batched-tokens", "128")
+        set_option(argv, "--max-num-batched-tokens", str(FULL_CHECKPOINT_BATCH_TOKENS))
         argv[argv.index("--no-enable-chunked-prefill")] = "--enable-chunked-prefill"
         if u2:
             argv[argv.index("--no-enable-dbo")] = "--enable-dbo"
@@ -284,7 +293,9 @@ def make_plan(
                     "--dbo-decode-token-threshold",
                     "2",
                     "--dbo-prefill-token-threshold",
-                    "2",
+                    str(FULL_CHECKPOINT_BATCH_TOKENS + 1)
+                    if dspark_trace_unsplit_prefill
+                    else "2",
                 )
             )
         if graph:
@@ -403,6 +414,8 @@ def make_plan(
     )
     if trace_native_prefill:
         plan["trace_native_prefill"] = True
+    if dspark_trace_unsplit_prefill:
+        plan["dspark_trace_unsplit_prefill"] = True
     if ep_diagnostics:
         plan["ep_diagnostics"] = True
         plan["ep_serial_first_wave"] = ep_serial_first_wave
@@ -567,7 +580,9 @@ def collect_dspark_first_wave_trace(directory: Path, dp_size: int) -> bool:
     return not missing
 
 
-def collect_dspark_long_request_trace(directory: Path, request_idx: int) -> bool:
+def collect_dspark_long_request_trace(
+    directory: Path, request_idx: int, *, unsplit_prefill: bool = False
+) -> bool:
     request = directory / f"request-{request_idx:02d}"
     prompt_tokens = json.loads((request / "response.json").read_bytes())["usage"][
         "prompt_tokens"
@@ -580,6 +595,10 @@ def collect_dspark_long_request_trace(directory: Path, request_idx: int) -> bool
     ]
     prefill = [r for r in records if r["phase"] == "prefill"]
     verify = [r for r in records if r["phase"] == "verify"]
+    phase_stage_counts = {
+        "prefill": [len(r["stages"]) for r in prefill],
+        "verify": [len(r["stages"]) for r in verify],
+    }
     passed = (
         len({r["request_id"] for r in records}) == 1
         and len(prefill) >= 2
@@ -588,10 +607,21 @@ def collect_dspark_long_request_trace(directory: Path, request_idx: int) -> bool
         == prompt_tokens
         and len(verify) == 2
         and all(r["target_top1_token_ids"] for r in (prefill[-1], *verify))
+        and (
+            not unsplit_prefill
+            or phase_stage_counts["prefill"] == [1] * len(prefill)
+            and phase_stage_counts["verify"] == [2] * len(verify)
+        )
     )
     launch.save_json(
         directory / "dspark-long-request-trace.json",
-        {"passed": passed, "request_index": request_idx, "records": records},
+        {
+            "passed": passed,
+            "request_index": request_idx,
+            "unsplit_prefill_requested": unsplit_prefill,
+            "phase_stage_counts": phase_stage_counts,
+            "records": records,
+        },
     )
     return passed
 
@@ -609,6 +639,7 @@ def run_requests(
     return_mismatch_report: bool = False,
     trace_dspark_first_wave: bool = False,
     trace_dspark_long_request: bool = False,
+    dspark_trace_unsplit_prefill: bool = False,
 ) -> dict:
     collect_mismatches = ep_diagnostics or return_mismatch_report
 
@@ -740,10 +771,10 @@ def run_requests(
         if not report["passed"]:
             report["error"] = "missing A-side records; see dspark-first-wave-trace.json"
     if trace_dspark_long_request and not collect_dspark_long_request_trace(
-        directory, request_index
+        directory, request_index, unsplit_prefill=dspark_trace_unsplit_prefill
     ):
         report["passed"] = False
-        report["error"] = "incomplete trace; see dspark-long-request-trace.json"
+        report["error"] = "trace missing steps or stage layout; see long-request trace"
     launch.save_json(directory / "request-matrix.json", report)
     if trace_dspark_first_wave or trace_dspark_long_request:
         return report
@@ -988,6 +1019,11 @@ def main() -> int:
         help="trace the final long request while preserving the EP matrix",
     )
     parser.add_argument(
+        "--dspark-trace-unsplit-prefill",
+        action="store_true",
+        help="keep prefill on one stage while tracing long-request U2 decode",
+    )
+    parser.add_argument(
         "--ep-diagnostics",
         action="store_true",
         help="collect DP scheduling, top-5 scores and STOP diagnostics for EP U1",
@@ -1061,6 +1097,7 @@ def main() -> int:
         trace_native_prefill=args.trace_native_prefill,
         trace_dspark_first_wave=args.trace_dspark_first_wave,
         trace_dspark_long_request=args.trace_dspark_long_request,
+        dspark_trace_unsplit_prefill=args.dspark_trace_unsplit_prefill,
         ep_diagnostics=args.ep_diagnostics,
         ep_functional_only=args.ep_functional_only,
         attention_stop_signal=args.attention_stop_signal,
@@ -1214,6 +1251,7 @@ def main() -> int:
             ep_serial_first_wave=args.ep_serial_first_wave,
             trace_dspark_first_wave=args.trace_dspark_first_wave,
             trace_dspark_long_request=args.trace_dspark_long_request,
+            dspark_trace_unsplit_prefill=args.dspark_trace_unsplit_prefill,
             return_mismatch_report=(
                 plan["roles"]["attention"]["environment"].get(launch.EP_GRAPH_TRACE_ENV)
                 == "1"
