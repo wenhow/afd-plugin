@@ -1,10 +1,11 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: Copyright contributors to the AFD plugin project
-"""Bounded diagnostics for single-request DSpark prefill and verification."""
+"""Bounded sampling diagnostics for DSpark and the PD prompt tail."""
 
 from __future__ import annotations
 
 import json
+import math
 from collections.abc import Iterator
 from contextlib import contextmanager
 from typing import TYPE_CHECKING
@@ -15,6 +16,7 @@ if TYPE_CHECKING:
     import torch
     from vllm.forward_context import ForwardContext
     from vllm.v1.worker.gpu.model_runner import ExecuteModelState
+    from vllm_ascend.models.deepseek_v41.engram.model_state import EngramModelState
 
     from afd_plugin.model_executor.models.npu.deepseek_v41 import (
         AFDDeepseekV41AttentionForCausalLM,
@@ -24,6 +26,121 @@ if TYPE_CHECKING:
 DSPARK_FIRST_WAVE_TRACE_ENV = "AFD_DSV41_DSPARK_FIRST_WAVE_TRACE"
 DSPARK_LONG_REQUEST_TRACE_ENV = "AFD_DSV41_DSPARK_LONG_REQUEST_TRACE"
 LONG_REQUEST_VERIFY_STEPS = 2
+PD_TAIL_TRACE_ENV = "AFD_DSV41_PD_TAIL_TRACE"
+PD_TAIL_TRACE_PREFIX = "AFD PD tail trace "
+PD_TAIL_TRACE_STEPS = 3
+PD_TAIL_TRACE_TOP_K = 5
+PD_TAIL_COORDINATE_LIMIT = 8
+
+
+class DSV41PDTailTrace:
+    """Observe one selected D request at a time before native sampling."""
+
+    def __init__(self, dp_rank: int, request_prefix: str) -> None:
+        self.dp_rank = dp_rank
+        self.request_prefix = f"cmpl-{request_prefix}"
+        self.request_id: str | None = None
+        self.steps = 0
+
+    @contextmanager
+    def observe_sampling(
+        self,
+        state: ExecuteModelState | None,
+        model: AFDDeepseekV41AttentionForCausalLM,
+        model_state: EngramModelState,
+    ) -> Iterator[None]:
+        if state is None or state.input_batch.num_reqs != 1:
+            yield
+            return
+        batch = state.input_batch
+        request_id = batch.req_ids[0]
+        computed = int(batch.num_computed_tokens_np[0])
+        scheduled = int(batch.num_scheduled_tokens[0])
+        prompt_tokens = int(batch.prefill_len_np[0])
+        if (
+            not request_id.startswith(self.request_prefix)
+            or scheduled == 0
+            or computed + scheduled < prompt_tokens
+        ):
+            yield
+            return
+        if request_id != self.request_id:
+            self.request_id = request_id
+            self.steps = 0
+        if self.steps >= PD_TAIL_TRACE_STEPS:
+            yield
+            return
+
+        tail = slice(max(0, scheduled - PD_TAIL_COORDINATE_LIMIT), scheduled)
+        window = model_state.lookback_token_ids
+        record = {
+            "dp_rank": self.dp_rank,
+            "request_id": request_id,
+            "step": self.steps + 1,
+            "prompt_tokens": prompt_tokens,
+            "computed_tokens": computed,
+            "scheduled_tokens": scheduled,
+            "input_ids_tail": batch.input_ids[tail].tolist(),
+            "positions_tail": batch.positions[tail].tolist(),
+            "lookback_token_ids": None if window is None else window[0].tolist(),
+            "cache_coordinates": self._cache_coordinates(state, tail),
+        }
+        topk: dict | None = None
+
+        def observe(
+            _module: torch.nn.Module,
+            _inputs: tuple[torch.Tensor, ...],
+            logits: torch.Tensor | None,
+        ) -> None:
+            nonlocal topk
+            if topk is None and logits is not None and logits.numel():
+                values, indices = logits[0].float().topk(PD_TAIL_TRACE_TOP_K)
+                topk = {
+                    "token_ids": indices.tolist(),
+                    "scores": [
+                        value if math.isfinite(value) else str(value)
+                        for value in values.tolist()
+                    ],
+                }
+
+        with model.language_model.logits_processor.register_forward_hook(observe):
+            yield
+        if topk is not None:
+            self.steps += 1
+            record["topk_logits"] = topk
+            init_logger("vllm.afd_dsv41_pd_trace").info(
+                "%s%s", PD_TAIL_TRACE_PREFIX, json.dumps(record, separators=(",", ":"))
+            )
+
+    @staticmethod
+    def _cache_coordinates(state: ExecuteModelState, tail: slice) -> list[dict]:
+        # Load after model initialization, as for the DSpark trace below.
+        from vllm_ascend.attention.dsa_v41 import AscendDSAV41Metadata
+
+        records = {}
+        for layer, metadata in (state.attn_metadata or {}).items():
+            if not isinstance(metadata, AscendDSAV41Metadata):
+                continue
+            plane = (metadata.cache_kind, metadata.compress_ratio)
+            if plane in records:
+                continue
+            cache_seq_lens = metadata.cache_seq_lens
+            records[plane] = {
+                "layer": layer,
+                "kind": metadata.cache_kind,
+                "compress_ratio": metadata.compress_ratio,
+                "seq_len": int(metadata.seq_lens[0]),
+                "cache_seq_len": (
+                    None if cache_seq_lens is None else int(cache_seq_lens[0])
+                ),
+                "block_table_head": metadata.block_table[
+                    0, :PD_TAIL_COORDINATE_LIMIT
+                ].tolist(),
+                "slot_mapping_tail": metadata.slot_mapping.reshape(-1)[tail].tolist(),
+                "num_prefills": metadata.num_prefills,
+                "num_decodes": metadata.num_decodes,
+            }
+        return list(records.values())
 
 
 class DSV41DSparkFirstWaveTrace:

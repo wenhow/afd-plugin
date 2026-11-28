@@ -412,6 +412,21 @@ MODE=eager-u1
   --output-root "results/ep-pd-d-$MODE-n$N-functional" --run
 ```
 
+### 219-token PD 输出诊断
+
+用上面的 eager/U1、N=0 命令启动 P。D 命令加上 `--trace-pd-tail`，将输出目录改为
+`results/ep-pd-tail-trace`。D 在同一次启动内固定 DP1，依次执行本地 prefill、
+P DP2 → D DP1 和第二次本地 prefill。三次都使用请求矩阵原来的 219-token prompt。
+
+回传 D 输出目录里的 `pd-tail-trace.json`、三个请求目录和 `attention-server.log`。
+报告包含前三个采样步的输入尾 token、position、Engram lookback、代表性 KV/index
+block table 与 slot mapping，以及采样前 top-5 logits。KV/index 记录是坐标，
+缓存有效字节还需另行核对。报告会检查远端首步是否使用 position 218 和原 prompt
+尾 token，并按从最近到最远的顺序核对 lookback。出现空文本、token 分叉或
+记录不全时，入口保存证据后返回非零。
+
+### 继续验证其他模式
+
 先核对 eager/U1 的 D 结果。继续验证时，可复用同一个 P，等 D 当前档退出后，将
 `MODE` 依次改为 `graph-u1`、`eager-u2`、`graph-u2`，每档使用独立输出目录。
 本轮最后一个 D 退出后，在 P 节点执行 `touch "$DSV41_EP_P_STOP"`，使用上面

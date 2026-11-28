@@ -34,6 +34,13 @@ SPEC_TOKEN_CHOICES = (0, 1, 2, 5)
 DSPARK_FIRST_WAVE_TRACE_ENV = "AFD_DSV41_DSPARK_FIRST_WAVE_TRACE"
 DSPARK_FIRST_WAVE_TRACE_PREFIX = "AFD DSpark first-wave trace "
 DSPARK_LONG_REQUEST_TRACE_ENV = "AFD_DSV41_DSPARK_LONG_REQUEST_TRACE"
+PD_TAIL_TRACE_ENV = "AFD_DSV41_PD_TAIL_TRACE"
+PD_TAIL_REQUEST_PREFIX = "dsv41-pd-tail-"
+PD_TAIL_LOG_PREFIX = "AFD PD tail trace "
+PD_TAIL_D_RANK = 1
+PD_TAIL_P_RANK = 2
+PD_TAIL_PROMPT_TOKENS = 219
+PD_TAIL_TRACE_STEPS = (1, 2, 3)
 FULL_CHECKPOINT_BATCH_TOKENS = 128
 PD_MODULE = "afd_plugin.compat.npu.kv_layout_connector"
 CANCEL_OUTPUT_TOKENS = 256
@@ -113,6 +120,7 @@ def make_plan(
     trace_native_prefill: bool = False,
     trace_dspark_first_wave: bool = False,
     trace_dspark_long_request: bool = False,
+    trace_pd_tail: bool = False,
     dspark_trace_unsplit_prefill: bool = False,
     ep_diagnostics: bool = False,
     ep_functional_only: bool = False,
@@ -148,6 +156,16 @@ def make_plan(
     ):
         raise ValueError("EP functional validation requires an AFD EP request matrix")
     graph, u2 = mode.startswith("graph"), mode.endswith("u2")
+    if trace_pd_tail and (
+        pd_role != "consumer"
+        or not ep_functional_only
+        or mode != "eager-u1"
+        or spec_tokens
+    ):
+        raise ValueError(
+            "--trace-pd-tail requires AFD EP PD consumer eager-u1 with N=0 "
+            "and --ep-functional-only"
+        )
     if trace_dspark_first_wave and trace_dspark_long_request:
         raise ValueError("select one DSpark trace per run")
     if dspark_trace_unsplit_prefill and (
@@ -239,6 +257,8 @@ def make_plan(
                 env[DSPARK_FIRST_WAVE_TRACE_ENV] = "1"
             if trace_dspark_long_request:
                 env[DSPARK_LONG_REQUEST_TRACE_ENV] = "1"
+            if trace_pd_tail:
+                env[PD_TAIL_TRACE_ENV] = PD_TAIL_REQUEST_PREFIX
             if trace_shutdown:
                 argv[argv.index("vllm.entrypoints.cli.main")] = (
                     "afd_plugin.entrypoints.dsv41_ep_stack"
@@ -401,7 +421,9 @@ def make_plan(
         full_model_qualification=False,
         stream_overlap=stream_overlap,
         request_suite=(
-            "dspark-first-wave"
+            "pd-tail-trace"
+            if trace_pd_tail
+            else "dspark-first-wave"
             if trace_dspark_first_wave
             else "ep-shutdown-smoke"
             if ep_shutdown_smoke
@@ -480,6 +502,134 @@ def prefill_request(
     if "afd_engram_history_v1" not in params:
         raise ValueError("P did not export original Engram history")
     return {**params, "do_remote_prefill": True, "do_remote_decode": False}
+
+
+def run_pd_tail_trace(
+    directory: Path, reference: Path | None, *, api_url: str, prefill_url: str
+) -> dict:
+    """Compare a fixed long prompt locally and through P on the same D rank."""
+    assert reference is None
+    cases = {}
+    for name in ("local-before", "remote", "local-after"):
+        target = directory / name
+        target.mkdir()
+        payload = {
+            "model": "dsv41-afd",
+            "prompt": PROMPTS[2],
+            "temperature": 0,
+            "seed": 0,
+            "max_tokens": launch.REQUEST_TOKENS,
+            "ignore_eos": True,
+            "n": 1,
+            "return_token_ids": True,
+            "stream": False,
+            "request_id": f"{PD_TAIL_REQUEST_PREFIX}{name}",
+        }
+        if name == "remote":
+            payload["kv_transfer_params"] = prefill_request(
+                target,
+                prefill_url,
+                dict(payload, request_id="dsv41-pd-tail-source"),
+                data_parallel_rank=PD_TAIL_P_RANK,
+            )
+        launch.send_request(
+            target,
+            None,
+            payload=payload,
+            api_url=api_url,
+            data_parallel_rank=PD_TAIL_D_RANK,
+        )
+        response = json.loads((target / "response.json").read_bytes())
+        choice = response["choices"][0]
+        cases[name] = {
+            "response_id": response["id"],
+            "prompt_token_ids": choice["prompt_token_ids"],
+            "output_token_ids": choice["token_ids"],
+            "text_is_blank": not choice["text"].strip(),
+            "steps": [],
+        }
+
+    with (directory / "attention-server.log").open(encoding="utf-8") as log:
+        for line in log:
+            _, marker, body = line.partition(PD_TAIL_LOG_PREFIX)
+            if marker:
+                record = json.loads(body)
+                for case in cases.values():
+                    if record["request_id"].startswith(f'{case["response_id"]}-'):
+                        case["steps"].append(record)
+                        break
+    baseline = cases["local-before"]
+    remote = cases["remote"]
+    prompt = baseline["prompt_token_ids"] or []
+    trace_complete = len(prompt) == PD_TAIL_PROMPT_TOKENS and all(
+        case["prompt_token_ids"] == prompt
+        and tuple(step["step"] for step in case["steps"]) == PD_TAIL_TRACE_STEPS
+        and all(
+            step["dp_rank"] == PD_TAIL_D_RANK
+            and step["prompt_tokens"] == len(prompt)
+            and step["lookback_token_ids"] is not None
+            and bool(step["cache_coordinates"])
+            for step in case["steps"]
+        )
+        for case in cases.values()
+    )
+    local_ids = baseline["output_token_ids"]
+    remote_ids = remote["output_token_ids"]
+    local_stable = local_ids == cases["local-after"]["output_token_ids"]
+    remote_match = local_ids == remote_ids
+    expected_position = len(prompt) - 1 if prompt else None
+    expected_input_id = prompt[-1] if prompt else None
+    first_remote_step = remote["steps"][0] if remote["steps"] else None
+    tail_matches = (
+        expected_position is not None
+        and first_remote_step is not None
+        and first_remote_step["computed_tokens"] == expected_position
+        and first_remote_step["scheduled_tokens"] == 1
+        and first_remote_step["positions_tail"] == [expected_position]
+        and first_remote_step["input_ids_tail"] == [expected_input_id]
+    )
+    lookback = (
+        None if first_remote_step is None else first_remote_step["lookback_token_ids"]
+    )
+    expected_lookback = list(reversed(prompt[:-1]))[: len(lookback)] if lookback else []
+    if lookback:
+        expected_lookback.extend([-1] * (len(lookback) - len(expected_lookback)))
+    lookback_matches = bool(expected_lookback) and lookback == expected_lookback
+    passed = (
+        trace_complete
+        and tail_matches
+        and lookback_matches
+        and local_stable
+        and remote_match
+        and not any(case["text_is_blank"] for case in cases.values())
+    )
+    report = {
+        "passed": passed,
+        "hardware_acceptance": False,
+        "trace_complete": trace_complete,
+        "local_repeat_token_ids_match": local_stable,
+        "remote_token_ids_match": remote_match,
+        "expected_remote_first_input_id": expected_input_id,
+        "expected_remote_first_position": expected_position,
+        "remote_first_tail_matches": tail_matches,
+        "expected_remote_first_lookback": expected_lookback,
+        "remote_first_lookback_matches": lookback_matches,
+        "first_remote_output_mismatch_index": next(
+            (
+                i
+                for i, (local_id, remote_id) in enumerate(
+                    zip(local_ids, remote_ids, strict=True)
+                )
+                if local_id != remote_id
+            ),
+            None,
+        ),
+        "cases": cases,
+    }
+    if not passed:
+        report["error"] = "PD diagnostic did not meet the checks in pd-tail-trace.json"
+    launch.save_json(directory / "pd-tail-trace.json", report)
+    return report
 
 
 def record_cold_ep_first_wave(directory: Path, wave_size: int) -> None:
@@ -1044,6 +1194,11 @@ def main() -> int:
         help="send one DP1 request before verifying EP shutdown",
     )
     parser.add_argument("--output-root", type=Path, required=True)
+    parser.add_argument(
+        "--trace-pd-tail",
+        action="store_true",
+        help="compare local/remote prefill of one long prompt on the same EP D rank",
+    )
     parser.add_argument("--startup-timeout", type=int, default=3600)
     parser.add_argument("--run", action="store_true")
     args = parser.parse_args()
@@ -1097,6 +1252,7 @@ def main() -> int:
         trace_native_prefill=args.trace_native_prefill,
         trace_dspark_first_wave=args.trace_dspark_first_wave,
         trace_dspark_long_request=args.trace_dspark_long_request,
+        trace_pd_tail=args.trace_pd_tail,
         dspark_trace_unsplit_prefill=args.dspark_trace_unsplit_prefill,
         ep_diagnostics=args.ep_diagnostics,
         ep_functional_only=args.ep_functional_only,
@@ -1228,6 +1384,10 @@ def main() -> int:
     if args.pd_role == "producer":
         request_runner = partial(
             hold_producer, stop_file=args.producer_stop_file.resolve()
+        )
+    elif args.trace_pd_tail:
+        request_runner = partial(
+            run_pd_tail_trace, api_url=plan["api_url"], prefill_url=args.prefill_url
         )
     elif args.ep_shutdown_smoke:
         request_runner = partial(
